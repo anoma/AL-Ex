@@ -1,0 +1,184 @@
+defmodule AL.Var do
+  @moduledoc """
+  I provide symbolic utilities for AL
+  """
+
+  def empty_bindings() do
+    %{"$_": :"$_"}
+  end
+
+  def var?(x) when is_atom(x) do
+    x
+    |> Atom.to_string()
+    |> String.starts_with?("$")
+  end
+
+  def var?(_x) do
+    false
+  end
+
+  def var(x) do
+    :"$#{x}"
+  end
+
+  def name(x) do
+    "$" <> name = Atom.to_string(x)
+    name
+  end
+
+  def to_mnesia_pattern(p) do
+    {p, _n} = to_mnesia_pattern(p, 1)
+    p
+  end
+
+  def to_mnesia_pattern(v, n) when is_atom(v) do
+    if var?(v) do
+      {:"$#{n}", n + 1}
+    else
+      {v, n}
+    end
+  end
+
+  def to_mnesia_pattern([], n), do: {[], n}
+
+  def to_mnesia_pattern([x | xs], n) do
+    {x1, n1} = to_mnesia_pattern(x, n)
+    {xs1, n_final} = to_mnesia_pattern(xs, n1)
+
+    {[x1 | xs1], n_final}
+  end
+
+  def to_mnesia_pattern(xs, n) when is_tuple(xs) do
+    {xs, n} =
+      xs
+      |> Tuple.to_list()
+      |> to_mnesia_pattern(n)
+
+    {List.to_tuple(xs), n}
+  end
+
+  def to_mnesia_pattern(m, n) when is_map(m) do
+    {kvs, n2} =
+      Enum.map_reduce(m, n, fn {k, v}, acc ->
+        {v2, acc2} = to_mnesia_pattern(v, acc)
+        {{k, v2}, acc2}
+      end)
+
+    {Map.new(kvs), n2}
+  end
+
+  def to_mnesia_pattern(x, n), do: {x, n}
+
+  def extend(bindings, k, v) do
+    case Map.get(bindings, k) do
+      nil -> Map.put(bindings, k, v)
+      _ -> bindings
+    end
+  end
+
+  def unify(x, y, bindings \\ %{"$_": :"$_"}) do
+    cond do
+      var?(x) && var?(y) ->
+        extend(extend(bindings, x, y), y, x)
+
+      var?(x) ->
+        extend(bindings, x, y)
+
+      var?(y) ->
+        extend(bindings, y, x)
+
+      is_list(x) && is_list(y) && x != [] && y != [] ->
+        [x | xs] = x
+        [y | ys] = y
+
+        case unify(x, y, bindings) do
+          nil -> nil
+          next_bindings -> unify(xs, ys, next_bindings)
+        end
+
+      is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
+        unify(Tuple.to_list(x), Tuple.to_list(y), bindings)
+
+      is_map(x) && is_map(y) ->
+        keys = Map.keys(x) |> MapSet.new() |> MapSet.intersection(MapSet.new(Map.keys(y)))
+
+        unify(
+          Enum.map(keys, fn k -> Map.get(x, k) end),
+          Enum.map(keys, fn k -> Map.get(y, k) end),
+          bindings
+        )
+
+      x == y ->
+        bindings
+
+      true ->
+        nil
+    end
+  end
+
+  # def subst(nil, _), do: nil
+
+  def subst(x, bindings) when is_atom(x) do
+    if var?(x) do
+      case Map.get(bindings, x) do
+        nil -> x
+        ^x -> x
+        y -> subst(y, bindings)
+      end
+    else
+      x
+    end
+  end
+
+  def subst([], _bindings), do: []
+
+  def subst([x | xs], bindings) do
+    [subst(x, bindings) | subst(xs, bindings)]
+  end
+
+  def subst(m, bindings) when is_map(m) do
+    Map.new(m, fn {k, v} -> {k, subst(v, bindings)} end)
+  end
+
+  def subst(xs, bindings) when is_tuple(xs) do
+    xs
+    |> Tuple.to_list()
+    |> subst(bindings)
+    |> List.to_tuple()
+  end
+
+  def subst(x, _), do: x
+  
+
+  def find_vars(d) do
+    find_vars(d, MapSet.new([:"$_"]))
+  end
+  
+  def find_vars(v, s) when is_atom(v) do
+    if var?(v) do
+      MapSet.put(s, v)
+    else
+      s
+    end
+  end
+
+  def find_vars([], s), do: s
+
+  def find_vars([x | xs], s) do
+    find_vars(xs, find_vars(x, s))
+  end
+
+  def find_vars(m, s) when is_map(m) do
+    Enum.reduce(Map.keys(m), s, fn k, acc ->
+      find_vars(Map.get(m, k), acc)
+    end)
+  end
+
+  def find_vars(xs, s) when is_tuple(xs) do
+    xs
+    |> Tuple.to_list()
+    |> find_vars(s)
+  end
+
+  def find_vars(_, s), do: s
+end

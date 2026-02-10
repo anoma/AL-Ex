@@ -1,0 +1,49 @@
+
+These docs are intended to be the persistent, up-to-date central documentation for AL which provides specifications for the system and its protocols, and thereby inform its development. Many of the aspects of AL are currently in flux and undecided, therefore a lot of the language of this document should contain denotations of 'confidence levels' where necessary. Each design aspect should also be associated with an explicit discussion of the rationale behind the design choice. Specifically, it would be good to include:
+
+- history of conception
+- history of intra-AL development
+- benefits of the design
+- challenges of the design
+- comparisons to other designs
+
+** Summary
+
+AL should be the core language of Anoma (a distributed operating system) built on a relational-object model, and backed by an append-only command log.
+
+** Relational-Object Model
+
+- PROLOG's core appeal. Liveness issues. Prolog indexing.
+- Pharo/GT. Live images. GUIs. Method resolution overrides disallowed.
+- Logtalk (liveness)
+- PROJECT
+- Core algo
+- Why it works
+- Object storage. Array of structs vs Structs of arrays.
+
+** Command Log
+
+- Bitemporality
+- Event-Sourcing. Updates bad. Schema tracking sucks for event-sourcing, therefore command log. Trade-off is recovery load and larger disk store.
+- Event log structured via ACID transactions.
+- Write-ahead. More details on the exact structure of write-ahead required should be added.
+- XTDB
+- Arvo
+- Git
+- Transactions help to prevent a lot of conflicts. Constraints can be specifically used to further help prevent conflicts.
+- Can we do optimisations and improve the transactions or will it ruin user intent?
+
+** Resource Machine
+
+** Compilation Details
+
+- Sea of Nodes
+- ZK
+
+** TODO
+
+- Processes? How do they work in AL? Distributed event log.
+- Performance comparisons on row vs columnar storage
+- Secondary Indices. B-Trees on disk for snapshots? Maybe just hash maps for secondary indices right now.
+- Caches: tail (most recent) for event log (since recent snapshot)? snapshot on disk for object image + object cache?
+- Query planning & optimisation. How does mnesia do its indexing vs Prolog? How do bidirectional queries affect indexing. We can specifically add indices to mnesia. Class inheritance resolution = no need to worry about global implementation ordering on methods.
