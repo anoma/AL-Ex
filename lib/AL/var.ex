@@ -204,30 +204,30 @@ defmodule AL.Var do
 
   def find_vars(_, s), do: s
 
-  def freshen(v, n) when is_atom(v) do
+  def freshen(v, f) when is_atom(v) do
     if var?(v) && v != :"$_" do
-      var(name(v) <> Integer.to_string(n))
+      var(name(v) <> "_" <> f)
     else
       v
     end
   end
 
-  def freshen([], _n), do: []
+  def freshen([], _f), do: []
 
-  def freshen([x | xs], n) do
-    [freshen(x, n) | freshen(xs, n)]
+  def freshen([x | xs], f) do
+    [freshen(x, f) | freshen(xs, f)]
   end
 
-  def freshen(m, n) when is_map(m) do
-    Map.new(m, fn {k, v} -> {freshen(k, n), freshen(v, n)} end)
+  def freshen(m, f) when is_map(m) do
+    Map.new(m, fn {k, v} -> {freshen(k, f), freshen(v, f)} end)
   end
 
-  def freshen(xs, n) when is_tuple(xs) do
+  def freshen(xs, f) when is_tuple(xs) do
     xs
     |> Tuple.to_list()
-    |> freshen(n)
+    |> freshen(f)
     |> List.to_tuple()
   end
   
-  def freshen(v, _n), do: v
+  def freshen(v, _f), do: v
 end

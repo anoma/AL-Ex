@@ -91,7 +91,10 @@ defmodule AL do
   This means methods are executed bidirectionally.
   __:cut__
   Cut ('commit') all choicepoints discovered in call scope. This is not an mnesia-level transaction commit, it's a PROLOG-style commit that prunes the search space.
+
   __:implies__
+  __:or__
+  __:print__
 
   TODO fix leakiness on -> marks? Or maybe not necessary
  """
@@ -273,10 +276,10 @@ end) ++ state.choicepoint_stack})
       [] -> backtrack(state)
       [{:oapply, id, head, body} | _next_choices] ->
 
-        next_scope_pointer = state.active_choicepoint.scope_pointer + 1
+        freshener = Base.encode16(:crypto.strong_rand_bytes(2))
             
-        head_pattern = AL.Var.freshen(head, next_scope_pointer)
-        body_pattern = AL.Var.freshen(body, next_scope_pointer)
+        head_pattern = AL.Var.freshen(head, freshener)
+        body_pattern = AL.Var.freshen(body, freshener)
 
         interp(%AL{
               active_choicepoint: %AL.Choicepoint{
@@ -289,8 +292,8 @@ end) ++ state.choicepoint_stack})
 }
                                 | state.active_choicepoint.continuations],
                 goal_pointer: 0,
-                scope_pointer: next_scope_pointer},
-              choicepoint_stack: [{:mark, next_scope_pointer} | state.choicepoint_stack]
+                scope_pointer: freshener},
+              choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
                })
     end
   end
@@ -300,7 +303,7 @@ end) ++ state.choicepoint_stack})
           active_choicepoint: state.active_choicepoint,
           choicepoint_stack: Enum.drop_while(state.choicepoint_stack, fn choice ->
                 case choice do
-                  {:mark, n} -> n != state.active_choicepoint.scope_pointer 
+                  {:mark, f} -> f != state.active_choicepoint.scope_pointer 
                   _choice -> true
                 end
               end)
@@ -404,6 +407,14 @@ end) ++ state.choicepoint_stack})
 
     AL.Events.set_slots(object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
+    
+    interp(state)
+  end
+
+  def interp({:print, pattern}, state) do
+    pattern = AL.Var.subst(pattern, state.active_choicepoint.bindings)
+
+    IO.inspect(pattern)
     
     interp(state)
   end

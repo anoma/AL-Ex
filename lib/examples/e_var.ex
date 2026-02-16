@@ -49,6 +49,6 @@ defmodule Examples.AL.Var do
   end
 
   example freshen_vars() do
-    AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], 17)
+    AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], Base.encode16(:crypto.strong_rand_bytes(2)))
   end
 end

@@ -29,6 +29,8 @@ defmodule AL.Application do
       {:set_method, :class, :init, :initialise_class},
       {:set_method, :class, :allocate, :allocate_class},
       {:set_method, :class, :meta, :metaclass},
+      {:set_method, :class, :new, :new_object},
+      
       {:set_method, :object, :lookup, :lookup},
       
       {:set_class, :initialise_class, :behaviour},
@@ -65,7 +67,16 @@ defmodule AL.Application do
           {:exec, :lookup, [:"$super", :"$name", :"$method_id"]}]
         }
        ]
-      }
+      },
+
+      {:set_class, :new_object, :behaviour},
+      {:set_oapply, :new_object,
+       [:"$self", :"$args", :"$_"],
+       [
+         {:exec, :allocate_class, [:"$self", :"$alloc"]},
+         {:exec, :initialise_class, [:"$alloc", :"$args", :"$_"]}
+       ]
+      },      
     ])
   end
 end

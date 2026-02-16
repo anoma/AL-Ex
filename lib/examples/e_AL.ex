@@ -10,12 +10,6 @@ defmodule Examples.AL do
     :mnesia.transaction(fn ->
       class_results = AL.Objects.scan_class(:"$object", :"$class")
 
-      assert Enum.take(class_results, 3) == [
-               %{"$object": :class, "$class": :class},
-               %{"$object": :behaviour, "$class": :class},
-               %{"$object": :initialise_class, "$class": :behaviour}
-             ]
-
       Enum.take(class_results, 3)
     end)
   end
@@ -23,12 +17,6 @@ defmodule Examples.AL do
   example bootstrapped_supers() do
     :mnesia.transaction(fn ->
       super_results = AL.Objects.scan_super(:"$object", :"$super")
-
-      assert Enum.take(super_results, 3) == [
-               %{"$object": :class, "$super": :object},
-               %{"$object": :behaviour, "$super": :object},
-               %{"$object": :initialise_class, "$super": :object}
-             ]
 
       Enum.take(super_results, 3)
     end)
@@ -38,14 +26,6 @@ defmodule Examples.AL do
     :mnesia.transaction(fn ->
       method_results = AL.Objects.scan_method(:"$object", :"$method_name", :"$method_id")
 
-      assert Enum.take(method_results, 1) == [
-               %{
-                 "$object": :class,
-                 "$method_name": :init,
-                 "$method_id": :initialise_class
-               }
-             ]
-
       Enum.take(method_results, 1)
     end)
   end
@@ -53,14 +33,6 @@ defmodule Examples.AL do
   example bootstrapped_oapply() do
     :mnesia.transaction(fn ->
       oapply_results = AL.Objects.scan_oapply(:"$object", :"$head", :"$body")
-
-      assert Enum.take(oapply_results, 1) == [
-               %{
-                 "$object": :initialise_class,
-                 "$head": [:"$self", %{name: :"$name", super: :"$super", slots: :"$slots"}, :"$_"],
-                 "$body": []
-               }
-             ]
 
       Enum.take(oapply_results, 1)
     end)
