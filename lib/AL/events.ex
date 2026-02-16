@@ -54,22 +54,6 @@ defmodule AL.Events do
         [] -> :mnesia.dirty_write({:meta, :system_time, 0})
         [{_, :system_time, _system_time}] -> true
       end
-
-      # Stuff to do on first run for bootstrap
-      # TODO find a place to put this
-      # AL.Events.set_class(:object, :class)
-
-      # AL.Events.set_class(:class, :class)
-      # AL.Events.set_super(:class, :object)
-
-      # AL.Events.set_class(:behaviour, :class)
-      # AL.Events.set_super(:behaviour, :object)
-
-      # AL.Events.set_class(:initialise_class, :behaviour)
-      # AL.Events.set_super(:initialise_class, :object)
-      # AL.Events.set_method(:class, :init, :initialise_class)
-      # AL.Events.set_oapply(:initialise_class, [:"$self", %{name: :"$name"}, :_], )
-      # AL.Events.set_oapply(:metaclass, [:"$self", :"$via", :"$meta"], [{:get_class, :"$self", :"$via"}, {:get_class, :"$via", :"$meta"}])
       
       {:ok,
        %__MODULE__{
@@ -129,6 +113,13 @@ defmodule AL.Events do
   """
   def set_oapply(object, head, body) do
     write_event({:set_oapply, {object, head, body}})
+  end
+
+  @doc """
+  Write an event that says slots were set for an object
+  """
+  def set_slots(object, slots) do
+    write_event({:set_slots, {object, slots}})
   end
 
   def write_event(e) do

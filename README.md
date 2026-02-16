@@ -19,3 +19,9 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/al>.
 
+
+TODO 
+Fix events so they're transaction-bounded
+Add top-level macros for AL
+More cleanup (don't unify in scans?)
+Loads more docs

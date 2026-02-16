@@ -10,7 +10,7 @@ defmodule AL.Objects do
   typedstruct enforce: true do
     field(:class, reference())
     field(:super, reference())
-    field(:slot, reference())
+    field(:slots, reference())
     field(:method, reference())
     field(:oapply, reference())
   end
@@ -19,27 +19,18 @@ defmodule AL.Objects do
     :mnesia.select(:class, [
       {AL.Var.to_mnesia_pattern({:class, self_pattern, class_pattern}), [], [:"$_"]}
     ])
-    |> Enum.map(fn {:class, o, c} ->
-      AL.Var.unify({o, c}, {self_pattern, class_pattern})
-    end)
   end
 
   def scan_super(self_pattern, super_pattern) do
     :mnesia.select(:super, [
       {AL.Var.to_mnesia_pattern({:super, self_pattern, super_pattern}), [], [:"$_"]}
     ])
-    |> Enum.map(fn {:super, o, s} ->
-      AL.Var.unify({o, s}, {self_pattern, super_pattern})
-    end)
   end
 
-  def scan_slot(self_pattern, slot_pattern) do
-    :mnesia.select(:slot, [
-      {AL.Var.to_mnesia_pattern({:slot, self_pattern, slot_pattern}), [], [:"$_"]}
+  def scan_slots(self_pattern, slots_pattern) do
+    :mnesia.select(:slots, [
+      {AL.Var.to_mnesia_pattern({:slots, self_pattern, slots_pattern}), [], [:"$_"]}
     ])
-    |> Enum.map(fn {:slot, o, s} ->
-      AL.Var.unify({o, s}, {self_pattern, slot_pattern})
-    end)
   end
 
   def scan_method(self_pattern, method_name_pattern, method_id_pattern) do
@@ -47,18 +38,12 @@ defmodule AL.Objects do
       {AL.Var.to_mnesia_pattern({:method, self_pattern, method_name_pattern, method_id_pattern}),
        [], [:"$_"]}
     ])
-    |> Enum.map(fn {:method, o, n, i} ->
-      AL.Var.unify({o, n, i}, {self_pattern, method_name_pattern, method_id_pattern})
-    end)
   end
 
   def scan_oapply(self_pattern, head_pattern, body_pattern) do
     :mnesia.select(:oapply, [
       {AL.Var.to_mnesia_pattern({:oapply, self_pattern, head_pattern, body_pattern}), [], [:"$_"]}
     ])
-    |> Enum.map(fn {:oapply, o, h, b} ->
-      AL.Var.unify({o, h, b}, {self_pattern, head_pattern, body_pattern})
-    end)
   end
 
   def set_class(object_pattern, class_pattern) do
@@ -77,6 +62,10 @@ defmodule AL.Objects do
     :mnesia.write({:oapply, object_pattern, head_pattern, body_pattern})
   end
   
+  def set_slots(object_pattern, slots_pattern) do
+    :mnesia.write({:slots, object_pattern, slots_pattern})
+  end
+
   def hydrate_event(op, event) do
     case op do
       :set_class ->
@@ -132,13 +121,13 @@ defmodule AL.Objects do
         {:aborted, {:already_exists, _}} -> :super
       end
 
-      case :mnesia.create_table(:slot,
+      case :mnesia.create_table(:slots,
              attributes: [:object, :slots],
              type: :bag,
              ram_copies: [node()]
            ) do
-        {:atomic, :ok} -> :slot
-        {:aborted, {:already_exists, _}} -> :slot
+        {:atomic, :ok} -> :slots
+        {:aborted, {:already_exists, _}} -> :slots
       end
 
       case :mnesia.create_table(:method,
@@ -159,7 +148,7 @@ defmodule AL.Objects do
         {:aborted, {:already_exists, _}} -> :oapply
       end
 
-      :mnesia.wait_for_tables([:class, :super, :slot, :method, :oapply], 5_000)
+      :mnesia.wait_for_tables([:class, :super, :slots, :method, :oapply], 5_000)
 
       hydrate_since(0)
 
@@ -167,7 +156,7 @@ defmodule AL.Objects do
        %__MODULE__{
          class: :class,
          super: :super,
-         slot: :slot,
+         slots: :slots,
          method: :method,
          oapply: :oapply
        }}

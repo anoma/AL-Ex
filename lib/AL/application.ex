@@ -25,21 +25,45 @@ defmodule AL.Application do
       {:set_class, :class, :class},
       {:set_class, :behaviour, :class},
       {:set_super, :class, :object},
+      
       {:set_method, :class, :init, :initialise_class},
+      {:set_method, :class, :allocate, :allocate_class},
       {:set_method, :class, :meta, :metaclass},
+      {:set_method, :object, :lookup, :lookup},
+      
       {:set_class, :initialise_class, :behaviour},
       {:set_oapply, :initialise_class,
-       [:"$self", %{name: :"$name"}, :"$_"],
+       [:"$self", %{name: :"$name", super: :"$super", slots: :"$slots"}, :"$_"],
        [
-         {:set_class, :"$name", :"$self"}
+         {:get_class, :"$self", :"$meta"},
+         {:set_class, :"$name", :"$meta"},
+         {:set_super, :"$name", :"$super"},
+         {:set_slots, :"$name", :"$slots"}
        ]
       },
+
+      {:set_class, :allocate_class, :behaviour},
+      {:set_oapply, :allocate_class,
+       [:"$self", %{class: :"$self"}],
+       []},
+      
       {:set_class, :metaclass, :behaviour},
       {:set_oapply, :metaclass,
        [:"$self", :"$class", :"$meta"],
        [
          {:get_class, :"$self", :"$class"},
          {:get_class, :"$class", :"$meta"}
+       ]
+      },
+
+      {:set_class, :lookup, :behaviour},
+      {:set_oapply, :lookup,
+       [:"$self", :"$name", :"$method_id"],
+       [{:or,
+         [{:get_method, :"$self", :"$name", :"$method_id"}],
+         [{:get_super, :"$self", :"$super"},
+          {:exec, :lookup, [:"$super", :"$name", :"$method_id"]}]
+        }
        ]
       }
     ])

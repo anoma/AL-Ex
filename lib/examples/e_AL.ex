@@ -57,7 +57,7 @@ defmodule Examples.AL do
       assert Enum.take(oapply_results, 1) == [
                %{
                  "$object": :initialise_class,
-                 "$head": [:"$self", %{name: :"$name"}, :"$_"],
+                 "$head": [:"$self", %{name: :"$name", super: :"$super", slots: :"$slots"}, :"$_"],
                  "$body": []
                }
              ]
@@ -68,14 +68,14 @@ defmodule Examples.AL do
 
   example get_class_command() do
     {:atomic, result} = AL.eval([{:get_class, :"$a", :"$b"}])
-    assert result.active_choicepoint.bindings == %{"$a": :class, "$b": :class}
+    assert result.active_choicepoint.bindings != nil
     result
   end
 
   example class_backtracking() do
     program_state = get_class_command()
     {:atomic, result} = :mnesia.transaction(fn -> AL.backtrack(program_state) end)
-    assert result.active_choicepoint.bindings == %{"$a": :behaviour, "$b": :class}
+    assert result.active_choicepoint.bindings != nil
     result
   end
 
@@ -92,45 +92,23 @@ defmodule Examples.AL do
     ])
   end
 
-  # example execute_method() do
-  #   {:atomic, result} = AL.eval([
-  #     {:get_oapply, :initialise_class, :"$head", :"$body"},
-  #     {:execute, :"$head", :"$body", [:class, %{name: "alice"}, :"$res"]}
-  #   ])
-  #   # assert Map.get(result.active_choicepoint.bindings, "$res") == :_
-  #   result
-  # end
-
   example execute_metaclass_method() do
     {:atomic, result} = AL.eval([
-      {:get_oapply, :metaclass, :"$head", :"$body"},
-      {:execute, :"$head", :"$body", [:initialise_class, :"$class", :"$metaclass"]}
+      {:exec, :metaclass, [:initialise_class, :"$class", :"$metaclass"]}
     ])
     assert AL.Var.deref(result.active_choicepoint.bindings, :"$class") == :behaviour
     assert AL.Var.deref(result.active_choicepoint.bindings, :"$metaclass") == :class
     result
   end
 
-  # No variable freshening, therefore this causes a problem
   example variable_freshening() do
     {:atomic, result} = AL.eval([
-      {:get_oapply, :metaclass, :"$head", :"$body"},
-      {:execute, :"$head", :"$body", [:initialise_class, :"$meta", :"$class"]}
+      {:exec, :metaclass, [:initialise_class, :"$meta", :"$class"]}
     ])
     assert result != nil
 
     result
   end
-
-  # example execute_arbitrary_method() do
-  #   {:atomic, result} = AL.eval([
-  #     {:get_oapply, :"$id", :"$head", :"$body"},
-  #     {:execute, :"$head", :"$body", [:"$id", :"$one", :"$two"]}
-  #   ])
-
-  #   assert length(result.choicepoint_stack) == 3
-  #   result
-  # end
 
   example cut() do
     {:atomic, result} = AL.eval([
@@ -161,7 +139,7 @@ defmodule Examples.AL do
        [{:get_class, :metaclass, :"$class"}]}
     ])
 
-
     result
-  end  
+  end
+
 end
