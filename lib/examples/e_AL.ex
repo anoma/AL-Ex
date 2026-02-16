@@ -113,6 +113,17 @@ defmodule Examples.AL do
     result
   end
 
+  # No variable freshening, therefore this causes a problem
+  # example variable_freshening() do
+  #   {:atomic, result} = AL.eval([
+  #     {:get_oapply, :metaclass, :"$head", :"$body"},
+  #     {:execute, :"$head", :"$body", [:initialise_class, :"$meta", :"$class"]}
+  #   ])
+  #   assert result != nil
+
+  #   result
+  # end
+
   # example execute_arbitrary_method() do
   #   {:atomic, result} = AL.eval([
   #     {:get_oapply, :"$id", :"$head", :"$body"},

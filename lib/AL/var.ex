@@ -1,6 +1,11 @@
 defmodule AL.Var do
   @moduledoc """
-  I provide symbolic utilities for AL
+  I provide symbolic utilities for AL.
+  Some terminology:
+
+  Bindings is a forest of variable references where the leaves are ground terms and act as roots of the reference chain
+
+  Vars look like :"$<string>"
   """
 
   def empty_bindings() do
@@ -69,23 +74,44 @@ defmodule AL.Var do
 
   def to_mnesia_pattern(x, n), do: {x, n}
 
-  def extend(bindings, k, v) do
+  def deref(bindings, k) do
     case Map.get(bindings, k) do
-      nil -> Map.put(bindings, k, v)
-      _ -> bindings
+      nil -> k
+      ^k -> k
+      v -> if var?(v) do
+        deref(bindings, v)
+      else
+        v
+      end
     end
   end
 
-  def unify(x, y, bindings \\ %{"$_": :"$_"}) do
+  def extend(bindings, x, y) do
+    rx = deref(bindings, x)
+    ry = deref(bindings, y)
+
+    is_var_rx = var?(rx)
+    is_var_ry = var?(ry)
+
     cond do
-      var?(x) && var?(y) ->
-        extend(extend(bindings, x, y), y, x)
+      rx == ry -> bindings
 
-      var?(x) ->
+      not(is_var_rx) && is_var_ry -> Map.put(bindings, ry, x)
+      rx == x && is_var_ry -> Map.put(bindings, ry, x)
+
+      not(is_var_ry) && is_var_rx -> Map.put(bindings, rx, y)
+      ry == y && is_var_rx -> Map.put(bindings, rx, y)
+      
+      is_var_ry && is_var_rx -> Map.put(bindings, rx, ry)
+      
+      true -> unify(rx, ry, bindings)
+    end
+  end
+
+  def unify(x, y, bindings \\ %{}) do
+    cond do
+      var?(x) || var?(y) ->
         extend(bindings, x, y)
-
-      var?(y) ->
-        extend(bindings, y, x)
 
       is_list(x) && is_list(y) && x != [] && y != [] ->
         [x | xs] = x
@@ -119,14 +145,11 @@ defmodule AL.Var do
   # def subst(nil, _), do: nil
 
   def subst(x, bindings) when is_atom(x) do
-    if var?(x) do
-      case Map.get(bindings, x) do
-        nil -> x
-        ^x -> x
-        y -> subst(y, bindings)
-      end
-    else
+    rx = deref(bindings, x)
+    if rx == x do
       x
+    else 
+      subst(rx, bindings)
     end
   end
 
