@@ -47,4 +47,8 @@ defmodule Examples.AL.Var do
   example find_vars() do
     AL.Var.find_vars([:"$self", %{name: :"$name"}, {:"$_", 3}])
   end
+
+  example freshen_vars() do
+    AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], 17)
+  end
 end

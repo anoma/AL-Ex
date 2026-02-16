@@ -11,9 +11,9 @@ defmodule Examples.AL do
       class_results = AL.Objects.scan_class(:"$object", :"$class")
 
       assert Enum.take(class_results, 3) == [
-               %{"$_": :"$_", "$object": :class, "$class": :class},
-               %{"$_": :"$_", "$object": :behaviour, "$class": :class},
-               %{"$_": :"$_", "$object": :initialise_class, "$class": :behaviour}
+               %{"$object": :class, "$class": :class},
+               %{"$object": :behaviour, "$class": :class},
+               %{"$object": :initialise_class, "$class": :behaviour}
              ]
 
       Enum.take(class_results, 3)
@@ -25,9 +25,9 @@ defmodule Examples.AL do
       super_results = AL.Objects.scan_super(:"$object", :"$super")
 
       assert Enum.take(super_results, 3) == [
-               %{"$_": :"$_", "$object": :class, "$super": :object},
-               %{"$_": :"$_", "$object": :behaviour, "$super": :object},
-               %{"$_": :"$_", "$object": :initialise_class, "$super": :object}
+               %{"$object": :class, "$super": :object},
+               %{"$object": :behaviour, "$super": :object},
+               %{"$object": :initialise_class, "$super": :object}
              ]
 
       Enum.take(super_results, 3)
@@ -40,7 +40,6 @@ defmodule Examples.AL do
 
       assert Enum.take(method_results, 1) == [
                %{
-                 "$_": :"$_",
                  "$object": :class,
                  "$method_name": :init,
                  "$method_id": :initialise_class
@@ -57,7 +56,6 @@ defmodule Examples.AL do
 
       assert Enum.take(oapply_results, 1) == [
                %{
-                 "$_": :"$_",
                  "$object": :initialise_class,
                  "$head": [:"$self", %{name: :"$name"}, :"$_"],
                  "$body": []
@@ -70,14 +68,14 @@ defmodule Examples.AL do
 
   example get_class_command() do
     {:atomic, result} = AL.eval([{:get_class, :"$a", :"$b"}])
-    assert result.active_choicepoint.bindings == %{"$_": :"$_", "$a": :class, "$b": :class}
+    assert result.active_choicepoint.bindings == %{"$a": :class, "$b": :class}
     result
   end
 
   example class_backtracking() do
     program_state = get_class_command()
     {:atomic, result} = :mnesia.transaction(fn -> AL.backtrack(program_state) end)
-    assert result.active_choicepoint.bindings == %{"$_": :"$_", "$a": :behaviour, "$b": :class}
+    assert result.active_choicepoint.bindings == %{"$a": :behaviour, "$b": :class}
     result
   end
 
@@ -85,7 +83,7 @@ defmodule Examples.AL do
     {:atomic, result} =
       AL.eval([{:get_class, :initialise_class, :"$b"}, {:get_class, :"$b", :class}])
 
-    assert Map.get(result.active_choicepoint.bindings, :"$b") == :behaviour
+    assert AL.Var.deref(result.active_choicepoint.bindings, :"$b") == :behaviour
   end
 
   example get_oapply_command() do
@@ -108,21 +106,21 @@ defmodule Examples.AL do
       {:get_oapply, :metaclass, :"$head", :"$body"},
       {:execute, :"$head", :"$body", [:initialise_class, :"$class", :"$metaclass"]}
     ])
-    assert Map.get(result.active_choicepoint.bindings, :"$class") == :behaviour
-    assert Map.get(result.active_choicepoint.bindings, :"$metaclass") == :class
+    assert AL.Var.deref(result.active_choicepoint.bindings, :"$class") == :behaviour
+    assert AL.Var.deref(result.active_choicepoint.bindings, :"$metaclass") == :class
     result
   end
 
   # No variable freshening, therefore this causes a problem
-  # example variable_freshening() do
-  #   {:atomic, result} = AL.eval([
-  #     {:get_oapply, :metaclass, :"$head", :"$body"},
-  #     {:execute, :"$head", :"$body", [:initialise_class, :"$meta", :"$class"]}
-  #   ])
-  #   assert result != nil
+  example variable_freshening() do
+    {:atomic, result} = AL.eval([
+      {:get_oapply, :metaclass, :"$head", :"$body"},
+      {:execute, :"$head", :"$body", [:initialise_class, :"$meta", :"$class"]}
+    ])
+    assert result != nil
 
-  #   result
-  # end
+    result
+  end
 
   # example execute_arbitrary_method() do
   #   {:atomic, result} = AL.eval([

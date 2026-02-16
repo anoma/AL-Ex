@@ -1,6 +1,7 @@
 defmodule AL.Var do
   @moduledoc """
   I provide symbolic utilities for AL.
+  
   Some terminology:
 
   Bindings is a forest of variable references where the leaves are ground terms and act as roots of the reference chain
@@ -9,7 +10,7 @@ defmodule AL.Var do
   """
 
   def empty_bindings() do
-    %{"$_": :"$_"}
+    %{}
   end
 
   def var?(x) when is_atom(x) do
@@ -142,8 +143,6 @@ defmodule AL.Var do
     end
   end
 
-  # def subst(nil, _), do: nil
-
   def subst(x, bindings) when is_atom(x) do
     rx = deref(bindings, x)
     if rx == x do
@@ -174,7 +173,7 @@ defmodule AL.Var do
   
 
   def find_vars(d) do
-    find_vars(d, MapSet.new([:"$_"]))
+    find_vars(d, MapSet.new([]))
   end
   
   def find_vars(v, s) when is_atom(v) do
@@ -204,4 +203,31 @@ defmodule AL.Var do
   end
 
   def find_vars(_, s), do: s
+
+  def freshen(v, n) when is_atom(v) do
+    if var?(v) && v != :"$_" do
+      var(name(v) <> Integer.to_string(n))
+    else
+      v
+    end
+  end
+
+  def freshen([], _n), do: []
+
+  def freshen([x | xs], n) do
+    [freshen(x, n) | freshen(xs, n)]
+  end
+
+  def freshen(m, n) when is_map(m) do
+    Map.new(m, fn {k, v} -> {freshen(k, n), freshen(v, n)} end)
+  end
+
+  def freshen(xs, n) when is_tuple(xs) do
+    xs
+    |> Tuple.to_list()
+    |> freshen(n)
+    |> List.to_tuple()
+  end
+  
+  def freshen(v, _n), do: v
 end

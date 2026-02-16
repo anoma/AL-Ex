@@ -131,20 +131,12 @@ defmodule AL do
           state
         else
           [continuation | rest_continuations] = state.active_choicepoint.continuations
-          return_head = AL.Var.subst(continuation.method_head_pattern, state.active_choicepoint.bindings)
-
-          return_bindings = AL.Var.unify(continuation.binding_pattern, return_head)
-          vars_to_inject = AL.Var.find_vars(continuation.binding_pattern)
-
-          return_bindings = Map.filter(return_bindings, fn {k, _v} ->
-            MapSet.member?(vars_to_inject, k)
-          end)
 
           interp(%AL{
                 active_choicepoint:
                 %AL.Choicepoint{
                   goals: continuation.goals,
-                  bindings: Map.merge(return_bindings, continuation.bindings),
+                  bindings: state.active_choicepoint.bindings,
                   continuations: rest_continuations,
                   goal_pointer: continuation.goal_pointer,
                   scope_pointer: state.active_choicepoint.scope_pointer - 1
@@ -232,6 +224,7 @@ defmodule AL do
     case AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
+        
         interp(%AL{
               active_choicepoint: %AL.Choicepoint{
                 state.active_choicepoint |
@@ -245,21 +238,21 @@ defmodule AL do
     end
   end
 
-  def interp({:execute, head_pattern, body_pattern, bind_head_pattern}, state) do    
+  def interp({:execute, head_pattern, body_pattern, bind_head_pattern}, state) do
     [head_pattern, body_pattern, bind_head_pattern] =
       AL.Var.subst([head_pattern, body_pattern, bind_head_pattern], state.active_choicepoint.bindings)
 
-    vars_in_method_head = AL.Var.find_vars(head_pattern)
+    next_scope_pointer = state.active_choicepoint.scope_pointer + 1
+    
+    head_pattern = AL.Var.freshen(head_pattern, next_scope_pointer)
+    body_pattern = AL.Var.freshen(body_pattern, next_scope_pointer)
     
     message_bindings = AL.Var.unify(head_pattern, bind_head_pattern)
-    message_bindings_for_method = Map.filter(message_bindings, fn {k, _v} ->
-      MapSet.member?(vars_in_method_head, k)
-    end)
     
     interp(%AL{
           active_choicepoint: %AL.Choicepoint{
             goals: body_pattern,
-            bindings: message_bindings_for_method,
+            bindings: Map.merge(message_bindings, state.active_choicepoint.bindings),
             continuations: [%AL.Continuation{
                                goals: state.active_choicepoint.goals,
                                bindings: state.active_choicepoint.bindings,
@@ -269,8 +262,8 @@ defmodule AL do
 }
                             | state.active_choicepoint.continuations],
             goal_pointer: 0,
-            scope_pointer: state.active_choicepoint.scope_pointer + 1},
-          choicepoint_stack: [{:mark, state.active_choicepoint.scope_pointer + 1} | state.choicepoint_stack]
+            scope_pointer: next_scope_pointer},
+          choicepoint_stack: [{:mark, next_scope_pointer} | state.choicepoint_stack]
            })
   end
 
