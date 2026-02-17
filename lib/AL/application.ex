@@ -32,6 +32,8 @@ defmodule AL.Application do
       {:set_method, :class, :new, :new_object},
       
       {:set_method, :object, :lookup, :lookup},
+      {:set_method, :object, :send, :send},
+      {:set_method, :object, :init, :initialise_object},
       
       {:set_class, :initialise_class, :behaviour},
       {:set_oapply, :initialise_class,
@@ -61,7 +63,8 @@ defmodule AL.Application do
       {:set_class, :lookup, :behaviour},
       {:set_oapply, :lookup,
        [:"$self", :"$name", :"$method_id"],
-       [{:or,
+       [
+         {:or,
          [{:get_method, :"$self", :"$name", :"$method_id"}],
          [{:get_super, :"$self", :"$super"},
           {:exec, :lookup, [:"$super", :"$name", :"$method_id"]}]
@@ -73,10 +76,32 @@ defmodule AL.Application do
       {:set_oapply, :new_object,
        [:"$self", :"$args", :"$new"],
        [
-         {:exec, :allocate_class, [:"$self", :"$alloc"]},
-         {:exec, :initialise_class, [:"$alloc", :"$args", :"$new"]}
+         {:exec, :send, [:"$self", :allocate, [:"$alloc"]]},
+         {:exec, :send, [:"$alloc", :init, [:"$args", :"$new"]]}
        ]
-      },      
+      },
+
+      {:set_class, :send, :behaviour},
+      {:set_oapply, :send,
+       [:"$self", :"$method_name", :"$args"],
+       [
+         {:get_class, :"$self", :"$class"},
+         {:implies,
+          [{:exec, :lookup, [:"$class", :"$method_name", :"$method_id"]}],
+          [
+            {:print, ["calling", :"$method_id",
+                      "from", :"$class",
+                      "with args", [:"$self" | :"$args"]]},
+            {:exec, :"$method_id", [:"$self" | :"$args"]}],
+          [:fail]
+         }
+       ]
+      },
+
+      {:set_class, :initialise_object, :behaviour},
+      {:set_oapply, :initialise_object,
+       [:"$self", :"$_", :"$self"],
+       [{:print, :"$self"}]}
     ])
   end
 end

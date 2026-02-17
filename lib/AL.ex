@@ -102,7 +102,6 @@ defmodule AL do
  """
   def eval(program) do
     tx_id = AL.Events.system_time()
-    IO.inspect(tx_id)
     
     :mnesia.transaction(fn ->
       continue(%AL{
@@ -263,7 +262,7 @@ defmodule AL do
     case AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
-        
+                
         %AL{
           active_choicepoint: %AL.Choicepoint{
             state.active_choicepoint |
@@ -284,7 +283,7 @@ defmodule AL do
 
   def interp({:exec, method_id_pattern, bind_head_pattern}, state) do
     [method_id_pattern, bind_head_pattern] =
-      AL.Var.subst([method_id_pattern, bind_head_pattern], state.active_choicepoint.bindings)
+      AL.Var.subst([method_id_pattern, bind_head_pattern], state.active_choicepoint.bindings)      
     
     case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] -> backtrack(state)
@@ -436,5 +435,9 @@ defmodule AL do
     IO.inspect(pattern)
     
     state
+  end
+
+  def interp(:fail, state) do
+    backtrack(state)
   end
 end

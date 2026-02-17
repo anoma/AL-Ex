@@ -114,4 +114,11 @@ defmodule Examples.AL do
     result
   end
 
+  example make_point_object() do
+    {:atomic, result} = AL.eval([
+      {:exec, :send, [:class, :new, [%{name: :point, super: :object, slots: []}, :"$new_point_class"]]},
+      {:exec, :send, [:point, :new, [:"$_", :"$new_point_object"]]}
+    ])
+  end
+
 end
