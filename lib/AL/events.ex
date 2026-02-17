@@ -29,7 +29,7 @@ defmodule AL.Events do
 
     with :ok <- :mnesia.start() do
       case :mnesia.create_table(:event,
-             attributes: [:time, :event],
+             attributes: [:key, :event],
              type: :ordered_set,
              disc_copies: [node()]
            ) do
@@ -90,41 +90,42 @@ defmodule AL.Events do
   @doc """
   Write an event that says a class of an object was set
   """
-  def set_class(object, class) do
-    write_event({:set_class, {object, class}})
+  def set_class(tx_id, object, class) do
+    write_event(tx_id, {:set_class, {object, class}})
   end
 
   @doc """
   Write an event that says a superclass of an object was set
   """
-  def set_super(object, super) do
-    write_event({:set_super, {object, super}})
+  def set_super(tx_id, object, super) do
+    write_event(tx_id, {:set_super, {object, super}})
   end
 
   @doc """
   Write an event that says a method was set for an object
   """
-  def set_method(object, method_name, method_id) do
-    write_event({:set_method, {object, method_name, method_id}})
+  def set_method(tx_id, object, method_name, method_id) do
+    write_event(tx_id, {:set_method, {object, method_name, method_id}})
   end
 
   @doc """
   Write an event that says the object was given a run method
   """
-  def set_oapply(object, head, body) do
-    write_event({:set_oapply, {object, head, body}})
+  def set_oapply(tx_id, object, head, body) do
+    write_event(tx_id, {:set_oapply, {object, head, body}})
   end
 
   @doc """
   Write an event that says slots were set for an object
   """
-  def set_slots(object, slots) do
-    write_event({:set_slots, {object, slots}})
+  def set_slots(tx_id, object, slots) do
+    write_event(tx_id, {:set_slots, {object, slots}})
   end
 
-  def write_event(e) do
+  def write_event(tx_id, e) do
     t = :mnesia.dirty_update_counter(:meta, :system_time, 1)
-    :mnesia.write({:event, t - 1, e})
+    
+    :mnesia.write({:event, {tx_id, (t - 1)}, e})
   end
 
   
@@ -137,9 +138,9 @@ defmodule AL.Events do
   end
 
   @impl true
-  def handle_call({:read_event, t}, _from, state) do
-    case :mnesia.dirty_read(state.event, t) do
-      [{_, ^t, e}] -> {:reply, e, state}
+  def handle_call({:read_event, tx_id, t}, _from, state) do
+    case :mnesia.dirty_read(state.event, {tx_id, t}) do
+      [{_, {^tx_id, ^t}, e}] -> {:reply, e, state}
       [] -> {:reply, :absent, state}
     end
   end
@@ -149,7 +150,19 @@ defmodule AL.Events do
     {:atomic, res} =
       :mnesia.transaction(fn ->
         :mnesia.select(state.event, [
-          {{:event, :"$1", :"$2"}, [{:>=, :"$1", t}], [:"$_"]}
+          {{:event, {:"$1", :"$2"}, :"$3"}, [{:>=, :"$1", t}], [:"$_"]}
+        ])
+      end)
+
+    {:reply, res, state}
+  end
+
+  @impl true
+  def handle_call({:events_for_transaction, tx_id}, _from, state) do
+    {:atomic, res} =
+      :mnesia.transaction(fn ->
+        :mnesia.select(state.event, [
+          {{:event, {tx_id, :"$1"}, :"$2"}, [], [:"$_"]}
         ])
       end)
 

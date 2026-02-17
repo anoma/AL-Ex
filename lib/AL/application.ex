@@ -71,10 +71,10 @@ defmodule AL.Application do
 
       {:set_class, :new_object, :behaviour},
       {:set_oapply, :new_object,
-       [:"$self", :"$args", :"$_"],
+       [:"$self", :"$args", :"$new"],
        [
          {:exec, :allocate_class, [:"$self", :"$alloc"]},
-         {:exec, :initialise_class, [:"$alloc", :"$args", :"$_"]}
+         {:exec, :initialise_class, [:"$alloc", :"$args", :"$new"]}
        ]
       },      
     ])
