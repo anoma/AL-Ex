@@ -97,10 +97,11 @@ defmodule AL do
   __:print__
 
   TODO fix leakiness on -> marks? Or maybe not necessary
+  TODO turn eval into a reduce 
  """
   def eval(program) do
     :mnesia.transaction(fn ->
-      interp(%AL{
+      continue(%AL{
             active_choicepoint: %AL.Choicepoint{
               goals: program,
               bindings: AL.Var.empty_bindings(),
@@ -119,13 +120,13 @@ defmodule AL do
       [{:mark, _} | rest_choices] -> backtrack(%AL{state | choicepoint_stack: rest_choices})
       [:implies_mark | rest_choices] -> backtrack(%AL{state | choicepoint_stack: rest_choices})
       [choice | rest_choices] ->
-        interp(%AL{
+        continue(%AL{
               active_choicepoint: choice,
               choicepoint_stack: rest_choices})
     end
   end
     
-  def interp(state) do
+  def continue(state) do
     cond do
       length(state.active_choicepoint.goals) == state.active_choicepoint.goal_pointer ->
         if state.active_choicepoint.continuations == [] do
@@ -133,7 +134,7 @@ defmodule AL do
         else
           [continuation | rest_continuations] = state.active_choicepoint.continuations
 
-          interp(%AL{
+          continue(%AL{
                 active_choicepoint:
                 %AL.Choicepoint{
                   goals: continuation.goals,
@@ -156,42 +157,44 @@ defmodule AL do
                                               goal_pointer: state.active_choicepoint.goal_pointer + 1}
         }
 
-        interp(goal, next_frame)
+        result = interp(goal, next_frame)
+
+        continue(result)
     end
   end
 
   def interp({:get_class, object_pattern, class_pattern}, state) do
     [object_pattern, class_pattern] = AL.Var.subst([object_pattern, class_pattern], state.active_choicepoint.bindings)
     
-    if is_map(object_pattern) do
-      case Map.get(object_pattern, :class) do
-        nil -> backtrack(state)
-        class_name ->          
-          interp(%AL{
-                active_choicepoint: %AL.Choicepoint{
-                  state.active_choicepoint |
-                  bindings: AL.Var.unify(class_name, class_pattern, state.active_choicepoint.bindings),
+      if is_map(object_pattern) do
+        case Map.get(object_pattern, :class) do
+          nil -> backtrack(state)
+          class_name ->          
+            %AL{
+              active_choicepoint: %AL.Choicepoint{
+                state.active_choicepoint |
+                bindings: AL.Var.unify(class_name, class_pattern, state.active_choicepoint.bindings),
 },          
-                choicepoint_stack: state.choicepoint_stack})    
-      end
-    else
-      case AL.Objects.scan_class(object_pattern, class_pattern) do
-        [] -> backtrack(state)
-        [choice | next_choices] ->
-          interp(%AL{
-                active_choicepoint: %AL.Choicepoint{
+              choicepoint_stack: state.choicepoint_stack}
+        end
+      else
+        case AL.Objects.scan_class(object_pattern, class_pattern) do
+          [] -> backtrack(state)
+          [choice | next_choices] ->
+            %AL{
+              active_choicepoint: %AL.Choicepoint{
+                state.active_choicepoint |
+                bindings: AL.Var.unify(choice,
+                  {:class, object_pattern, class_pattern},
+                  state.active_choicepoint.bindings),
+},          
+              choicepoint_stack: Enum.map(next_choices, fn c ->
+                %AL.Choicepoint{
                   state.active_choicepoint |
-                  bindings: AL.Var.unify(choice,
+                  bindings: AL.Var.unify(c,
                     {:class, object_pattern, class_pattern},
-                    state.active_choicepoint.bindings),
-},          
-                choicepoint_stack: Enum.map(next_choices, fn c ->
-                  %AL.Choicepoint{
-                    state.active_choicepoint |
-                    bindings: AL.Var.unify(c,
-                      {:class, object_pattern, class_pattern},
-                      state.active_choicepoint.bindings)}
-                end) ++ state.choicepoint_stack})    
+                    state.active_choicepoint.bindings)}
+              end) ++ state.choicepoint_stack}
       end
     end
   end
@@ -202,20 +205,20 @@ defmodule AL do
     case AL.Objects.scan_super(object_pattern, super_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
-        interp(%AL{
-              active_choicepoint: %AL.Choicepoint{
-                state.active_choicepoint |
-                bindings: AL.Var.unify(choice,
-                  {:super, object_pattern, super_pattern},
-                  state.active_choicepoint.bindings),
+        %AL{
+          active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint |
+            bindings: AL.Var.unify(choice,
+              {:super, object_pattern, super_pattern},
+              state.active_choicepoint.bindings),
 },          
-              choicepoint_stack: Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint |
-                  bindings: AL.Var.unify(c,
-                    {:super, object_pattern, super_pattern},
-                    state.active_choicepoint.bindings)}
-              end) ++ state.choicepoint_stack})    
+          choicepoint_stack: Enum.map(next_choices, fn c ->
+            %AL.Choicepoint{
+              state.active_choicepoint |
+              bindings: AL.Var.unify(c,
+                {:super, object_pattern, super_pattern},
+                state.active_choicepoint.bindings)}
+          end) ++ state.choicepoint_stack}  
     end
   end
     
@@ -226,20 +229,20 @@ defmodule AL do
     case AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
-        interp(%AL{
-              active_choicepoint: %AL.Choicepoint{
-                state.active_choicepoint |
-                bindings: AL.Var.unify(choice,
-                  {:method, object_pattern, method_name_pattern, method_id_pattern},
-                  state.active_choicepoint.bindings),
+        %AL{
+          active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint |
+            bindings: AL.Var.unify(choice,
+              {:method, object_pattern, method_name_pattern, method_id_pattern},
+              state.active_choicepoint.bindings),
 },          
-              choicepoint_stack: Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint |
-                  bindings: AL.Var.unify(c,
-                    {:method, object_pattern, method_name_pattern, method_id_pattern},
-                    state.active_choicepoint.bindings)}
-              end) ++ state.choicepoint_stack})    
+          choicepoint_stack: Enum.map(next_choices, fn c ->
+            %AL.Choicepoint{
+              state.active_choicepoint |
+              bindings: AL.Var.unify(c,
+                {:method, object_pattern, method_name_pattern, method_id_pattern},
+                state.active_choicepoint.bindings)}
+          end) ++ state.choicepoint_stack}
     end
   end
 
@@ -251,20 +254,20 @@ defmodule AL do
       [] -> backtrack(state)
       [choice | next_choices] ->
         
-        interp(%AL{
-              active_choicepoint: %AL.Choicepoint{
-                state.active_choicepoint |
-                bindings: AL.Var.unify(choice,
-                  {:oapply, object_pattern, head_pattern, body_pattern},
-                  state.active_choicepoint.bindings),
+        %AL{
+          active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint |
+            bindings: AL.Var.unify(choice,
+              {:oapply, object_pattern, head_pattern, body_pattern},
+              state.active_choicepoint.bindings),
 },          
-              choicepoint_stack: Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint |
-                  bindings: AL.Var.unify(c,
-                    {:oapply, object_pattern, head_pattern, body_pattern},
-                    state.active_choicepoint.bindings)}
-end) ++ state.choicepoint_stack})    
+          choicepoint_stack: Enum.map(next_choices, fn c ->
+            %AL.Choicepoint{
+              state.active_choicepoint |
+              bindings: AL.Var.unify(c,
+                {:oapply, object_pattern, head_pattern, body_pattern},
+                state.active_choicepoint.bindings)}
+          end) ++ state.choicepoint_stack}
     end
   end
 
@@ -281,89 +284,89 @@ end) ++ state.choicepoint_stack})
         head_pattern = AL.Var.freshen(head, freshener)
         body_pattern = AL.Var.freshen(body, freshener)
 
-        interp(%AL{
-              active_choicepoint: %AL.Choicepoint{
-                goals: body_pattern,
-                bindings: AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, state.active_choicepoint.bindings),
-                continuations: [%AL.Continuation{
-                                   goals: state.active_choicepoint.goals,
-                                   goal_pointer: state.active_choicepoint.goal_pointer,
-                                   scope_pointer: state.active_choicepoint.scope_pointer
+        %AL{
+          active_choicepoint: %AL.Choicepoint{
+            goals: body_pattern,
+            bindings: AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, state.active_choicepoint.bindings),
+            continuations: [%AL.Continuation{
+                               goals: state.active_choicepoint.goals,
+                               goal_pointer: state.active_choicepoint.goal_pointer,
+                               scope_pointer: state.active_choicepoint.scope_pointer
 }
-                                | state.active_choicepoint.continuations],
-                goal_pointer: 0,
-                scope_pointer: freshener},
-              choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
-               })
+                            | state.active_choicepoint.continuations],
+            goal_pointer: 0,
+            scope_pointer: freshener},
+          choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
+        }
     end
   end
 
   def interp(:cut, state) do
-    interp(%AL{
-          active_choicepoint: state.active_choicepoint,
-          choicepoint_stack: Enum.drop_while(state.choicepoint_stack, fn choice ->
-                case choice do
-                  {:mark, f} -> f != state.active_choicepoint.scope_pointer 
-                  _choice -> true
-                end
-              end)
-           })
+    %AL{
+      active_choicepoint: state.active_choicepoint,
+      choicepoint_stack: Enum.drop_while(state.choicepoint_stack, fn choice ->
+        case choice do
+          {:mark, f} -> f != state.active_choicepoint.scope_pointer 
+          _choice -> true
+        end
+      end)
+    }
   end
 
   def interp({:implies, condition, then, otherwise}, state) do
     spliced_condition = splice_goals(state, condition ++ [{:then, then}])
     spliced_otherwise = splice_goals(state, otherwise) 
     
-    interp(%AL{
-          active_choicepoint:
-          %AL.Choicepoint{
-            state.active_choicepoint |
-            goals: spliced_condition
-          },
-          choicepoint_stack: [
-            %AL.Choicepoint{
-              state.active_choicepoint |
-              goals: spliced_otherwise
+    %AL{
+      active_choicepoint:
+      %AL.Choicepoint{
+        state.active_choicepoint |
+        goals: spliced_condition
+      },
+      choicepoint_stack: [
+        %AL.Choicepoint{
+          state.active_choicepoint |
+          goals: spliced_otherwise
 }]
-          ++ [:implies_mark | state.choicepoint_stack]
-           })
+      ++ [:implies_mark | state.choicepoint_stack]
+    }
   end
 
   def interp({:or, left, right}, state) do
     spliced_left = splice_goals(state, left) 
     spliced_right = splice_goals(state, right) 
     
-    interp(%AL{
-          active_choicepoint:
-          %AL.Choicepoint{
-            state.active_choicepoint |
-            goals: spliced_left
-          },
-          choicepoint_stack: [
-            %AL.Choicepoint{
-              state.active_choicepoint |
-              goals: spliced_right
+    %AL{
+      active_choicepoint:
+      %AL.Choicepoint{
+        state.active_choicepoint |
+        goals: spliced_left
+      },
+      choicepoint_stack: [
+        %AL.Choicepoint{
+          state.active_choicepoint |
+          goals: spliced_right
 }]
-          ++ state.choicepoint_stack
-           })
+      ++ state.choicepoint_stack
+    }
   end
   
   def interp({:then, then}, state) do
     spliced_goals = splice_goals(state, then)
 
-    interp(%AL{
-          active_choicepoint:
-          %AL.Choicepoint{
-            state.active_choicepoint |
-            goals:  spliced_goals
-          },
-          choicepoint_stack: tl(Enum.drop_while(state.choicepoint_stack, fn choice ->
+    %AL{
+      active_choicepoint:
+      %AL.Choicepoint{
+        state.active_choicepoint |
+        goals:  spliced_goals
+      },
+      choicepoint_stack: tl(Enum.drop_while(state.choicepoint_stack, fn choice ->
             case choice do
               :implies_mark -> false
               _choice -> true
             end
           end))
-          })
+    }
   end
 
   def interp({:set_class, object_pattern, class_pattern}, state) do
@@ -372,7 +375,7 @@ end) ++ state.choicepoint_stack})
     AL.Events.set_class(object_pattern, class_pattern)
     AL.Objects.set_class(object_pattern, class_pattern)
     
-    interp(state)
+    state
   end
 
   def interp({:set_super, object_pattern, super_pattern}, state) do
@@ -381,7 +384,7 @@ end) ++ state.choicepoint_stack})
     AL.Events.set_super(object_pattern, super_pattern)
     AL.Objects.set_super(object_pattern, super_pattern)
     
-    interp(state)
+    state
   end
 
   def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
@@ -390,7 +393,7 @@ end) ++ state.choicepoint_stack})
     AL.Events.set_method(object_pattern, method_name_pattern, method_id_pattern)
     AL.Objects.set_method(object_pattern, method_name_pattern, method_id_pattern)
     
-    interp(state)
+    state
   end
 
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
@@ -399,7 +402,7 @@ end) ++ state.choicepoint_stack})
     AL.Events.set_oapply(object_pattern, head_pattern, body_pattern)
     AL.Objects.set_oapply(object_pattern, head_pattern, body_pattern)
     
-    interp(state)
+    state
   end
 
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
@@ -408,7 +411,7 @@ end) ++ state.choicepoint_stack})
     AL.Events.set_slots(object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
     
-    interp(state)
+    state
   end
 
   def interp({:print, pattern}, state) do
@@ -416,6 +419,6 @@ end) ++ state.choicepoint_stack})
 
     IO.inspect(pattern)
     
-    interp(state)
+    state
   end
 end
