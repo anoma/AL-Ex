@@ -88,6 +88,13 @@ defmodule AL.Events do
   end
 
   @doc """
+  Read all events for a given transaction
+  """
+  def events_for_transaction(tx_id) do
+    GenServer.call(__MODULE__, {:events_for_transaction, tx_id})
+  end
+
+  @doc """
   Write an event that says a class of an object was set
   """
   def set_class(tx_id, object, class) do
