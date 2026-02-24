@@ -333,12 +333,15 @@ defmodule AL do
             state.active_choicepoint |
             goals:  spliced_goals
           },
-          choicepoint_stack: tl(Enum.drop_while(state.choicepoint_stack, fn choice ->
+          choicepoint_stack: case Enum.drop_while(state.choicepoint_stack, fn choice ->
             case choice do
               :implies_mark -> false
               _choice -> true
             end
-          end))
+          end) do
+            [:implies_mark | rest] -> rest
+            [] -> []
+          end
           })
   end
 
