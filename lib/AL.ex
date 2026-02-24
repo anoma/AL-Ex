@@ -126,6 +126,8 @@ defmodule AL do
     end
   end
     
+  def continue(nil), do: nil
+
   def continue(state) do
     cond do
       length(state.active_choicepoint.goals) == state.active_choicepoint.goal_pointer ->
