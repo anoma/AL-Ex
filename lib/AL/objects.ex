@@ -94,6 +94,10 @@ defmodule AL.Objects do
       :set_oapply ->
         {object, head, body} = event
         :mnesia.write({:oapply, object, head, body})
+
+      :set_slots ->
+        {object, slots} = event
+        :mnesia.write({:slots, object, slots})
     end
   end
 
