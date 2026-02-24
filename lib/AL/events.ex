@@ -132,7 +132,7 @@ defmodule AL.Events do
   end
 
   def write_event(e) do
-    t = :mnesia.dirty_update_counter(:meta, :system_time, 1)
+    t = :mnesia.update_counter(:meta, :system_time, 1)
     :mnesia.write({:event, t - 1, e})
   end
 
