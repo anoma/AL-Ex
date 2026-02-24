@@ -271,26 +271,40 @@ end) ++ state.choicepoint_stack})
     
     case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] -> backtrack(state)
-      [{:oapply, id, head, body} | _next_choices] ->
+      [{:oapply, id, head, body} | next_choices] ->
 
         next_scope_pointer = state.active_choicepoint.scope_pointer + 1
-            
+
         head_pattern = AL.Var.freshen(head, next_scope_pointer)
         body_pattern = AL.Var.freshen(body, next_scope_pointer)
+
+        continuation = %AL.Continuation{
+          goals: state.active_choicepoint.goals,
+          goal_pointer: state.active_choicepoint.goal_pointer,
+          scope_pointer: state.active_choicepoint.scope_pointer
+        }
+
+        alternative_choicepoints = Enum.map(next_choices, fn {:oapply, alt_id, alt_head, alt_body} ->
+          alt_head_pattern = AL.Var.freshen(alt_head, next_scope_pointer)
+          alt_body_pattern = AL.Var.freshen(alt_body, next_scope_pointer)
+
+          %AL.Choicepoint{
+            goals: alt_body_pattern,
+            bindings: AL.Var.unify({alt_head_pattern, alt_id}, {bind_head_pattern, method_id_pattern}, state.active_choicepoint.bindings),
+            continuations: [continuation | state.active_choicepoint.continuations],
+            goal_pointer: 0,
+            scope_pointer: next_scope_pointer
+          }
+        end)
 
         interp(%AL{
               active_choicepoint: %AL.Choicepoint{
                 goals: body_pattern,
                 bindings: AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, state.active_choicepoint.bindings),
-                continuations: [%AL.Continuation{
-                                   goals: state.active_choicepoint.goals,
-                                   goal_pointer: state.active_choicepoint.goal_pointer,
-                                   scope_pointer: state.active_choicepoint.scope_pointer
-}
-                                | state.active_choicepoint.continuations],
+                continuations: [continuation | state.active_choicepoint.continuations],
                 goal_pointer: 0,
                 scope_pointer: next_scope_pointer},
-              choicepoint_stack: [{:mark, next_scope_pointer} | state.choicepoint_stack]
+              choicepoint_stack: alternative_choicepoints ++ [{:mark, next_scope_pointer} | state.choicepoint_stack]
                })
     end
   end
