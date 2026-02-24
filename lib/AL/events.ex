@@ -74,10 +74,10 @@ defmodule AL.Events do
   end
 
   @doc """
-  Read an event at time t
+  Read an event at transaction tx_id and time t
   """
-  def event(t) do
-    GenServer.call(__MODULE__, {:read_event, t})
+  def event(tx_id, t) do
+    GenServer.call(__MODULE__, {:read_event, tx_id, t})
   end
 
   @doc """
