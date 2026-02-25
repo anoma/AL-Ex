@@ -102,6 +102,8 @@ defmodule AL do
  """
   def eval(program) do
     tx_id = AL.Events.system_time()
+
+    input_vars = AL.Var.find_vars(program)
     
     :mnesia.transaction(fn ->
       result = continue(%AL{
@@ -119,12 +121,21 @@ defmodule AL do
       if result == nil do
         :mnesia.abort(:failure)
       else
-        result
+        output_vars = input_vars
+        |> Enum.map(fn variable ->
+          val = AL.Var.deref(result.active_choicepoint.bindings, variable)
+          if AL.Var.var?(val) do
+            {variable, variable}
+          else
+            {variable, val}
+          end
+        end)
+        |> Map.new()
+
+        {output_vars, result}
       end
     end)
   end
-
-  def continue(nil), do: nil
 
   def backtrack(state) do
     case state.choicepoint_stack do
@@ -139,6 +150,8 @@ defmodule AL do
     end
   end
     
+  def continue(nil), do: nil
+
   def continue(state) do
     cond do
       length(state.active_choicepoint.goals) == state.active_choicepoint.goal_pointer ->
