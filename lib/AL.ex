@@ -8,9 +8,9 @@ defmodule AL.Continuation do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, enforce: true, default: [])
-    field(:goal_pointer, enforce: true, default: 0)
-    field(:scope_pointer, enforce: true, default: 0)
+    field(:goals, [AL.goal()], enforce: true, default: [])
+    field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
+    field(:scope_pointer, AL.scope(), enforce: true, default: 0)
   end
 end
 
@@ -27,12 +27,12 @@ defmodule AL.Choicepoint do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, enforce: true, default: [])
-    field(:bindings, enforce: true, default: %{})
-    field(:continuations, enforce: true, default: [])    
-    field(:goal_pointer, enforce: true, default: 0) 
-    field(:scope_pointer, enforce: true, default: 0) 
- end
+    field(:goals, [AL.goal()], enforce: true, default: [])
+    field(:bindings, AL.Var.bindings() | nil, enforce: true, default: %{})
+    field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
+    field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
+    field(:scope_pointer, AL.scope(), enforce: true, default: 0)
+  end
 end
 
 defmodule AL do
@@ -46,10 +46,32 @@ defmodule AL do
   """
   use TypedStruct
 
+  @type scope() :: non_neg_integer() | binary()
+
+  @type goal() ::
+          {:get_class, AL.Var.t(), AL.Var.t()}
+          | {:get_super, AL.Var.t(), AL.Var.t()}
+          | {:get_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:exec, AL.Var.t(), AL.Var.t()}
+          | :cut
+          | {:implies, [goal()], [goal()], [goal()]}
+          | {:or, [goal()], [goal()]}
+          | {:then, [goal()]}
+          | {:set_class, AL.Var.t(), AL.Var.t()}
+          | {:set_super, AL.Var.t(), AL.Var.t()}
+          | {:set_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:set_slots, AL.Var.t(), AL.Var.t()}
+          | {:print, AL.Var.t()}
+          | :fail
+
+  @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
+
   typedstruct enforce: true do
-    field(:active_choicepoint, enforce: true, default: %AL.Choicepoint{})
-    field(:choicepoint_stack, default: [])
-    field(:tx_id, enforce: true, default: 0)
+    field(:active_choicepoint, AL.Choicepoint.t(), enforce: true, default: %AL.Choicepoint{})
+    field(:choicepoint_stack, [stack_entry()], default: [])
+    field(:tx_id, non_neg_integer(), enforce: true, default: 0)
   end
 
   defmacro __using__(_opts) do
@@ -58,6 +80,7 @@ defmodule AL do
     end
   end
 
+  @spec splice_goals(t(), [goal()]) :: [goal()]
   def splice_goals(state, goals) do
     Enum.slice(state.active_choicepoint.goals, 0, state.active_choicepoint.goal_pointer)
     ++
@@ -100,6 +123,7 @@ defmodule AL do
   TODO fix leakiness on -> marks? Or maybe not necessary
   TODO Make fresheners deterministic 
  """
+  @spec eval([goal()]) :: {:atomic, t() | nil} | {:aborted, term()}
   def eval(program) do
     tx_id = AL.Events.system_time()
     
@@ -118,6 +142,7 @@ defmodule AL do
     end)
   end
 
+  @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
     case state.choicepoint_stack do
       [] -> nil
@@ -131,6 +156,7 @@ defmodule AL do
     end
   end
     
+  @spec continue(t()) :: t() | nil
   def continue(state) do
     cond do
       state.active_choicepoint.bindings == nil -> backtrack(state)
@@ -170,6 +196,7 @@ defmodule AL do
     end
   end
 
+  @spec interp(goal(), t()) :: t() | nil
   def interp({:get_class, object_pattern, class_pattern}, state) do
     [object_pattern, class_pattern] = AL.Var.subst([object_pattern, class_pattern], state.active_choicepoint.bindings)
     
