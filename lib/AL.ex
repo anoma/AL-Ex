@@ -133,6 +133,8 @@ defmodule AL do
     
   def continue(state) do
     cond do
+      state.active_choicepoint.bindings == nil -> backtrack(state)
+      
       length(state.active_choicepoint.goals) == state.active_choicepoint.goal_pointer ->
         if state.active_choicepoint.continuations == [] do
           state
@@ -152,7 +154,6 @@ defmodule AL do
                 tx_id: state.tx_id})
           
         end
-      state.active_choicepoint.bindings == nil -> backtrack(state)
 
       true ->
         goal = Enum.at(state.active_choicepoint.goals, state.active_choicepoint.goal_pointer)
@@ -172,9 +173,11 @@ defmodule AL do
   def interp({:get_class, object_pattern, class_pattern}, state) do
     [object_pattern, class_pattern] = AL.Var.subst([object_pattern, class_pattern], state.active_choicepoint.bindings)
     
-      if is_map(object_pattern) do
-        case Map.get(object_pattern, :class) do
-          nil -> backtrack(state)
+    if is_map(object_pattern) do
+      case Map.get(object_pattern, :class) do
+        nil -> %AL{state |
+                  active_choicepoint: %AL.Choicepoint{state.active_choicepoint |
+                                                      bindings: nil}}
           class_name ->          
             %AL{
               state |
@@ -185,7 +188,9 @@ defmodule AL do
         end
       else
         case AL.Objects.scan_class(object_pattern, class_pattern) do
-          [] -> backtrack(state)
+          [] -> %AL{state |
+                   active_choicepoint: %AL.Choicepoint{state.active_choicepoint |
+                                                       bindings: nil}}
           [choice | next_choices] ->
             %AL{
               active_choicepoint: %AL.Choicepoint{
