@@ -39,23 +39,23 @@ defmodule Examples.AL do
   end
 
   example get_class_command() do
-    {:atomic, result} = AL.eval([{:get_class, :"$a", :"$b"}])
-    assert result.active_choicepoint.bindings != nil
+    {:atomic, {bindings, result}} = AL.eval([{:get_class, :"$a", :"$b"}])
+    assert bindings != nil
     result
   end
 
   example class_backtracking() do
     program_state = get_class_command()
     {:atomic, result} = :mnesia.transaction(fn -> AL.backtrack(program_state) end)
-    assert result.active_choicepoint.bindings != nil
+    assert result != nil
     result
   end
 
   example metaclass() do
-    {:atomic, result} =
+    {:atomic, {bindings, result}} =
       AL.eval([{:get_class, :initialise_class, :"$b"}, {:get_class, :"$b", :class}])
 
-    assert AL.Var.deref(result.active_choicepoint.bindings, :"$b") == :behaviour
+    assert Map.get(bindings, :"$b") == :behaviour
   end
 
   example get_oapply_command() do
@@ -65,11 +65,11 @@ defmodule Examples.AL do
   end
 
   example execute_metaclass_method() do
-    {:atomic, result} = AL.eval([
+    {:atomic, {bindings, result}} = AL.eval([
       {:exec, :metaclass, [:initialise_class, :"$class", :"$metaclass"]}
     ])
-    assert AL.Var.deref(result.active_choicepoint.bindings, :"$class") == :behaviour
-    assert AL.Var.deref(result.active_choicepoint.bindings, :"$metaclass") == :class
+    assert Map.get(bindings, :"$class") == :behaviour
+    assert Map.get(bindings, :"$metaclass") == :class
     result
   end
 
@@ -83,7 +83,7 @@ defmodule Examples.AL do
   end
 
   example cut() do
-    {:atomic, result} = AL.eval([
+    {:atomic, {bindings, result}} = AL.eval([
       {:get_class, :"$object", :"$class"},
       :cut
     ])
@@ -93,13 +93,13 @@ defmodule Examples.AL do
   end
 
   example implies_then() do
-    {:atomic, result} = AL.eval([
+    {:atomic, {bindings, result}} = AL.eval([
       {:implies, [{:get_class, :"$object", :"$class"}],
        [{:get_class, :"$class", :"$metaclass"}],
        []}
     ])
 
-    assert Map.get(result.active_choicepoint.bindings, :"$metaclass") != nil
+    assert Map.get(bindings, :"$metaclass") != nil
 
     result
   end
@@ -115,10 +115,21 @@ defmodule Examples.AL do
   end
 
   example make_point_object() do
-    {:atomic, result} = AL.eval([
+    {:atomic, {bindings, result}} = AL.eval([
       {:exec, :send, [:class, :new, [%{name: :point, super: :object, slots: []}, :"$new_point_class"]]},
-      {:exec, :send, [:point, :new, [:"$_", :"$new_point_object"]]}
+      {:exec, :send, [:"$new_point_class", :new, [:"$_", :"$new_point_object"]]}
     ])
+
+    assert Map.get(bindings, :"$new_point_class") == :point
+    assert Map.get(bindings, :"$new_point_object") == %{class: :point}
+    
+    result
+  end
+
+  example total_failure_aborts_transaction() do
+    {:aborted, :failure} = AL.eval([:fail])
+    {:aborted, :failure} = AL.eval([{:get_class, :nonexistent_object_xyz, :"$x"}])
+    :ok
   end
 
 end

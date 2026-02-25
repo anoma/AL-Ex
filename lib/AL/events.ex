@@ -11,6 +11,15 @@ defmodule AL.Events do
     field(:meta, reference())
   end
 
+  @type event_op() :: :set_class | :set_super | :set_method | :set_oapply | :set_slots
+
+  @type event() ::
+          {:set_class, {AL.Var.t(), AL.Var.t()}}
+          | {:set_super, {AL.Var.t(), AL.Var.t()}}
+          | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:set_oapply, {AL.Var.t(), AL.Var.t(), [AL.goal()]}}
+          | {:set_slots, {AL.Var.t(), AL.Var.t()}}
+
   def start_link(args) do
     GenServer.start_link(__MODULE__, args, name: __MODULE__)
   end
@@ -69,6 +78,7 @@ defmodule AL.Events do
   @doc """
   Read current system time
   """
+  @spec system_time() :: non_neg_integer()
   def system_time() do
     GenServer.call(__MODULE__, :read_system_time)
   end
@@ -76,6 +86,7 @@ defmodule AL.Events do
   @doc """
   Read an event at time t
   """
+  @spec event(non_neg_integer()) :: event() | :absent
   def event(t) do
     GenServer.call(__MODULE__, {:read_event, t})
   end
@@ -83,6 +94,7 @@ defmodule AL.Events do
   @doc """
   Read all events since time t
   """
+  @spec events_since(non_neg_integer()) :: [{:event, {non_neg_integer(), non_neg_integer()}, event()}]
   def events_since(t) do
     GenServer.call(__MODULE__, {:events_since, t})
   end
@@ -90,6 +102,7 @@ defmodule AL.Events do
   @doc """
   Write an event that says a class of an object was set
   """
+  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
   def set_class(tx_id, object, class) do
     write_event(tx_id, {:set_class, {object, class}})
   end
@@ -97,6 +110,7 @@ defmodule AL.Events do
   @doc """
   Write an event that says a superclass of an object was set
   """
+  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
   def set_super(tx_id, object, super) do
     write_event(tx_id, {:set_super, {object, super}})
   end
@@ -104,6 +118,7 @@ defmodule AL.Events do
   @doc """
   Write an event that says a method was set for an object
   """
+  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
   def set_method(tx_id, object, method_name, method_id) do
     write_event(tx_id, {:set_method, {object, method_name, method_id}})
   end
@@ -111,6 +126,7 @@ defmodule AL.Events do
   @doc """
   Write an event that says the object was given a run method
   """
+  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()]) :: :ok
   def set_oapply(tx_id, object, head, body) do
     write_event(tx_id, {:set_oapply, {object, head, body}})
   end
@@ -118,10 +134,12 @@ defmodule AL.Events do
   @doc """
   Write an event that says slots were set for an object
   """
+  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
   def set_slots(tx_id, object, slots) do
     write_event(tx_id, {:set_slots, {object, slots}})
   end
 
+  @spec write_event(non_neg_integer(), event()) :: :ok
   def write_event(tx_id, e) do
     t = :mnesia.dirty_update_counter(:meta, :system_time, 1)
     

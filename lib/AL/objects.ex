@@ -15,24 +15,34 @@ defmodule AL.Objects do
     field(:oapply, reference())
   end
 
+  @type class_record() :: {:class, AL.Var.t(), AL.Var.t()}
+  @type super_record() :: {:super, AL.Var.t(), AL.Var.t()}
+  @type slots_record() :: {:slots, AL.Var.t(), AL.Var.t()}
+  @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+  @type oapply_record() :: {:oapply, AL.Var.t(), AL.Var.t(), [AL.goal()]}
+
+  @spec scan_class(AL.Var.t(), AL.Var.t()) :: [class_record()]
   def scan_class(self_pattern, class_pattern) do
     :mnesia.select(:class, [
       {AL.Var.to_mnesia_pattern({:class, self_pattern, class_pattern}), [], [:"$_"]}
     ])
   end
 
+  @spec scan_super(AL.Var.t(), AL.Var.t()) :: [super_record()]
   def scan_super(self_pattern, super_pattern) do
     :mnesia.select(:super, [
       {AL.Var.to_mnesia_pattern({:super, self_pattern, super_pattern}), [], [:"$_"]}
     ])
   end
 
+  @spec scan_slots(AL.Var.t(), AL.Var.t()) :: [slots_record()]
   def scan_slots(self_pattern, slots_pattern) do
     :mnesia.select(:slots, [
       {AL.Var.to_mnesia_pattern({:slots, self_pattern, slots_pattern}), [], [:"$_"]}
     ])
   end
 
+  @spec scan_method(AL.Var.t(), AL.Var.t(), AL.Var.t()) :: [method_record()]
   def scan_method(self_pattern, method_name_pattern, method_id_pattern) do
     :mnesia.select(:method, [
       {AL.Var.to_mnesia_pattern({:method, self_pattern, method_name_pattern, method_id_pattern}),
@@ -40,28 +50,34 @@ defmodule AL.Objects do
     ])
   end
 
+  @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t()) :: [oapply_record()]
   def scan_oapply(self_pattern, head_pattern, body_pattern) do
     :mnesia.select(:oapply, [
       {AL.Var.to_mnesia_pattern({:oapply, self_pattern, head_pattern, body_pattern}), [], [:"$_"]}
     ])
   end
 
+  @spec set_class(AL.Var.t(), AL.Var.t()) :: :ok
   def set_class(object_pattern, class_pattern) do
     :mnesia.write({:class, object_pattern, class_pattern})
   end
 
+  @spec set_super(AL.Var.t(), AL.Var.t()) :: :ok
   def set_super(object_pattern, super_pattern) do
     :mnesia.write({:super, object_pattern, super_pattern})
   end
   
+  @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
   def set_method(object_pattern, method_name_pattern, method_id_pattern) do
     :mnesia.write({:method, object_pattern, method_name_pattern, method_id_pattern})
   end
 
+  @spec set_oapply(AL.Var.t(), AL.Var.t(), [AL.goal()]) :: :ok
   def set_oapply(object_pattern, head_pattern, body_pattern) do
     :mnesia.write({:oapply, object_pattern, head_pattern, body_pattern})
   end
   
+  @spec set_slots(AL.Var.t(), AL.Var.t()) :: :ok
   def set_slots(object_pattern, slots_pattern) do
     :mnesia.write({:slots, object_pattern, slots_pattern})
   end
