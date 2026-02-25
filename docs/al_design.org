@@ -47,3 +47,88 @@ AL should be the core language of Anoma (a distributed operating system) built o
 - Secondary Indices. B-Trees on disk for snapshots? Maybe just hash maps for secondary indices right now.
 - Caches: tail (most recent) for event log (since recent snapshot)? snapshot on disk for object image + object cache?
 - Query planning & optimisation. How does mnesia do its indexing vs Prolog? How do bidirectional queries affect indexing. We can specifically add indices to mnesia. Class inheritance resolution = no need to worry about global implementation ordering on methods.
+
+** Writeup on Design Decisions
+
+The AL prototype's design follows the spirit of systems which have influenced it, and has similar general qualities. The primary benefit of writing a prototype, though, is the process of discovering new design decisions and questions that flow downstream of the basic design principles that went into it. A reminder of these general principles; the core pieces of the system that needed to be implemented during the development of the prototype. We have a transactional, monotonic command log, the events for which describe primitive object operations. Built upon this, and hydrated at runtime, we have some notion of an object system itself, and on top of this we have the AL interpreter, which resolves method sends over this object system in the style of a WAM.
+
+Storage in the prototype makes use of Mnesia, and so thought had to go into efficient storage through Mnesia and how it differs to something like PROLOG. Mnesia tends to index upon the key. Secondary indices can be made use of, but at this time we don't use these. More obviously though, is that storage takes place in (as of now) seven different tables, rather than the singular underlying table used in PROLOG. The structure of and justification for each will be given now.
+
+1. Event table -> A table for the transactional events. 
+2. Metadata table -> For any kind of required metadata, mostly for now stores info about current system time.
+
+The above persist in disk, and the following tables are populated on startup (AKA, the disk tables are hydrated as in an image into the following RAM tables)
+
+3. Class table -> Holds class relations
+4. Super table -> Holds superclass relations
+5. Method table -> Holds relations between classes and what methods they have assigned to them
+6. Slots table -> Holds 'extra information' on objects. E.G., point with x as 3, y or 4 implies an object with slots x and y. 
+7. Oapply table -> This is the closest thing to a run-of-the-mill PROLOG predicate database.
+
+The decision to break them into their own tables has more to do with wanting to index in different ways, and shorten search spaces rather than anything else and thus constitutes an optimisation. The object store has intentionally not been structured through objects but through relations- these relational tables can be seen as indexes or caches over an object store- we could make these objects themselves explicit if we wanted, but for now there is no need. It is also worth noting other optimisations on storage that *haven't* been made: Cacheing on recent events. As has been noted elsewhere, as events become older they need to be retrieved less, and therefore can live on colder storage (or even be compressed to snapshots). A discussion of this at some point may be prudent.
+
+Beyond storage, let us discuss features of the language of the prototype itself. The essence of AL is resolution over an object model, and so we require a WAM. Let us attempt to enumerate the building blocks that had to be implemented to these ends:
+
+- A unification engine over terms- something those who have read PAIP will be well familiar with, and a representation for bindings.
+- A call/continuation stack.
+- A choicepoint stack for the purposes of backtracking. The choicepoint stack carries bindings for each choice, its continuations, its goals, etc.
+- A runtime representation of the clause or query under execution.
+- A transactional overlay (Mnesia will handle this for us)
+
+If we were describing this in terms of an abstract machine, we could say that the interpreter interprets the program as a series of state transition steps. There are probably far more efficient ways to write the fundamental execution, but this is the simplest way I have found. The interpreter reduces over a query (list of instructions) provided until completion or total failure (no more choicepoints with valid bindings)
+
+There are a few basic instructions that we require
+- Getters for each of the tables which run scans over the table with a given provided pattern. E.G., an instruction
+
+#+BEGIN_SRC elixir
+`{:get_class, :"$object", :"$class"}`
+#+END_SRC
+
+Would scan the class table with the patterns provided substituted with any values in the current known bindings (or left as vars for general matching if there is no such binding). Each possible answer to the scan is translated into a new choicepoint that is pushed on the stack. These choices carry new bindings, which means that not only is information provided via instructions, but information is also taken out of the instructions for the next instructions. This is what makes AL able to work as a relational language. 
+
+- Setters for each of the tables. This allows the user to perform write-ahead transactional mutations on the system, that should abort in the case of program failure, but be immediately accessible.
+
+- The ability to execute a method (or, if you prefer, run an object as a predicate)- the execution of a method means to provide information about the object under execution and arguments to the method. For example
+
+#+BEGIN_SRC elixir
+{:exec, :metaclass, [:initialise_class, :"$class", :"$metaclass"]}    
+#+END_SRC
+
+Would execute the method :metaclass with its the provided arguments. This would result in pushing a new call onto the continuation stack, running the list of goals associated with the method in a freshened binding environment, and then taking out new bindings that were discovered during execution back into the call environment.
+
+- The ability to send a message to an object in the same spirit that one might do in smalltalk, that is, to lookup a method on its class, and to follow the chain of inheritance to find the method, in order to execute it. Send is a method that does not require anything more than exec to write within AL. Here is its definition
+
+#+BEGIN_SRC elixir
+  {:set_oapply, :lookup,
+       [:"$self", :"$name", :"$method_id"],
+       [
+         {:or,
+         [{:get_method, :"$self", :"$name", :"$method_id"}],
+         [{:get_super, :"$self", :"$super"},
+          {:exec, :lookup, [:"$super", :"$name", :"$method_id"]}]
+        }
+       ]
+      }
+  
+  {:set_oapply, :send,
+   [:"$self", :"$method_name", :"$args"],
+   [
+     {:get_class, :"$self", :"$class"},
+     {:implies,
+      [{:exec, :lookup, [:"$class", :"$method_name", :"$method_id"]}],
+      [
+        {:print, ["calling", :"$method_id",
+                  "from", :"$class",
+                  "with args", [:"$self" | :"$args"]]},
+        {:exec, :"$method_id", [:"$self" | :"$args"]}],
+      [:fail]
+     }
+   ]
+  }
+#+END_SRC
+
+What this says is: To send a message to an object, find its class, Lookup the method named on the class, and run it with the provided arguments. If the method does not exist on the class, then look it up on a superclass of the class instead.
+
+- Other control flow helpers, such as the ability to prune choicepoints.
+
+Note that there is no null pointer deferencing due to the fact that, following the third relational manifesto, object IDs are not pointers that can be dereferenced, they have a merely relational existence within the tables, and a null value should simply yield no answer. 
