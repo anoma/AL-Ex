@@ -72,6 +72,8 @@ defmodule AL do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
     field(:choicepoint_stack, [stack_entry()], default: [])
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
+    field(:trace, [goal()], enforce: true, default: [])
+    field(:program, [goal()], enforce: true, default: [])
   end
 
   defmacro __using__(_opts) do
@@ -139,11 +141,13 @@ defmodule AL do
               scope_pointer: 0
 },
             choicepoint_stack: [{:mark, 0}],
-            tx_id: tx_id
+            tx_id: tx_id,
+            trace: [],
+            program: program
              })
 
-      if result == nil do
-        :mnesia.abort(:failure)
+      if result.active_choicepoint.bindings == nil do
+        :mnesia.abort(result.trace)
       else
         output_vars = input_vars
         |> Enum.map(fn variable ->
@@ -161,17 +165,51 @@ defmodule AL do
     end)
   end
 
+  def next_solution(state) do
+    tx_id = AL.Events.system_time()
+    input_vars = AL.Var.find_vars(state.program)
+    
+    :mnesia.transaction(fn ->
+      result = backtrack(%AL{state |
+                             tx_id: tx_id})
+
+      
+      if result.active_choicepoint.bindings == nil do
+        :mnesia.abort(result.trace)
+      else
+        output_vars = input_vars
+        |> Enum.map(fn variable ->
+          val = AL.Var.deref(result.active_choicepoint.bindings, variable)
+          if AL.Var.var?(val) do
+            {variable, variable}
+          else
+            {variable, val}
+          end
+        end)
+        |> Map.new()
+        
+        {output_vars, result}
+      end
+    end)
+  end
+  
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
     case state.choicepoint_stack do
-      [] -> nil
+      [] -> %AL{state |
+               active_choicepoint: %AL.Choicepoint{
+                 state.active_choicepoint |
+                 bindings: nil
+}}
       [{:mark, _} | rest_choices] -> backtrack(%AL{state | choicepoint_stack: rest_choices})
       [:implies_mark | rest_choices] -> backtrack(%AL{state | choicepoint_stack: rest_choices})
       [choice | rest_choices] ->
         continue(%AL{
+              state |
               active_choicepoint: choice,
               choicepoint_stack: rest_choices,
-              tx_id: state.tx_id})
+              trace: [:backtrack | state.trace]
+                 })
     end
   end
     
@@ -189,6 +227,7 @@ defmodule AL do
           [continuation | rest_continuations] = state.active_choicepoint.continuations
 
           continue(%AL{
+                state |
                 active_choicepoint:
                 %AL.Choicepoint{
                   goals: continuation.goals,
@@ -196,31 +235,30 @@ defmodule AL do
                   continuations: rest_continuations,
                   goal_pointer: continuation.goal_pointer,
                   scope_pointer: continuation.scope_pointer
-                },
-                choicepoint_stack: state.choicepoint_stack,
-                tx_id: state.tx_id})
+                }})
           
         end
 
       true ->
-        goal = Enum.at(state.active_choicepoint.goals, state.active_choicepoint.goal_pointer)
-
-        next_frame = %AL{
-          state |
-          active_choicepoint: %AL.Choicepoint{state.active_choicepoint |
-                                              goal_pointer: state.active_choicepoint.goal_pointer + 1}
-        }
-
-        result = interp(goal, next_frame)
-
-        continue(result)
+          goal = state.active_choicepoint.goals
+          |> Enum.at(state.active_choicepoint.goal_pointer)
+          |> AL.Var.subst(state.active_choicepoint.bindings)
+          
+          next_frame = %AL{
+            state |
+            active_choicepoint: %AL.Choicepoint{state.active_choicepoint |
+                                                goal_pointer: state.active_choicepoint.goal_pointer + 1},
+            trace: [goal | state.trace]
+          }
+          
+          result = interp(goal, next_frame)
+          
+          continue(result)
     end
   end
-
+  
   @spec interp(goal(), t()) :: t() | nil
-  def interp({:get_class, object_pattern, class_pattern}, state) do
-    [object_pattern, class_pattern] = AL.Var.subst([object_pattern, class_pattern], state.active_choicepoint.bindings)
-    
+  def interp({:get_class, object_pattern, class_pattern}, state) do    
     if is_map(object_pattern) do
       case Map.get(object_pattern, :class) do
         nil -> %AL{state |
@@ -241,6 +279,7 @@ defmodule AL do
                                                        bindings: nil}}
           [choice | next_choices] ->
             %AL{
+              state |
               active_choicepoint: %AL.Choicepoint{
                 state.active_choicepoint |
                 bindings: AL.Var.unify(choice,
@@ -253,19 +292,16 @@ defmodule AL do
                   bindings: AL.Var.unify(c,
                     {:class, object_pattern, class_pattern},
                     state.active_choicepoint.bindings)}
-              end) ++ state.choicepoint_stack,
-              tx_id: state.tx_id}
+              end) ++ state.choicepoint_stack}
       end
     end
   end
 
   def interp({:get_super, object_pattern, super_pattern}, state) do
-    [object_pattern, super_pattern] = AL.Var.subst([object_pattern, super_pattern], state.active_choicepoint.bindings)
-
     case AL.Objects.scan_super(object_pattern, super_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
-        %AL{
+        %AL{state |
           active_choicepoint: %AL.Choicepoint{
             state.active_choicepoint |
             bindings: AL.Var.unify(choice,
@@ -278,19 +314,15 @@ defmodule AL do
               bindings: AL.Var.unify(c,
                 {:super, object_pattern, super_pattern},
                 state.active_choicepoint.bindings)}
-          end) ++ state.choicepoint_stack,
-          tx_id: state.tx_id}  
+          end) ++ state.choicepoint_stack}  
     end
   end
     
   def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    [object_pattern, method_name_pattern, method_id_pattern] =
-      AL.Var.subst([object_pattern, method_name_pattern, method_id_pattern], state.active_choicepoint.bindings)
-
     case AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
-        %AL{
+        %AL{state |
           active_choicepoint: %AL.Choicepoint{
             state.active_choicepoint |
             bindings: AL.Var.unify(choice,
@@ -303,20 +335,16 @@ defmodule AL do
               bindings: AL.Var.unify(c,
                 {:method, object_pattern, method_name_pattern, method_id_pattern},
                 state.active_choicepoint.bindings)}
-          end) ++ state.choicepoint_stack,
-          tx_id: state.tx_id}
+          end) ++ state.choicepoint_stack}
     end
   end
 
   def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    [object_pattern, head_pattern, body_pattern] =
-      AL.Var.subst([object_pattern, head_pattern, body_pattern], state.active_choicepoint.bindings)
-    
     case AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
                 
-        %AL{
+        %AL{state |
           active_choicepoint: %AL.Choicepoint{
             state.active_choicepoint |
             bindings: AL.Var.unify(choice,
@@ -329,15 +357,11 @@ defmodule AL do
               bindings: AL.Var.unify(c,
                 {:oapply, object_pattern, head_pattern, body_pattern},
                 state.active_choicepoint.bindings)}
-          end) ++ state.choicepoint_stack,
-          tx_id: state.tx_id}
+          end) ++ state.choicepoint_stack}
     end
   end
 
   def interp({:exec, method_id_pattern, bind_head_pattern}, state) do
-    [method_id_pattern, bind_head_pattern] =
-      AL.Var.subst([method_id_pattern, bind_head_pattern], state.active_choicepoint.bindings)      
-    
     case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] -> backtrack(state)
       [{:oapply, id, head, body} | next_choices] ->
@@ -366,29 +390,27 @@ defmodule AL do
           }
         end)
 
-        %AL{
+        %AL{state |
           active_choicepoint: %AL.Choicepoint{
             goals: body_pattern,
             bindings: AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, state.active_choicepoint.bindings),
             continuations: [continuation | state.active_choicepoint.continuations],
             goal_pointer: 0,
             scope_pointer: freshener},
-          choicepoint_stack: alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack],
-          tx_id: state.tx_id
+          choicepoint_stack: alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
         }
     end
   end
 
   def interp(:cut, state) do
-    %AL{
+    %AL{state |
       active_choicepoint: state.active_choicepoint,
       choicepoint_stack: Enum.drop_while(state.choicepoint_stack, fn choice ->
         case choice do
           {:mark, f} -> f != state.active_choicepoint.scope_pointer 
           _choice -> true
         end
-      end),
-      tx_id: state.tx_id
+      end)
     }
   end
 
@@ -396,7 +418,7 @@ defmodule AL do
     spliced_condition = splice_goals(state, condition ++ [{:then, then}])
     spliced_otherwise = splice_goals(state, otherwise) 
     
-    %AL{
+    %AL{state |
       active_choicepoint:
       %AL.Choicepoint{
         state.active_choicepoint |
@@ -408,7 +430,6 @@ defmodule AL do
           goals: spliced_otherwise
 }]
       ++ [:implies_mark | state.choicepoint_stack],
-      tx_id: state.tx_id
     }
   end
 
@@ -416,7 +437,7 @@ defmodule AL do
     spliced_left = splice_goals(state, left) 
     spliced_right = splice_goals(state, right) 
     
-    %AL{
+    %AL{state |
       active_choicepoint:
       %AL.Choicepoint{
         state.active_choicepoint |
@@ -427,15 +448,14 @@ defmodule AL do
           state.active_choicepoint |
           goals: spliced_right
 }]
-      ++ state.choicepoint_stack,
-      tx_id: state.tx_id
+      ++ state.choicepoint_stack
     }
   end
   
   def interp({:then, then}, state) do
     spliced_goals = splice_goals(state, then)
 
-    %AL{
+    %AL{state |
       active_choicepoint:
       %AL.Choicepoint{
         state.active_choicepoint |
@@ -446,14 +466,11 @@ defmodule AL do
               :implies_mark -> false
               _choice -> true
             end
-          end)),
-      tx_id: state.tx_id
+          end))
     }
   end
 
   def interp({:set_class, object_pattern, class_pattern}, state) do
-    [object_pattern, class_pattern] = AL.Var.subst([object_pattern, class_pattern], state.active_choicepoint.bindings)
-
     AL.Events.set_class(state.tx_id, object_pattern, class_pattern)
     AL.Objects.set_class(object_pattern, class_pattern)
     
@@ -461,8 +478,6 @@ defmodule AL do
   end
 
   def interp({:set_super, object_pattern, super_pattern}, state) do
-    [object_pattern, super_pattern] = AL.Var.subst([object_pattern, super_pattern], state.active_choicepoint.bindings)
-
     AL.Events.set_super(state.tx_id, object_pattern, super_pattern)
     AL.Objects.set_super(object_pattern, super_pattern)
     
@@ -470,8 +485,6 @@ defmodule AL do
   end
 
   def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    [object_pattern, method_name_pattern, method_id_pattern] = AL.Var.subst([object_pattern, method_name_pattern, method_id_pattern], state.active_choicepoint.bindings)
-
     AL.Events.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern)
     AL.Objects.set_method(object_pattern, method_name_pattern, method_id_pattern)
     
@@ -479,8 +492,6 @@ defmodule AL do
   end
 
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    [object_pattern, head_pattern, body_pattern] = AL.Var.subst([object_pattern, head_pattern, body_pattern], state.active_choicepoint.bindings)
-
     AL.Events.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern)
     AL.Objects.set_oapply(object_pattern, head_pattern, body_pattern)
     
@@ -488,8 +499,6 @@ defmodule AL do
   end
 
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
-    [object_pattern, slots_pattern] = AL.Var.subst([object_pattern, slots_pattern], state.active_choicepoint.bindings)
-
     AL.Events.set_slots(state.tx_id, object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
     
@@ -497,8 +506,6 @@ defmodule AL do
   end
 
   def interp({:print, pattern}, state) do
-    pattern = AL.Var.subst(pattern, state.active_choicepoint.bindings)
-
     IO.inspect(pattern)
     
     state
