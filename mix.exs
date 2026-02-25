@@ -24,7 +24,7 @@ defmodule AL.MixProject do
   defp deps do
     [
       {:typed_struct, "~> 0.3.0"},
-      {:ex_example, git: "https://github.com/anoma/ex_example.git", branch: "ray/v0.1.0-rc2"}
+      {:ex_example, "~> 0.1.1"}
     ]
   end
 end

@@ -119,6 +119,8 @@ defmodule Examples.AL do
       {:exec, :send, [:class, :new, [%{name: :point, super: :object, slots: []}, :"$new_point_class"]]},
       {:exec, :send, [:point, :new, [:"$_", :"$new_point_object"]]}
     ])
+
+    result
   end
 
 end
