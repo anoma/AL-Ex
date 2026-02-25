@@ -104,7 +104,7 @@ defmodule AL do
     tx_id = AL.Events.system_time()
     
     :mnesia.transaction(fn ->
-      continue(%AL{
+      result = continue(%AL{
             active_choicepoint: %AL.Choicepoint{
               goals: program,
               bindings: AL.Var.empty_bindings(),
@@ -115,8 +115,16 @@ defmodule AL do
             choicepoint_stack: [{:mark, 0}],
             tx_id: tx_id
              })
+
+      if result == nil do
+        :mnesia.abort(:failure)
+      else
+        result
+      end
     end)
   end
+
+  def continue(nil), do: nil
 
   def backtrack(state) do
     case state.choicepoint_stack do

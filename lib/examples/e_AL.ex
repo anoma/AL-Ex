@@ -121,4 +121,10 @@ defmodule Examples.AL do
     ])
   end
 
+  example total_failure_aborts_transaction() do
+    {:aborted, :failure} = AL.eval([:fail])
+    {:aborted, :failure} = AL.eval([{:get_class, :nonexistent_object_xyz, :"$x"}])
+    :ok
+  end
+
 end
