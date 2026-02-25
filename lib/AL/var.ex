@@ -43,47 +43,50 @@ defmodule AL.Var do
   @spec to_mnesia_pattern(t()) :: t()
   @spec to_mnesia_pattern(t(), pos_integer()) :: {t(), pos_integer()}
   def to_mnesia_pattern(p) do
-    {p, _n} = to_mnesia_pattern(p, 1)
+    {p, _acc} = to_mnesia_pattern(p, {1, %{}})
     p
   end
 
-  def to_mnesia_pattern(v, n) when is_atom(v) do
+  def to_mnesia_pattern(v, {n, seen}) when is_atom(v) do
     if var?(v) do
-      {:"$#{n}", n + 1}
+      case Map.get(seen, v) do
+        nil -> {:"$#{n}", {n + 1, Map.put(seen, v, n)}}
+        existing -> {:"$#{existing}", {n, seen}}
+      end
     else
-      {v, n}
+      {v, {n, seen}}
     end
   end
 
-  def to_mnesia_pattern([], n), do: {[], n}
+  def to_mnesia_pattern([], acc), do: {[], acc}
 
-  def to_mnesia_pattern([x | xs], n) do
-    {x1, n1} = to_mnesia_pattern(x, n)
-    {xs1, n_final} = to_mnesia_pattern(xs, n1)
+  def to_mnesia_pattern([x | xs], acc) do
+    {x1, acc1} = to_mnesia_pattern(x, acc)
+    {xs1, acc_final} = to_mnesia_pattern(xs, acc1)
 
-    {[x1 | xs1], n_final}
+    {[x1 | xs1], acc_final}
   end
 
-  def to_mnesia_pattern(xs, n) when is_tuple(xs) do
-    {xs, n} =
+  def to_mnesia_pattern(xs, acc) when is_tuple(xs) do
+    {xs, acc} =
       xs
       |> Tuple.to_list()
-      |> to_mnesia_pattern(n)
+      |> to_mnesia_pattern(acc)
 
-    {List.to_tuple(xs), n}
+    {List.to_tuple(xs), acc}
   end
 
-  def to_mnesia_pattern(m, n) when is_map(m) do
-    {kvs, n2} =
-      Enum.map_reduce(m, n, fn {k, v}, acc ->
-        {v2, acc2} = to_mnesia_pattern(v, acc)
-        {{k, v2}, acc2}
+  def to_mnesia_pattern(m, acc) when is_map(m) do
+    {kvs, acc2} =
+      Enum.map_reduce(m, acc, fn {k, v}, a ->
+        {v2, a2} = to_mnesia_pattern(v, a)
+        {{k, v2}, a2}
       end)
 
-    {Map.new(kvs), n2}
+    {Map.new(kvs), acc2}
   end
 
-  def to_mnesia_pattern(x, n), do: {x, n}
+  def to_mnesia_pattern(x, acc), do: {x, acc}
 
   @spec deref(bindings(), variable()) :: t()
   def deref(bindings, k) do
