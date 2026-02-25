@@ -1,7 +1,7 @@
 defmodule AL.Var do
   @moduledoc """
   I provide symbolic utilities for AL.
-  
+
   Some terminology:
 
   Bindings is a forest of variable references where the leaves are ground terms and act as roots of the reference chain
@@ -9,10 +9,16 @@ defmodule AL.Var do
   Vars look like :"$<string>"
   """
 
+  @type variable() :: atom()
+  @type t() :: atom() | number() | binary() | [t()] | tuple() | map()
+  @type bindings() :: %{optional(variable()) => t()}
+
+  @spec empty_bindings() :: bindings()
   def empty_bindings() do
     %{}
   end
 
+  @spec var?(term()) :: boolean()
   def var?(x) when is_atom(x) do
     x
     |> Atom.to_string()
@@ -23,15 +29,19 @@ defmodule AL.Var do
     false
   end
 
+  @spec var(String.t() | atom()) :: variable()
   def var(x) do
     :"$#{x}"
   end
 
+  @spec name(variable()) :: String.t()
   def name(x) do
     "$" <> name = Atom.to_string(x)
     name
   end
 
+  @spec to_mnesia_pattern(t()) :: t()
+  @spec to_mnesia_pattern(t(), pos_integer()) :: {t(), pos_integer()}
   def to_mnesia_pattern(p) do
     {p, _n} = to_mnesia_pattern(p, 1)
     p
@@ -75,6 +85,7 @@ defmodule AL.Var do
 
   def to_mnesia_pattern(x, n), do: {x, n}
 
+  @spec deref(bindings(), variable()) :: t()
   def deref(bindings, k) do
     case Map.get(bindings, k) do
       nil -> k
@@ -87,6 +98,7 @@ defmodule AL.Var do
     end
   end
 
+  @spec extend(bindings(), t(), t()) :: bindings()
   def extend(bindings, x, y) do
     rx = deref(bindings, x)
     ry = deref(bindings, y)
@@ -109,6 +121,7 @@ defmodule AL.Var do
     end
   end
 
+  @spec unify(t(), t(), bindings()) :: bindings() | nil
   def unify(x, y, bindings \\ %{}) do
     cond do
       var?(x) || var?(y) ->
@@ -143,6 +156,7 @@ defmodule AL.Var do
     end
   end
 
+  @spec subst(t(), bindings()) :: t()
   def subst(x, bindings) when is_atom(x) do
     rx = deref(bindings, x)
     if rx == x do
@@ -172,6 +186,8 @@ defmodule AL.Var do
   def subst(x, _), do: x
   
 
+  @spec find_vars(t()) :: MapSet.t(variable())
+  @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())
   def find_vars(d) do
     find_vars(d, MapSet.new([]))
   end
@@ -204,6 +220,7 @@ defmodule AL.Var do
 
   def find_vars(_, s), do: s
 
+  @spec freshen(t(), String.t()) :: t()
   def freshen(v, f) when is_atom(v) do
     if var?(v) && v != :"$_" do
       var(name(v) <> "_" <> f)
