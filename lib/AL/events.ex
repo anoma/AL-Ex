@@ -55,7 +55,7 @@ defmodule AL.Events do
         {:aborted, {:already_exists, _}} -> :meta
       end
 
-      :mnesia.wait_for_tables([:events, :meta], 5_000)
+      :mnesia.wait_for_tables([:event, :meta], 5_000)
 
       # Do setup
 
