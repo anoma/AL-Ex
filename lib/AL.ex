@@ -292,26 +292,40 @@ defmodule AL do
     
     case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] -> backtrack(state)
-      [{:oapply, id, head, body} | _next_choices] ->
+      [{:oapply, id, head, body} | next_choices] ->
 
-        freshener = Integer.to_string(System.unique_integer([:monotonic]))             
+        freshener = Integer.to_string(System.unique_integer([:monotonic]))
 
         head_pattern = AL.Var.freshen(head, freshener)
         body_pattern = AL.Var.freshen(body, freshener)
+
+        continuation = %AL.Continuation{
+          goals: state.active_choicepoint.goals,
+          goal_pointer: state.active_choicepoint.goal_pointer,
+          scope_pointer: state.active_choicepoint.scope_pointer
+        }
+
+        alternative_choicepoints = Enum.map(next_choices, fn {:oapply, alt_id, alt_head, alt_body} ->
+          %AL.Choicepoint{
+            goals: AL.Var.freshen(alt_body, freshener),
+            bindings: AL.Var.unify(
+              {AL.Var.freshen(alt_head, freshener), alt_id},
+              {bind_head_pattern, method_id_pattern},
+              state.active_choicepoint.bindings),
+            continuations: [continuation | state.active_choicepoint.continuations],
+            goal_pointer: 0,
+            scope_pointer: freshener
+          }
+        end)
 
         %AL{
           active_choicepoint: %AL.Choicepoint{
             goals: body_pattern,
             bindings: AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, state.active_choicepoint.bindings),
-            continuations: [%AL.Continuation{
-                               goals: state.active_choicepoint.goals,
-                               goal_pointer: state.active_choicepoint.goal_pointer,
-                               scope_pointer: state.active_choicepoint.scope_pointer
-}
-                            | state.active_choicepoint.continuations],
+            continuations: [continuation | state.active_choicepoint.continuations],
             goal_pointer: 0,
             scope_pointer: freshener},
-          choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack],
+          choicepoint_stack: alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack],
           tx_id: state.tx_id
         }
     end
