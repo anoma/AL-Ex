@@ -294,8 +294,8 @@ defmodule AL do
       [] -> backtrack(state)
       [{:oapply, id, head, body} | _next_choices] ->
 
-        freshener = Base.encode16(:crypto.strong_rand_bytes(2))
-            
+        freshener = Integer.to_string(System.unique_integer([:monotonic]))             
+
         head_pattern = AL.Var.freshen(head, freshener)
         body_pattern = AL.Var.freshen(body, freshener)
 
