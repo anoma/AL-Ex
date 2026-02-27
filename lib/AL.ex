@@ -53,7 +53,7 @@ defmodule AL do
           | {:get_super, AL.Var.t(), AL.Var.t()}
           | {:get_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:exec, AL.Var.t(), AL.Var.t()}
+          | {:oapply, AL.Var.t(), AL.Var.t()}
           | :cut
           | {:implies, [goal()], [goal()], [goal()]}
           | {:or, [goal()], [goal()]}
@@ -81,6 +81,75 @@ defmodule AL do
       import AL
     end
   end
+  
+
+  def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
+
+  def ast_to_pattern([{:do, nil}]), do: nil
+  
+  def ast_to_pattern([{:do, goal}]), do: ast_to_pattern([goal])
+  
+  def ast_to_pattern({:__block__, _, goals}), do: ast_to_pattern(goals)
+  
+  def ast_to_pattern([{:|, _, [h, t]}]), do: [ast_to_pattern(h) | ast_to_pattern(t)]
+
+  def ast_to_pattern({:%{}, _, kvs}), do: Map.new(kvs, fn {k, v} -> {ast_to_pattern(k), ast_to_pattern(v)} end)
+
+  def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
+
+  def ast_to_pattern({:class,  _, [object, class]}), do: {:get_class,  ast_to_pattern(object), ast_to_pattern(class)}
+
+  def ast_to_pattern({:super,  _, [object, super]}), do: {:get_super,  ast_to_pattern(object), ast_to_pattern(super)}
+  
+  def ast_to_pattern({:method, _, [object, name, id]}), do: {:get_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+
+  def ast_to_pattern({:clause, _, [object, head, body]}), do: {:get_oapply, ast_to_pattern(object), ast_to_pattern(head), ast_to_pattern(body)}
+
+  def ast_to_pattern({:oapply, _, [method_id, args]}), do: {:oapply, ast_to_pattern(method_id), ast_to_pattern(args)}
+
+  def ast_to_pattern({:implies, _, [condition, then, other]}), do: {:implies, ast_to_pattern(condition), ast_to_pattern(then), ast_to_pattern(other)}
+
+  def ast_to_pattern({:alternative, _, [left, right]}), do: {:or, ast_to_pattern(left), ast_to_pattern(right)}
+
+  def ast_to_pattern({:cut, _, _}), do: :cut
+  
+  def ast_to_pattern({:fail, _, _}), do: :fail
+  
+  def ast_to_pattern({:set_class, _, [object, class]}), do: {:set_class, ast_to_pattern(object), ast_to_pattern(class)}
+
+  def ast_to_pattern({:set_super, _, [object, super]}), do: {:set_super, ast_to_pattern(object), ast_to_pattern(super)}
+
+  def ast_to_pattern({:set_method, _, [object, name, id]}), do: {:set_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+  
+  def ast_to_pattern({:set_oapply, _, [object, head, body]}), do: {:set_oapply, ast_to_pattern(object), ast_to_pattern(head), ast_to_pattern(body)}
+  
+  def ast_to_pattern({:set_slots, _, [object, slots]}), do: {:set_slots, ast_to_pattern(object), ast_to_pattern(slots)}
+
+  def ast_to_pattern({:print, _, [pattern]}), do: {:print, ast_to_pattern(pattern)}
+  
+  def ast_to_pattern([]), do: []
+
+  def ast_to_pattern(xs) when is_list(xs), do: Enum.map(xs, &ast_to_pattern/1)
+
+  def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args), do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
+
+  def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
+
+  def ast_to_pattern(x), do: x
+
+  @doc """
+  I provide the DSL for the AL interpreter
+  """ 
+  defmacro run(do: program) do    
+    goals = case ast_to_pattern(program) do
+      list when is_list(list) -> list
+      goal -> [goal]
+            end
+
+    quote do
+      AL.eval(unquote(Macro.escape(goals, unquote: true)))
+    end
+  end
 
   @spec splice_goals(t(), [goal()]) :: [goal()]
   def splice_goals(state, goals) do
@@ -90,6 +159,7 @@ defmodule AL do
     ++ Enum.slice(state.active_choicepoint.goals, state.active_choicepoint.goal_pointer, length(state.active_choicepoint.goals))
   end
 
+  
   @doc """
   I am the top-level entrypoint for evaluating AL programs. AL programs are stacks of VM instructions / 'goals', which can be the following:
 
@@ -109,8 +179,8 @@ defmodule AL do
   Scan the oapply table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
   E.G., {:get_oapply, :initialise_class, :$head, :"$body"} should find all the implementations of initialise_class and bind :"$head" and :"$body" with that data
   
-  __{:exec, method_id_pattern, bind_head_pattern}__
-  Exec takes a method_id and a binding for the head and executes the body as the new set of goals- AKA it expands the head into the body
+  __{:oapply, method_id_pattern, bind_head_pattern}__
+  Oapply takes a method_id and a binding for the head and executes the body as the new set of goals- AKA it expands the head into the body
   In order to do this, it takes bindings provided from bind_head_pattern and unifies with a freshened head_pattern (using scope pointer) so that information can be passed in to the body.
   A continuation is created in order to continue execution of the supergoal once the method is finished.
   When the method is complete, information bound during method execution time is re-bound if it was queried in the binding head.
@@ -194,7 +264,7 @@ defmodule AL do
   end
   
   @spec backtrack(t()) :: t() | nil
-  def backtrack(state) do
+  def backtrack(state) do   
     case state.choicepoint_stack do
       [] -> %AL{state |
                active_choicepoint: %AL.Choicepoint{
@@ -217,6 +287,8 @@ defmodule AL do
   def continue(nil), do: nil
 
   def continue(state) do
+    IO.inspect(state.active_choicepoint.goals)
+    
     cond do
       state.active_choicepoint.bindings == nil -> backtrack(state)
       
@@ -297,7 +369,7 @@ defmodule AL do
     end
   end
 
-  def interp({:get_super, object_pattern, super_pattern}, state) do
+  def interp({:get_super, object_pattern, super_pattern}, state) do    
     case AL.Objects.scan_super(object_pattern, super_pattern) do
       [] -> backtrack(state)
       [choice | next_choices] ->
@@ -361,7 +433,7 @@ defmodule AL do
     end
   end
 
-  def interp({:exec, method_id_pattern, bind_head_pattern}, state) do
+  def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
     case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] -> backtrack(state)
       [{:oapply, id, head, body} | next_choices] ->

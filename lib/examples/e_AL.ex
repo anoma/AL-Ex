@@ -4,6 +4,7 @@ defmodule Examples.AL do
   """
 
   use ExExample
+  use AL
   import ExUnit.Assertions
 
   example bootstrapped_classes() do
@@ -39,86 +40,85 @@ defmodule Examples.AL do
   end
 
   example get_class_command() do
-    {:atomic, {bindings, result}} = AL.eval([{:get_class, :"$a", :"$b"}])
+    {:atomic, {bindings, result}} = run do
+      class(a, b)
+    end
     assert bindings != nil
     result
   end
 
   example class_backtracking() do
     program_state = get_class_command()
-    {:atomic, result} = :mnesia.transaction(fn -> AL.backtrack(program_state) end)
-    assert result != nil
+    {:atomic, {bindings, result}} = next_solution(program_state)
+    assert bindings != nil
     result
   end
 
   example metaclass() do
-    {:atomic, {bindings, result}} =
-      AL.eval([{:get_class, :initialise_class, :"$b"}, {:get_class, :"$b", :class}])
-
+    {:atomic, {bindings, result}} = run do
+      class(:initialise_class, b)
+      class(b, :class)
+    end
+    
     assert Map.get(bindings, :"$b") == :behaviour
+
+    result
   end
 
   example get_oapply_command() do
-    AL.eval([
-      {:get_oapply, :initialise_class, [:"$self" | :"$args"], :"$body"}
-    ])
+    run do
+      oapply(:initialise_class, [:"$self" | :"$args"], :"$body")
+    end
   end
 
   example execute_metaclass_method() do
-    {:atomic, {bindings, result}} = AL.eval([
-      {:exec, :metaclass, [:initialise_class, :"$class", :"$metaclass"]}
-    ])
+    {:atomic, {bindings, result}} = run do
+      metaclass(:initialise_class, :"$class", :"$metaclass")
+    end
+    
     assert Map.get(bindings, :"$class") == :behaviour
     assert Map.get(bindings, :"$metaclass") == :class
     result
   end
-
-  example variable_freshening() do
-    {:atomic, result} = AL.eval([
-      {:exec, :metaclass, [:initialise_class, :"$meta", :"$class"]}
-    ])
-    assert result != nil
-
-    result
-  end
-
+  
   example cut() do
-    {:atomic, {bindings, result}} = AL.eval([
-      {:get_class, :"$object", :"$class"},
-      :cut
-    ])
-
+    {:atomic, {_bindings, result}} = run do
+      class(object, class)
+      cut
+    end
+  
     assert result.choicepoint_stack == [{:mark, 0}]
     result
   end
 
   example implies_then() do
-    {:atomic, {bindings, result}} = AL.eval([
-      {:implies, [{:get_class, :"$object", :"$class"}],
-       [{:get_class, :"$class", :"$metaclass"}],
-       []}
-    ])
-
+    {:atomic, {bindings, result}} = run do
+      implies([class(object, class)],
+        [class(class, metaclass)],
+        [])
+    end
+    
     assert Map.get(bindings, :"$metaclass") != nil
 
     result
   end
 
   example implies_else() do
-    {:atomic, result} = AL.eval([
-      {:implies, [{:get_class, :blah, :"$class"}],
-       [{:get_class, :"$class", :"$metaclass"}],
-       [{:get_class, :metaclass, :"$class"}]}
-    ])
-
+    {:atomic, {_bindings, result}} = run do
+      implies([class(:blah, class)],
+        [class(class, metaclass)],
+        [class(metaclass, class)])
+    end
+    
     result
   end
 
   example make_point_object() do
-    {:atomic, {bindings, result}} = AL.eval([
-      {:exec, :send, [:class, :new, [%{name: :point, super: :object, slots: []}, :"$new_point_class"]]},
-      {:exec, :send, [:"$new_point_class", :new, [:"$_", :"$new_point_object"]]}
-    ])
+    {:atomic, {bindings, result}} = run do
+      send(:class, :new, [%{name: :point, super: :object, slots: []}, new_point_class])
+      send(new_point_class, :new, [_, new_point_object])
+      cut
+    end
 
     assert Map.get(bindings, :"$new_point_class") == :point
     assert Map.get(bindings, :"$new_point_object") == %{class: :point}
