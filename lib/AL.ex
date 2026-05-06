@@ -273,7 +273,7 @@ defmodule AL do
               }}
         end
       else
-        case AL.Objects.scan_class(object_pattern, class_pattern) do
+        case Enum.to_list(AL.Objects.scan_class(object_pattern, class_pattern)) do
           [] -> %AL{state |
                    active_choicepoint: %AL.Choicepoint{state.active_choicepoint |
                                                        bindings: nil}}
@@ -298,7 +298,7 @@ defmodule AL do
   end
 
   def interp({:get_super, object_pattern, super_pattern}, state) do
-    case AL.Objects.scan_super(object_pattern, super_pattern) do
+    case Enum.to_list(AL.Objects.scan_super(object_pattern, super_pattern)) do
       [] -> backtrack(state)
       [choice | next_choices] ->
         %AL{state |
@@ -319,7 +319,7 @@ defmodule AL do
   end
     
   def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    case AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern) do
+    case Enum.to_list(AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern)) do
       [] -> backtrack(state)
       [choice | next_choices] ->
         %AL{state |
@@ -340,7 +340,7 @@ defmodule AL do
   end
 
   def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    case AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern) do
+    case Enum.to_list(AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern)) do
       [] -> backtrack(state)
       [choice | next_choices] ->
                 
@@ -362,7 +362,7 @@ defmodule AL do
   end
 
   def interp({:exec, method_id_pattern, bind_head_pattern}, state) do
-    case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
+    case Enum.to_list(AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body")) do
       [] -> backtrack(state)
       [{:oapply, id, head, body} | next_choices] ->
 
