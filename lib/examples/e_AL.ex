@@ -44,13 +44,6 @@ defmodule Examples.AL do
     result
   end
 
-  example class_backtracking() do
-    program_state = get_class_command()
-    {:atomic, result} = :mnesia.transaction(fn -> AL.backtrack(program_state) end)
-    assert result != nil
-    result
-  end
-
   example metaclass() do
     {:atomic, {bindings, result}} =
       AL.eval([{:get_class, :initialise_class, :"$b"}, {:get_class, :"$b", :class}])
@@ -119,7 +112,6 @@ defmodule Examples.AL do
       {:exec, :send, [:class, :new, [%{name: :point, super: :object, slots: []}, :"$new_point_class"]]},
       {:exec, :send, [:"$new_point_class", :new, [:"$_", :"$new_point_object"]]}
     ])
-
     assert Map.get(bindings, :"$new_point_class") == :point
     assert Map.get(bindings, :"$new_point_object") == %{class: :point}
     
