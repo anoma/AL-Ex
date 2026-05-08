@@ -123,7 +123,7 @@ defmodule AL do
     input_vars = AL.Var.find_vars(program)
     
     :mnesia.transaction(fn ->
-      choicepoints = interp(program, AL.Var.empty_bindings())
+      choicepoints = interp(program, AL.Var.empty_bindings(), tx_id)
       result = %AL{
         choicepoints: choicepoints,
         tx_id: tx_id,
@@ -137,7 +137,7 @@ defmodule AL do
       else
         output_vars = input_vars
         |> Enum.map(fn variable ->
-          val = AL.Var.deref(active_choicepoint, variable)
+          val = AL.Var.subst(variable, active_choicepoint)
           if AL.Var.var?(val) do
             {variable, variable}
           else
@@ -151,60 +151,63 @@ defmodule AL do
     end)
   end
   
-  @spec interp(goal(), t()) :: t() | nil
-  def interp([], bindings) do
+  @spec interp(goal(), t(), non_neg_integer()) :: t() | nil
+  def interp([], bindings, _tx_id) do
     Stream.map([bindings], & &1)
   end
   
-  def interp([hd | tl], bindings) do
-    Stream.flat_map(interp(hd, bindings), fn bindings -> interp(tl, bindings) end)
-  end
-  
-  def interp({:get_class, object_pattern, class_pattern}, bindings) when is_map(object_pattern) do
-    case Map.get(object_pattern, :class) do
-      nil -> Stream.map([], & &1)
-      class_name -> Stream.filter(Stream.map([AL.Var.unify(class_name, class_pattern, bindings)], & &1), & &1)
-    end
+  def interp([hd | tl], bindings, tx_id) do
+    Stream.flat_map(interp(hd, bindings, tx_id), fn bindings -> interp(tl, bindings, tx_id) end)
   end
 
-  def interp({:get_class, object_pattern, class_pattern}, bindings) do
+  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) when is_map(object_pattern) and is_map_key(object_pattern, :class) do
+    Stream.filter(Stream.map([AL.Var.unify(object_pattern[:class], class_pattern, bindings)], & &1), & &1)
+  end
+  
+  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) when is_map(object_pattern) do
+    Stream.map([], & &1)
+  end
+
+  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) when is_map_key(bindings, object_pattern) do
+    interp({:get_class, AL.Var.deref(bindings, object_pattern), class_pattern}, bindings, tx_id)
+  end
+
+  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) do
     Stream.filter(Stream.map(AL.Objects.scan_class(object_pattern, class_pattern), fn choice ->
       AL.Var.unify(choice, {:class, object_pattern, class_pattern}, bindings)
     end), & &1)
   end
 
-  def interp({:get_super, object_pattern, super_pattern}, bindings) do
+  def interp({:get_super, object_pattern, super_pattern}, bindings, tx_id) do
     Stream.filter(Stream.map(AL.Objects.scan_super(object_pattern, super_pattern), fn choice ->
       AL.Var.unify(choice, {:super, object_pattern, super_pattern}, bindings)
     end), & &1)
   end
     
-  def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, bindings) do
+  def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, bindings, tx_id) do
     Stream.filter(Stream.map(AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern), fn choice ->
       AL.Var.unify(choice, {:method, object_pattern, method_name_pattern, method_id_pattern}, bindings)
     end), & &1)
   end
 
-  def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, bindings) do
+  def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, bindings, tx_id) do
     Stream.filter(Stream.map(AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern), fn choice ->
       AL.Var.unify(choice, {:oapply, object_pattern, head_pattern, body_pattern}, bindings)
     end), & &1)
   end
 
-  def interp({:exec, method_id_pattern, bind_head_pattern}, bindings) do
+  def interp({:exec, method_id_pattern, bind_head_pattern}, bindings, tx_id) do
     Stream.flat_map(AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body"), fn {:oapply, id, head, body} ->
-        freshener = Integer.to_string(System.unique_integer([:monotonic]))
-
-        head_pattern = AL.Var.freshen(head, freshener)
-        body_pattern = AL.Var.freshen(body, freshener)
-
+      freshener = Integer.to_string(System.unique_integer([:monotonic]))
+      head_pattern = AL.Var.freshen(head, freshener)
+      body_pattern = AL.Var.freshen(body, freshener)
       bindings = AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, bindings)
       if bindings != nil do
-        interp(body_pattern, bindings)
+        interp(body_pattern, bindings, tx_id)
       else
         Stream.map([], & &1)
       end
-      end)
+    end)
   end
 
   #def interp(:cut, bindings) do
@@ -219,63 +222,63 @@ defmodule AL do
   #  }
   #end
 
-  def interp({:implies, condition, then, otherwise}, bindings) do
-    cond_choicepoints = interp(condition, bindings)
+  def interp({:implies, condition, then, otherwise}, bindings, tx_id) do
+    cond_choicepoints = interp(condition, bindings, tx_id)
     first_choicepoint = Enum.at(cond_choicepoints, 0)
     if first_choicepoint != nil do
       Stream.flat_map(Stream.concat([first_choicepoint], Stream.drop(cond_choicepoints, 1)), fn bindings ->
-      interp(then, bindings)
+      interp(then, bindings, tx_id)
       end)
     else
-      interp(otherwise, bindings)
+      interp(otherwise, bindings, tx_id)
     end
   end
 
-  def interp({:or, left, right}, bindings) do
-    Stream.concat(interp(left, bindings), interp(right, bindings))
+  def interp({:or, left, right}, bindings, tx_id) do
+    Stream.concat(interp(left, bindings, tx_id), interp(right, bindings, tx_id))
   end
 
-  def interp({:set_class, object_pattern, class_pattern}, state) do
-    AL.Events.set_class(state.tx_id, object_pattern, class_pattern)
+  def interp({:set_class, object_pattern, class_pattern}, bindings, tx_id) do
+    AL.Events.set_class(tx_id, object_pattern, class_pattern)
     AL.Objects.set_class(object_pattern, class_pattern)
     
-    state
+    Stream.map([bindings], & &1)
   end
 
-  def interp({:set_super, object_pattern, super_pattern}, state) do
-    AL.Events.set_super(state.tx_id, object_pattern, super_pattern)
+  def interp({:set_super, object_pattern, super_pattern}, bindings, tx_id) do
+    AL.Events.set_super(tx_id, object_pattern, super_pattern)
     AL.Objects.set_super(object_pattern, super_pattern)
     
-    state
+    Stream.map([bindings], & &1)
   end
 
-  def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    AL.Events.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern)
+  def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, bindings, tx_id) do
+    AL.Events.set_method(tx_id, object_pattern, method_name_pattern, method_id_pattern)
     AL.Objects.set_method(object_pattern, method_name_pattern, method_id_pattern)
     
-    state
+    Stream.map([bindings], & &1)
   end
 
-  def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    AL.Events.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern)
+  def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, bindings, tx_id) do
+    AL.Events.set_oapply(tx_id, object_pattern, head_pattern, body_pattern)
     AL.Objects.set_oapply(object_pattern, head_pattern, body_pattern)
     
-    state
+    Stream.map([bindings], & &1)
   end
 
-  def interp({:set_slots, object_pattern, slots_pattern}, state) do
-    AL.Events.set_slots(state.tx_id, object_pattern, slots_pattern)
+  def interp({:set_slots, object_pattern, slots_pattern}, bindings, tx_id) do
+    AL.Events.set_slots(tx_id, object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
     
-    state
+    Stream.map([bindings], & &1)
   end
 
-  def interp({:print, pattern}, bindings) do
+  def interp({:print, pattern}, bindings, tx_id) do
     IO.inspect(pattern)
     Stream.map([bindings], & &1)
   end
 
-  def interp(:fail, _bindings) do
+  def interp(:fail, _bindings, tx_id) do
     Stream.map([], & &1)
   end
 end
