@@ -1,52 +1,10 @@
-defmodule AL.Continuation do
-  @moduledoc """
-  I define the information an AL continuation carries
-  goals: List of goals for the continuation
-  goal_pointer: Pointer to the goal in the continuation we are on
-  """
-  
-  use TypedStruct
-
-  typedstruct enforce: true do
-    field(:goals, [AL.goal()], enforce: true, default: [])
-    field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
-    field(:scope_pointer, AL.scope(), enforce: true, default: 0)
-  end
-end
-
-defmodule AL.Choicepoint do
-  @moduledoc """
-  I define the information an AL choicepoint carries
-
-  goals: List of goals this choicepoint needs to succeed
-  bindings: Map of variable bindings this choicepoint provides
-  continuations: Stack of call continuations
-  goal_pointer: Pointer to the goal this choicepoint applies to
-  scope_pointer: Pointer to the call-depth (for cut markers)
-  """
-  use TypedStruct
-
-  typedstruct enforce: true do
-    field(:goals, [AL.goal()], enforce: true, default: [])
-    field(:bindings, AL.Var.bindings() | nil, enforce: true, default: %{})
-    field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
-    field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
-    field(:scope_pointer, AL.scope(), enforce: true, default: 0)
-  end
-end
-
 defmodule AL do
   @moduledoc """
   I am the top-level interpreter for AL
 
   I define the state of an AL program
-
-  active_choicepoint: Current choicepoint under execution
-  choicepoint_stack: Stack of most recent choicepoints discovered (thus reflecting DFS)
   """
   use TypedStruct
-
-  @type scope() :: non_neg_integer() | binary()
 
   @type goal() ::
           {:get_class, AL.Var.t(), AL.Var.t()}
@@ -65,8 +23,6 @@ defmodule AL do
           | {:set_slots, AL.Var.t(), AL.Var.t()}
           | {:print, AL.Var.t()}
           | :fail
-
-  @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
 
   typedstruct enforce: true do
     field(:choicepoints, Enumerable.t(AL.Var.bindings()), enforce: true)
