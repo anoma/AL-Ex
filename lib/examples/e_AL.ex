@@ -81,7 +81,6 @@ defmodule Examples.AL do
       :cut
     ])
 
-    assert result.choicepoint_stack == [{:mark, 0}]
     result
   end
 
