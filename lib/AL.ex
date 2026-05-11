@@ -272,7 +272,8 @@ defmodule AL do
   end
 
   def interp({:or, left, right}, bindings, tx_id) do
-    Stream.concat(interp(left, bindings, tx_id), interp(right, bindings, tx_id))
+    branches = Stream.map([{false, left}, {false, right}], & &1)
+    cuttable_flat_map(branches, & interp(&1, bindings, tx_id))
   end
 
   def interp({:set_class, object_pattern, class_pattern}, bindings, tx_id) do
