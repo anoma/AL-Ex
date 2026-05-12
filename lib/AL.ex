@@ -202,13 +202,18 @@ defmodule AL do
   end
 
   def interp({:exec, method_id_pattern, bind_head_pattern}, bindings, tx_id) do
-    Stream.flat_map(AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body"), fn {:oapply, id, head, body} ->
+    # Bring methods into the domain of cuttable_flat_map
+    methods = Stream.map(AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body"), &no_cut/1)
+    # Attempt to apply arguments to the methods found
+    choicepoints = cuttable_flat_map(methods, fn {:oapply, id, head, body} ->
       freshener = Integer.to_string(System.unique_integer([:monotonic]))
       head_pattern = AL.Var.freshen(head, freshener)
       body_pattern = AL.Var.freshen(body, freshener)
       bindings = AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, bindings)
-      if bindings != nil, do: Stream.map(interp(body_pattern, bindings, tx_id), fn {_cut, x} -> {false, x} end), else: empty()
+      if bindings != nil, do: interp(body_pattern, bindings, tx_id), else: empty()
     end)
+    # Do not propagate the cuts upwards beyond the subgoal
+    Stream.map(choicepoints, fn {_cut, x} -> {false, x} end)
   end
 
   def interp(:cut, bindings, tx_id), do: once({true, bindings})
