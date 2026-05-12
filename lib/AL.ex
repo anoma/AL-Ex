@@ -25,7 +25,7 @@ defmodule AL do
           | :fail
 
   typedstruct enforce: true do
-    field(:choicepoints, Enumerable.t(AL.Var.bindings()), enforce: true)
+    field(:choicepoints, Enumerable.t({boolean(), AL.Var.bindings()}), enforce: true)
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
     field(:trace, [goal()], enforce: true, default: [])
     field(:program, [goal()], enforce: true, default: [])
@@ -107,20 +107,17 @@ defmodule AL do
     end)
   end
 
-  # Ensure that everything to the right of a cut is also a cut
-  def propagate_cuts({cut1, elt1}, {cut0, _}), do: {cut0 or cut1, elt1}
-
   # An extension of flat_map that halts outer iteration once an inner sequence cuts
   def cuttable_flat_map(enum, mapper) do
     # Group the results of each map and sequence everything
-    flattened = Stream.transform(enum, 0, fn {_cut, elt}, acc ->
-      cut_propagated = Stream.scan(mapper.(elt), &propagate_cuts/2)
-      indexed = Stream.map(cut_propagated, fn {cut, elt} -> {acc, cut, elt} end)
+    flattened = Stream.transform(enum, 0, fn {outer_cut, elt}, acc ->
+      indexed = Stream.map(mapper.(elt), fn {cut, elt} -> {acc, outer_cut, cut, elt} end)
       {indexed, acc+1}
     end)
     # Take whole groups until one with a cut is found
-    Stream.transform(flattened, {0, false}, fn {idx1, cut1, elt}, {idx0, cut0} ->
-      if idx0 == idx1 or !cut0, do: {[{cut1, elt}], {idx1, cut1}}, else: {:halt, {idx1, cut1}}
+    Stream.transform(flattened, {0, false}, fn {idx1, outer_cut1, cut1, elt}, {idx0, cut0} ->
+      next_acc = {idx1, cut0 or cut1}
+      if idx0 == idx1 or !cut0, do: {[{outer_cut1 or cut1, elt}], next_acc}, else: {:halt, next_acc}
     end)
   end
 
