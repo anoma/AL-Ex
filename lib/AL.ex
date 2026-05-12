@@ -27,7 +27,6 @@ defmodule AL do
   typedstruct enforce: true do
     field(:choicepoints, Enumerable.t({boolean(), AL.Var.bindings()}), enforce: true)
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
-    field(:trace, [goal()], enforce: true, default: [])
     field(:program, [goal()], enforce: true, default: [])
   end
 
@@ -35,6 +34,21 @@ defmodule AL do
     quote do
       import AL
     end
+  end
+
+
+  # Extract the given variables from the choicepoint and do the pointer chasing
+  def flatten_bindings(input_vars, choicepoint) do
+    input_vars
+    |> Enum.map(fn variable ->
+      val = AL.Var.subst(variable, choicepoint)
+      if AL.Var.var?(val) do
+        {variable, variable}
+      else
+        {variable, val}
+      end
+    end)
+    |> Map.new()
   end
 
   @doc """
@@ -75,36 +89,15 @@ defmodule AL do
   @spec eval([goal()]) :: {:atomic, t() | nil} | {:aborted, term()}
   def eval(program) do
     tx_id = AL.Events.system_time()
-
     input_vars = AL.Var.find_vars(program)
-    
-    :mnesia.transaction(fn ->
-      choicepoints = interp(program, AL.Var.empty_bindings(), tx_id)
-      result = %AL{
-        choicepoints: choicepoints,
-        tx_id: tx_id,
-        trace: [],
-        program: program
-      }
-
-      {_cut, active_choicepoint} = Enum.at(result.choicepoints, 0)
-      if active_choicepoint == nil do
-        :mnesia.abort(result.trace)
-      else
-        output_vars = input_vars
-        |> Enum.map(fn variable ->
-          val = AL.Var.subst(variable, active_choicepoint)
-          if AL.Var.var?(val) do
-            {variable, variable}
-          else
-            {variable, val}
-          end
-        end)
-        |> Map.new()
-
-        {output_vars, result}
-      end
-    end)
+    flatten_binds = fn {_cut, bindings} -> flatten_bindings(input_vars, bindings) end
+    choicepoints = interp(program, AL.Var.empty_bindings(), tx_id)
+    flattened_choicepoints = Stream.map(choicepoints, flatten_binds)
+    %AL{
+      choicepoints: flattened_choicepoints,
+      tx_id: tx_id,
+      program: program
+    }
   end
 
   # An extension of flat_map that halts outer iteration once an inner sequence cuts
