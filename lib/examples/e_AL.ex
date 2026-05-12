@@ -107,7 +107,7 @@ defmodule Examples.AL do
                ])
       Enum.to_list(result.choicepoints)
     end)
-    assert Enum.count(choicepoints) == 10
+    assert Enum.count(choicepoints) == 1
     assert Map.get(hd(choicepoints), :"$metaclass") != nil
   end
 

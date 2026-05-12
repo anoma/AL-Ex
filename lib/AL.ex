@@ -89,10 +89,16 @@ defmodule AL do
   @spec eval([goal()]) :: {:atomic, t() | nil} | {:aborted, term()}
   def eval(program) do
     tx_id = AL.Events.system_time()
+    # Extract the variables that that the queryer wants to know, i.e. remove internal variables
     input_vars = AL.Var.find_vars(program)
+    # Specialize flatten_bindings for our program's particular variables
     flatten_binds = fn {_cut, bindings} -> flatten_bindings(input_vars, bindings) end
+    # Get a stream of all the possible bindings
     choicepoints = interp(program, AL.Var.empty_bindings(), tx_id)
-    flattened_choicepoints = Stream.map(choicepoints, flatten_binds)
+    # First remove the failed bindings from the stream
+    filtered_choicepoints = Stream.filter(choicepoints, fn {_cut, bindings} -> bindings != nil end)
+    # Then simplify bindings by extracting source variables and pointer chasing
+    flattened_choicepoints = Stream.map(filtered_choicepoints, flatten_binds)
     %AL{
       choicepoints: flattened_choicepoints,
       tx_id: tx_id,
@@ -100,11 +106,15 @@ defmodule AL do
     }
   end
 
+  # Mark the stream to indicate the presence of a subgoal
+  def mark(stream), do: Stream.concat(once({false, nil}), stream)
+
   # An extension of flat_map that halts outer iteration once an inner sequence cuts
   def cuttable_flat_map(enum, mapper) do
     # Group the results of each map and sequence everything
     flattened = Stream.transform(enum, 0, fn {outer_cut, elt}, acc ->
-      indexed = Stream.map(mapper.(elt), fn {cut, elt} -> {acc, outer_cut, cut, elt} end)
+      indexed =
+        Stream.map(mark(if elt != nil, do: mapper.(elt), else: []), fn {cut, elt} -> {acc, outer_cut, cut, elt} end)
       {indexed, acc+1}
     end)
     # Take whole groups until one with a cut is found
@@ -212,13 +222,11 @@ defmodule AL do
   def interp(:cut, bindings, tx_id), do: once({true, bindings})
 
   def interp({:implies, condition, then, otherwise}, bindings, tx_id) do
-    cond_choicepoints = interp(condition, bindings, tx_id)
-    case uncons(cond_choicepoints) do
-      {:ok, {first_choicepoint, cond_choicepoints}} ->
-        cuttable_flat_map(cons(first_choicepoint, cond_choicepoints), fn bindings ->
-          interp(then, bindings, tx_id)
-        end)
-      :error -> interp(otherwise, bindings, tx_id)
+    cond_stream = interp(condition, bindings, tx_id)
+    case Enum.find(cond_stream, fn {cut, elt} -> cut or elt != nil end) do
+      nil -> interp(otherwise, bindings, tx_id)
+      {true, nil} -> empty()
+      {_cut, bindings} -> interp(then, bindings, tx_id)
     end
   end
 
