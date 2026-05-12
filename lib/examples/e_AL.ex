@@ -41,7 +41,10 @@ defmodule Examples.AL do
   example get_class_command() do
     {:atomic, choicepoints} = :mnesia.transaction(fn ->
       result = AL.eval([{:get_class, :"$a", :"$b"}])
-      Enum.to_list(result.choicepoints)
+      result.choicepoints
+    end)
+    {:atomic, choicepoints} = :mnesia.transaction(fn ->
+      Enum.to_list(choicepoints)
     end)
     assert Enum.count(choicepoints) == 10
   end

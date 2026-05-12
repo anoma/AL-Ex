@@ -21,53 +21,40 @@ defmodule AL.Objects do
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
   @type oapply_record() :: {:oapply, AL.Var.t(), AL.Var.t(), [AL.goal()]}
 
-  def selection_to_stream(selection) do
-    Stream.resource(
-      fn -> selection end,
-      fn acc ->
-        case acc do
-          {matches, cont} -> {matches, :mnesia.select(cont)}
-          :"$end_of_table" -> {:halt, acc}
-        end
-      end,
-      fn cont -> nil end
-    )
-  end
-
   @spec scan_class(AL.Var.t(), AL.Var.t()) :: [class_record()]
   def scan_class(self_pattern, class_pattern) do
-    selection_to_stream(:mnesia.select(:class, [
+    Stream.map(:mnesia.select(:class, [
       {AL.Var.to_mnesia_pattern({:class, self_pattern, class_pattern}), [], [:"$_"]}
-                        ], 1, :read))
+    ]), & &1)
   end
 
   @spec scan_super(AL.Var.t(), AL.Var.t()) :: [super_record()]
   def scan_super(self_pattern, super_pattern) do
-    selection_to_stream(:mnesia.select(:super, [
+    Stream.map(:mnesia.select(:super, [
       {AL.Var.to_mnesia_pattern({:super, self_pattern, super_pattern}), [], [:"$_"]}
-    ], 1, :read))
+    ]), & &1)
   end
 
   @spec scan_slots(AL.Var.t(), AL.Var.t()) :: [slots_record()]
   def scan_slots(self_pattern, slots_pattern) do
-    selection_to_stream(:mnesia.select(:slots, [
+    Stream.map(:mnesia.select(:slots, [
       {AL.Var.to_mnesia_pattern({:slots, self_pattern, slots_pattern}), [], [:"$_"]}
-    ], 1, :read))
+    ]), & &1)
   end
 
   @spec scan_method(AL.Var.t(), AL.Var.t(), AL.Var.t()) :: [method_record()]
   def scan_method(self_pattern, method_name_pattern, method_id_pattern) do
-    selection_to_stream(:mnesia.select(:method, [
+    Stream.map(:mnesia.select(:method, [
       {AL.Var.to_mnesia_pattern({:method, self_pattern, method_name_pattern, method_id_pattern}),
        [], [:"$_"]}
-    ], 1, :read))
+    ]), & &1)
   end
 
   @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t()) :: [oapply_record()]
   def scan_oapply(self_pattern, head_pattern, body_pattern) do
-    selection_to_stream(:mnesia.select(:oapply, [
+    Stream.map(:mnesia.select(:oapply, [
       {AL.Var.to_mnesia_pattern({:oapply, self_pattern, head_pattern, body_pattern}), [], [:"$_"]}
-    ], 1, :read))
+    ]), & &1)
   end
 
   @spec set_class(AL.Var.t(), AL.Var.t()) :: :ok
