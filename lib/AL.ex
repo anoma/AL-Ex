@@ -222,10 +222,12 @@ defmodule AL do
   def interp(:cut, bindings, tx_id), do: once({true, bindings})
 
   def interp({:implies, condition, then, otherwise}, bindings, tx_id) do
-    cond_stream = interp(condition, bindings, tx_id)
-    case Enum.find(cond_stream, fn {cut, elt} -> cut or elt != nil end) do
+    find_bindings = fn {cut, elt} -> elt != nil end
+    # Look for a solution to the condition - cuts from condition are not propagated upwards
+    case Enum.find(interp(condition, bindings, tx_id), find_bindings) do
+      # No solutions trigger the otherwise clause
       nil -> interp(otherwise, bindings, tx_id)
-      {true, nil} -> empty()
+      # Use the first solution to the condition and trigger the consequent
       {_cut, bindings} -> interp(then, bindings, tx_id)
     end
   end
