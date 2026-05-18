@@ -99,36 +99,14 @@ defmodule AL do
     filtered_choicepoints = Stream.filter(choicepoints, fn {_cut, bindings} -> bindings != nil end)
     # Then simplify bindings by extracting source variables and pointer chasing
     flattened_choicepoints = Stream.map(filtered_choicepoints, flatten_binds)
-    %AL{
-      choicepoints: flattened_choicepoints,
-      tx_id: tx_id,
-      program: program
-    }
-  end
-
-  # Mark the stream to indicate the presence of a subgoal
-  def mark(stream), do: Stream.concat(once({false, nil}), stream)
-
-  # An extension of flat_map that halts outer iteration once an inner sequence cuts
-  def cuttable_flat_map(enum, mapper) do
-    # Group the results of each map and sequence everything
-    flattened = Stream.transform(enum, 0, fn {outer_cut, elt}, acc ->
-      indexed =
-        Stream.map(mark(if elt != nil, do: mapper.(elt), else: []), fn {cut, elt} -> {acc, outer_cut, cut, elt} end)
-      {indexed, acc+1}
-    end)
-    # Take whole groups until one with a cut is found
-    Stream.transform(flattened, {0, false}, fn {idx1, outer_cut1, cut1, elt}, {idx0, cut0} ->
-      next_acc = {idx1, cut0 or cut1}
-      if idx0 == idx1 or !cut0, do: {[{outer_cut1 or cut1, elt}], next_acc}, else: {:halt, next_acc}
-    end)
+    %AL{ choicepoints: flattened_choicepoints, tx_id: tx_id, program: program }
   end
 
   # Create the empty stream
-  def empty(), do: Stream.map([], & &1)
+  def empty(), do: []
 
   # Create a singleton stream that returns the given element
-  def once(elt), do: Stream.map([elt], & &1)
+  def once(elt), do: [elt]
 
   # A enumeration reducer that always returns the current element
   def last_reducer(x, _y), do: {:suspend, {:ok, x}}
@@ -157,11 +135,25 @@ defmodule AL do
   # Prepend the given element to the given stream
   def cons(a, b), do: Stream.concat([a], b)
 
-  # Cutting or not does not make sense for a nil binding
-  def no_cut(nil), do: nil
-
   # Attach a falso cut flag to the given bindings
   def no_cut(x), do: {false, x}
+
+  # Mark the stream to indicate the presence of a subgoal
+  def mark(stream), do: cons(no_cut(nil), stream)
+
+  # An extension of flat_map that halts outer iteration once an inner sequence cuts
+  def cuttable_flat_map(enum, mapper) do
+    # Group the results of each map and sequence everything
+    flattened = Stream.transform(enum, 0, fn {outer_cut, elt}, acc ->
+      marked = mark(if elt != nil, do: mapper.(elt), else: [])
+      {Stream.map(marked, fn {cut, elt} -> {acc, outer_cut, cut, elt} end), acc+1}
+    end)
+    # Take whole groups until one with a cut is found
+    Stream.transform(flattened, {0, false}, fn {idx1, outer_cut1, cut1, elt}, {idx0, cut0} ->
+      next_acc = {idx1, cut0 or cut1}
+      if idx0 == idx1 or !cut0, do: {[{outer_cut1 or cut1, elt}], next_acc}, else: {:halt, next_acc}
+    end)
+  end
   
   @spec interp(goal(), t(), non_neg_integer()) :: t() | nil
   def interp([], bindings, _tx_id), do: once(no_cut(bindings))
@@ -170,38 +162,38 @@ defmodule AL do
     cuttable_flat_map(interp(hd, bindings, tx_id), fn bindings -> interp(tl, bindings, tx_id) end)
   end
 
-  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) when is_map(object_pattern) and is_map_key(object_pattern, :class) do
-    Stream.filter(Stream.map([no_cut(AL.Var.unify(object_pattern[:class], class_pattern, bindings))], & &1), & &1)
+  def interp({:get_class, object_pattern, class_pattern}, bindings, _tx_id) when is_map(object_pattern) and is_map_key(object_pattern, :class) do
+    Stream.map([no_cut(AL.Var.unify(object_pattern[:class], class_pattern, bindings))], & &1)
   end
   
-  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) when is_map(object_pattern), do: empty()
+  def interp({:get_class, object_pattern, _class_pattern}, _bindings, _tx_id) when is_map(object_pattern), do: empty()
 
   def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) when is_map_key(bindings, object_pattern) do
     interp({:get_class, AL.Var.deref(bindings, object_pattern), class_pattern}, bindings, tx_id)
   end
 
-  def interp({:get_class, object_pattern, class_pattern}, bindings, tx_id) do
-    Stream.filter(Stream.map(AL.Objects.scan_class(object_pattern, class_pattern), fn choice ->
+  def interp({:get_class, object_pattern, class_pattern}, bindings, _tx_id) do
+    Stream.map(AL.Objects.scan_class(object_pattern, class_pattern), fn choice ->
       no_cut(AL.Var.unify(choice, {:class, object_pattern, class_pattern}, bindings))
-    end), & &1)
+    end)
   end
 
-  def interp({:get_super, object_pattern, super_pattern}, bindings, tx_id) do
-    Stream.filter(Stream.map(AL.Objects.scan_super(object_pattern, super_pattern), fn choice ->
+  def interp({:get_super, object_pattern, super_pattern}, bindings, _tx_id) do
+    Stream.map(AL.Objects.scan_super(object_pattern, super_pattern), fn choice ->
       no_cut(AL.Var.unify(choice, {:super, object_pattern, super_pattern}, bindings))
-    end), & &1)
+    end)
   end
     
-  def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, bindings, tx_id) do
-    Stream.filter(Stream.map(AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern), fn choice ->
+  def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, bindings, _tx_id) do
+    Stream.map(AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern), fn choice ->
       no_cut(AL.Var.unify(choice, {:method, object_pattern, method_name_pattern, method_id_pattern}, bindings))
-    end), & &1)
+    end)
   end
 
-  def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, bindings, tx_id) do
-    Stream.filter(Stream.map(AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern), fn choice ->
+  def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, bindings, _tx_id) do
+    Stream.map(AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern), fn choice ->
       no_cut(AL.Var.unify(choice, {:oapply, object_pattern, head_pattern, body_pattern}, bindings))
-    end), & &1)
+    end)
   end
 
   def interp({:exec, method_id_pattern, bind_head_pattern}, bindings, tx_id) do
@@ -219,10 +211,10 @@ defmodule AL do
     Stream.map(choicepoints, fn {_cut, x} -> {false, x} end)
   end
 
-  def interp(:cut, bindings, tx_id), do: once({true, bindings})
+  def interp(:cut, bindings, _tx_id), do: once({true, bindings})
 
   def interp({:implies, condition, then, otherwise}, bindings, tx_id) do
-    find_bindings = fn {cut, elt} -> elt != nil end
+    find_bindings = fn {_cut, elt} -> elt != nil end
     # Look for a solution to the condition - cuts from condition are not propagated upwards
     case Enum.find(interp(condition, bindings, tx_id), find_bindings) do
       # No solutions trigger the otherwise clause
@@ -267,10 +259,10 @@ defmodule AL do
     once(no_cut(bindings))
   end
 
-  def interp({:print, pattern}, bindings, tx_id) do
+  def interp({:print, pattern}, bindings, _tx_id) do
     IO.inspect(pattern)
     once(no_cut(bindings))
   end
 
-  def interp(:fail, _bindings, tx_id), do: empty()
+  def interp(:fail, _bindings, _tx_id), do: empty()
 end
