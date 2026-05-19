@@ -13,7 +13,6 @@ defmodule Examples.ALObjects do
         send(:class, :new, [%{name: :greeter, super: :object, slots: []}, _])
 
         defmethod(:greeter, :greet, [self, name]) do
-          print(["hello from", self, "to", name])
         end
 
         send(:greeter, :new, [_, instance])
@@ -44,18 +43,16 @@ defmodule Examples.ALObjects do
         send(:class, :new, [
           %{name: :counter_meta, super: :class, slots: []},
           _
-        ])
-
-        set_method(:counter_meta, :init, :initialise_counter)
-        set_class(:initialise_counter, :behaviour)
+            ])
         set_slots(:counter_meta, %{count: []})
 
-        set_oapply(:initialise_counter, [self, args, name]) do
+        defmethod(:counter_meta, :init, [self, args, name]) do
           class(self, meta)
           get_slot(meta, :count, count)
           set_slots(meta, %{count: ["new class!" | count]})
           oapply(:initialise_class, [self, args, name])
           set_method(name, :init, :initialise_counted_object)
+          cut
         end
 
         set_class(:initialise_counted_object, :behaviour)
@@ -63,7 +60,9 @@ defmodule Examples.ALObjects do
           send(self, :meta, [meta, metaclass])
           get_slot(metaclass, :count, count)
           set_slots(metaclass, %{count: ["new object!" | count]})
-          oapply(:initialise_object, [self, _, self])
+          # TODO find a good way to do call next method
+          # oapply(:initialise_object, [self, _, self])
+          cut
         end
 
         send(:counter_meta, :new, [

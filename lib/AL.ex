@@ -70,6 +70,8 @@ defmodule AL do
           | {:retract_super, AL.Var.t(), AL.Var.t()}
           | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:retract_oapply, AL.Var.t(), AL.Var.t()}
+          | {:spawn_process, AL.Var.t(), AL.Var.t(), [goal()]}
+          | {:gensym, AL.Var.t()}
           | {:print, AL.Var.t()}
           | :fail
 
@@ -159,6 +161,8 @@ defmodule AL do
   def ast_to_pattern({:retract_oapply, _, [object, head]}),
     do: {:retract_oapply, ast_to_pattern(object), ast_to_pattern(head)}
 
+  def ast_to_pattern({:gensym, _, [var]}), do: {:gensym, ast_to_pattern(var)}
+
   def ast_to_pattern({:print, _, [pattern]}), do: {:print, ast_to_pattern(pattern)}
 
   def ast_to_pattern([]), do: []
@@ -170,13 +174,16 @@ defmodule AL do
 
   def ast_to_pattern({:findall, _, [template, condition, result]}),
     do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
+  def ast_to_pattern({:spawn_process, _, [object, head, body]}),
+    do: {:spawn_process, ast_to_pattern(object), ast_to_pattern(head), ast_to_pattern(body)}
 
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
-    {:oapply, :send, [
+    {:oapply, :defmethod, [
       ast_to_pattern(class),
-      :defmethod,
-      [ast_to_pattern(method_name), ast_to_pattern(head), ast_to_pattern(body)]
-    ]}
+      ast_to_pattern(method_name),
+      ast_to_pattern(head),
+      ast_to_pattern(body)]
+    }
   end
 
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
@@ -247,8 +254,9 @@ defmodule AL do
    TODO fix leakiness on -> marks? Or maybe not necessary
    TODO Make fresheners deterministic 
   """
-  @spec eval([goal()]) :: {:atomic, t() | nil} | {:aborted, term()}
-  def eval(program) do
+  @spec eval([goal()], AL.Var.bindings()) :: {:atomic, t() | nil} | {:aborted, term()}
+  def eval(program, initial_bindings \\ nil) do
+    bindings = initial_bindings || AL.Var.empty_bindings()
     input_vars = AL.Var.find_vars(program)
 
     :mnesia.transaction(fn ->
@@ -258,7 +266,7 @@ defmodule AL do
         continue(%AL{
           active_choicepoint: %AL.Choicepoint{
             goals: program,
-            bindings: AL.Var.empty_bindings(),
+            bindings: bindings,
             continuations: [],
             goal_pointer: 0,
             scope_pointer: 0
@@ -594,6 +602,7 @@ defmodule AL do
         backtrack(state)
 
       [{:oapply, id, head, body} | next_choices] ->
+
         freshener = Integer.to_string(System.unique_integer([:monotonic]))
 
         head_pattern = AL.Var.freshen(head, freshener)
@@ -718,31 +727,31 @@ defmodule AL do
     }
   end
 
+  def interp({:set_class, object, _class}, state) when is_map(object), do: state
   def interp({:set_class, object_pattern, class_pattern}, state) do
     AL.Command.set_class(state.tx_id, object_pattern, class_pattern)
     AL.Objects.set_class(object_pattern, class_pattern)
-
     state
   end
 
+  def interp({:set_super, object, _super}, state) when is_map(object), do: state
   def interp({:set_super, object_pattern, super_pattern}, state) do
     AL.Command.set_super(state.tx_id, object_pattern, super_pattern)
     AL.Objects.set_super(object_pattern, super_pattern)
-
     state
   end
 
+  def interp({:set_method, object, _name, _id}, state) when is_map(object), do: state
   def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
     AL.Command.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern)
     AL.Objects.set_method(object_pattern, method_name_pattern, method_id_pattern)
-
     state
   end
 
+  def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
     AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern)
     AL.Objects.set_oapply(object_pattern, head_pattern, body_pattern)
-
     state
   end
 
@@ -786,35 +795,57 @@ defmodule AL do
     end
   end
 
+  def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
     AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
-
     state
   end
 
+  def interp({:retract_class, object, _class}, state) when is_map(object), do: state
   def interp({:retract_class, object, class}, state) do
     AL.Command.retract_class(state.tx_id, object, class)
     AL.Objects.retract_class(object, class)
     state
   end
 
+  def interp({:retract_super, object, _super}, state) when is_map(object), do: state
   def interp({:retract_super, object, super}, state) do
     AL.Command.retract_super(state.tx_id, object, super)
     AL.Objects.retract_super(object, super)
     state
   end
 
+  def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
   def interp({:retract_method, object, name, id}, state) do
     AL.Command.retract_method(state.tx_id, object, name, id)
     AL.Objects.retract_method(object, name, id)
     state
   end
 
+  def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
   def interp({:retract_oapply, object, head}, state) do
     AL.Command.retract_oapply(state.tx_id, object, head)
     AL.Objects.retract_oapply(object, head)
     state
+  end
+    
+  def interp({:spawn_process, object, head, body}, state) do
+    AL.Command.spawn_process(state.tx_id, object, head, body)
+
+    state
+  end
+
+  def interp({:gensym, var}, state) do
+    sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | bindings: AL.Var.unify(var, sym, state.active_choicepoint.bindings)
+        }
+    }
   end
 
   def interp({:print, pattern}, state) do

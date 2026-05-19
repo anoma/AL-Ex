@@ -24,6 +24,7 @@ defmodule AL.Command do
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
           | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
+          | {:spawn_process, {AL.Var.t(), AL.Var.t(), [AL.goal()]}}
 
   @doc """
   Initialise the event log, or re-use the one on disc.
@@ -163,6 +164,11 @@ defmodule AL.Command do
   @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
   def retract_oapply(tx_id, object, head) do
     write_command(tx_id, {:retract_oapply, {object, head}})
+  end
+
+  @spec spawn_process(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()]) :: :ok
+  def spawn_process(tx_id, object, head, body) do
+    write_command(tx_id, {:spawn_process, {object, head, body}})
   end
 
   @spec write_command(non_neg_integer(), command()) :: :ok

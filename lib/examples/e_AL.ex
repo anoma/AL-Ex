@@ -45,7 +45,7 @@ defmodule Examples.AL do
   example execute_metaclass_method() do
     {:atomic, {bindings, result}} =
       run do
-        metaclass(:initialise_class, :"$class", :"$metaclass")
+        send(:initialise_class, :meta, [:"$class", :"$metaclass"])
       end
 
     assert Map.get(bindings, :"$class") == :behaviour
@@ -186,7 +186,6 @@ defmodule Examples.AL do
     assert slots == %{a: 99, b: 2}
     slots
   end
-
   example map_get() do
     {:atomic, {bindings, program_state}} =
       run do
@@ -213,4 +212,36 @@ defmodule Examples.AL do
     :ok
   end
 
+  example create_process() do
+    head = {:set_class, {:"$object", :"$class"}}
+    body = [{:set_slots, :"$object", %{processed: true}}]
+
+    {:atomic, {bindings, _}} =
+      run do
+        send(:process, :new, [%{head: ^head, body: ^body}, new_proc])
+        cut
+    end
+    
+    new_proc = Map.get(bindings, :"$new_proc")
+    assert is_atom(new_proc)
+    assert Enum.any?(AL.Scheduler.processes(), fn {_t, {h, _pid}} -> h == head end)
+
+    bindings
+  end
+
+  example process_handles_command() do
+    create_process()
+
+    {:atomic, _} =
+      run do
+        set_class(:test_object, :some_class)
+      end
+
+    Process.sleep(50)
+
+    {:atomic, results} =
+      :mnesia.transaction(fn -> AL.Objects.scan_slots(:test_object, :"$slots") end)
+
+    assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
+  end
 end

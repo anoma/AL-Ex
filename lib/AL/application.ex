@@ -13,7 +13,7 @@ defmodule AL.Application do
     AL.Objects.setup()
 
     opts = [strategy: :one_for_one, name: Al.Supervisor]
-    {:ok, pid} = Supervisor.start_link([], opts)
+    {:ok, pid} = Supervisor.start_link([AL.Scheduler], opts)
 
     bootstrap()
 
@@ -39,9 +39,8 @@ defmodule AL.Application do
 
       set_method(:object, :lookup, :lookup)
       set_method(:object, :send, :send)
-      set_method(:object, :init, :initialise_object)
       set_method(:object, :meta, :metaclass)
-      set_method(:object, :defmethod, :defmethod_impl)
+      set_method(:object, :defmethod, :defmethod)
 
       set_class(:initialise_class, :behaviour)
 
@@ -62,26 +61,25 @@ defmodule AL.Application do
 
       set_class(:metaclass, :behaviour)
 
-      set_oapply(
-        :metaclass,
-        [self, class, meta]
-      ) do
+      set_oapply(:metaclass, [self, class, meta]) do
         class(self, class)
         class(class, meta)
       end
 
       set_class(:lookup, :behaviour)
-
-      set_oapply(:lookup, [self, name, id]) do
-        method(self, name, id)
-      end
-
       set_oapply(
         :lookup,
         [self, name, id]
       ) do
-        super(self, super)
-        lookup(super, name, id)
+        alternative([method(self, name, id)],
+          [super(self, super),
+           lookup(super, name, id)])
+        # super(self, super)
+        # lookup(super, name, id)
+      end
+
+      set_oapply(:lookup, [self, name, id]) do
+        method(self, name, id)
       end
 
       set_class(:send, :behaviour)
@@ -91,7 +89,6 @@ defmodule AL.Application do
         [self, method, args]
       ) do
         class(self, class)
-
         implies(
           [lookup(class, method, id)],
           [
@@ -102,18 +99,8 @@ defmodule AL.Application do
         )
       end
 
-      set_class(:initialise_object, :behaviour)
-
-      set_oapply(
-        :initialise_object,
-        [self, _, self]
-      ) do
-        print(self)
-      end
-
-      set_class(:defmethod_impl, :behaviour)
-
-      set_oapply(:defmethod_impl, [self, method_name, head, body]) do
+      set_class(:defmethod, :behaviour)
+      set_oapply(:defmethod, [self, method_name, head, body]) do
         gensym(impl)
         set_method(self, method_name, impl)
         set_class(impl, :behaviour)
@@ -129,6 +116,19 @@ defmodule AL.Application do
       defmethod(:class, :new, [self, args, new]) do
         send(self, :allocate, [alloc])
         send(alloc, :init, [args, new])
+      end
+
+      defmethod(:object, :init, [self, _, self]) do
+        print(self)
+      end
+
+      lookup(:class, :init, n)
+      send(:class, :new, [%{name: :process, super: :object, slots: []}, _])      
+      defmethod(:process, :init, [self, args, new_obj]) do
+        map_get(args, :head, head)
+        map_get(args, :body, body)
+        gensym(new_obj)
+        spawn_process(new_obj, head, body)
       end
     end
   end
