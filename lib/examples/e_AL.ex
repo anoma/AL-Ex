@@ -40,9 +40,11 @@ defmodule Examples.AL do
   end
 
   example get_class_command() do
-    {:atomic, {bindings, result}} = run do
-      class(a, b)
-    end
+    {:atomic, {bindings, result}} =
+      run do
+        class(a, b)
+      end
+
     assert bindings != nil
     result
   end
@@ -55,11 +57,12 @@ defmodule Examples.AL do
   end
 
   example metaclass() do
-    {:atomic, {bindings, result}} = run do
-      class(:initialise_class, b)
-      class(b, :class)
-    end
-    
+    {:atomic, {bindings, result}} =
+      run do
+        class(:initialise_class, b)
+        class(b, :class)
+      end
+
     assert Map.get(bindings, :"$b") == :behaviour
 
     result
@@ -72,57 +75,66 @@ defmodule Examples.AL do
   end
 
   example execute_metaclass_method() do
-    {:atomic, {bindings, result}} = run do
-      metaclass(:initialise_class, :"$class", :"$metaclass")
-    end
-    
+    {:atomic, {bindings, result}} =
+      run do
+        metaclass(:initialise_class, :"$class", :"$metaclass")
+      end
+
     assert Map.get(bindings, :"$class") == :behaviour
     assert Map.get(bindings, :"$metaclass") == :class
     result
   end
-  
+
   example cut() do
-    {:atomic, {_bindings, result}} = run do
-      class(object, class)
-      cut
-    end
-  
+    {:atomic, {_bindings, result}} =
+      run do
+        class(object, class)
+        cut
+      end
+
     assert result.choicepoint_stack == [{:mark, 0}]
     result
   end
 
   example implies_then() do
-    {:atomic, {bindings, result}} = run do
-      implies([class(object, class)],
-        [class(class, metaclass)],
-        [])
-    end
-    
+    {:atomic, {bindings, result}} =
+      run do
+        implies(
+          [class(object, class)],
+          [class(class, metaclass)],
+          []
+        )
+      end
+
     assert Map.get(bindings, :"$metaclass") != nil
 
     result
   end
 
   example implies_else() do
-    {:atomic, {_bindings, result}} = run do
-      implies([class(:blah, class)],
-        [class(class, metaclass)],
-        [class(metaclass, class)])
-    end
-    
+    {:atomic, {_bindings, result}} =
+      run do
+        implies(
+          [class(:blah, class)],
+          [class(class, metaclass)],
+          [class(metaclass, class)]
+        )
+      end
+
     result
   end
 
   example make_point_object() do
-    {:atomic, {bindings, result}} = run do
-      send(:class, :new, [%{name: :point, super: :object, slots: []}, new_point_class])
-      send(new_point_class, :new, [_, new_point_object])
-      cut
-    end
+    {:atomic, {bindings, result}} =
+      run do
+        send(:class, :new, [%{name: :point, super: :object, slots: []}, new_point_class])
+        send(new_point_class, :new, [_, new_point_object])
+        cut
+      end
 
     assert Map.get(bindings, :"$new_point_class") == :point
     assert Map.get(bindings, :"$new_point_object") == %{class: :point}
-    
+
     result
   end
 
@@ -131,5 +143,4 @@ defmodule Examples.AL do
     {:aborted, _trace} = AL.eval([{:get_class, :nonexistent_object_xyz, :"$x"}])
     :ok
   end
-
 end

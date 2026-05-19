@@ -26,14 +26,14 @@ defmodule Examples.AL.Var do
 
   example unification_two() do
     result = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
-    result 
+    result
   end
 
   example unification_three() do
     result = AL.Var.unify(:"$x", 3, AL.Var.unify(:"$y", :"$x"))
     result
   end
-  
+
   example substitution() do
     bindings = unification()
 
@@ -49,6 +49,9 @@ defmodule Examples.AL.Var do
   end
 
   example freshen_vars() do
-    AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], Base.encode16(:crypto.strong_rand_bytes(2)))
+    AL.Var.freshen(
+      [:"$self", %{name: :"$name"}, {:"$_", 3}],
+      Base.encode16(:crypto.strong_rand_bytes(2))
+    )
   end
 end

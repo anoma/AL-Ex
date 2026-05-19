@@ -21,7 +21,15 @@ be found at <https://hexdocs.pm/al>.
 
 
 TODO 
-Fix events so they're transaction-bounded
-Add top-level macros for AL
-More cleanup (don't unify in scans?)
-Loads more docs
+
+- Re-evaluate this list!
+
+- Loads more docs
+
+- concurrency
+
+- constraint processing
+
+- more bootstrapping for diff kinds of objects
+
+- system wipes and rollbacks
