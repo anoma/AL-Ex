@@ -138,9 +138,96 @@ defmodule Examples.AL do
     result
   end
 
+  example findall_supers() do
+    {:atomic, {bindings, _result}} =
+      run do
+        set_super(:findall_test, :a)
+        set_super(:findall_test, :b)
+        findall(s, [super(:findall_test, s)], supers)
+      end
+
+    assert Enum.sort(Map.get(bindings, :"$supers")) == [:a, :b]
+    :ok
+  end
+
+  example forall_over_supers() do
+    {:atomic, _} =
+      run do
+        set_super(:forall_test, :class)
+        set_super(:forall_test, :behaviour)
+        forall(
+          [super(forall_test, s)],
+          [set_slots(s, %{forall_visited: true})]
+        )
+      end
+
+    {:atomic, [{:slots, :class, class_slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :class) end)
+
+    {:atomic, [{:slots, :behaviour, behaviour_slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :behaviour) end)
+
+    assert Map.get(class_slots, :forall_visited) == true
+    assert Map.get(behaviour_slots, :forall_visited) == true
+    :ok
+  end
+
+  example retractall_class() do
+    {:atomic, _} =
+      run do
+        set_class(:retract_test, :foo)
+        set_class(:retract_test, :bar)
+      end
+
+    {:atomic, {bindings, _}} =
+      run do
+        findall(c, [class(:retract_test, c)], before_retract)
+      end
+
+    assert Enum.sort(Map.get(bindings, :"$before_retract")) == [:bar, :foo]
+
+    {:atomic, _} =
+      run do
+        retract_class(:retract_test, c)
+      end
+
+    {:atomic, {bindings2, _}} =
+      run do
+        findall(c, [class(:retract_test, c)], after_retract)
+      end
+
+    assert Map.get(bindings2, :"$after_retract") == []
+    :ok
+  end
+
+  example get_slot() do
+    {:atomic, {bindings, _}} =
+      run do
+        set_slots(:slot_get_test, %{name: :alice, age: 42})
+        get_slot(:slot_get_test, :name, name)
+      end
+
+    assert Map.get(bindings, :"$name") == :alice
+    :ok
+  end
+
   example total_failure_aborts_transaction() do
     {:aborted, _trace} = AL.eval([:fail])
     {:aborted, _trace} = AL.eval([{:get_class, :nonexistent_object_xyz, :"$x"}])
     :ok
+  end
+
+  example slot_merge_semantics() do
+    {:atomic, _} =
+      run do
+        set_slots(:slot_test, %{a: 1})
+        set_slots(:slot_test, %{b: 2})
+        set_slots(:slot_test, %{a: 99})
+      end
+
+    {:atomic, [{:slots, :slot_test, slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :slot_test) end)
+
+    assert slots == %{a: 99, b: 2}
   end
 end

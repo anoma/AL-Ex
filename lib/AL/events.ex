@@ -3,7 +3,16 @@ defmodule AL.Command do
   I am the event-sourcing / command-logging module for AL. I manage the event/command log (stored in Mnesia) and provide the entrypoint for event hydration. System time here refers to a monotonic counter.
   """
 
-  @type command_op() :: :set_class | :set_super | :set_method | :set_oapply | :set_slots
+  @type command_op() ::
+          :set_class
+          | :set_super
+          | :set_method
+          | :set_oapply
+          | :set_slots
+          | :retract_class
+          | :retract_super
+          | :retract_method
+          | :retract_oapply
 
   @type command() ::
           {:set_class, {AL.Var.t(), AL.Var.t()}}
@@ -11,6 +20,10 @@ defmodule AL.Command do
           | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:set_oapply, {AL.Var.t(), AL.Var.t(), [AL.goal()]}}
           | {:set_slots, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_class, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_super, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
 
   @doc """
   Initialise the event log, or re-use the one on disc.
@@ -130,6 +143,26 @@ defmodule AL.Command do
   @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
   def set_slots(tx_id, object, slots) do
     write_command(tx_id, {:set_slots, {object, slots}})
+  end
+
+  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_class(tx_id, object, class) do
+    write_command(tx_id, {:retract_class, {object, class}})
+  end
+
+  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_super(tx_id, object, super) do
+    write_command(tx_id, {:retract_super, {object, super}})
+  end
+
+  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_method(tx_id, object, name, id) do
+    write_command(tx_id, {:retract_method, {object, name, id}})
+  end
+
+  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_oapply(tx_id, object, head) do
+    write_command(tx_id, {:retract_oapply, {object, head}})
   end
 
   @spec write_command(non_neg_integer(), command()) :: :ok

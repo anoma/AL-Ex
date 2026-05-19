@@ -30,7 +30,7 @@ defmodule AL.Objects do
 
     case :mnesia.create_table(:slots,
            attributes: [:object, :slots],
-           type: :bag,
+           type: :set,
            ram_copies: [node()]
          ) do
       {:atomic, :ok} -> :ok
@@ -96,6 +96,32 @@ defmodule AL.Objects do
     ])
   end
 
+  @spec retract_class(AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_class(object_pattern, class_pattern) do
+    for record <- scan_class(object_pattern, class_pattern), do: :mnesia.delete_object(record)
+    :ok
+  end
+
+  @spec retract_super(AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_super(object_pattern, super_pattern) do
+    for record <- scan_super(object_pattern, super_pattern), do: :mnesia.delete_object(record)
+    :ok
+  end
+
+  @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_method(object_pattern, method_name_pattern, method_id_pattern) do
+    for record <- scan_method(object_pattern, method_name_pattern, method_id_pattern),
+        do: :mnesia.delete_object(record)
+    :ok
+  end
+
+  @spec retract_oapply(AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_oapply(object_pattern, head_pattern) do
+    for record <- scan_oapply(object_pattern, head_pattern, :"$body"),
+        do: :mnesia.delete_object(record)
+    :ok
+  end
+
   @spec set_class(AL.Var.t(), AL.Var.t()) :: :ok
   def set_class(object_pattern, class_pattern) do
     :mnesia.write({:class, object_pattern, class_pattern})
@@ -117,8 +143,16 @@ defmodule AL.Objects do
   end
 
   @spec set_slots(AL.Var.t(), AL.Var.t()) :: :ok
-  def set_slots(object_pattern, slots_pattern) do
-    :mnesia.write({:slots, object_pattern, slots_pattern})
+  def set_slots(object, new_slots) when is_map(new_slots) do
+    existing = case :mnesia.read(:slots, object) do
+      [{:slots, _, slots}] when is_map(slots) -> slots
+      _ -> %{}
+    end
+    :mnesia.write({:slots, object, Map.merge(existing, new_slots)})
+  end
+
+  def set_slots(object, slots) do
+    :mnesia.write({:slots, object, slots})
   end
 
   def hydrate_event(op, event) do
@@ -139,9 +173,34 @@ defmodule AL.Objects do
         {object, head, body} = event
         :mnesia.write({:oapply, object, head, body})
 
+      :retract_class ->
+        {object, class} = event
+        retract_class(object, class)
+
+      :retract_super ->
+        {object, super} = event
+        retract_super(object, super)
+
+      :retract_method ->
+        {object, name, id} = event
+        retract_method(object, name, id)
+
+      :retract_oapply ->
+        {object, head} = event
+        retract_oapply(object, head)
+
       :set_slots ->
-        {object, slots} = event
-        :mnesia.write({:slots, object, slots})
+        {object, new_slots} = event
+        merged = if is_map(new_slots) do
+          existing = case :mnesia.read(:slots, object) do
+            [{:slots, _, slots}] when is_map(slots) -> slots
+            _ -> %{}
+          end
+          Map.merge(existing, new_slots)
+        else
+          new_slots
+        end
+        :mnesia.write({:slots, object, merged})
     end
   end
 

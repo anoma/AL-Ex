@@ -58,11 +58,18 @@ defmodule AL do
           | {:implies, [goal()], [goal()], [goal()]}
           | {:or, [goal()], [goal()]}
           | {:then, [goal()]}
+          | {:forall, [goal()], [goal()]}
+          | {:findall, AL.Var.t(), [goal()], AL.Var.t()}
           | {:set_class, AL.Var.t(), AL.Var.t()}
           | {:set_super, AL.Var.t(), AL.Var.t()}
           | {:set_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:get_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:set_slots, AL.Var.t(), AL.Var.t()}
+          | {:retract_class, AL.Var.t(), AL.Var.t()}
+          | {:retract_super, AL.Var.t(), AL.Var.t()}
+          | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:retract_oapply, AL.Var.t(), AL.Var.t()}
           | {:print, AL.Var.t()}
           | :fail
 
@@ -137,11 +144,32 @@ defmodule AL do
   def ast_to_pattern({:set_slots, _, [object, slots]}),
     do: {:set_slots, ast_to_pattern(object), ast_to_pattern(slots)}
 
+  def ast_to_pattern({:get_slot, _, [object, key, value]}),
+    do: {:get_slot, ast_to_pattern(object), ast_to_pattern(key), ast_to_pattern(value)}
+
+  def ast_to_pattern({:retract_class, _, [object, class]}),
+    do: {:retract_class, ast_to_pattern(object), ast_to_pattern(class)}
+
+  def ast_to_pattern({:retract_super, _, [object, super]}),
+    do: {:retract_super, ast_to_pattern(object), ast_to_pattern(super)}
+
+  def ast_to_pattern({:retract_method, _, [object, name, id]}),
+    do: {:retract_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+
+  def ast_to_pattern({:retract_oapply, _, [object, head]}),
+    do: {:retract_oapply, ast_to_pattern(object), ast_to_pattern(head)}
+
   def ast_to_pattern({:print, _, [pattern]}), do: {:print, ast_to_pattern(pattern)}
 
   def ast_to_pattern([]), do: []
 
   def ast_to_pattern(xs) when is_list(xs), do: Enum.map(xs, &ast_to_pattern/1)
+
+  def ast_to_pattern({:forall, _, [condition, body]}),
+    do: {:forall, ast_to_pattern(condition), ast_to_pattern(body)}
+
+  def ast_to_pattern({:findall, _, [template, condition, result]}),
+    do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
 
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
     do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
@@ -665,10 +693,75 @@ defmodule AL do
     state
   end
 
+  def interp({:get_slot, object, key, value}, state) do
+    entries =
+      case :mnesia.read(:slots, object) do
+        [{:slots, ^object, m}] when is_map(m) ->
+          if AL.Var.var?(key) do
+            Map.to_list(m)
+          else
+            case Map.fetch(m, key) do
+              {:ok, v} -> [{key, v}]
+              :error -> []
+            end
+          end
+
+        _ ->
+          []
+      end
+
+    case entries do
+      [] ->
+        backtrack(state)
+
+      [{k, v} | rest] ->
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{
+              state.active_choicepoint
+              | bindings:
+                  AL.Var.unify({k, v}, {key, value}, state.active_choicepoint.bindings)
+            },
+            choicepoint_stack:
+              Enum.map(rest, fn {rk, rv} ->
+                %AL.Choicepoint{
+                  state.active_choicepoint
+                  | bindings:
+                      AL.Var.unify({rk, rv}, {key, value}, state.active_choicepoint.bindings)
+                }
+              end) ++ state.choicepoint_stack
+        }
+    end
+  end
+
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
     AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
 
+    state
+  end
+
+  def interp({:retract_class, object, class}, state) do
+    AL.Command.retract_class(state.tx_id, object, class)
+    AL.Objects.retract_class(object, class)
+    state
+  end
+
+  def interp({:retract_super, object, super}, state) do
+    AL.Command.retract_super(state.tx_id, object, super)
+    AL.Objects.retract_super(object, super)
+    state
+  end
+
+  def interp({:retract_method, object, name, id}, state) do
+    AL.Command.retract_method(state.tx_id, object, name, id)
+    AL.Objects.retract_method(object, name, id)
+    state
+  end
+
+  def interp({:retract_oapply, object, head}, state) do
+    AL.Command.retract_oapply(state.tx_id, object, head)
+    AL.Objects.retract_oapply(object, head)
     state
   end
 
@@ -678,7 +771,68 @@ defmodule AL do
     state
   end
 
+  def interp({:forall, condition, body}, state) do
+    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id)
+
+    body_goals =
+      Enum.flat_map(solutions, fn bindings ->
+        freshener = Integer.to_string(System.unique_integer([:monotonic]))
+
+        Enum.map(body, fn goal ->
+          goal |> AL.Var.subst(bindings) |> AL.Var.freshen(freshener)
+        end)
+      end)
+
+    spliced = splice_goals(state, body_goals)
+    %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}}
+  end
+
+  def interp({:findall, template, condition, result}, state) do
+    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id)
+
+    collected = Enum.map(solutions, fn bindings -> AL.Var.subst(template, bindings) end)
+
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | bindings: AL.Var.unify(result, collected, state.active_choicepoint.bindings)
+        }
+    }
+  end
+
   def interp(:fail, state) do
     backtrack(state)
+  end
+
+  defp collect_all_solutions(condition, bindings, tx_id) do
+    initial = %AL{
+      active_choicepoint: %AL.Choicepoint{
+        goals: condition,
+        bindings: bindings,
+        continuations: [],
+        goal_pointer: 0,
+        scope_pointer: 0
+      },
+      choicepoint_stack: [],
+      tx_id: tx_id,
+      trace: [],
+      program: condition
+    }
+
+    do_collect(continue(initial), [])
+  end
+
+  defp do_collect(state, acc) do
+    if state.active_choicepoint.bindings == nil do
+      Enum.reverse(acc)
+    else
+      new_acc = [state.active_choicepoint.bindings | acc]
+
+      case state.choicepoint_stack do
+        [] -> Enum.reverse(new_acc)
+        _ -> do_collect(backtrack(state), new_acc)
+      end
+    end
   end
 end
