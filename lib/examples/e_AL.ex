@@ -140,9 +140,25 @@ defmodule Examples.AL do
       set_oapply(:concat_list, [[first_hd | first_tl], second, [first_hd | inner]]) do
         oapply(:concat_list, [first_tl, second, inner])
       end
+      set_oapply(:reverse_list, [[], []]) do
+      end
+      set_oapply(:reverse_list, [[first_hd | first_tl], reversed]) do
+        oapply(:reverse_list, [first_tl, reversed_tl])
+        oapply(:concat_list, [reversed_tl, [first_hd], reversed])
+      end
+      set_oapply(:map_list, [func, [], []]) do
+      end
+      set_oapply(:map_list, [func, [first_hd | first_tl], [second_hd | second_tl]]) do
+        oapply(func, [first_hd, second_hd])
+        oapply(:map_list, [func, first_tl, second_tl])
+      end
       oapply(:concat_list, [[:a, :b, :c], [:d, :e, :f], sum])
+      oapply(:reverse_list, [[:b, :c, :d, :e, :f], reversed])
+      oapply(:map_list, [:reverse_list, [[:a, :b], [:c, :d, :e]], mapped])
     end
     assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
+    assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
+    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
     result
   end
 
