@@ -134,6 +134,10 @@ defmodule Examples.AL do
 
   example list_tests() do
     {:atomic, {bindings, result}} = run do
+      set_oapply(:hd, [[hd | tl], hd]) do
+      end
+      set_oapply(:tl, [[hd | tl], tl]) do
+      end
       set_class(:concat_list, :behaviour)
       set_oapply(:concat_list, [[], second, second]) do
       end
@@ -167,6 +171,8 @@ defmodule Examples.AL do
       set_oapply(:flatten_list, [lists, result]) do
         oapply(:fold_left, [:concat_list, [], lists, result])
       end
+      oapply(:hd, [[:w, :x, :y, :z], head])
+      oapply(:tl, [[:w, :x, :y, :z], tail])
       oapply(:concat_list, [[:a, :b, :c], [:d, :e, :f], sum])
       oapply(:reverse_list, [[:b, :c, :d, :e, :f], reversed])
       oapply(:map_list, [:reverse_list, [[:a, :b], [:c, :d, :e]], mapped])
@@ -180,6 +186,8 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$folded_left") == [:starter, :a, :b, :c, :d]
     assert Map.get(bindings, :"$folded_right") == [:starter, :d, :c, :b, :a]
     assert Map.get(bindings, :"$flattened") == [:a, :b, :c, :d, :e]
+    assert Map.get(bindings, :"$head") == :w
+    assert Map.get(bindings, :"$tail") == [:x, :y, :z]
     result
   end
 
