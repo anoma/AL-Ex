@@ -132,7 +132,7 @@ defmodule Examples.AL do
     :ok
   end
 
-  example concat_list() do
+  example list_tests() do
     {:atomic, {bindings, result}} = run do
       set_class(:concat_list, :behaviour)
       set_oapply(:concat_list, [[], second, second]) do
@@ -152,13 +152,34 @@ defmodule Examples.AL do
         oapply(func, [first_hd, second_hd])
         oapply(:map_list, [func, first_tl, second_tl])
       end
+      set_oapply(:fold_left, [func, acc, [], acc]) do
+      end
+      set_oapply(:fold_left, [func, acc, [hd | tl], result]) do
+        oapply(func, [acc, hd, next_acc])
+        oapply(:fold_left, [func, next_acc, tl, result])
+      end
+      set_oapply(:fold_right, [func, acc, [], acc]) do
+      end
+      set_oapply(:fold_right, [func, acc, [hd | tl], result]) do
+        oapply(:fold_right, [func, acc, tl, next_acc])
+        oapply(func, [next_acc, hd, result])
+      end
+      set_oapply(:flatten_list, [lists, result]) do
+        oapply(:fold_left, [:concat_list, [], lists, result])
+      end
       oapply(:concat_list, [[:a, :b, :c], [:d, :e, :f], sum])
       oapply(:reverse_list, [[:b, :c, :d, :e, :f], reversed])
       oapply(:map_list, [:reverse_list, [[:a, :b], [:c, :d, :e]], mapped])
+      oapply(:fold_left, [:concat_list, [:starter], [[:a], [:b], [:c], [:d]], folded_left])
+      oapply(:fold_right, [:concat_list, [:starter], [[:a], [:b], [:c], [:d]], folded_right])
+      oapply(:flatten_list, [[[:a, :b], [:c, :d, :e]], flattened])
     end
     assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
     assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
     assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
+    assert Map.get(bindings, :"$folded_left") == [:starter, :a, :b, :c, :d]
+    assert Map.get(bindings, :"$folded_right") == [:starter, :d, :c, :b, :a]
+    assert Map.get(bindings, :"$flattened") == [:a, :b, :c, :d, :e]
     result
   end
 
