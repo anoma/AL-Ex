@@ -132,4 +132,18 @@ defmodule Examples.AL do
     :ok
   end
 
+  example concat_list() do
+    {:atomic, {bindings, result}} = run do
+      set_class(:concat_list, :behaviour)
+      set_oapply(:concat_list, [[], second, second]) do
+      end
+      set_oapply(:concat_list, [[first_hd | first_tl], second, [first_hd | inner]]) do
+        oapply(:concat_list, [first_tl, second, inner])
+      end
+      oapply(:concat_list, [[:a, :b, :c], [:d, :e, :f], sum])
+    end
+    assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
+    result
+  end
+
 end
