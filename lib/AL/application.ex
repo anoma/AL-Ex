@@ -37,20 +37,25 @@ defmodule AL.Application do
 
       set_method(:class, :init, :initialise_class)
       set_method(:class, :allocate, :allocate_class)
-      set_method(:class, :meta, :metaclass)
       set_method(:class, :new, :new_object)
 
       set_method(:object, :lookup, :lookup)
       set_method(:object, :send, :send)
       set_method(:object, :init, :initialise_object)
+      set_method(:object, :meta, :metaclass)
 
       set_class(:initialise_class, :behaviour)
 
       set_oapply(
         :initialise_class,
-        [self, %{name: name, super: super, slots: slots}, _]
+        [self, args, name]
       ) do
+        map_get(args, :name, name)
+        map_get(args, :super, super)
+        map_get(args, :slots, slots)
+
         class(self, meta)
+        
         set_class(name, meta)
         set_super(name, super)
         set_slots(name, slots)

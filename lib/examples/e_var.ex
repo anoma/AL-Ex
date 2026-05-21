@@ -20,7 +20,7 @@ defmodule Examples.AL.Var do
         {:_, 3}
       ])
 
-    assert bindings == %{"$_": :_, "$name": "alice"}
+    assert bindings == %{"$name": "alice"}
     bindings
   end
 
@@ -39,7 +39,7 @@ defmodule Examples.AL.Var do
 
     substitution = AL.Var.subst([:"$self", %{name: :"$name"}, {:"$_", 3}], bindings)
 
-    assert substitution == [:"$self", %{name: "alice"}, {:_, 3}]
+    assert substitution == [:"$self", %{name: "alice"}, {:"$_", 3}]
 
     substitution
   end

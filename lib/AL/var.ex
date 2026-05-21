@@ -128,6 +128,9 @@ defmodule AL.Var do
   @spec unify(t(), t(), bindings()) :: bindings() | nil
   def unify(x, y, bindings \\ %{}) do
     cond do
+      x == :"$_" || y == :"$_" ->
+        bindings
+
       var?(x) || var?(y) ->
         extend(bindings, x, y)
 
