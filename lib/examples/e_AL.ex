@@ -155,6 +155,7 @@ defmodule Examples.AL do
       run do
         set_super(:forall_test, :class)
         set_super(:forall_test, :behaviour)
+
         forall(
           [super(forall_test, s)],
           [set_slots(s, %{forall_visited: true})]
@@ -229,5 +230,21 @@ defmodule Examples.AL do
       :mnesia.transaction(fn -> :mnesia.read(:slots, :slot_test) end)
 
     assert slots == %{a: 99, b: 2}
+    slots
+  end
+
+  example map_get() do
+    {:atomic, {bindings, program_state}} =
+      run do
+        send(%{a: 3, b: 4, c: 3}, :map_get, [k, 3])
+      end
+
+    assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
+
+    {:atomic, {bindings, program_state}} = next_solution(program_state)
+
+    assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
+
+    program_state
   end
 end

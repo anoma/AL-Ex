@@ -124,6 +124,9 @@ defmodule AL.Application do
       ) do
         print(self)
       end
+
+      set_class(:map_get, :behaviour)
+      set_method(:map, :map_get, :map_get)
     end
   end
 end

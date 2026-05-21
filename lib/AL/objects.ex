@@ -112,6 +112,7 @@ defmodule AL.Objects do
   def retract_method(object_pattern, method_name_pattern, method_id_pattern) do
     for record <- scan_method(object_pattern, method_name_pattern, method_id_pattern),
         do: :mnesia.delete_object(record)
+
     :ok
   end
 
@@ -119,6 +120,7 @@ defmodule AL.Objects do
   def retract_oapply(object_pattern, head_pattern) do
     for record <- scan_oapply(object_pattern, head_pattern, :"$body"),
         do: :mnesia.delete_object(record)
+
     :ok
   end
 
@@ -144,10 +146,12 @@ defmodule AL.Objects do
 
   @spec set_slots(AL.Var.t(), AL.Var.t()) :: :ok
   def set_slots(object, new_slots) when is_map(new_slots) do
-    existing = case :mnesia.read(:slots, object) do
-      [{:slots, _, slots}] when is_map(slots) -> slots
-      _ -> %{}
-    end
+    existing =
+      case :mnesia.read(:slots, object) do
+        [{:slots, _, slots}] when is_map(slots) -> slots
+        _ -> %{}
+      end
+
     :mnesia.write({:slots, object, Map.merge(existing, new_slots)})
   end
 
@@ -191,15 +195,20 @@ defmodule AL.Objects do
 
       :set_slots ->
         {object, new_slots} = event
-        merged = if is_map(new_slots) do
-          existing = case :mnesia.read(:slots, object) do
-            [{:slots, _, slots}] when is_map(slots) -> slots
-            _ -> %{}
+
+        merged =
+          if is_map(new_slots) do
+            existing =
+              case :mnesia.read(:slots, object) do
+                [{:slots, _, slots}] when is_map(slots) -> slots
+                _ -> %{}
+              end
+
+            Map.merge(existing, new_slots)
+          else
+            new_slots
           end
-          Map.merge(existing, new_slots)
-        else
-          new_slots
-        end
+
         :mnesia.write({:slots, object, merged})
     end
   end
