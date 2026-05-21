@@ -132,4 +132,29 @@ defmodule Examples.AL do
     :ok
   end
 
+  example arithmetic() do
+    {:atomic, {bindings, result}} = run do
+      is(a, (123 + 5) - 3)
+      is(f, 10000 - 3)
+      is(a, 122 + 3)
+      is(1000122, 122 + 1000000)
+      is(b, a + 12)
+      is(c, (b ** 2) + 1)
+      is(d, c / 3)
+      is(e, (c * 3) + 2)
+      is(e, 5 - e + 2*e - 5)
+      is(g, -7)
+      is(h, +7)
+    end
+    assert Map.get(bindings, :"$a") == 125
+    assert Map.get(bindings, :"$f") == 9997
+    assert Map.get(bindings, :"$b") == 137
+    assert Map.get(bindings, :"$c") == 18770
+    assert Map.get(bindings, :"$d") == 6256
+    assert Map.get(bindings, :"$e") == 56312
+    assert Map.get(bindings, :"$g") == -7
+    assert Map.get(bindings, :"$h") == 7
+    result
+  end
+
 end
