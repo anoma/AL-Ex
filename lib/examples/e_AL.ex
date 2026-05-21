@@ -132,4 +132,58 @@ defmodule Examples.AL do
     :ok
   end
 
+  example plus_solutions() do
+    {:atomic, {bindings, result}} = run do
+      oapply(:plus, [5, b, a])
+    end
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$a")) == 5
+    {:atomic, {bindings2, result2}} = AL.next_solution(result)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings2, :"$a")) == 6
+    {:atomic, {bindings3, result3}} = AL.next_solution(result2)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings3, :"$a")) == 7
+    {:atomic, {bindings4, result4}} = AL.next_solution(result3)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings4, :"$a")) == 9
+    {:atomic, {bindings5, result5}} = AL.next_solution(result4)
+    assert AL.NaturalNumber.to_string(Map.get(bindings5, :"$a")) == "5 + 8*b3 + 16*r"
+    {:atomic, {bindings6, result6}} = AL.next_solution(result5)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings6, :"$a")) == 17
+    {:atomic, {bindings7, result7}} = AL.next_solution(result6)
+    assert AL.NaturalNumber.to_string(Map.get(bindings7, :"$a")) == "9 + 16*b4 + 32*r"
+    {:atomic, {bindings8, result8}} = AL.next_solution(result7)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings8, :"$a")) == 33
+    {:atomic, {bindings9, result9}} = AL.next_solution(result8)
+    assert AL.NaturalNumber.to_string(Map.get(bindings9, :"$a")) == "17 + 32*b5 + 64*r"
+    {:atomic, {bindings10, result10}} = AL.next_solution(result9)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings10, :"$a")) == 65
+    {:atomic, {bindings11, result11}} = AL.next_solution(result10)
+    assert AL.NaturalNumber.to_string(Map.get(bindings11, :"$a")) == "33 + 64*b6 + 128*r"
+    {:atomic, {bindings12, result12}} = AL.next_solution(result11)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings12, :"$a")) == 129
+    {:atomic, {bindings13, result13}} = AL.next_solution(result12)
+    assert AL.NaturalNumber.to_string(Map.get(bindings13, :"$a")) == "65 + 128*b7 + 256*r"
+    {:atomic, {bindings14, result14}} = AL.next_solution(result13)
+    assert AL.NaturalNumber.to_integer(Map.get(bindings14, :"$a")) == 257
+    result14
+  end
+
+  example arithmetic() do
+    {:atomic, {bindings, result}} = run do
+      oapply(:plus, [123, 5, a])
+      oapply(:plus, [2, b, 7])
+      oapply(:plus, [c, 3, 7])
+      oapply(:minus, [d, 3, 7])
+      oapply(:minus, [1000, e, 7])
+      oapply(:minus, [10000, 3, f])
+      oapply(:plus, [122, 6, a])
+      oapply(:plus, [122, 1000000, 1000122])
+    end
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$a")) == 128
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$b")) == 5
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$c")) == 4
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$d")) == 10
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$e")) == 993
+    assert AL.NaturalNumber.to_integer(Map.get(bindings, :"$f")) == 9997
+    result
+  end
+
 end

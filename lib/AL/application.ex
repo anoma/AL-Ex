@@ -97,6 +97,89 @@ defmodule AL.Application do
         [self, _, self]) do
         print(self)
       end
+
+      # Implementation of logical xor
+      set_oapply(:bit_xor, [false, false, false]) do end
+      set_oapply(:bit_xor, [false, true, true]) do end
+      set_oapply(:bit_xor, [true, false, true]) do end
+      set_oapply(:bit_xor, [true, true, false]) do end
+
+      # Implementation of logical and
+      set_oapply(:bit_and, [false, false, false]) do end
+      set_oapply(:bit_and, [false, true, false]) do end
+      set_oapply(:bit_and, [true, false, false]) do end
+      set_oapply(:bit_and, [true, true, true]) do end
+
+      # Implementation of a half adder
+      set_oapply(:half_adder, [x, y, r, c]) do
+        oapply(:bit_xor, [x, y, r])
+        oapply(:bit_and, [x, y, c])
+      end
+
+      # Implementation of a full adder
+      set_oapply(:full_adder, [b, x, y, r, c]) do
+        oapply(:half_adder, [x, y, w, xy])
+        oapply(:half_adder, [w, b, r, wz])
+        oapply(:bit_xor, [xy, wz, c])
+      end
+
+      # Implementation to check that number's positive
+      set_oapply(:pos, [%AL.NaturalNumber { bits: [hd | tl] }]) do end
+
+      # Implementation to check that number's more than one
+      set_oapply(:gt1, [%AL.NaturalNumber { bits: [hd0 | [hd1 | tl]] }]) do end
+
+      # Implementation of an adder
+      set_oapply(:adder, [false, n, %AL.NaturalNumber { bits: [] }, n]) do end
+
+      set_oapply(:adder, [false, %AL.NaturalNumber { bits: [] }, m, m]) do
+        oapply(:pos, [m])
+      end
+
+      set_oapply(:adder, [true, n, %AL.NaturalNumber { bits: [] }, r]) do
+        oapply(:adder, [false, n, %AL.NaturalNumber { bits: [true] }, r])
+      end
+
+      set_oapply(:adder, [true, %AL.NaturalNumber { bits: [] }, m, r]) do
+        oapply(:pos, [m])
+        oapply(:adder, [false, %AL.NaturalNumber { bits: [true] }, m, r])
+      end
+
+      set_oapply(:adder, [d, %AL.NaturalNumber { bits: [true] }, %AL.NaturalNumber { bits: [true] }, %AL.NaturalNumber { bits: [a, c] }]) do
+        oapply(:full_adder, [d, true, true, a, c])
+      end
+
+      set_oapply(:adder, [d, %AL.NaturalNumber { bits: [true] }, m, r]) do
+        oapply(:gen_adder, [d, %AL.NaturalNumber { bits: [true] }, m, r])
+      end
+
+      set_oapply(:adder, [d, n, %AL.NaturalNumber { bits: [true] }, r]) do
+        oapply(:gt1, [n])
+        oapply(:gt1, [r])
+        oapply(:adder, [d, %AL.NaturalNumber { bits: [true] }, n, r])
+      end
+
+      set_oapply(:adder, [d, n, m, r]) do
+        oapply(:gt1, [n])
+        oapply(:gen_adder, [d, n, m, r])
+      end
+
+      # General case of the adder
+      set_oapply(:gen_adder, [d, %AL.NaturalNumber { bits: [a | x] }, %AL.NaturalNumber { bits: [b | y] }, %AL.NaturalNumber { bits: [c | z] }]) do
+        oapply(:pos, [%AL.NaturalNumber { bits: y }])
+        oapply(:pos, [%AL.NaturalNumber { bits: z }])
+        oapply(:full_adder, [d, a, b, c, e])
+        oapply(:adder, [e, %AL.NaturalNumber { bits: x }, %AL.NaturalNumber { bits: y }, %AL.NaturalNumber { bits: z }])
+      end
+
+      # Finally the implementation of plus
+      set_oapply(:plus, [n, m, k]) do
+        oapply(:adder, [false, n, m, k])
+      end
+
+      set_oapply(:minus, [n, m, k]) do
+        oapply(:plus, [m, k, n])
+      end
     end
   end
 end

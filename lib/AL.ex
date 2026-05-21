@@ -35,6 +35,43 @@ defmodule AL.Choicepoint do
   end
 end
 
+defmodule AL.NaturalNumber do
+  use TypedStruct
+
+  typedstruct enforce: true do
+    field(:bits, [any()], enforce: true)
+  end
+
+  def from_integer_aux(0), do: []
+
+  def from_integer_aux(num), do: [(Bitwise.band(num, 1) == 1) | from_integer_aux(Bitwise.bsr(num, 1))]
+
+  # Form a natural number by extracting the bits from the given integer
+  def from_integer(val), do: %AL.NaturalNumber { bits: from_integer_aux(val) }
+
+  def to_integer_aux([]), do: 0
+
+  def to_integer_aux([true | tl]), do: 1 + 2*to_integer_aux(tl)
+
+  def to_integer_aux([false | tl]), do: 2*to_integer_aux(tl)
+
+  # Convert bits to number. None of the bits can be variables
+  def to_integer(%AL.NaturalNumber { bits: bits }), do: to_integer_aux(bits)
+
+  def to_string_aux(bit, [], const_acc, poly_acc), do: Integer.to_string(const_acc) <> poly_acc
+
+  def to_string_aux(bit, [false | tl], const_acc, poly_acc), do: to_string_aux(bit + 1, tl, const_acc, poly_acc)
+
+  def to_string_aux(bit, [true | tl], const_acc, poly_acc), do: to_string_aux(bit + 1, tl, const_acc + Bitwise.bsl(1, bit), poly_acc)
+
+  def to_string_aux(bit, [var | tl], const_acc, poly_acc), do: to_string_aux(bit + 1, tl, const_acc, poly_acc <> " + " <> Integer.to_string(Bitwise.bsl(1, bit)) <> "*b" <> Integer.to_string(bit))
+
+  def to_string_aux(bit, var, const_acc, poly_acc), do: Integer.to_string(const_acc) <> poly_acc <> " + " <> Integer.to_string(Bitwise.bsl(1, bit)) <> "*r"
+
+  # Convert bits to polynomial string. Some bits are variables, so print as polynomial
+  def to_string(%AL.NaturalNumber { bits: bits }), do: to_string_aux(0, bits, 0, "")
+end
+
 defmodule AL do
   @moduledoc """
   I am the top-level interpreter for AL
@@ -93,6 +130,8 @@ defmodule AL do
   
   def ast_to_pattern([{:|, _, [h, t]}]), do: [ast_to_pattern(h) | ast_to_pattern(t)]
 
+  def ast_to_pattern({:%, _, [{:__aliases__, _, [:AL, :NaturalNumber]}, {:%{}, _, [bits: bits]}]}), do: %AL.NaturalNumber { bits: ast_to_pattern(bits) }
+
   def ast_to_pattern({:%{}, _, kvs}), do: Map.new(kvs, fn {k, v} -> {ast_to_pattern(k), ast_to_pattern(v)} end)
 
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
@@ -134,6 +173,8 @@ defmodule AL do
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args), do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
+
+  def ast_to_pattern(x) when is_integer(x) and x >= 0, do: AL.NaturalNumber.from_integer(x)
 
   def ast_to_pattern(x), do: x
 
@@ -221,7 +262,7 @@ defmodule AL do
       else
         output_vars = input_vars
         |> Enum.map(fn variable ->
-          val = AL.Var.deref(result.active_choicepoint.bindings, variable)
+          val = AL.Var.subst(variable, result.active_choicepoint.bindings)
           if AL.Var.var?(val) do
             {variable, variable}
           else
@@ -249,7 +290,7 @@ defmodule AL do
       else
         output_vars = input_vars
         |> Enum.map(fn variable ->
-          val = AL.Var.deref(result.active_choicepoint.bindings, variable)
+          val = AL.Var.subst(variable, result.active_choicepoint.bindings)
           if AL.Var.var?(val) do
             {variable, variable}
           else

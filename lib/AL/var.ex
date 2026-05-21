@@ -175,6 +175,10 @@ defmodule AL.Var do
     [subst(x, bindings) | subst(xs, bindings)]
   end
 
+  def subst(%AL.NaturalNumber { bits: bits }, bindings) do
+    %AL.NaturalNumber { bits: subst(bits, bindings) }
+  end
+
   def subst(m, bindings) when is_map(m) do
     Map.new(m, fn {k, v} -> {k, subst(v, bindings)} end)
   end
@@ -236,6 +240,10 @@ defmodule AL.Var do
 
   def freshen([x | xs], f) do
     [freshen(x, f) | freshen(xs, f)]
+  end
+
+  def freshen(%AL.NaturalNumber { bits: bits }, f) do
+    %AL.NaturalNumber { bits: freshen(bits, f) }
   end
 
   def freshen(m, f) when is_map(m) do
