@@ -36,13 +36,12 @@ defmodule AL.Application do
       set_super(:behaviour, :object)
 
       set_method(:class, :init, :initialise_class)
-      set_method(:class, :allocate, :allocate_class)
-      set_method(:class, :new, :new_object)
 
       set_method(:object, :lookup, :lookup)
       set_method(:object, :send, :send)
       set_method(:object, :init, :initialise_object)
       set_method(:object, :meta, :metaclass)
+      set_method(:object, :defmethod, :defmethod_impl)
 
       set_class(:initialise_class, :behaviour)
 
@@ -59,14 +58,6 @@ defmodule AL.Application do
         set_class(name, meta)
         set_super(name, super)
         set_slots(name, slots)
-      end
-
-      set_class(:allocate_class, :behaviour)
-
-      set_oapply(
-        :allocate_class,
-        [self, %{class: self}]
-      ) do
       end
 
       set_class(:metaclass, :behaviour)
@@ -91,16 +82,6 @@ defmodule AL.Application do
       ) do
         super(self, super)
         lookup(super, name, id)
-      end
-
-      set_class(:new_object, :behaviour)
-
-      set_oapply(
-        :new_object,
-        [self, args, new]
-      ) do
-        send(self, :allocate, [alloc])
-        send(alloc, :init, [args, new])
       end
 
       set_class(:send, :behaviour)
@@ -130,8 +111,25 @@ defmodule AL.Application do
         print(self)
       end
 
+      set_class(:defmethod_impl, :behaviour)
+
+      set_oapply(:defmethod_impl, [self, method_name, head, body]) do
+        gensym(impl)
+        set_method(self, method_name, impl)
+        set_class(impl, :behaviour)
+        set_oapply(impl, head, body)
+      end
+
       set_class(:map_get, :behaviour)
       set_method(:map, :map_get, :map_get)
+
+      defmethod(:class, :allocate, [self, %{class: self}]) do
+      end
+
+      defmethod(:class, :new, [self, args, new]) do
+        send(self, :allocate, [alloc])
+        send(alloc, :init, [args, new])
+      end
     end
   end
 end

@@ -5,7 +5,7 @@ defmodule Examples.ALBootstrap do
 
   use ExExample
   use AL
-  import ExUnit.Assertions
+  # import ExUnit.Assertions
 
   example bootstrapped_classes() do
     :mnesia.transaction(fn ->

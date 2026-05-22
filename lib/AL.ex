@@ -171,6 +171,14 @@ defmodule AL do
   def ast_to_pattern({:findall, _, [template, condition, result]}),
     do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
 
+  def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
+    {:oapply, :send, [
+      ast_to_pattern(class),
+      :defmethod,
+      [ast_to_pattern(method_name), ast_to_pattern(head), ast_to_pattern(body)]
+    ]}
+  end
+
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
     do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
 

@@ -7,6 +7,23 @@ defmodule Examples.ALObjects do
   use AL
   import ExUnit.Assertions
 
+  example defmethod() do
+    {:atomic, {bindings, _}} =
+      run do
+        send(:class, :new, [%{name: :greeter, super: :object, slots: []}, _])
+
+        defmethod(:greeter, :greet, [self, name]) do
+          print(["hello from", self, "to", name])
+        end
+
+        send(:greeter, :new, [_, instance])
+        send(instance, :greet, [:world])
+      end
+
+    assert Map.get(bindings, :"$instance") == %{class: :greeter}
+    :ok
+  end
+
   example make_point_object() do
     {:atomic, {bindings, result}} =
       run do
