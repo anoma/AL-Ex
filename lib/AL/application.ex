@@ -92,14 +92,10 @@ defmodule AL.Application do
       ) do
         class(self, class)
 
-        implies(
-          [lookup(class, method, id)],
-          [
-            print(["calling", id, "from", class, "with args", [self | args]]),
-            oapply(id, [self | args])
-          ],
-          [:fail]
-        )
+        lookup(class, method, id)
+        print(["calling", method, "as", id, "from", class, "with args", [self | args]])
+        oapply(id, [self | args])
+        cut
       end
 
       set_class(:initialise_object, :behaviour)

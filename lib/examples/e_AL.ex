@@ -190,7 +190,7 @@ defmodule Examples.AL do
   example map_get() do
     {:atomic, {bindings, program_state}} =
       run do
-        send(%{a: 3, b: 4, c: 3}, :map_get, [k, 3])
+        map_get(%{a: 3, b: 4, c: 3}, k, 3)
       end
 
     assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a

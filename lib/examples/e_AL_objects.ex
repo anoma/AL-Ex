@@ -29,13 +29,44 @@ defmodule Examples.ALObjects do
       run do
         send(:class, :new, [%{name: :point, super: :object, slots: []}, new_point_class])
         send(new_point_class, :new, [_, new_point_object])
-        cut
+        # cut
       end
 
     assert Map.get(bindings, :"$new_point_class") == :point
     assert Map.get(bindings, :"$new_point_object") == %{class: :point}
 
     result
+  end
+
+  example call_next_method_by_failure() do
+    {:atomic, {_bindings, _}} =
+      run do
+        send(:class, :new, [%{name: :cnm_base, super: :object, slots: []}, _])
+
+        defmethod(:cnm_base, :touch, [self]) do
+          set_slots(:cnm_base, %{touched_by: :base})
+        end
+
+        send(:class, :new, [%{name: :cnm_derived, super: :cnm_base, slots: []}, _])
+
+        defmethod(:cnm_derived, :touch, [self]) do
+          set_slots(:cnm_derived, %{touched_by: :derived})
+          fail
+        end
+
+        send(:cnm_derived, :new, [_, obj])
+        send(obj, :touch, [])
+      end
+
+    {:atomic, [{:slots, :cnm_base, base_slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :cnm_base) end)
+
+    {:atomic, [{:slots, :cnm_derived, derived_slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :cnm_derived) end)
+
+    assert Map.get(base_slots, :touched_by) == :base
+    assert Map.get(derived_slots, :touched_by) == :derived
+    :ok
   end
 
   example metaclass_override() do
