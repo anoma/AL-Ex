@@ -78,10 +78,6 @@ defmodule AL.Application do
         # lookup(super, name, id)
       end
 
-      set_oapply(:lookup, [self, name, id]) do
-        method(self, name, id)
-      end
-
       set_class(:send, :behaviour)
 
       set_oapply(
@@ -120,6 +116,13 @@ defmodule AL.Application do
 
       defmethod(:object, :init, [self, _, self]) do
         print(self)
+      end
+
+      defmethod(:object, :examine, [self, %{classes: classes, supers: supers, methods: methods, clauses: clauses}]) do
+        findall(c, [class(self, c)], classes)
+        findall(s, [class(self, s)], supers)
+        findall([n, id], [method(self, n, id)], methods)
+        findall([head, body], [clause(self, head, body)], clauses)
       end
 
       lookup(:class, :init, n)

@@ -283,7 +283,7 @@ defmodule AL do
         output_vars =
           input_vars
           |> Enum.map(fn variable ->
-            val = AL.Var.deref(result.active_choicepoint.bindings, variable)
+            val = AL.Var.subst(variable, result.active_choicepoint.bindings)
 
             if AL.Var.var?(val) do
               {variable, variable}
