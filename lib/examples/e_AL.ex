@@ -167,4 +167,28 @@ defmodule Examples.AL do
     :ok
   end
 
+  example forall_over_supers() do
+    {:atomic, choicepoints} = :mnesia.transaction(fn ->
+      result = AL.eval([
+        {:set_super, :forall_test, :class},
+        {:set_super, :forall_test, :behaviour},
+        {:forall,
+          [{:get_super, :"$forall_test", :"$s"}],
+          [{:set_slots, :"$s", %{forall_visited: true}}]
+        }
+      ])
+      Enum.to_list(result.choicepoints)
+    end)
+    
+    {:atomic, [{:slots, :class, class_slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :class) end)
+    
+    {:atomic, [{:slots, :behaviour, behaviour_slots}]} =
+      :mnesia.transaction(fn -> :mnesia.read(:slots, :behaviour) end)
+
+    assert Map.get(class_slots, :forall_visited) == true
+    assert Map.get(behaviour_slots, :forall_visited) == true
+    :ok
+  end
+  
 end

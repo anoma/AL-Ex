@@ -96,7 +96,7 @@ defmodule AL do
     # Get a stream of all the possible bindings
     choicepoints = interp(program, AL.Var.empty_bindings(), tx_id)
     # First remove the failed bindings from the stream
-    filtered_choicepoints = Stream.filter(choicepoints, fn {_cut, bindings} -> bindings != nil end)
+    filtered_choicepoints = Stream.filter(choicepoints, &success?/1)
     # Then simplify bindings by extracting source variables and pointer chasing
     flattened_choicepoints = Stream.map(filtered_choicepoints, flatten_binds)
     %AL{ choicepoints: flattened_choicepoints, tx_id: tx_id, program: program }
@@ -137,6 +137,9 @@ defmodule AL do
 
   # Attach a falso cut flag to the given bindings
   def no_cut(x), do: {false, x}
+
+  # Indicate whether the given binding was a success
+  def success?({_cut, bindings}), do: bindings != nil
 
   # Mark the stream to indicate the presence of a subgoal
   def mark(stream), do: cons(no_cut(nil), stream)
@@ -214,9 +217,8 @@ defmodule AL do
   def interp(:cut, bindings, _tx_id), do: once({true, bindings})
 
   def interp({:implies, condition, then, otherwise}, bindings, tx_id) do
-    find_bindings = fn {_cut, elt} -> elt != nil end
     # Look for a solution to the condition - cuts from condition are not propagated upwards
-    case Enum.find(interp(condition, bindings, tx_id), find_bindings) do
+    case Enum.find(interp(condition, bindings, tx_id), &success?/1) do
       # No solutions trigger the otherwise clause
       nil -> interp(otherwise, bindings, tx_id)
       # Use the first solution to the condition and trigger the consequent
@@ -229,6 +231,14 @@ defmodule AL do
       AL.Var.subst(template, bindings)
     end
     once(no_cut(AL.Var.unify(result, solutions, bindings)))
+  end
+
+  def interp({:forall, condition, body}, bindings, tx_id) do
+    # Find all the bindings that satisfy the condition
+    conditions = interp(condition, bindings, tx_id)
+    # For each binding, ensure that the body can be satisfied
+    forall = Enum.all?(conditions, fn {_cut, bindings} -> bindings == nil or Enum.find(interp(body, bindings, tx_id), &success?/1) end)
+    if forall, do: once(no_cut(bindings)), else: empty()
   end
 
   def interp({:or, left, right}, bindings, tx_id) do
@@ -260,7 +270,9 @@ defmodule AL do
     once(no_cut(bindings))
   end
 
-  def interp({:set_slots, object_pattern, slots_pattern}, bindings, tx_id) do
+  def interp({:set_slots, object_pat, slots_pat}, bindings, tx_id) do
+    object_pattern = AL.Var.subst(object_pat, bindings)
+    slots_pattern = AL.Var.subst(slots_pat, bindings)
     AL.Events.set_slots(tx_id, object_pattern, slots_pattern)
     AL.Objects.set_slots(object_pattern, slots_pattern)
     once(no_cut(bindings))
