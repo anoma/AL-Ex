@@ -541,6 +541,18 @@ defmodule AL do
     end
   end
 
+  def interp({:oapply, :gensym, [result]}, state) do
+    fresh = :"gensym_#{System.unique_integer([:monotonic, :positive])}"
+
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | bindings: AL.Var.unify(result, fresh, state.active_choicepoint.bindings)
+        }
+    }
+  end
+
   def interp({:oapply, :map_get, [m, k_pattern, v_pattern]}, state) do
     case m
          |> Enum.map(fn pair ->

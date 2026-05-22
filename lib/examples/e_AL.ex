@@ -202,4 +202,15 @@ defmodule Examples.AL do
     program_state
   end
 
+  example gensym() do
+    {:atomic, {bindings, _}} =
+      run do
+        gensym(a)
+        gensym(b)
+      end
+
+    assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")
+    :ok
+  end
+
 end
