@@ -86,4 +86,18 @@ defmodule Examples.ALObjects do
     
     program_state
   end
+
+  example examine() do
+    {:atomic, {bindings, program_state}} = run do
+      send(:class, :examine, [info])
+      map_get(info, :methods, methods)
+      map_get(info, :classes, classes)
+      map_get(info, :supers, supers)
+    end
+
+    assert Map.get(bindings, :"$classes") == [:class] 
+    assert Map.get(bindings, :"$supers") == [:object]
+
+    program_state
+  end
 end
