@@ -154,4 +154,17 @@ defmodule Examples.AL do
     assert Enum.count(choicepoints) == 0
   end
 
+  example findall_supers() do
+    {:atomic, choicepoints} = :mnesia.transaction(fn ->
+      result = AL.eval([
+        {:set_super, :findall_test, :a},
+        {:set_super, :findall_test, :b},
+        {:findall, :"$s", [{:get_super, :findall_test, :"$s"}], :"$supers"}
+      ])
+      Enum.to_list(result.choicepoints)
+    end)
+    assert Enum.sort(Map.get(hd(choicepoints), :"$supers")) == [:a, :b]
+    :ok
+  end
+
 end

@@ -224,6 +224,13 @@ defmodule AL do
     end
   end
 
+  def interp({:findall, template, condition, result}, bindings, tx_id) do
+    solutions = for {_cut, bindings} <- interp(condition, bindings, tx_id), bindings != nil do
+      AL.Var.subst(template, bindings)
+    end
+    once(no_cut(AL.Var.unify(result, solutions, bindings)))
+  end
+
   def interp({:or, left, right}, bindings, tx_id) do
     branches = Stream.map([{false, left}, {false, right}], & &1)
     cuttable_flat_map(branches, & interp(&1, bindings, tx_id))
