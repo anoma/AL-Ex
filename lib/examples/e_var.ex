@@ -20,26 +20,26 @@ defmodule Examples.AL.Var do
         {:_, 3}
       ])
 
-    assert bindings == %{"$_": :_, "$name": "alice"}
+    assert bindings == %{"$name": "alice"}
     bindings
   end
 
   example unification_two() do
     result = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
-    result 
+    result
   end
 
   example unification_three() do
     result = AL.Var.unify(:"$x", 3, AL.Var.unify(:"$y", :"$x"))
     result
   end
-  
+
   example substitution() do
     bindings = unification()
 
     substitution = AL.Var.subst([:"$self", %{name: :"$name"}, {:"$_", 3}], bindings)
 
-    assert substitution == [:"$self", %{name: "alice"}, {:_, 3}]
+    assert substitution == [:"$self", %{name: "alice"}, {:"$_", 3}]
 
     substitution
   end
@@ -49,6 +49,9 @@ defmodule Examples.AL.Var do
   end
 
   example freshen_vars() do
-    AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], Base.encode16(:crypto.strong_rand_bytes(2)))
+    AL.Var.freshen(
+      [:"$self", %{name: :"$name"}, {:"$_", 3}],
+      Base.encode16(:crypto.strong_rand_bytes(2))
+    )
   end
 end

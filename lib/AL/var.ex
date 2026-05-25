@@ -91,13 +91,18 @@ defmodule AL.Var do
   @spec deref(bindings(), variable()) :: t()
   def deref(bindings, k) do
     case Map.get(bindings, k) do
-      nil -> k
-      ^k -> k
-      v -> if var?(v) do
-        deref(bindings, v)
-      else
-        v
-      end
+      nil ->
+        k
+
+      ^k ->
+        k
+
+      v ->
+        if var?(v) do
+          deref(bindings, v)
+        else
+          v
+        end
     end
   end
 
@@ -111,15 +116,11 @@ defmodule AL.Var do
 
     cond do
       rx == ry -> bindings
-
-      not(is_var_rx) && is_var_ry -> Map.put(bindings, ry, x)
+      not is_var_rx && is_var_ry -> Map.put(bindings, ry, x)
       rx == x && is_var_ry -> Map.put(bindings, ry, x)
-
-      not(is_var_ry) && is_var_rx -> Map.put(bindings, rx, y)
+      not is_var_ry && is_var_rx -> Map.put(bindings, rx, y)
       ry == y && is_var_rx -> Map.put(bindings, rx, y)
-      
       is_var_ry && is_var_rx -> Map.put(bindings, rx, ry)
-      
       true -> unify(rx, ry, bindings)
     end
   end
@@ -127,6 +128,9 @@ defmodule AL.Var do
   @spec unify(t(), t(), bindings()) :: bindings() | nil
   def unify(x, y, bindings \\ %{}) do
     cond do
+      x == :"$_" || y == :"$_" ->
+        bindings
+
       var?(x) || var?(y) ->
         extend(bindings, x, y)
 
@@ -162,9 +166,10 @@ defmodule AL.Var do
   @spec subst(t(), bindings()) :: t()
   def subst(x, bindings) when is_atom(x) do
     rx = deref(bindings, x)
+
     if rx == x do
       x
-    else 
+    else
       subst(rx, bindings)
     end
   end
@@ -187,14 +192,13 @@ defmodule AL.Var do
   end
 
   def subst(x, _), do: x
-  
 
   @spec find_vars(t()) :: MapSet.t(variable())
   @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())
   def find_vars(d) do
     find_vars(d, MapSet.new([]))
   end
-  
+
   def find_vars(v, s) when is_atom(v) do
     if var?(v) do
       MapSet.put(s, v)
@@ -248,6 +252,6 @@ defmodule AL.Var do
     |> freshen(f)
     |> List.to_tuple()
   end
-  
+
   def freshen(v, _f), do: v
 end

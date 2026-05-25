@@ -9,19 +9,25 @@ defmodule AL.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      AL.Events,
-      AL.Objects
-      # {DynamicSupervisor, name: QueryEngineSupervisor}
-    ]
+    AL.Command.setup()
+    AL.Objects.setup()
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Al.Supervisor]
-    Supervisor.start_link(children, opts)
+    {:ok, pid} = Supervisor.start_link([AL.Scheduler], opts)
+
+    bootstrap()
+
+    {:ok, pid}
   end
 
   def bootstrap() do
+    case :mnesia.table_info(:command, :size) do
+      0 -> do_bootstrap()
+      _ -> :ok
+    end
+  end
+
+  defp do_bootstrap() do
     run do
       set_class(:class, :class)
       set_class(:behaviour, :class)
@@ -30,72 +36,102 @@ defmodule AL.Application do
       set_super(:behaviour, :object)
 
       set_method(:class, :init, :initialise_class)
-      set_method(:class, :allocate, :allocate_class)
-      set_method(:class, :meta, :metaclass)
-      set_method(:class, :new, :new_object)
 
       set_method(:object, :lookup, :lookup)
       set_method(:object, :send, :send)
-      set_method(:object, :init, :initialise_object)
+      set_method(:object, :meta, :metaclass)
+      set_method(:object, :defmethod, :defmethod)
 
       set_class(:initialise_class, :behaviour)
-      set_oapply(:initialise_class,
-        [self, %{name: name, super: super, slots: slots}, _]) do
+
+      set_oapply(
+        :initialise_class,
+        [self, args, name]
+      ) do
+        map_get(args, :name, name)
+        map_get(args, :super, super)
+        map_get(args, :slots, slots)
 
         class(self, meta)
+        
         set_class(name, meta)
         set_super(name, super)
         set_slots(name, slots)
       end
 
-      set_class(:allocate_class, :behaviour)
-      set_oapply(:allocate_class,
-        [self, %{class: self}]) do
-      end
-
       set_class(:metaclass, :behaviour)
-      set_oapply(:metaclass,
-        [self, class, meta]) do
-        
+
+      set_oapply(:metaclass, [self, class, meta]) do
         class(self, class)
         class(class, meta)
       end
 
       set_class(:lookup, :behaviour)
-      set_oapply(:lookup, [self, name, id]) do
-        method(self, name, id)
+      set_oapply(
+        :lookup,
+        [self, name, id]
+      ) do
+        alternative([method(self, name, id)],
+          [super(self, super),
+           lookup(super, name, id)])
+        # super(self, super)
+        # lookup(super, name, id)
       end
 
-      set_oapply(:lookup,
-        [self, name, id]) do
-        
-        super(self, super)
-        lookup(super, name, id)
+      set_class(:send, :behaviour)
+
+      set_oapply(
+        :send,
+        [self, method, args]
+      ) do
+        class(self, class)
+        implies(
+          [lookup(class, method, id)],
+          [
+            print(["calling", id, "from", class, "with args", [self | args]]),
+            oapply(id, [self | args])
+          ],
+          [:fail]
+        )
       end
 
-      set_class(:new_object, :behaviour)
-      set_oapply(:new_object,
-        [self, args, new]) do
-        
+      set_class(:defmethod, :behaviour)
+      set_oapply(:defmethod, [self, method_name, head, body]) do
+        gensym(impl)
+        set_method(self, method_name, impl)
+        set_class(impl, :behaviour)
+        set_oapply(impl, head, body)
+      end
+
+      set_class(:map_get, :behaviour)
+      set_method(:map, :map_get, :map_get)
+
+      defmethod(:class, :allocate, [self, %{class: self}]) do
+      end
+
+      defmethod(:class, :new, [self, args, new]) do
         send(self, :allocate, [alloc])
         send(alloc, :init, [args, new])
       end
 
-      set_class(:send, :behaviour)
-      set_oapply(:send,
-        [self, method, args]) do
-
-        class(self, class)
-        implies([lookup(class, method, id)],
-          [print(["calling", id, "from", class, "with args", [self | args]]),
-           oapply(id, [self | args])],
-          [:fail])
+      defmethod(:object, :init, [self, _, self]) do
+        print(self)
       end
 
-      set_class(:initialise_object, :behaviour)
-      set_oapply(:initialise_object,
-        [self, _, self]) do
-        print(self)
+      defmethod(:object, :examine, [self, %{classes: classes, supers: supers, methods: methods, clauses: clauses}]) do
+        findall(c, [class(self, c)], classes)
+        findall(s, [class(self, s)], supers)
+        findall([n, id], [method(self, n, id)], methods)
+        findall([head, body], [clause(self, head, body)], clauses)
+      end
+
+      lookup(:class, :init, n)
+      send(:class, :new, [%{name: :process, super: :object, slots: []}, _])      
+      defmethod(:process, :init, [self, args, new_obj]) do
+        map_get(args, :head, head)
+        map_get(args, :body, body)
+        gensym(new_obj)
+        spawn_process(new_obj, head, body)
       end
     end
   end
