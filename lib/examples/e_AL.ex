@@ -172,7 +172,6 @@ defmodule Examples.AL do
     :ok
   end
 
-<<<<<<< HEAD
   example arithmetic() do
     {:atomic, {bindings, result}} = run do
       is(a, (123 + 5) - 3)
@@ -195,6 +194,7 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$e") == 56312
     assert Map.get(bindings, :"$g") == -7
     assert Map.get(bindings, :"$h") == 7
+  end
     
   example list_tests() do
     {:atomic, {bindings, result}} = run do
@@ -262,7 +262,6 @@ defmodule Examples.AL do
     result
   end
 
-=======
   example slot_merge_semantics() do
     {:atomic, _} =
       run do
@@ -335,5 +334,4 @@ defmodule Examples.AL do
 
     assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
   end
->>>>>>> jam/feature/examine
-end
+  end
