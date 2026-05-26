@@ -280,18 +280,16 @@ defmodule AL do
       if result.active_choicepoint.bindings == nil do
         :mnesia.abort(format_failure(result.trace))
       else
-        output_vars =
-          input_vars
-          |> Enum.map(fn variable ->
-            val = AL.Var.subst(variable, result.active_choicepoint.bindings)
-
-            if AL.Var.var?(val) do
-              {variable, variable}
-            else
-              {variable, val}
-            end
-          end)
-          |> Map.new()
+        output_vars = input_vars
+        |> Enum.map(fn variable ->
+          val = AL.Var.subst(variable, result.active_choicepoint.bindings)
+          if AL.Var.var?(val) do
+            {variable, variable}
+          else
+            {variable, val}
+          end
+        end)
+        |> Map.new()
 
         {output_vars, result}
       end
