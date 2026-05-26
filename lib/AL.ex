@@ -606,6 +606,17 @@ defmodule AL do
     end
   end
 
+  def interp({:oapply, :is, [a, b]}, state) do
+    a_deref = AL.Var.deref(state.active_choicepoint.bindings, a)
+    expr = interp_is(b, state.active_choicepoint.bindings)
+    %AL{state |
+      active_choicepoint: %AL.Choicepoint{
+        state.active_choicepoint |
+          bindings: AL.Var.unify(a_deref, expr, state.active_choicepoint.bindings),
+      },
+      choicepoint_stack: state.choicepoint_stack}
+  end
+
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
     case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] ->
@@ -955,11 +966,28 @@ defmodule AL do
     do: Map.new(m, fn {k, v} -> {normalize_term(k), normalize_term(v)} end)
 
   defp normalize_term(x), do: x
+
+  def interp_is({:oapply, :+, [a, b]}, bindings), do: interp_is(a, bindings) + interp_is(b, bindings)
+
+  def interp_is({:oapply, :-, [a, b]}, bindings), do: interp_is(a, bindings) - interp_is(b, bindings)
+
+  def interp_is({:oapply, :*, [a, b]}, bindings), do: interp_is(a, bindings) * interp_is(b, bindings)
+
+  def interp_is({:oapply, :/, [a, b]}, bindings), do: div(interp_is(a, bindings), interp_is(b, bindings))
+
+  def interp_is({:oapply, :**, [a, b]}, bindings), do: interp_is(a, bindings) ** interp_is(b, bindings)
+
+  def interp_is({:oapply, :-, [a]}, bindings), do: -interp_is(a, bindings)
+
+  def interp_is({:oapply, :+, [a]}, bindings), do: +interp_is(a, bindings)
+
+  def interp_is(a, _bindings) when is_integer(a), do: a
+
+  def interp_is(a, bindings) when is_map_key(bindings, a), do: AL.Var.deref(bindings, a)
 end
 
 defimpl Inspect, for: AL do
   def inspect(%AL{}, _opts) do
     "#AL<>"
   end
-
 end
