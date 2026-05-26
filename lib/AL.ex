@@ -919,3 +919,10 @@ defmodule AL do
     end
   end
 end
+
+defimpl Inspect, for: AL do
+  def inspect(%AL{}, _opts) do
+    "#AL<>"
+  end
+
+end
