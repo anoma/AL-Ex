@@ -30,6 +30,7 @@ defmodule AL.Application do
   defp do_bootstrap() do
     run do
       set_class(:class, :class)
+      set_class(:object, :class)
       set_class(:behaviour, :class)
 
       set_super(:class, :object)

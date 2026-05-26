@@ -278,7 +278,7 @@ defmodule AL do
         })
 
       if result.active_choicepoint.bindings == nil do
-        :mnesia.abort(result.trace)
+        :mnesia.abort(format_failure(result.trace))
       else
         output_vars =
           input_vars
@@ -306,7 +306,7 @@ defmodule AL do
       result = backtrack(%AL{state | tx_id: tx_id})
 
       if result.active_choicepoint.bindings == nil do
-        :mnesia.abort(result.trace)
+        :mnesia.abort(format_failure(result.trace))
       else
         output_vars =
           input_vars
@@ -918,6 +918,36 @@ defmodule AL do
       end
     end
   end
+
+  defp format_failure(trace) do
+    steps = trace |> Enum.reverse() |> Enum.map(&normalize_term/1)
+    %{failed_on: List.last(steps), trace: steps}
+  end
+
+  defp normalize_term(a) when is_atom(a) do
+    s = Atom.to_string(a)
+
+    cond do
+      Regex.match?(~r/^[0-9a-f]{32}$/, s) ->
+        :"#{String.slice(s, 0, 8)}…"
+
+      String.starts_with?(s, "$") && Regex.match?(~r/_-?\d+$/, s) ->
+        String.to_atom(Regex.replace(~r/_-?\d+$/, s, ""))
+
+      true ->
+        a
+    end
+  end
+
+  defp normalize_term(t) when is_tuple(t),
+    do: t |> Tuple.to_list() |> Enum.map(&normalize_term/1) |> List.to_tuple()
+
+  defp normalize_term(l) when is_list(l), do: Enum.map(l, &normalize_term/1)
+
+  defp normalize_term(m) when is_map(m),
+    do: Map.new(m, fn {k, v} -> {normalize_term(k), normalize_term(v)} end)
+
+  defp normalize_term(x), do: x
 end
 
 defimpl Inspect, for: AL do
