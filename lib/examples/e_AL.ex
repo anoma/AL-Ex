@@ -27,7 +27,8 @@ defmodule Examples.AL do
   example metaclass() do
     {:atomic, {bindings, result}} =
       run do
-        class(:initialise_class, b)
+        method(:object, :init, init_method)
+        class(init_method, b)
         class(b, :class)
       end
 
@@ -38,14 +39,16 @@ defmodule Examples.AL do
 
   example get_oapply_command() do
     run do
-      get_oapply(:initialise_class, [:"$self" | :"$args"], :"$body")
+      method(:object, :init, init_method)
+      get_oapply(init_method, [:"$self" | :"$args"], :"$body")
     end
   end
 
   example execute_metaclass_method() do
     {:atomic, {bindings, result}} =
       run do
-        send(:initialise_class, :meta, [:"$class", :"$metaclass"])
+        method(:object, :init, init_method)
+        send(init_method, :meta, [:"$class", :"$metaclass"])
       end
 
     assert Map.get(bindings, :"$class") == :behaviour

@@ -37,7 +37,7 @@ defmodule Examples.ALObjects do
     result
   end
 
-  example metaclass_override() do
+  example metaclass_init_override() do
     {:atomic, {b, program_state}} =
       run do
         send(:class, :new, [
@@ -46,12 +46,11 @@ defmodule Examples.ALObjects do
             ])
         set_slots(:counter_meta, %{count: []})
 
-        defmethod(:counter_meta, :init, [self, args, name]) do
+        defmethod(:counter_meta, :init, [self, args, self]) do
           class(self, meta)
           get_slot(meta, :count, count)
           set_slots(meta, %{count: ["new class!" | count]})
-          oapply(:initialise_class, [self, args, name])
-          set_method(name, :init, :initialise_counted_object)
+          set_method(self, :init, :initialise_counted_object)
           cut
         end
 
@@ -61,7 +60,6 @@ defmodule Examples.ALObjects do
           get_slot(metaclass, :count, count)
           set_slots(metaclass, %{count: ["new object!" | count]})
           # TODO find a good way to do call next method
-          # oapply(:initialise_object, [self, _, self])
           cut
         end
 
@@ -76,7 +74,6 @@ defmodule Examples.ALObjects do
         ])
 
         send(:example_counter_meta_instance, :new, [_, example_ii])
-
         cut
 
         get_slot(:counter_meta, :count, c)
@@ -84,6 +81,34 @@ defmodule Examples.ALObjects do
 
     assert Map.get(b, :"$c") == ["new object!", "new class!", "new class!"]
     
+    program_state
+  end
+
+  example metaclass_alloc_override() do
+    {:atomic, {b, program_state}} =
+      run do
+      send(:class, :new, [
+            %{name: :durable_meta, super: :object, slots: []},
+            _])
+      defmethod(:durable_meta, :allocate, [self, args, name]) do
+        map_get(args, :name, name)
+        map_get(args, :slots, slots)
+
+        class(self, meta)
+
+        set_class(name, meta)
+        set_super(name, :object)
+        set_slots(name, slots)        
+      end
+
+      send(:durable_meta, :new, [%{slots: [], name: :alloc_overriden}, obj])
+
+      class(obj, obj_class)
+    end
+
+    assert is_atom(Map.get(b, :"$obj"))
+    assert Map.get(b, :"$obj_class") == :durable_meta
+
     program_state
   end
 
