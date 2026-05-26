@@ -57,7 +57,7 @@ defmodule AL do
   __{:get_class, object_pattern, class_pattern}__
   Scan the class table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
   E.G., {:get_class, :class, :"$class"} should find :"$class" == :class only
-  
+
   __{:get_super, object_pattern, super_pattern}__
   Scan the superclass table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
   E.G., {:get_super, :class, :"$super"} should find :"$super" == :object only
@@ -246,25 +246,35 @@ defmodule AL do
     cuttable_flat_map(branches, & interp(&1, bindings, tx_id))
   end
 
-  def interp({:set_class, object_pattern, class_pattern}, bindings, tx_id) do
+  def interp({:set_class, object_pat, class_pat}, bindings, tx_id) do
+    object_pattern = AL.Var.subst(object_pat, bindings)
+    class_pattern = AL.Var.subst(class_pat, bindings)
     AL.Events.set_class(tx_id, object_pattern, class_pattern)
     AL.Objects.set_class(object_pattern, class_pattern)
     once(no_cut(bindings))
   end
 
-  def interp({:set_super, object_pattern, super_pattern}, bindings, tx_id) do
+  def interp({:set_super, object_pat, super_pat}, bindings, tx_id) do
+    object_pattern = AL.Var.subst(object_pat, bindings)
+    super_pattern = AL.Var.subst(super_pat, bindings)
     AL.Events.set_super(tx_id, object_pattern, super_pattern)
     AL.Objects.set_super(object_pattern, super_pattern)
     once(no_cut(bindings))
   end
 
-  def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, bindings, tx_id) do
+  def interp({:set_method, object_pat, method_name_pat, method_id_pat}, bindings, tx_id) do
+    object_pattern = AL.Var.subst(object_pat, bindings)
+    method_name_pattern = AL.Var.subst(method_name_pat, bindings)
+    method_id_pattern = AL.Var.subst(method_id_pat, bindings)
     AL.Events.set_method(tx_id, object_pattern, method_name_pattern, method_id_pattern)
     AL.Objects.set_method(object_pattern, method_name_pattern, method_id_pattern)
     once(no_cut(bindings))
   end
 
-  def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, bindings, tx_id) do
+  def interp({:set_oapply, object_pat, head_pat, body_pat}, bindings, tx_id) do
+    object_pattern = AL.Var.subst(object_pat, bindings)
+    head_pattern = AL.Var.subst(head_pat, bindings)
+    body_pattern = AL.Var.subst(body_pat, bindings)
     AL.Events.set_oapply(tx_id, object_pattern, head_pattern, body_pattern)
     AL.Objects.set_oapply(object_pattern, head_pattern, body_pattern)
     once(no_cut(bindings))
@@ -284,4 +294,72 @@ defmodule AL do
   end
 
   def interp(:fail, _bindings, _tx_id), do: empty()
+
+  def interp({:get_slot, object, key, value}, bindings, _tx_id) do
+    entries =
+      case :mnesia.read(:slots, object) do
+        [{:slots, ^object, m}] when is_map(m) ->
+          if AL.Var.var?(key) do
+            Map.to_list(m)
+          else
+            case Map.fetch(m, key) do
+              {:ok, v} -> [{key, v}]
+              :error -> []
+            end
+          end
+
+        _ ->
+          []
+      end
+    Enum.map(entries, fn {k, v} -> no_cut(AL.Var.unify({k, v}, {key, value}, bindings)) end)
+  end
+
+  # Implementation of the new method of the class class
+  def interp({:sendb, :class, :new, %{name: name, supers: [super], methods: methods}}, bindings, tx_id) do
+    init_vtable = Enum.flat_map(methods, fn {method_name, [object_name, arg, state, body]} ->
+      fresh_method_id = String.to_atom("method_id" <> Integer.to_string(System.unique_integer([:monotonic, :positive])))
+      [{:set_method, name, method_name, fresh_method_id},
+      {:set_oapply, fresh_method_id, [object_name, arg, state], body}]
+    end)
+    cuttable_flat_map(interp({:set_class, name, :class}, bindings, tx_id), fn bindings ->
+      cuttable_flat_map(interp({:set_super, name, super}, bindings, tx_id), fn bindings ->
+        interp(init_vtable, bindings, tx_id)
+      end)
+    end)
+  end
+
+  # Call the given method on the given object with the given argument
+  def interp({:sendb, object, method_name, arg}, bindings, tx_id) do
+    fresh_method_id = AL.Var.freshen(:"$method_id", Integer.to_string(System.unique_integer([:monotonic, :positive])))
+    cuttable_flat_map(get_object_method(object, method_name, fresh_method_id, bindings, tx_id), fn bindings ->
+      freshener = Integer.to_string(System.unique_integer([:monotonic]))
+      fresh_key = AL.Var.freshen(:"$key", freshener)
+      fresh_value = AL.Var.freshen(:"$value", freshener)
+      fresh_result = AL.Var.freshen(:"$result", freshener)
+      slot_bindings = interp({:findall, {fresh_key, fresh_value}, {:get_slot, object, fresh_key, fresh_value}, fresh_result}, bindings, tx_id)
+      cuttable_flat_map(slot_bindings, fn bindings ->
+        slots = Map.new(bindings[fresh_result])
+        interp({:exec, fresh_method_id, [object, arg, slots]}, bindings, tx_id)
+      end)
+    end)
+  end
+
+  # Get the method with the given name from the iven object
+  def get_object_method(obj, method_name, method_id, bindings, tx_id) do
+    fresh_class = AL.Var.freshen(:"$class", Integer.to_string(System.unique_integer([:monotonic, :positive])))
+    cuttable_flat_map(interp({:get_class, obj, fresh_class}, bindings, tx_id), fn bindings ->
+      get_class_method(fresh_class, method_name, method_id, bindings, tx_id)
+    end)
+  end
+
+  # Get the method with the given name from the given class
+  def get_class_method(class, method_name, method_id, bindings, tx_id) do
+    fresh_super = AL.Var.freshen(:"$super", Integer.to_string(System.unique_integer([:monotonic, :positive])))
+    direct_bindings = interp({:get_method, class, method_name, method_id}, bindings, tx_id)
+    indirect_bindings =
+      cuttable_flat_map(interp({:get_super, class, fresh_super}, bindings, tx_id), fn bindings ->
+        get_class_method(fresh_super, method_name, method_id, bindings, tx_id)
+      end)
+    Stream.concat(direct_bindings, indirect_bindings)
+  end
 end

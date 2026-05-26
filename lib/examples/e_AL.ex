@@ -190,5 +190,25 @@ defmodule Examples.AL do
     assert Map.get(behaviour_slots, :forall_visited) == true
     :ok
   end
+
+  example send_new() do
+    {:atomic, choicepoints} = :mnesia.transaction(fn ->
+      result = AL.eval([
+        {:sendb, :class, :new, %{
+          name: :point,
+          supers: [:object],
+          methods: [
+            init: [:"$self", :"$arg", %{}, [{:print, "Helloa world"}, {:print, :"$self"}, {:print, "Done"}, :cut]],
+            norm: [:"$self", :"$Norm", %{x: "$X", y: "$Y"}, []],
+            x: [:"$self", :"$X", %{x: "$X", y: "$_Y"}, []],
+            y: [:"$self", :"$Y", %{x: "$_X", y: "$Y"}, []]
+          ]
+        }},
+        {:sendb, :point, :new, %{ name: :point1 }},
+        {:get_super, :"$aha", :"$metaaaaa"}
+      ])
+      IO.inspect(Enum.to_list(result.choicepoints), label: "the result")
+    end)
+  end
   
 end
