@@ -77,7 +77,7 @@ defmodule AL.Application do
 
       set_class(:defmethod, :behaviour)
       set_oapply(:defmethod, [self, method_name, head, body]) do
-        gensym(impl)
+        fresh_id(impl)
         set_method(self, method_name, impl)
         set_class(impl, :behaviour)
         set_oapply(impl, head, body)

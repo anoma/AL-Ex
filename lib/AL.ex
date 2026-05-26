@@ -569,6 +569,16 @@ defmodule AL do
     }
   end
 
+  def interp({:oapply, :fresh_id, [result]}, state) do
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | bindings: AL.Var.unify(result, AL.Command.fresh_id(), state.active_choicepoint.bindings)
+        }
+    }
+  end
+
   def interp({:oapply, :map_get, [m, k_pattern, v_pattern]}, state) do
     case m
          |> Enum.map(fn pair ->
@@ -603,7 +613,7 @@ defmodule AL do
 
       [{:oapply, id, head, body} | next_choices] ->
 
-        freshener = Integer.to_string(System.unique_integer([:monotonic]))
+        freshener = AL.Command.fresh_scope()
 
         head_pattern = AL.Var.freshen(head, freshener)
         body_pattern = AL.Var.freshen(body, freshener)
@@ -859,7 +869,7 @@ defmodule AL do
 
     body_goals =
       Enum.flat_map(solutions, fn bindings ->
-        freshener = Integer.to_string(System.unique_integer([:monotonic]))
+        freshener = AL.Command.fresh_scope()
 
         Enum.map(body, fn goal ->
           goal |> AL.Var.subst(bindings) |> AL.Var.freshen(freshener)
@@ -929,10 +939,7 @@ defmodule AL do
 
     cond do
       Regex.match?(~r/^[0-9a-f]{32}$/, s) ->
-        :"#{String.slice(s, 0, 8)}…"
-
-      String.starts_with?(s, "$") && Regex.match?(~r/_-?\d+$/, s) ->
-        String.to_atom(Regex.replace(~r/_-?\d+$/, s, ""))
+        :"##{AL.Command.id_label(a)}"
 
       true ->
         a
