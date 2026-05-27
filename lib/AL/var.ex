@@ -143,7 +143,9 @@ defmodule AL.Var do
         unify(Tuple.to_list(x), Tuple.to_list(y), bindings)
 
       is_map(x) && is_map(y) ->
-        keys = Map.keys(x) |> MapSet.new() |> MapSet.intersection(MapSet.new(Map.keys(y)))
+        y = Map.merge(x, y)
+        x = Map.merge(y, x)
+        keys = Map.keys(x)
 
         unify(
           Enum.map(keys, fn k -> Map.get(x, k) end),

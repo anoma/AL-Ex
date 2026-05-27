@@ -181,19 +181,40 @@ defmodule Examples.AL do
           name: :point,
           supers: [:object],
           methods: [
-            init: [:"$self", :"$arg", %{x: 5}, [{:print, "Point initialized"}]],
-            norm: [:"$self", :"$Norm", %{x: :"$X", y: :"$Y"}, []],
+            # Initialize a point with the given x-y coordinates
+            init: [:"$self", %{x: :"$x", y: :"$y"}, %{x: :"$x", y: :"$y"}, [{:print, "Point initialized"}]],
+            # Convert this point to a pair
+            to_pair: [:"$self", {:"$X", :"$Y"}, %{x: :"$X", y: :"$Y"}, []],
+            # Extract the x coordinate
             x: [:"$self", :"$X", %{x: :"$X", y: :"$_Y"}, []],
-            y: [:"$self", :"$Y", %{x: :"$_X", y: :"$Y"}, []]
+            # Extract the y coordinate
+            y: [:"$self", :"$Y", %{x: :"$_X", y: :"$Y"}, []],
+            # Make new point that's the sum of given points
+            add: [:"$self", [:"$b", :"$c"], %{x: :"$ax", y: :"$ay"}, [
+                   {:sendb, :"$b", :to_pair, {:"$bx", :"$by"}},
+                   {:is, :"$cx", {:+, :"$ax", :"$bx"}},
+                   {:is, :"$cy", {:+, :"$ax", :"$bx"}},
+                   {:sendb, :point, :new, %{ name: :"$c", x: :"$cx", y: :"$cy" }}
+                 ]]
           ]
-        }},
-        {:sendb, :point, :new, %{ name: :point1 }},
-        {:sendb, :point1, :x, :"$xres"}
+                       }},
+        # Initialize first point
+        {:sendb, :point, :new, %{ name: :point1, x: 5, y: 3 }},
+        {:sendb, :point1, :x, :"$xres"},
+        {:sendb, :point1, :to_pair, :"$pres"},
+        # Initialize second point
+        {:sendb, :point, :new, %{ name: :point2, x: 2, y: 2 }},
+        # Add the two points together
+        {:sendb, :point1, :add, [:point2, :point3]},
+        # Extract the components of the sum
+        {:sendb, :point3, :to_pair, :"$p3res"}
       ])
       Enum.to_list(result.choicepoints)
     end)
     assert Enum.count(choicepoints) > 0
     assert Map.get(hd(choicepoints), :"$xres") == 5
+    assert Map.get(hd(choicepoints), :"$pres") == {5, 3}
+    assert Map.get(hd(choicepoints), :"$p3res") == {5, 3}
   end
   
 end

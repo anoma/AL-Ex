@@ -265,6 +265,12 @@ defmodule AL do
     if forall, do: once(no_cut(bindings)), else: empty()
   end
 
+  def interp({:is, a, b}, bindings, tx_id) do
+    a_deref = AL.Var.deref(bindings, a)
+    expr = interp_is(b, bindings)
+    once(no_cut(AL.Var.unify(a_deref, expr, bindings)))
+  end
+
   def interp({:or, left, right}, bindings, tx_id) do
     branches = Stream.map([{false, left}, {false, right}], & &1)
     cuttable_flat_map(branches, & interp(&1, bindings, tx_id))
@@ -377,4 +383,22 @@ defmodule AL do
       end)
     Stream.concat([[no_cut(class_init_binding)], [no_cut(class_allocate_binding)], direct_bindings, indirect_bindings])
   end
+
+  def interp_is({:+, a, b}, bindings), do: interp_is(a, bindings) + interp_is(b, bindings)
+
+  def interp_is({:-, a, b}, bindings), do: interp_is(a, bindings) - interp_is(b, bindings)
+
+  def interp_is({:*, a, b}, bindings), do: interp_is(a, bindings) * interp_is(b, bindings)
+
+  def interp_is({:/, a, b}, bindings), do: div(interp_is(a, bindings), interp_is(b, bindings))
+
+  def interp_is({:**, a, b}, bindings), do: interp_is(a, bindings) ** interp_is(b, bindings)
+
+  def interp_is({:-, a}, bindings), do: -interp_is(a, bindings)
+
+  def interp_is({:+, a}, bindings), do: +interp_is(a, bindings)
+
+  def interp_is(a, _bindings) when is_integer(a), do: a
+
+  def interp_is(a, bindings) when is_map_key(bindings, a), do: AL.Var.deref(bindings, a)
 end
