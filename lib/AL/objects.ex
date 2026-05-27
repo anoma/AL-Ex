@@ -143,7 +143,7 @@ defmodule AL.Objects do
 
       case :mnesia.create_table(:slots,
              attributes: [:object, :slots],
-             type: :bag,
+             type: :set,
              ram_copies: [node()]
            ) do
         {:atomic, :ok} -> :slots

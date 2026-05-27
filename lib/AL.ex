@@ -199,19 +199,43 @@ defmodule AL do
     end)
   end
 
-  def interp({:exec, method_id_pattern, bind_head_pattern}, bindings, tx_id) do
-    # Bring methods into the domain of cuttable_flat_map
-    methods = Stream.map(AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body"), &no_cut/1)
-    # Attempt to apply arguments to the methods found
-    choicepoints = cuttable_flat_map(methods, fn {:oapply, id, head, body} ->
-      freshener = Integer.to_string(System.unique_integer([:monotonic]))
-      head_pattern = AL.Var.freshen(head, freshener)
-      body_pattern = AL.Var.freshen(body, freshener)
-      bindings = AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, bindings)
-      if bindings != nil, do: interp(body_pattern, bindings, tx_id), else: empty()
+  # Implementation of the init method of the class class
+  def interp({:exec, :initialise_class, [self, %{name: name, supers: [super], methods: methods}, state]}, bindings, tx_id) do
+    init_vtable = Enum.flat_map(methods, fn {method_name, [object_name, arg, state, body]} ->
+      fresh_method_id = String.to_atom("method_id" <> Integer.to_string(System.unique_integer([:monotonic, :positive])))
+      [{:set_method, name, method_name, fresh_method_id},
+       {:set_oapply, fresh_method_id, [object_name, arg, state], body}]
     end)
-    # Do not propagate the cuts upwards beyond the subgoal
-    Stream.map(choicepoints, fn {_cut, x} -> {false, x} end)
+    cuttable_flat_map(interp({:set_super, name, super}, bindings, tx_id), fn bindings ->
+      interp(init_vtable, bindings, tx_id)
+    end)
+  end
+
+  # Implementation of the allocate method of the class class
+  def interp({:exec, :allocate_class, [self, %{name: name}, state]}, bindings, tx_id) do
+    interp({:set_class, name, self}, bindings, tx_id)
+  end
+
+  def interp({:exec, method_id_pat, bind_head_pat}, bindings, tx_id) do
+    method_id_pattern = AL.Var.subst(method_id_pat, bindings)
+    bind_head_pattern = AL.Var.subst(bind_head_pat, bindings)
+    case method_id_pattern do
+      :initialise_class -> interp({:exec, method_id_pattern, bind_head_pattern}, bindings, tx_id)
+      :allocate_class -> interp({:exec, method_id_pattern, bind_head_pattern}, bindings, tx_id)
+      _ ->
+        # Bring methods into the domain of cuttable_flat_map
+        methods = Stream.map(AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body"), &no_cut/1)
+        # Attempt to apply arguments to the methods found
+        choicepoints = cuttable_flat_map(methods, fn {:oapply, id, head, body} ->
+          freshener = Integer.to_string(System.unique_integer([:monotonic]))
+          head_pattern = AL.Var.freshen(head, freshener)
+          body_pattern = AL.Var.freshen(body, freshener)
+          bindings = AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, bindings)
+          if bindings != nil, do: interp(body_pattern, bindings, tx_id), else: empty()
+        end)
+        # Do not propagate the cuts upwards beyond the subgoal
+        Stream.map(choicepoints, fn {_cut, x} -> {false, x} end)
+    end
   end
 
   def interp(:cut, bindings, _tx_id), do: once({true, bindings})
@@ -314,32 +338,19 @@ defmodule AL do
     Enum.map(entries, fn {k, v} -> no_cut(AL.Var.unify({k, v}, {key, value}, bindings)) end)
   end
 
-  # Implementation of the new method of the class class
-  def interp({:sendb, :class, :new, %{name: name, supers: [super], methods: methods}}, bindings, tx_id) do
-    init_vtable = Enum.flat_map(methods, fn {method_name, [object_name, arg, state, body]} ->
-      fresh_method_id = String.to_atom("method_id" <> Integer.to_string(System.unique_integer([:monotonic, :positive])))
-      [{:set_method, name, method_name, fresh_method_id},
-      {:set_oapply, fresh_method_id, [object_name, arg, state], body}]
-    end)
-    cuttable_flat_map(interp({:set_class, name, :class}, bindings, tx_id), fn bindings ->
-      cuttable_flat_map(interp({:set_super, name, super}, bindings, tx_id), fn bindings ->
-        interp(init_vtable, bindings, tx_id)
-      end)
-    end)
-  end
-
   # Call the given method on the given object with the given argument
   def interp({:sendb, object, method_name, arg}, bindings, tx_id) do
     fresh_method_id = AL.Var.freshen(:"$method_id", Integer.to_string(System.unique_integer([:monotonic, :positive])))
     cuttable_flat_map(get_object_method(object, method_name, fresh_method_id, bindings, tx_id), fn bindings ->
-      freshener = Integer.to_string(System.unique_integer([:monotonic]))
-      fresh_key = AL.Var.freshen(:"$key", freshener)
-      fresh_value = AL.Var.freshen(:"$value", freshener)
-      fresh_result = AL.Var.freshen(:"$result", freshener)
-      slot_bindings = interp({:findall, {fresh_key, fresh_value}, {:get_slot, object, fresh_key, fresh_value}, fresh_result}, bindings, tx_id)
-      cuttable_flat_map(slot_bindings, fn bindings ->
-        slots = Map.new(bindings[fresh_result])
-        interp({:exec, fresh_method_id, [object, arg, slots]}, bindings, tx_id)
+      freshener = Integer.to_string(System.unique_integer([:monotonic, :positive]))
+      slots = AL.Var.freshen(case :mnesia.read(:slots, object) do
+        [{:slots, ^object, slot_bindings}] -> slot_bindings
+        [] -> %{}
+      end, freshener)
+      fresh_slots = AL.Var.freshen(:"$slots", freshener)
+      cuttable_flat_map(interp({:exec, fresh_method_id, [object, arg, fresh_slots]}, bindings, tx_id), fn bindings ->
+        bindings = AL.Var.unify(fresh_slots, slots, bindings)
+        if bindings != nil, do: interp({:set_slots, object, fresh_slots}, bindings, tx_id), else: empty()
       end)
     end)
   end
@@ -355,11 +366,15 @@ defmodule AL do
   # Get the method with the given name from the given class
   def get_class_method(class, method_name, method_id, bindings, tx_id) do
     fresh_super = AL.Var.freshen(:"$super", Integer.to_string(System.unique_integer([:monotonic, :positive])))
+    resolved_method_name = AL.Var.subst(method_name, bindings)
+    resolved_class = AL.Var.subst(class, bindings)
+    class_init_binding = if resolved_class == :class and resolved_method_name == :init, do: AL.Var.unify(method_id, :initialise_class, bindings)
+    class_allocate_binding = if resolved_class == :class and resolved_method_name == :allocate, do: AL.Var.unify(method_id, :allocate_class, bindings)
     direct_bindings = interp({:get_method, class, method_name, method_id}, bindings, tx_id)
     indirect_bindings =
       cuttable_flat_map(interp({:get_super, class, fresh_super}, bindings, tx_id), fn bindings ->
         get_class_method(fresh_super, method_name, method_id, bindings, tx_id)
       end)
-    Stream.concat(direct_bindings, indirect_bindings)
+    Stream.concat([[no_cut(class_init_binding)], [no_cut(class_allocate_binding)], direct_bindings, indirect_bindings])
   end
 end

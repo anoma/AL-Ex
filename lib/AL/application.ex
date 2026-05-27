@@ -26,29 +26,16 @@ defmodule AL.Application do
       {:set_class, :behaviour, :class},
       {:set_super, :class, :object},
       
-      {:set_method, :class, :init, :initialise_class},
-      {:set_method, :class, :allocate, :allocate_class},
       {:set_method, :class, :meta, :metaclass},
       {:set_method, :class, :new, :new_object},
       
       {:set_method, :object, :lookup, :lookup},
       {:set_method, :object, :send, :send},
       {:set_method, :object, :init, :initialise_object},
-      
-      {:set_class, :initialise_class, :behaviour},
-      {:set_oapply, :initialise_class,
-       [:"$self", %{name: :"$name", super: :"$super", slots: :"$slots"}, :"$_"],
-       [
-         {:get_class, :"$self", :"$meta"},
-         {:set_class, :"$name", :"$meta"},
-         {:set_super, :"$name", :"$super"},
-         {:set_slots, :"$name", :"$slots"}
-       ]
-      },
 
-      {:set_class, :allocate_class, :behaviour},
-      {:set_oapply, :allocate_class,
-       [:"$self", %{class: :"$self"}],
+      {:set_class, :get_name, :behaviour},
+      {:set_oapply, :get_name,
+       [%{name: :"$name"}, :"$name"],
        []},
       
       {:set_class, :metaclass, :behaviour},
@@ -76,8 +63,9 @@ defmodule AL.Application do
       {:set_oapply, :new_object,
        [:"$self", :"$args", :"$new"],
        [
-         {:exec, :send, [:"$self", :allocate, [:"$alloc"]]},
-         {:exec, :send, [:"$alloc", :init, [:"$args", :"$new"]]}
+         {:sendb, :"$self", :allocate, :"$args"},
+         {:exec, :get_name, [:"$args", :"$alloc"]},
+         {:sendb, :"$alloc", :init, :"$args"}
        ]
       },
 
@@ -100,7 +88,7 @@ defmodule AL.Application do
 
       {:set_class, :initialise_object, :behaviour},
       {:set_oapply, :initialise_object,
-       [:"$self", :"$_", :"$self"],
+       [:"$self", :"$_", :"$state"],
        [{:print, :"$self"}]}
     ])
   end
