@@ -101,6 +101,22 @@ defmodule AL.Var do
     end
   end
 
+  def update_bindings(bindings, k, new_value) do
+    if var?(k) do
+      case Map.get(bindings, k) do
+        nil -> Map.put(bindings, k, new_value)
+        ^k -> Map.put(bindings, k, new_value)
+        v -> if var?(v) do
+               update_bindings(bindings, v, new_value)
+             else
+               Map.put(bindings, k, new_value)
+        end
+      end
+    else
+      bindings
+    end
+  end
+
   @spec extend(bindings(), t(), t()) :: bindings()
   def extend(bindings, x, y) do
     rx = deref(bindings, x)
@@ -110,17 +126,23 @@ defmodule AL.Var do
     is_var_ry = var?(ry)
 
     cond do
-      rx == ry -> bindings
+      rx == ry -> {x, y, bindings}
 
-      not(is_var_rx) && is_var_ry -> Map.put(bindings, ry, x)
-      rx == x && is_var_ry -> Map.put(bindings, ry, x)
+      not(is_var_rx) && is_var_ry -> {x, y, Map.put(bindings, ry, x)}
+      rx == x && is_var_ry -> {x, y, Map.put(bindings, ry, x)}
 
-      not(is_var_ry) && is_var_rx -> Map.put(bindings, rx, y)
-      ry == y && is_var_rx -> Map.put(bindings, rx, y)
+      not(is_var_ry) && is_var_rx -> {x, y, Map.put(bindings, rx, y)}
+      ry == y && is_var_rx -> {x, y, Map.put(bindings, rx, y)}
       
-      is_var_ry && is_var_rx -> Map.put(bindings, rx, ry)
+      is_var_ry && is_var_rx -> {x, y, Map.put(bindings, rx, ry)}
       
-      true -> unify(rx, ry, bindings)
+      true -> case unify(rx, ry, bindings) do
+        nil -> nil
+        {ux, uy, bindings} ->
+          expanded_x = if var?(x), do: x, else: ux
+          expanded_y = if var?(y), do: y, else: uy
+          {expanded_x, expanded_y, update_bindings(update_bindings(bindings, x, ux), y, uy)}
+      end
     end
   end
 
@@ -136,28 +158,46 @@ defmodule AL.Var do
 
         case unify(x, y, bindings) do
           nil -> nil
-          next_bindings -> unify(xs, ys, next_bindings)
+          {x, y, next_bindings} -> case unify(xs, ys, next_bindings) do
+            {xs, ys, bindings} -> {[x | xs], [y | ys], bindings}
+            nil -> nil
+          end
         end
 
       is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        unify(Tuple.to_list(x), Tuple.to_list(y), bindings)
+        case unify(Tuple.to_list(x), Tuple.to_list(y), bindings) do
+          nil -> nil
+          {lhs, rhs, bindings} -> {List.to_tuple(lhs), List.to_tuple(rhs), bindings}
+        end
 
       is_map(x) && is_map(y) ->
         y = Map.merge(x, y)
         x = Map.merge(y, x)
         keys = Map.keys(x)
 
-        unify(
+        bindings = unify(
           Enum.map(keys, fn k -> Map.get(x, k) end),
           Enum.map(keys, fn k -> Map.get(y, k) end),
           bindings
-        )
+                   )
+        case bindings do
+          {lhs, rhs, bindings} ->
+            {Enum.zip(keys, lhs) |> Map.new(), Enum.zip(keys, rhs) |> Map.new(), bindings}
+          nil -> nil
+        end
 
       x == y ->
-        bindings
+        {x, y, bindings}
 
       true ->
         nil
+    end
+  end
+
+  def basic_unify(x, y, bindings \\ %{}) do
+    case unify(x, y, bindings) do
+      {x, y, bindings} -> bindings
+      nil -> nil
     end
   end
 

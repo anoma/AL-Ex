@@ -193,17 +193,17 @@ defmodule Examples.AL do
             add: [:"$self", [:"$b", :"$c"], %{x: :"$ax", y: :"$ay"}, [
                    {:sendb, :"$b", :to_pair, {:"$bx", :"$by"}},
                    {:is, :"$cx", {:+, :"$ax", :"$bx"}},
-                   {:is, :"$cy", {:+, :"$ax", :"$bx"}},
+                   {:is, :"$cy", {:+, :"$ay", :"$by"}},
                    {:sendb, :point, :new, %{ name: :"$c", x: :"$cx", y: :"$cy" }}
                  ]]
           ]
                        }},
         # Initialize first point
-        {:sendb, :point, :new, %{ name: :point1, x: 5, y: 3 }},
+        {:sendb, :point, :new, %{ name: :point1, x: 55, y: 3 }},
         {:sendb, :point1, :x, :"$xres"},
         {:sendb, :point1, :to_pair, :"$pres"},
         # Initialize second point
-        {:sendb, :point, :new, %{ name: :point2, x: 2, y: 2 }},
+        {:sendb, :point, :new, %{ name: :point2, x: 65, y: 63 }},
         # Add the two points together
         {:sendb, :point1, :add, [:point2, :point3]},
         # Extract the components of the sum
@@ -212,9 +212,9 @@ defmodule Examples.AL do
       Enum.to_list(result.choicepoints)
     end)
     assert Enum.count(choicepoints) > 0
-    assert Map.get(hd(choicepoints), :"$xres") == 5
-    assert Map.get(hd(choicepoints), :"$pres") == {5, 3}
-    assert Map.get(hd(choicepoints), :"$p3res") == {5, 3}
+    assert Map.get(hd(choicepoints), :"$xres") == 55
+    assert Map.get(hd(choicepoints), :"$pres") == {55, 3}
+    assert Map.get(hd(choicepoints), :"$p3res") == {120, 66}
   end
   
 end

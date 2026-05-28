@@ -166,7 +166,7 @@ defmodule AL do
   end
 
   def interp({:get_class, object_pattern, class_pattern}, bindings, _tx_id) when is_map(object_pattern) and is_map_key(object_pattern, :class) do
-    Stream.map([no_cut(AL.Var.unify(object_pattern[:class], class_pattern, bindings))], & &1)
+    Stream.map([no_cut(AL.Var.basic_unify(object_pattern[:class], class_pattern, bindings))], & &1)
   end
   
   def interp({:get_class, object_pattern, _class_pattern}, _bindings, _tx_id) when is_map(object_pattern), do: empty()
@@ -177,25 +177,25 @@ defmodule AL do
 
   def interp({:get_class, object_pattern, class_pattern}, bindings, _tx_id) do
     Stream.map(AL.Objects.scan_class(object_pattern, class_pattern), fn choice ->
-      no_cut(AL.Var.unify(choice, {:class, object_pattern, class_pattern}, bindings))
+      no_cut(AL.Var.basic_unify(choice, {:class, object_pattern, class_pattern}, bindings))
     end)
   end
 
   def interp({:get_super, object_pattern, super_pattern}, bindings, _tx_id) do
     Stream.map(AL.Objects.scan_super(object_pattern, super_pattern), fn choice ->
-      no_cut(AL.Var.unify(choice, {:super, object_pattern, super_pattern}, bindings))
+      no_cut(AL.Var.basic_unify(choice, {:super, object_pattern, super_pattern}, bindings))
     end)
   end
     
   def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, bindings, _tx_id) do
     Stream.map(AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern), fn choice ->
-      no_cut(AL.Var.unify(choice, {:method, object_pattern, method_name_pattern, method_id_pattern}, bindings))
+      no_cut(AL.Var.basic_unify(choice, {:method, object_pattern, method_name_pattern, method_id_pattern}, bindings))
     end)
   end
 
   def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, bindings, _tx_id) do
     Stream.map(AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern), fn choice ->
-      no_cut(AL.Var.unify(choice, {:oapply, object_pattern, head_pattern, body_pattern}, bindings))
+      no_cut(AL.Var.basic_unify(choice, {:oapply, object_pattern, head_pattern, body_pattern}, bindings))
     end)
   end
 
@@ -230,7 +230,7 @@ defmodule AL do
           freshener = Integer.to_string(System.unique_integer([:monotonic]))
           head_pattern = AL.Var.freshen(head, freshener)
           body_pattern = AL.Var.freshen(body, freshener)
-          bindings = AL.Var.unify({head_pattern, id}, {bind_head_pattern, method_id_pattern}, bindings)
+          bindings = AL.Var.basic_unify({head_pattern, id}, {bind_head_pat, method_id_pat}, bindings)
           if bindings != nil, do: interp(body_pattern, bindings, tx_id), else: empty()
         end)
         # Do not propagate the cuts upwards beyond the subgoal
@@ -254,7 +254,7 @@ defmodule AL do
     solutions = for {_cut, bindings} <- interp(condition, bindings, tx_id), bindings != nil do
       AL.Var.subst(template, bindings)
     end
-    once(no_cut(AL.Var.unify(result, solutions, bindings)))
+    once(no_cut(AL.Var.basic_unify(result, solutions, bindings)))
   end
 
   def interp({:forall, condition, body}, bindings, tx_id) do
@@ -268,7 +268,7 @@ defmodule AL do
   def interp({:is, a, b}, bindings, tx_id) do
     a_deref = AL.Var.deref(bindings, a)
     expr = interp_is(b, bindings)
-    once(no_cut(AL.Var.unify(a_deref, expr, bindings)))
+    once(no_cut(AL.Var.basic_unify(a_deref, expr, bindings)))
   end
 
   def interp({:or, left, right}, bindings, tx_id) do
@@ -341,7 +341,7 @@ defmodule AL do
         _ ->
           []
       end
-    Enum.map(entries, fn {k, v} -> no_cut(AL.Var.unify({k, v}, {key, value}, bindings)) end)
+    Enum.map(entries, fn {k, v} -> no_cut(AL.Var.basic_unify({k, v}, {key, value}, bindings)) end)
   end
 
   # Call the given method on the given object with the given argument
@@ -349,13 +349,15 @@ defmodule AL do
     fresh_method_id = AL.Var.freshen(:"$method_id", Integer.to_string(System.unique_integer([:monotonic, :positive])))
     cuttable_flat_map(get_object_method(object, method_name, fresh_method_id, bindings, tx_id), fn bindings ->
       freshener = Integer.to_string(System.unique_integer([:monotonic, :positive]))
-      slots = AL.Var.freshen(case :mnesia.read(:slots, object) do
-        [{:slots, ^object, slot_bindings}] -> slot_bindings
+      object_subst = AL.Var.subst(object, bindings)
+      slots = AL.Var.freshen(case :mnesia.read(:slots, object_subst) do
+        [{:slots, ^object_subst, slot_bindings}] -> slot_bindings
         [] -> %{}
       end, freshener)
+      
       fresh_slots = AL.Var.freshen(:"$slots", freshener)
+      bindings = AL.Var.basic_unify(fresh_slots, slots, bindings)
       cuttable_flat_map(interp({:exec, fresh_method_id, [object, arg, fresh_slots]}, bindings, tx_id), fn bindings ->
-        bindings = AL.Var.unify(fresh_slots, slots, bindings)
         if bindings != nil, do: interp({:set_slots, object, fresh_slots}, bindings, tx_id), else: empty()
       end)
     end)
@@ -374,8 +376,8 @@ defmodule AL do
     fresh_super = AL.Var.freshen(:"$super", Integer.to_string(System.unique_integer([:monotonic, :positive])))
     resolved_method_name = AL.Var.subst(method_name, bindings)
     resolved_class = AL.Var.subst(class, bindings)
-    class_init_binding = if resolved_class == :class and resolved_method_name == :init, do: AL.Var.unify(method_id, :initialise_class, bindings)
-    class_allocate_binding = if resolved_class == :class and resolved_method_name == :allocate, do: AL.Var.unify(method_id, :allocate_class, bindings)
+    class_init_binding = if resolved_class == :class and resolved_method_name == :init, do: AL.Var.basic_unify(method_id, :initialise_class, bindings)
+    class_allocate_binding = if resolved_class == :class and resolved_method_name == :allocate, do: AL.Var.basic_unify(method_id, :allocate_class, bindings)
     direct_bindings = interp({:get_method, class, method_name, method_id}, bindings, tx_id)
     indirect_bindings =
       cuttable_flat_map(interp({:get_super, class, fresh_super}, bindings, tx_id), fn bindings ->

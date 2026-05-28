@@ -14,7 +14,7 @@ defmodule Examples.AL.Var do
 
   example unification() do
     bindings =
-      AL.Var.unify([:"$self", %{name: :"$name"}, {:"$_", 3}], [
+      AL.Var.basic_unify([:"$self", %{name: :"$name"}, {:"$_", 3}], [
         :"$self",
         %{name: "alice", age: 32},
         {:_, 3}
@@ -25,12 +25,12 @@ defmodule Examples.AL.Var do
   end
 
   example unification_two() do
-    result = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
+    result = AL.Var.basic_unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
     result 
   end
 
   example unification_three() do
-    result = AL.Var.unify(:"$x", 3, AL.Var.unify(:"$y", :"$x"))
+    result = AL.Var.basic_unify(:"$x", 3, AL.Var.basic_unify(:"$y", :"$x"))
     result
   end
   
@@ -50,5 +50,13 @@ defmodule Examples.AL.Var do
 
   example freshen_vars() do
     AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], Base.encode16(:crypto.strong_rand_bytes(2)))
+  end
+
+  example open_unification() do
+    substitution = AL.Var.basic_unify([:"$x", :"$x", :"$x"], [%{a: 5}, %{b: 6}, %{c: 7}], AL.Var.basic_unify(:"$x", %{}))
+
+    assert substitution == %{"$x": %{a: 5, b: 6, c: 7}}
+
+    substitution
   end
 end
