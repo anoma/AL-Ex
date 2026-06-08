@@ -427,6 +427,14 @@ defmodule AL do
               }
           }
       end
+    else if is_list(object_pattern) do
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint
+            | bindings: AL.Var.unify(:list, class_pattern, state.active_choicepoint.bindings)
+          }
+      }
     else
       case AL.Objects.scan_class(object_pattern, class_pattern) do
         [] ->
@@ -458,6 +466,7 @@ defmodule AL do
                 end) ++ state.choicepoint_stack
           }
       end
+    end
     end
   end
 

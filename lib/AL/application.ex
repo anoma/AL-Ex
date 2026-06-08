@@ -5,7 +5,6 @@ defmodule AL.Application do
   """
 
   use Application
-  use AL
 
   @impl true
   def start(_type, _args) do
@@ -22,155 +21,13 @@ defmodule AL.Application do
 
   def bootstrap() do
     case :mnesia.table_info(:command, :size) do
-      0 -> do_bootstrap()
-      _ -> :ok
-    end
-  end
-
-  defp do_bootstrap() do
-    run do
-      set_class(:class, :class)
-      set_class(:object, :class)
-      set_class(:behaviour, :class)
-
-      set_super(:class, :object)
-      set_super(:behaviour, :object)
-
-      set_method(:object, :lookup, :lookup)
-      set_method(:object, :send, :send)
-      set_method(:object, :meta, :metaclass)
-      set_method(:object, :defmethod, :defmethod)
-
-      set_class(:metaclass, :behaviour)
-
-      set_oapply(:metaclass, [self, class, meta]) do
-        class(self, class)
-        class(class, meta)
-      end
-
-      set_class(:lookup, :behaviour)
-      set_oapply(
-        :lookup,
-        [self, name, id]
-      ) do
-        alternative([method(self, name, id)],
-          [super(self, super),
-           lookup(super, name, id)])
-      end
-
-      set_class(:send, :behaviour)
-
-      set_oapply(
-        :send,
-        [self, method, args]
-      ) do
-        class(self, class)
-        implies(
-          [method(self, method, id)],
-          [
-            print(["calling", id, "from", self, "with args", [self | args]]),
-            oapply(id, [self | args])
-          ],
-          [implies(
-              [lookup(class, method, id)],
-              [
-                print(["calling", id, "from", class, "with args", [self | args]]),
-                oapply(id, [self | args])
-              ],
-              [:fail]
-            )])
-      end
-
-      set_class(:defmethod, :behaviour)
-      set_oapply(:defmethod, [self, method_name, head, body]) do
-        fresh_id(impl)
-        set_method(self, method_name, impl)
-        set_class(impl, :behaviour)
-        set_oapply(impl, head, body)
-      end
-
-      set_class(:map_get, :behaviour)
-      set_method(:map, :map_get, :map_get)
-
-      defmethod(:class, :construct, [self, %{class: self}]) do
-      end
-
-      set_method(:class, :allocate, :allocate_class)
-      set_class(:allocate_class, :behaviour)
-
-      set_oapply(
-        :allocate_class,
-        [self, args, name]
-      ) do
-        map_get(args, :name, name)
-        map_get(args, :super, super)
-        map_get(args, :slots, slots)
-
-        class(self, meta)
-        
-        set_class(name, meta)
-        set_super(name, super)
-        set_slots(name, slots)
-      end
-
-      defmethod(:object, :allocate, [self, _, self]) do
-        print(["allocate", self])
-      end
-      
-      defmethod(:object, :init, [self, _, self]) do
-        print(["initialise", self])
-      end
-
-      defmethod(:class, :new, [self, args, new]) do
-        send(self, :construct, [construct])
-        send(construct, :allocate, [args, alloc])
-        send(alloc, :init, [args, new])
-      end
-
-      defmethod(:object, :examine, [self, %{classes: classes,
-                                            objects: objects,
-                                            supers: supers,
-                                            subs: subs,
-                                            methods: methods,
-                                            clauses: clauses}]) do
-        findall(c, [class(self, c)], classes)
-        findall(c, [class(c, self)], objects)
-        findall(s, [super(self, s)], supers)
-        findall(sub, [super(sub, self)], subs)
-        findall([n, id], [method(self, n, id)], methods)
-        findall([head, body], [clause(self, head, body)], clauses)
-      end
-
-      send(:class, :new, [%{name: :elixir_process, super: :object, slots: []}, _])
-      defmethod(:elixir_process, :allocate, [self, args, new_obj]) do
-        class(self, meta)
-        map_get(args, :name, new_obj)
-        set_class(new_obj, meta)
-        set_super(new_obj, :elixir_process)
-      end
-      defmethod(:elixir_process, :init, [self, args, self]) do
-        map_get(args, :pid, pid)
-        set_slots(self, %{pid: pid})
-      end
-
-      send(:class, :new, [%{name: :process, super: :object, slots: []}, _])
-      defmethod(:process, :allocate, [self, args, new_obj]) do
-        class(self, meta)
-
-        map_get(args, :method, method_name)
-        map_get(args, :head, head)
-        map_get(args, :body, body)
-
-        gensym(new_obj)
-
-        set_class(new_obj, meta)
-        set_super(new_obj, :object)
-
-        fresh_id(impl)
-        set_method(new_obj, method_name, impl)
-        set_class(impl, :behaviour)
-        set_oapply(impl, head, body)
-      end
+      0 ->
+        AL.Bootstrap.Core.setup()
+        AL.Bootstrap.Lists.setup()
+        AL.Bootstrap.ElixirProcess.setup()
+        AL.Bootstrap.Process.setup()
+      _ ->
+        :ok
     end
   end
 end
