@@ -71,6 +71,7 @@ defmodule AL do
           | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:retract_oapply, AL.Var.t(), AL.Var.t()}
           | {:send_async, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:send_elixir, AL.Var.t(), AL.Var.t()}
           | {:gensym, AL.Var.t()}
           | {:print, AL.Var.t()}
           | :fail
@@ -177,6 +178,9 @@ defmodule AL do
   def ast_to_pattern({:send_async, _, [object, method, args]}),
     do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
 
+  def ast_to_pattern({:send_elixir, _, [pid, message]}),
+    do: {:send_elixir, ast_to_pattern(pid), ast_to_pattern(message)}
+
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
     {:oapply, :defmethod, [
       ast_to_pattern(class),
@@ -190,6 +194,8 @@ defmodule AL do
     do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
+
+  def ast_to_pattern({a, b}), do: {ast_to_pattern(a), ast_to_pattern(b)}
 
   def ast_to_pattern(x), do: x
 
@@ -849,6 +855,11 @@ defmodule AL do
     
   def interp({:send_async, object, method, args}, state) do
     AL.Command.send_async(state.tx_id, object, method, args)
+    state
+  end
+
+  def interp({:send_elixir, pid, message}, state) do
+    AL.Command.send_elixir(state.tx_id, pid, message)
     state
   end
   

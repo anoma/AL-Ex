@@ -141,7 +141,19 @@ defmodule AL.Application do
         findall([head, body], [clause(self, head, body)], clauses)
       end
 
-      send(:class, :new, [%{name: :process, super: :object, slots: []}, _])      
+      send(:class, :new, [%{name: :elixir_process, super: :object, slots: []}, _])
+      defmethod(:elixir_process, :allocate, [self, args, new_obj]) do
+        class(self, meta)
+        map_get(args, :name, new_obj)
+        set_class(new_obj, meta)
+        set_super(new_obj, :elixir_process)
+      end
+      defmethod(:elixir_process, :init, [self, args, self]) do
+        map_get(args, :pid, pid)
+        set_slots(self, %{pid: pid})
+      end
+
+      send(:class, :new, [%{name: :process, super: :object, slots: []}, _])
       defmethod(:process, :allocate, [self, args, new_obj]) do
         class(self, meta)
 

@@ -22,6 +22,16 @@ defmodule AL.Scheduler do
   end
 
   @impl true
+  def handle_info(
+        {:mnesia_table_event,
+         {:write, :command, {:command, _t, _tx_id, {:send_elixir, {pid, message}}}, _old, _tid}},
+        state
+  ) do
+    send(pid, message)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:mnesia_table_event, _}, state) do
     {:noreply, state}
   end

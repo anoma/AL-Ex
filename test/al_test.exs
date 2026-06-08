@@ -9,3 +9,7 @@ end
 defmodule AlObjectsTest do
   use ExExample.ExUnit, for: Examples.ALObjects
 end
+
+defmodule ALGenserverTest do
+  use ExExample.ExUnit, for: Examples.ALGenserver
+end

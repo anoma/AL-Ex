@@ -213,6 +213,9 @@ defmodule AL.Objects do
         
       :send_async ->
         :ok
+
+      :send_elixir ->
+        :ok
     end
   end
 

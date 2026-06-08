@@ -25,6 +25,7 @@ defmodule AL.Command do
           | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:send_elixir, {AL.Var.t(), AL.Var.t()}}
 
   @doc """
   Initialise the event log, or re-use the one on disc.
@@ -179,6 +180,11 @@ defmodule AL.Command do
   @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
   def send_async(tx_id, object, method, args) do
     write_command(tx_id, {:send_async, {object, method, args}})
+  end
+
+  @spec send_elixir(non_neg_integer(), pid(), term()) :: :ok
+  def send_elixir(tx_id, pid, message) do
+    write_command(tx_id, {:send_elixir, {pid, message}})
   end
   
   @spec write_command(non_neg_integer(), command()) :: :ok
