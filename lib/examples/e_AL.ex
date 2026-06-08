@@ -216,34 +216,49 @@ defmodule Examples.AL do
   end
 
   example create_process() do
-    head = {:set_class, {:"$object", :"$class"}}
+    head = [:"$self", :"$object", :"$class"]
     body = [{:set_slots, :"$object", %{processed: true}}]
 
     {:atomic, {bindings, _}} =
       run do
-        send(:process, :new, [%{head: ^head, body: ^body}, new_proc])
+        send(:process, :new, [%{method: :handle, head: ^head, body: ^body}, new_proc])
         cut
-    end
-    
+      end
+
     new_proc = Map.get(bindings, :"$new_proc")
     assert is_atom(new_proc)
-    assert Enum.any?(AL.Scheduler.processes(), fn {_t, {h, _pid}} -> h == head end)
 
     bindings
   end
 
   example process_handles_command() do
-    create_process()
+    new_proc = Map.get(create_process(), :"$new_proc")
 
     {:atomic, _} =
       run do
-        set_class(:test_object, :some_class)
+        send_async(^new_proc, :handle, [:test_object, :test_class])
       end
 
     Process.sleep(50)
 
     {:atomic, results} =
       :mnesia.transaction(fn -> AL.Objects.scan_slots(:test_object, :"$slots") end)
+
+    assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
+  end
+
+  example process_called_by_var() do
+    _new_proc = Map.get(create_process(), :"$new_proc")
+
+    {:atomic, _} =
+      run do
+        send_async(proc, :handle, [:test_object_2, :test_class])
+      end
+
+    Process.sleep(50)
+
+    {:atomic, results} =
+      :mnesia.transaction(fn -> AL.Objects.scan_slots(:test_object_2, :"$slots") end)
 
     assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
   end

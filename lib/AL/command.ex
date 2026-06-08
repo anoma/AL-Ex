@@ -24,7 +24,7 @@ defmodule AL.Command do
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
           | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
-          | {:spawn_process, {AL.Var.t(), AL.Var.t(), [AL.goal()]}}
+          | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
 
   @doc """
   Initialise the event log, or re-use the one on disc.
@@ -176,11 +176,11 @@ defmodule AL.Command do
     write_command(tx_id, {:retract_oapply, {object, head}})
   end
 
-  @spec spawn_process(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()]) :: :ok
-  def spawn_process(tx_id, object, head, body) do
-    write_command(tx_id, {:spawn_process, {object, head, body}})
+  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
+  def send_async(tx_id, object, method, args) do
+    write_command(tx_id, {:send_async, {object, method, args}})
   end
-
+  
   @spec write_command(non_neg_integer(), command()) :: :ok
   def write_command(tx_id, command) do
     {t1, _t2} = inc_system_time()

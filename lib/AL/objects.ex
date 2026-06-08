@@ -211,9 +211,8 @@ defmodule AL.Objects do
 
         :mnesia.write({:slots, object, merged})
         
-      :spawn_process ->
+      :send_async ->
         :ok
-        # TODO Consider whether this should be where the scheduler hydration occurs
     end
   end
 

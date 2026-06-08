@@ -70,7 +70,7 @@ defmodule AL do
           | {:retract_super, AL.Var.t(), AL.Var.t()}
           | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:retract_oapply, AL.Var.t(), AL.Var.t()}
-          | {:spawn_process, AL.Var.t(), AL.Var.t(), [goal()]}
+          | {:send_async, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:gensym, AL.Var.t()}
           | {:print, AL.Var.t()}
           | :fail
@@ -174,8 +174,8 @@ defmodule AL do
 
   def ast_to_pattern({:findall, _, [template, condition, result]}),
     do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
-  def ast_to_pattern({:spawn_process, _, [object, head, body]}),
-    do: {:spawn_process, ast_to_pattern(object), ast_to_pattern(head), ast_to_pattern(body)}
+  def ast_to_pattern({:send_async, _, [object, method, args]}),
+    do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
 
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
     {:oapply, :defmethod, [
@@ -275,7 +275,7 @@ defmodule AL do
           tx_id: tx_id,
           trace: [],
           program: program
-        })
+                 })
 
       if result.active_choicepoint.bindings == nil do
         :mnesia.abort(format_failure(result.trace))
@@ -355,7 +355,7 @@ defmodule AL do
   @spec continue(t()) :: t() | nil
   def continue(nil), do: nil
 
-  def continue(state) do
+  def continue(state) do    
     cond do
       state.active_choicepoint.bindings == nil ->
         backtrack(state)
@@ -394,7 +394,6 @@ defmodule AL do
         }
 
         result = interp(goal, next_frame)
-
         continue(result)
     end
   end
@@ -583,9 +582,7 @@ defmodule AL do
            AL.Var.unify({k_pattern, v_pattern}, pair, state.active_choicepoint.bindings)
          end)
          |> Enum.filter(fn t -> t end) do
-      [] ->
-        backtrack(state)
-
+      [] -> backtrack(state)
       [choice | next_choices] ->
         %AL{
           state
@@ -652,19 +649,19 @@ defmodule AL do
         %AL{
           state
           | active_choicepoint: %AL.Choicepoint{
-              goals: body_pattern,
-              bindings:
-                AL.Var.unify(
-                  {head_pattern, id},
-                  {bind_head_pattern, method_id_pattern},
-                  state.active_choicepoint.bindings
-                ),
-              continuations: [continuation | state.active_choicepoint.continuations],
-              goal_pointer: 0,
-              scope_pointer: freshener
-            },
-            choicepoint_stack:
-              alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
+            goals: body_pattern,
+            bindings:
+            AL.Var.unify(
+              {head_pattern, id},
+              {bind_head_pattern, method_id_pattern},
+              state.active_choicepoint.bindings
+            ),
+            continuations: [continuation | state.active_choicepoint.continuations],
+            goal_pointer: 0,
+            scope_pointer: freshener
+          },
+          choicepoint_stack:
+          alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
         }
     end
   end
@@ -673,11 +670,12 @@ defmodule AL do
     %AL{
       state
       | active_choicepoint: state.active_choicepoint,
-        choicepoint_stack:
-          Enum.drop_while(state.choicepoint_stack, fn choice ->
-            case choice do
-              {:mark, f} -> f != state.active_choicepoint.scope_pointer
-              _choice -> true
+      choicepoint_stack:
+      Enum.drop_while(state.choicepoint_stack, fn choice ->
+        case choice do
+          {:mark, f} ->
+            f != state.active_choicepoint.scope_pointer
+          _choice -> true
             end
           end)
     }
@@ -849,12 +847,11 @@ defmodule AL do
     state
   end
     
-  def interp({:spawn_process, object, head, body}, state) do
-    AL.Command.spawn_process(state.tx_id, object, head, body)
-
+  def interp({:send_async, object, method, args}, state) do
+    AL.Command.send_async(state.tx_id, object, method, args)
     state
   end
-
+  
   def interp({:gensym, var}, state) do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
 
