@@ -13,3 +13,7 @@ end
 defmodule ALGenserverTest do
   use ExExample.ExUnit, for: Examples.ALGenserver
 end
+
+defmodule ALConstraintsTest do
+  use ExExample.ExUnit, for: Examples.ALConstraints
+end

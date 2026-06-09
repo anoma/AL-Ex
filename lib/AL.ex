@@ -74,6 +74,9 @@ defmodule AL do
           | {:send_elixir, AL.Var.t(), AL.Var.t()}
           | {:gensym, AL.Var.t()}
           | {:print, AL.Var.t()}
+          | {:not, [goal()]}
+          | {:unify, AL.Var.t(), AL.Var.t()}
+          | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
           | :fail
 
   @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
@@ -175,6 +178,15 @@ defmodule AL do
 
   def ast_to_pattern({:findall, _, [template, condition, result]}),
     do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
+
+  def ast_to_pattern({:not, _, [goals]}),
+    do: {:not, ast_to_pattern(goals)}
+
+  def ast_to_pattern({:unify, _, [a, b]}),
+    do: {:unify, ast_to_pattern(a), ast_to_pattern(b)}
+
+  def ast_to_pattern({:call, _, [head, body, args]}),
+    do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
   def ast_to_pattern({:send_async, _, [object, method, args]}),
     do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
 
@@ -918,6 +930,49 @@ defmodule AL do
           | bindings: AL.Var.unify(result, collected, state.active_choicepoint.bindings)
         }
     }
+  end
+
+  def interp({:call, head, body, args}, state) do
+    freshener = AL.Command.fresh_scope()
+    fresh_head = AL.Var.freshen(head, freshener)
+    fresh_body = AL.Var.freshen(body, freshener)
+
+    bindings = AL.Var.unify(fresh_head, args, state.active_choicepoint.bindings)
+
+    if bindings == nil do
+      backtrack(state)
+    else
+      continuation = %AL.Continuation{
+        goals: state.active_choicepoint.goals,
+        goal_pointer: state.active_choicepoint.goal_pointer,
+        scope_pointer: state.active_choicepoint.scope_pointer
+      }
+
+      %AL{state |
+        active_choicepoint: %AL.Choicepoint{
+          goals: fresh_body,
+          bindings: bindings,
+          continuations: [continuation | state.active_choicepoint.continuations],
+          goal_pointer: 0,
+          scope_pointer: freshener
+        },
+        choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
+      }
+    end
+  end
+
+  def interp({:unify, a, b}, state) do
+    case AL.Var.unify(a, b, state.active_choicepoint.bindings) do
+      nil -> backtrack(state)
+      bindings -> %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: bindings}}
+    end
+  end
+
+  def interp({:not, condition}, state) do
+    case collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id) do
+      [] -> state
+      _ -> backtrack(state)
+    end
   end
 
   def interp(:fail, state) do

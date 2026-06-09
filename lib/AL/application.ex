@@ -26,6 +26,7 @@ defmodule AL.Application do
         AL.Bootstrap.Lists.setup()
         AL.Bootstrap.ElixirProcess.setup()
         AL.Bootstrap.Process.setup()
+        AL.Bootstrap.Constraints.setup()
       _ ->
         :ok
     end

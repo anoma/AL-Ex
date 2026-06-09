@@ -288,6 +288,46 @@ defmodule Examples.AL do
     result
   end
   
+  example not_succeeds_when_goal_fails() do
+    {:atomic, {_bindings, _}} =
+      run do
+        not([class(:nonexistent_xyz, c)])
+      end
+    :ok
+  end
+
+  example not_fails_when_goal_succeeds() do
+    {:aborted, _} =
+      run do
+        not([class(:object, c)])
+      end
+    :ok
+  end
+
+  example unify_binds_variable() do
+    {:atomic, {bindings, _}} =
+      run do
+        unify(x, :hello)
+      end
+    assert Map.get(bindings, :"$x") == :hello
+    :ok
+  end
+
+  example unify_checks_equality() do
+    {:aborted, _} = run do unify(:foo, :bar) end
+    {:atomic, _} = run do unify(:foo, :foo) end
+    :ok
+  end
+
+  example call_lambda() do
+    {:atomic, {bindings, _}} =
+      run do
+        call([x, result], [unify(result, x)], [:hello, out])
+      end
+    assert Map.get(bindings, :"$out") == :hello
+    :ok
+  end
+
   example list_tests() do
     {:atomic, {bindings, result}} = run do
       send([:w, :x, :y, :z], :hd, [head])

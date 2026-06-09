@@ -77,11 +77,11 @@ defmodule AL.Bootstrap.Core do
       end
 
       defmethod(:object, :allocate, [self, _, self]) do
-        print(["allocate", self])
+        # print(["allocate", self])
       end
 
       defmethod(:object, :init, [self, _, self]) do
-        print(["initialise", self])
+        # print(["initialise", self])
       end
 
       defmethod(:class, :new, [self, args, new]) do
@@ -95,13 +95,15 @@ defmodule AL.Bootstrap.Core do
                                             supers: supers,
                                             subs: subs,
                                             methods: methods,
-                                            clauses: clauses}]) do
+                                            clauses: clauses,
+                                            slots: slots}]) do
         findall(c, [class(self, c)], classes)
         findall(c, [class(c, self)], objects)
         findall(s, [super(self, s)], supers)
         findall(sub, [super(sub, self)], subs)
         findall([n, id], [method(self, n, id)], methods)
         findall([head, body], [clause(self, head, body)], clauses)
+        findall([slot_name, slot_value], [get_slot(self, slot_name, slot_value)], slots)
       end
 
     end
