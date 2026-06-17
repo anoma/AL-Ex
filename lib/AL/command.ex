@@ -13,6 +13,8 @@ defmodule AL.Command do
           | :retract_super
           | :retract_method
           | :retract_oapply
+          | :send_async
+          | :send_elixir
 
   @type command() ::
           {:set_class, {AL.Var.t(), AL.Var.t()}}
@@ -27,6 +29,7 @@ defmodule AL.Command do
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {AL.Var.t(), AL.Var.t()}}
 
+          
   @doc """
   Initialise the event log, or re-use the one on disc.
   """
@@ -186,7 +189,7 @@ defmodule AL.Command do
   def send_elixir(tx_id, pid, message) do
     write_command(tx_id, {:send_elixir, {pid, message}})
   end
-  
+
   @spec write_command(non_neg_integer(), command()) :: :ok
   def write_command(tx_id, command) do
     {t1, _t2} = inc_system_time()
@@ -204,10 +207,12 @@ defmodule AL.Command do
 
   @spec fresh_id() :: atom()
   def fresh_id() do
-    label = case :mnesia.dirty_read(:meta, :id_counter) do
-      [{:meta, :id_counter, n}] -> n
-      [] -> 0
-    end
+    label =
+      case :mnesia.dirty_read(:meta, :id_counter) do
+        [{:meta, :id_counter, n}] -> n
+        [] -> 0
+      end
+
     :mnesia.dirty_write({:meta, :id_counter, label + 1})
     :"##{label}"
   end
@@ -219,10 +224,12 @@ defmodule AL.Command do
 
   @spec fresh_scope() :: String.t()
   def fresh_scope() do
-    n = case :mnesia.dirty_read(:meta, :scope_counter) do
-      [{:meta, :scope_counter, n}] -> n
-      [] -> 0
-    end
+    n =
+      case :mnesia.dirty_read(:meta, :scope_counter) do
+        [{:meta, :scope_counter, n}] -> n
+        [] -> 0
+      end
+
     :mnesia.dirty_write({:meta, :scope_counter, n + 1})
     Integer.to_string(n)
   end
@@ -234,14 +241,18 @@ defmodule AL.Command do
 
   defp meta_label(namespace, counter_key, key) do
     meta_key = {namespace, key}
+
     case :mnesia.dirty_read(:meta, meta_key) do
       [{:meta, ^meta_key, label}] ->
         label
+
       [] ->
-        label = case :mnesia.dirty_read(:meta, counter_key) do
-          [{:meta, ^counter_key, n}] -> n
-          [] -> 0
-        end
+        label =
+          case :mnesia.dirty_read(:meta, counter_key) do
+            [{:meta, ^counter_key, n}] -> n
+            [] -> 0
+          end
+
         :mnesia.dirty_write({:meta, counter_key, label + 1})
         :mnesia.dirty_write({:meta, meta_key, label})
         label

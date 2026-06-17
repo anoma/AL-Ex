@@ -448,7 +448,7 @@ defmodule AL do
           }
       }
     else
-      case AL.Objects.scan_class(object_pattern, class_pattern) do
+      case AL.Object.scan_class(object_pattern, class_pattern) do
         [] ->
           backtrack(state)
 
@@ -483,7 +483,7 @@ defmodule AL do
   end
 
   def interp({:get_super, object_pattern, super_pattern}, state) do
-    case AL.Objects.scan_super(object_pattern, super_pattern) do
+    case AL.Object.scan_super(object_pattern, super_pattern) do
       [] ->
         backtrack(state)
 
@@ -516,7 +516,7 @@ defmodule AL do
   end
 
   def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    case AL.Objects.scan_method(object_pattern, method_name_pattern, method_id_pattern) do
+    case AL.Object.scan_method(object_pattern, method_name_pattern, method_id_pattern) do
       [] ->
         backtrack(state)
 
@@ -549,7 +549,7 @@ defmodule AL do
   end
 
   def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    case AL.Objects.scan_oapply(object_pattern, head_pattern, body_pattern) do
+    case AL.Object.scan_oapply(object_pattern, head_pattern, body_pattern) do
       [] ->
         backtrack(state)
 
@@ -628,6 +628,21 @@ defmodule AL do
     end
   end
 
+  def interp({:oapply, :map_put, [m1, k_pattern, v_pattern, m2]}, state) do
+    case AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), state.active_choicepoint.bindings) do
+      nil -> backtrack(state)
+      choice ->
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{
+              state.active_choicepoint
+              | bindings: choice
+            },
+            choicepoint_stack: state.choicepoint_stack
+        }
+    end
+  end
+  
   def interp({:oapply, :is, [a, b]}, state) do
     a_deref = AL.Var.deref(state.active_choicepoint.bindings, a)
     expr = interp_is(b, state.active_choicepoint.bindings)
@@ -640,7 +655,7 @@ defmodule AL do
   end
 
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
-    case AL.Objects.scan_oapply(method_id_pattern, :"$head", :"$body") do
+    case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] ->
         backtrack(state)
 
@@ -774,28 +789,28 @@ defmodule AL do
   def interp({:set_class, object, _class}, state) when is_map(object), do: state
   def interp({:set_class, object_pattern, class_pattern}, state) do
     AL.Command.set_class(state.tx_id, object_pattern, class_pattern)
-    AL.Objects.set_class(object_pattern, class_pattern)
+    AL.Object.set_class(object_pattern, class_pattern)
     state
   end
 
   def interp({:set_super, object, _super}, state) when is_map(object), do: state
   def interp({:set_super, object_pattern, super_pattern}, state) do
     AL.Command.set_super(state.tx_id, object_pattern, super_pattern)
-    AL.Objects.set_super(object_pattern, super_pattern)
+    AL.Object.set_super(object_pattern, super_pattern)
     state
   end
 
   def interp({:set_method, object, _name, _id}, state) when is_map(object), do: state
   def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
     AL.Command.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern)
-    AL.Objects.set_method(object_pattern, method_name_pattern, method_id_pattern)
+    AL.Object.set_method(object_pattern, method_name_pattern, method_id_pattern)
     state
   end
 
   def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
     AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern)
-    AL.Objects.set_oapply(object_pattern, head_pattern, body_pattern)
+    AL.Object.set_oapply(object_pattern, head_pattern, body_pattern)
     state
   end
 
@@ -842,35 +857,35 @@ defmodule AL do
   def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
     AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern)
-    AL.Objects.set_slots(object_pattern, slots_pattern)
+    AL.Object.set_slots(object_pattern, slots_pattern)
     state
   end
 
   def interp({:retract_class, object, _class}, state) when is_map(object), do: state
   def interp({:retract_class, object, class}, state) do
     AL.Command.retract_class(state.tx_id, object, class)
-    AL.Objects.retract_class(object, class)
+    AL.Object.retract_class(object, class)
     state
   end
 
   def interp({:retract_super, object, _super}, state) when is_map(object), do: state
   def interp({:retract_super, object, super}, state) do
     AL.Command.retract_super(state.tx_id, object, super)
-    AL.Objects.retract_super(object, super)
+    AL.Object.retract_super(object, super)
     state
   end
 
   def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
   def interp({:retract_method, object, name, id}, state) do
     AL.Command.retract_method(state.tx_id, object, name, id)
-    AL.Objects.retract_method(object, name, id)
+    AL.Object.retract_method(object, name, id)
     state
   end
 
   def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
   def interp({:retract_oapply, object, head}, state) do
     AL.Command.retract_oapply(state.tx_id, object, head)
-    AL.Objects.retract_oapply(object, head)
+    AL.Object.retract_oapply(object, head)
     state
   end
     
@@ -1061,3 +1076,4 @@ defimpl Inspect, for: AL do
     "#AL<>"
   end
 end
+

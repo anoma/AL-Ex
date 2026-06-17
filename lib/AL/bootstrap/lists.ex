@@ -33,25 +33,41 @@ defmodule AL.Bootstrap.Lists do
       set_method(:list, :map, :list_map)
       set_class(:list_map, :behaviour)
       set_oapply(:list_map, [[], _func, []]) do end
+      set_oapply(:list_map, [[], _head, _body, []]) do end
       set_oapply(:list_map, [[fh | ft], func, [sh | st]]) do
         send(fh, func, [sh])
         send(ft, :map, [func, st])
+      end
+      set_oapply(:list_map, [[fh | ft], head, body, [sh | st]]) do
+        call(head, body, [fh, sh])
+        send(ft, :map, [head, body, st])
       end
 
       set_method(:list, :fold_left, :list_fold_left)
       set_class(:list_fold_left, :behaviour)
       set_oapply(:list_fold_left, [[], _func, acc, acc]) do end
+      set_oapply(:list_fold_left, [[], _head, _body, acc, acc]) do end
       set_oapply(:list_fold_left, [[h | t], func, acc, result]) do
         send(acc, func, [h, next_acc])
         send(t, :fold_left, [func, next_acc, result])
+      end
+      set_oapply(:list_fold_left, [[h | t], head, body, acc, result]) do
+        print(acc)
+        call(head, body, [acc, h, next_acc])
+        send(t, :fold_left, [head, body, next_acc, result])
       end
 
       set_method(:list, :fold_right, :list_fold_right)
       set_class(:list_fold_right, :behaviour)
       set_oapply(:list_fold_right, [[], _func, acc, acc]) do end
+      set_oapply(:list_fold_right, [[], _head, _body, acc, acc]) do end
       set_oapply(:list_fold_right, [[h | t], func, acc, result]) do
         send(t, :fold_right, [func, acc, next_acc])
         send(next_acc, func, [h, result])
+      end
+      set_oapply(:list_fold_right, [[h | t], head, body, acc, result]) do
+        send(t, :fold_right, [head, body, acc, next_acc])
+        call(head, body, [next_acc, h, result])
       end
 
       defmethod(:list, :flatten, [lists, result]) do

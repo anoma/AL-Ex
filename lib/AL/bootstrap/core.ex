@@ -56,9 +56,15 @@ defmodule AL.Bootstrap.Core do
         set_oapply(impl, head, body)
       end
 
+      set_class(:map, :class)
+      set_super(:map, :object)
+      
       set_class(:map_get, :behaviour)
-      set_method(:map, :map_get, :map_get)
+      set_method(:map, :get, :map_get)
 
+      set_class(:map_put, :behaviour)
+      set_method(:map, :put, :map_put)
+            
       defmethod(:class, :construct, [self, %{class: self}]) do
       end
 
@@ -90,18 +96,22 @@ defmodule AL.Bootstrap.Core do
         send(alloc, :init, [args, new])
       end
 
-      defmethod(:object, :examine, [self, %{classes: classes,
-                                            objects: objects,
-                                            supers: supers,
-                                            subs: subs,
-                                            methods: methods,
-                                            clauses: clauses,
-                                            slots: slots}]) do
+      defmethod(:object, :examine, [self, %{
+                                       id: self,
+                                       classes: classes,
+                                       objects: objects,
+                                       supers: supers,
+                                       subs: subs,
+                                       methods: methods,
+                                       providers: providers,
+                                       clauses: clauses,
+                                       slots: slots}]) do
         findall(c, [class(self, c)], classes)
         findall(c, [class(c, self)], objects)
         findall(s, [super(self, s)], supers)
         findall(sub, [super(sub, self)], subs)
         findall([n, id], [method(self, n, id)], methods)
+        findall([provider, n], [method(provider, n, self)], providers)
         findall([head, body], [clause(self, head, body)], clauses)
         findall([slot_name, slot_value], [get_slot(self, slot_name, slot_value)], slots)
       end

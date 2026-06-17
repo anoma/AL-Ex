@@ -1,14 +1,20 @@
-defmodule AL.Objects do
+defmodule AL.Object do
   @moduledoc """
   I am the in-memory store for AL objects
   """
 
+  use TypedStruct
+  
   @type class_record() :: {:class, AL.Var.t(), AL.Var.t()}
   @type super_record() :: {:super, AL.Var.t(), AL.Var.t()}
   @type slots_record() :: {:slots, AL.Var.t(), AL.Var.t()}
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
   @type oapply_record() :: {:oapply, AL.Var.t(), AL.Var.t(), [AL.goal()]}
 
+  typedstruct enforce: true do
+    field(:id, any(), enforce: true)
+  end
+  
   def setup() do
     case :mnesia.create_table(:class,
            attributes: [:object, :class],
@@ -210,7 +216,7 @@ defmodule AL.Objects do
           end
 
         :mnesia.write({:slots, object, merged})
-        
+
       :send_async ->
         :ok
 

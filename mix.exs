@@ -24,7 +24,8 @@ defmodule AL.MixProject do
   defp deps do
     [
       {:typed_struct, "~> 0.3.0"},
-      {:ex_example, "~> 0.1.1"}
+      {:ex_example, "~> 0.1.1"},
+      {:gt_bridge, git: "https://github.com/mariari/ElixirGtBridge.git"}
     ]
   end
 end

@@ -9,7 +9,7 @@ defmodule AL.Application do
   @impl true
   def start(_type, _args) do
     AL.Command.setup()
-    AL.Objects.setup()
+    AL.Object.setup()
 
     opts = [strategy: :one_for_one, name: Al.Supervisor]
     {:ok, pid} = Supervisor.start_link([AL.Scheduler], opts)

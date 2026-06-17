@@ -189,10 +189,11 @@ defmodule Examples.AL do
     assert slots == %{a: 99, b: 2}
     slots
   end
+    
   example map_get() do
     {:atomic, {bindings, program_state}} =
       run do
-        send(%{a: 3, b: 4, c: 3}, :map_get, [k, 3])
+        send(%{a: 3, b: 4, c: 3}, :get, [k, 3])
       end
 
     assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
@@ -204,6 +205,17 @@ defmodule Examples.AL do
     program_state
   end
 
+  example map_put() do
+    {:atomic, {bindings, program_state}} =
+      run do
+        send(%{a: 3, b: 4, c: 3}, :put, [:c, 4, m2])
+      end
+
+    assert bindings|> Map.get(:"$m2") |> Map.get(:c) == 4
+    
+    program_state
+  end
+  
   example gensym() do
     {:atomic, {bindings, _}} =
       run do
@@ -242,7 +254,7 @@ defmodule Examples.AL do
     Process.sleep(50)
 
     {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Objects.scan_slots(:test_object, :"$slots") end)
+      :mnesia.transaction(fn -> AL.Object.scan_slots(:test_object, :"$slots") end)
 
     assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
   end
@@ -258,7 +270,7 @@ defmodule Examples.AL do
     Process.sleep(50)
 
     {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Objects.scan_slots(:test_object_2, :"$slots") end)
+      :mnesia.transaction(fn -> AL.Object.scan_slots(:test_object_2, :"$slots") end)
 
     assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
   end
@@ -327,7 +339,7 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$out") == :hello
     :ok
   end
-
+  
   example list_tests() do
     {:atomic, {bindings, result}} = run do
       send([:w, :x, :y, :z], :hd, [head])
@@ -350,5 +362,14 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$tail") == [:x, :y, :z]
     assert length(Map.get(bindings, :"$of_same_length")) == 4
     result
+  end
+
+  example call_lambda_map() do
+    {:atomic, {bindings, _}} =
+      run do
+      send([:a, :b, :c], :map, [[x, %{id: x}], [], out])
+      end
+    assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
+    :ok
   end
 end
