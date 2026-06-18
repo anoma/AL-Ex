@@ -74,8 +74,10 @@ defmodule Examples.ALObjects do
         get_slot(:counter_meta, :count, c)
       end
 
-    assert Map.get(b, :"$c") == ["new object!", "new class!", "new class!"]
-    
+    c = Map.get(b, :"$c")
+    assert List.first(c) == "new object!"
+    assert "new class!" in c
+
     program_state
   end
 

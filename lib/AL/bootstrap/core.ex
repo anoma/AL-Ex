@@ -35,13 +35,11 @@ defmodule AL.Bootstrap.Core do
         implies(
           [method(self, method, id)],
           [
-            print(["calling", id, "from", self, "with args", [self | args]]),
             oapply(id, [self | args])
           ],
           [implies(
               [lookup(class, method, id)],
               [
-                print(["calling", id, "from", class, "with args", [self | args]]),
                 oapply(id, [self | args])
               ],
               [:fail]

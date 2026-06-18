@@ -87,6 +87,8 @@ defmodule AL do
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
     field(:trace, [goal()], enforce: true, default: [])
     field(:program, [goal()], enforce: true, default: [])
+    field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
+    field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
   end
 
   defmacro __using__(_opts) do
@@ -94,6 +96,11 @@ defmodule AL do
       import AL
     end
   end
+
+  defdelegate trace(point), to: AL.Trace
+  defdelegate untrace(point), to: AL.Trace
+  defdelegate notrace(), to: AL.Trace
+  defdelegate tracepoints(), to: AL.Trace
 
   @arithmetic_ops [:+, :-, :*, :/, :**]
   @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id]
@@ -307,7 +314,8 @@ defmodule AL do
           choicepoint_stack: [{:mark, 0}],
           tx_id: tx_id,
           trace: [],
-          program: program
+          program: program,
+          tracepoints: AL.Trace.tracepoints()
                  })
 
       if result.active_choicepoint.bindings == nil do
@@ -369,8 +377,8 @@ defmodule AL do
             }
         }
 
-      [{:mark, _} | rest_choices] ->
-        backtrack(%AL{state | choicepoint_stack: rest_choices})
+      [{:mark, f} | rest_choices] ->
+        backtrack(%AL{trace_fail(state, f) | choicepoint_stack: rest_choices})
 
       [:implies_mark | rest_choices] ->
         backtrack(%AL{state | choicepoint_stack: rest_choices})
@@ -670,6 +678,8 @@ defmodule AL do
   end
 
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
+    trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
+
     case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body") do
       [] ->
         backtrack(state)
@@ -717,6 +727,7 @@ defmodule AL do
             goal_pointer: 0,
             scope_pointer: freshener
           },
+          traced_calls: record_traced_call(state.traced_calls, freshener, trace_info),
           choicepoint_stack:
           alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
         }
@@ -1021,7 +1032,8 @@ defmodule AL do
       choicepoint_stack: [],
       tx_id: tx_id,
       trace: [],
-      program: condition
+      program: condition,
+      tracepoints: AL.Trace.tracepoints()
     }
 
     do_collect(continue(initial), [])
@@ -1041,31 +1053,43 @@ defmodule AL do
   end
 
   defp format_failure(trace) do
-    steps = trace |> Enum.reverse() |> Enum.map(&normalize_term/1)
+    steps = trace |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
     %{failed_on: List.last(steps), trace: steps}
   end
 
-  defp normalize_term(a) when is_atom(a) do
-    s = Atom.to_string(a)
+  defp trace_call(state, method_id, bind_head) do
+    {receiver, args} =
+      case bind_head do
+        [r | rest] -> {r, rest}
+        other -> {other, []}
+      end
 
-    cond do
-      Regex.match?(~r/^[0-9a-f]{32}$/, s) ->
-        :"##{AL.Command.id_label(a)}"
+    traced? =
+      MapSet.member?(state.tracepoints, method_id) or
+        (method_id != :send and MapSet.member?(state.tracepoints, receiver))
 
-      true ->
-        a
+    if traced? do
+      depth = length(state.active_choicepoint.continuations)
+      AL.Trace.call(depth, receiver, method_id, args)
+      {depth, receiver, method_id}
     end
   end
 
-  defp normalize_term(t) when is_tuple(t),
-    do: t |> Tuple.to_list() |> Enum.map(&normalize_term/1) |> List.to_tuple()
+  defp record_traced_call(traced_calls, _freshener, nil), do: traced_calls
 
-  defp normalize_term(l) when is_list(l), do: Enum.map(l, &normalize_term/1)
+  defp record_traced_call(traced_calls, freshener, info),
+    do: Map.put(traced_calls, freshener, info)
 
-  defp normalize_term(m) when is_map(m),
-    do: Map.new(m, fn {k, v} -> {normalize_term(k), normalize_term(v)} end)
+  defp trace_fail(state, freshener) do
+    case Map.pop(state.traced_calls, freshener) do
+      {nil, _} ->
+        state
 
-  defp normalize_term(x), do: x
+      {{depth, receiver, method}, rest} ->
+        AL.Trace.fail(depth, receiver, method)
+        %AL{state | traced_calls: rest}
+    end
+  end
 
   def interp_is({:oapply, :+, [a, b]}, bindings), do: interp_is(a, bindings) + interp_is(b, bindings)
 

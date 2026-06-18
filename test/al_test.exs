@@ -17,3 +17,7 @@ end
 defmodule ALConstraintsTest do
   use ExExample.ExUnit, for: Examples.ALConstraints
 end
+
+defmodule ALTraceTest do
+  use ExExample.ExUnit, for: Examples.ALTrace
+end
