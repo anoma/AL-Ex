@@ -48,7 +48,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, result}} =
       run do
         method(:object, :init, init_method)
-        send(init_method, :meta, [:"$class", :"$metaclass"])
+        meta(init_method, :"$class", :"$metaclass")
       end
 
     assert Map.get(bindings, :"$class") == :behaviour
@@ -193,7 +193,7 @@ defmodule Examples.AL do
   example map_get() do
     {:atomic, {bindings, program_state}} =
       run do
-        send(%{a: 3, b: 4, c: 3}, :get, [k, 3])
+        get(%{a: 3, b: 4, c: 3}, k, 3)
       end
 
     assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
@@ -208,7 +208,7 @@ defmodule Examples.AL do
   example map_put() do
     {:atomic, {bindings, program_state}} =
       run do
-        send(%{a: 3, b: 4, c: 3}, :put, [:c, 4, m2])
+        put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
       end
 
     assert bindings|> Map.get(:"$m2") |> Map.get(:c) == 4
@@ -233,7 +233,7 @@ defmodule Examples.AL do
 
     {:atomic, {bindings, _}} =
       run do
-        send(:process, :new, [%{method: :handle, head: ^head, body: ^body}, new_proc])
+        new(:process, %{method: :handle, head: ^head, body: ^body}, new_proc)
         cut
       end
 
@@ -342,15 +342,15 @@ defmodule Examples.AL do
   
   example list_tests() do
     {:atomic, {bindings, result}} = run do
-      send([:w, :x, :y, :z], :hd, [head])
-      send([:w, :x, :y, :z], :tl, [tail])
-      send([:a, :b, :c], :concat, [[:d, :e, :f], sum])
-      send([:b, :c, :d, :e, :f], :reverse, [reversed])
-      send([[:a, :b], [:c, :d, :e]], :map, [:reverse, mapped])
-      send([[:a], [:b], [:c], [:d]], :fold_left, [:concat, [:starter], folded_left])
-      send([[:a], [:b], [:c], [:d]], :fold_right, [:concat, [:starter], folded_right])
-      send([[:a, :b], [:c, :d, :e]], :flatten, [flattened])
-      send([:c, :d, :e, :f], :same_length, [of_same_length])
+      hd([:w, :x, :y, :z], head)
+      tl([:w, :x, :y, :z], tail)
+      concat([:a, :b, :c], [:d, :e, :f], sum)
+      reverse([:b, :c, :d, :e, :f], reversed)
+      map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
+      fold_left([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_left)
+      fold_right([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_right)
+      flatten([[:a, :b], [:c, :d, :e]], flattened)
+      same_length([:c, :d, :e, :f], of_same_length)
     end
     assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
     assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
@@ -367,7 +367,7 @@ defmodule Examples.AL do
   example call_lambda_map() do
     {:atomic, {bindings, _}} =
       run do
-      send([:a, :b, :c], :map, [[x, %{id: x}], [], out])
+      map([:a, :b, :c], [x, %{id: x}], [], out)
       end
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
     :ok

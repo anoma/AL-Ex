@@ -91,9 +91,9 @@ defmodule AL.Bootstrap.Core do
       end
 
       defmethod(:class, :new, [self, args, new]) do
-        send(self, :construct, [construct])
-        send(construct, :allocate, [args, alloc])
-        send(alloc, :init, [args, new])
+        construct(self, construct)
+        allocate(construct, args, alloc)
+        init(alloc, args, new)
       end
 
       defmethod(:object, :examine, [self, %{

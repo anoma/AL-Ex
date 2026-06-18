@@ -3,7 +3,7 @@ defmodule AL.Bootstrap.Constraints do
   
   def setup() do
     run do
-      send(:class, :new, [%{name: :cell, super: :object, slots: [:subscribers, :value, :name]}, _])
+      new(:class, %{name: :cell, super: :object, slots: [:subscribers, :value, :name]}, _)
       
       defmethod(:cell, :allocate, [self, args, cell_name]) do
         class(self, meta)
@@ -23,7 +23,7 @@ defmodule AL.Bootstrap.Constraints do
         set_slots(self, %{value: value})
 
         forall([get_slot(self, :subscribers, subscribers),
-                send(subscribers, :member, [subscriber])],
+                member(subscribers, subscriber)],
           [send_async(subscriber, :cell_updated, [self, value])])
         cut
       end
@@ -33,7 +33,7 @@ defmodule AL.Bootstrap.Constraints do
         set_slots(self, %{subscribers: [subscriber | subscribers]})
       end
 
-      send(:class, :new, [%{name: :propagator, super: :object, slots: [:input_cells, :output_cell]}, _])
+      new(:class, %{name: :propagator, super: :object, slots: [:input_cells, :output_cell]}, _)
 
       defmethod(:propagator, :allocate, [self, args, propagator]) do
         class(self, meta)
@@ -49,8 +49,8 @@ defmodule AL.Bootstrap.Constraints do
 
         set_slots(self, %{input_cells: input_cells, output_cell: output_cell})
 
-        forall([send(input_cells, :member, [input_cell])],
-          [send(input_cell, :subscribe, [self])])
+        forall([member(input_cells, input_cell)],
+          [subscribe(input_cell, self)])
 
         send_async(self, :cell_updated, [:none, :none])
       end
@@ -60,13 +60,13 @@ defmodule AL.Bootstrap.Constraints do
         get_slot(self, :output_cell, output_cell)
         
         findall(input_cell_value,
-          [send(input_cells, :member, [input_cell]),
+          [member(input_cells, input_cell),
            get_slot(input_cell, :value, input_cell_value)],
           input_cell_values)
-        forall([send(input_cell_values, :member, [input_cell_value])],
+        forall([member(input_cell_values, input_cell_value)],
           [not([unify(input_cell_value, :absent)])])
 
-        send(self, :constrain, [input_cell_values, output_value])
+        constrain(self, input_cell_values, output_value)
         send_async(output_cell, :constrain, [output_value])
       end
     end

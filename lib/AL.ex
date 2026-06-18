@@ -95,6 +95,9 @@ defmodule AL do
     end
   end
 
+  @arithmetic_ops [:+, :-, :*, :/, :**]
+  @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id]
+
   def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
 
   def ast_to_pattern([{:do, nil}]), do: nil
@@ -187,6 +190,9 @@ defmodule AL do
 
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
+  def ast_to_pattern({:send, _, [receiver, method, args]}),
+    do: {:oapply, :send, [ast_to_pattern(receiver), ast_to_pattern(method), ast_to_pattern(args)]}
+
   def ast_to_pattern({:send_async, _, [object, method, args]}),
     do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
 
@@ -201,6 +207,15 @@ defmodule AL do
       ast_to_pattern(body)]
     }
   end
+
+  def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
+    do: {:oapply, op, Enum.map(args, &ast_to_pattern/1)}
+
+  def ast_to_pattern({fun, _, args}) when fun in @oapply_primitives and is_list(args),
+    do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
+
+  def ast_to_pattern({method, _, [receiver | args]}) when is_atom(method) and is_list(args),
+    do: {:oapply, :send, [ast_to_pattern(receiver), method, Enum.map(args, &ast_to_pattern/1)]}
 
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
     do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}

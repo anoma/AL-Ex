@@ -8,8 +8,8 @@ defmodule Examples.ALConstraints do
 
   example constant() do
     {:atomic, {_bindings, _state}} = run do
-      send(:cell, :new, [%{name: :x}, cell])
-      send(:propagator, :new, [%{input_cells: [], output_cell: cell}, propagator])
+      new(:cell, %{name: :x}, cell)
+      new(:propagator, %{input_cells: [], output_cell: cell}, propagator)
       defmethod(propagator, :constrain, [_self, [], 2]) do end
       cut
     end
@@ -29,8 +29,8 @@ defmodule Examples.ALConstraints do
     constant()
 
     {:atomic, {bindings, state}} = run do
-      send(:cell, :new, [%{name: :y}, y_cell])
-      send(:propagator, :new, [%{input_cells: [:x], output_cell: y_cell}, propagator])
+      new(:cell, %{name: :y}, y_cell)
+      new(:propagator, %{input_cells: [:x], output_cell: y_cell}, propagator)
       defmethod(propagator, :constrain, [_self, [x_val], y_val]) do
         is(y_val, 1 + x_val)
       end
@@ -49,13 +49,13 @@ defmodule Examples.ALConstraints do
 
   example bidirectional_adder() do
     {:atomic, {bindings, state}} = run do
-      send(:cell, :new, [%{name: :a}, a])
-      send(:cell, :new, [%{name: :b}, b])
-      send(:cell, :new, [%{name: :c}, c])
-      
-      send(:propagator, :new, [%{input_cells: [a, b], output_cell: c}, propagator_ab])
-      send(:propagator, :new, [%{input_cells: [a, c], output_cell: b}, propagator_ac])
-      send(:propagator, :new, [%{input_cells: [b, c], output_cell: a}, propagator_bc])
+      new(:cell, %{name: :a}, a)
+      new(:cell, %{name: :b}, b)
+      new(:cell, %{name: :c}, c)
+
+      new(:propagator, %{input_cells: [a, b], output_cell: c}, propagator_ab)
+      new(:propagator, %{input_cells: [a, c], output_cell: b}, propagator_ac)
+      new(:propagator, %{input_cells: [b, c], output_cell: a}, propagator_bc)
       
       defmethod(propagator_ab, :constrain, [_self, [a_val, b_val], c_val]) do
         is(c_val, a_val + b_val)

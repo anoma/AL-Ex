@@ -3,7 +3,7 @@ defmodule AL.Bootstrap.Process do
 
   def setup() do
     run do
-      send(:class, :new, [%{name: :process, super: :object, slots: []}, _])
+      new(:class, %{name: :process, super: :object, slots: []}, _)
       defmethod(:process, :allocate, [self, args, new_obj]) do
         class(self, meta)
 

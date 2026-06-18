@@ -3,7 +3,7 @@ defmodule AL.Bootstrap.ElixirProcess do
 
   def setup() do
     run do
-      send(:class, :new, [%{name: :elixir_process, super: :object, slots: []}, _])
+      new(:class, %{name: :elixir_process, super: :object, slots: []}, _)
       defmethod(:elixir_process, :allocate, [self, args, new_obj]) do
         class(self, meta)
         map_get(args, :name, new_obj)

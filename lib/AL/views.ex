@@ -11,7 +11,7 @@ defmodule AL.Views do
 
   defview object_examine_view(self = %AL.Object{}, builder) do
     {:atomic, {bindings, _program_state}} = AL.run do
-      send(^self.id, :examine, [info]) 
+      examine(^self.id, info)
     end
 
     GtBridge.Views.MapGraph.graph(Map.get(bindings, :"$info"), builder)
@@ -49,9 +49,9 @@ defmodule AL.Views do
       get_slot(^self.id, :input_cells, input_cells)
       get_slot(^self.id, :output_cell, output_cell)
       unify(nodes, [^self.id | [output_cell | input_cells]])
-      send(input_cells, :fold_left, [[acc, h, result],
-                                     [send(acc, :put, [h, [^self.id], result])],
-                                     %{^self.id => [output_cell]}, children])
+      fold_left(input_cells, [acc, h, result],
+                [put(acc, h, [^self.id], result)],
+                %{^self.id => [output_cell]}, children)
     end
 
     IO.inspect(result)
