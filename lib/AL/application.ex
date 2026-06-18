@@ -23,6 +23,7 @@ defmodule AL.Application do
     case :mnesia.table_info(:command, :size) do
       0 ->
         AL.Bootstrap.Core.setup()
+        AL.Bootstrap.Users.setup()
         AL.Bootstrap.Lists.setup()
         AL.Bootstrap.ElixirProcess.setup()
         AL.Bootstrap.Process.setup()

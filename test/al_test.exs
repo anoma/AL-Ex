@@ -21,3 +21,7 @@ end
 defmodule ALTraceTest do
   use ExExample.ExUnit, for: Examples.ALTrace
 end
+
+defmodule ALUsersTest do
+  use ExExample.ExUnit, for: Examples.ALUsers
+end
