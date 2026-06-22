@@ -1,35 +1,49 @@
 # AL
 
-**TODO: Add description**
+AL is a live, ACID, (eventually) bitemporal, relational-object operating system built around an append-only command log. It combines inspiration from:
 
-## Installation
+- XTDB
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `al` to your list of dependencies in `mix.exs`:
+- GlamorousToolkit/Pharo
 
-```elixir
-def deps do
-  [
-    {:al, "~> 0.1.0"}
-  ]
-end
-```
+- Git
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/al>.
+- PROLOG
+
+- LISP
+
+- BEAM
+
+- Urbit
 
 
-TODO 
+The goal of the system is to be the first truly principled object-oriented PROLOG, and the personal computing environment of the future.
+This runtime is the first version of AL, written in Elixir. The irony of the first Erlang interpreter having been written in PROLOG is not lost on us.
 
-- Re-evaluate this list!
+## Features
 
-- Loads more docs
+- Live Smalltalk-style objects, defined relationally. No more faux-ADTs. Define protocols and their implementations. Mix and match at your leisure.
+- Bidirectional Execution thanks to WAM semantics.
+- Shutdown your system, continue later. All transactions are backed up by an on-disk database, hydrated at startup.
+- ACID transactions ensure your work is safe and easy to reason about.
+- Constraint Processing
 
-- concurrency
+And to come:
 
-- constraint processing
+- Bitemporality features: Model temporal systems. Spin off new branches of your system at different points in time and move between them easily.
 
-- more bootstrapping for diff kinds of objects
+For discussion of the design philosophy of AL and resources that were consulted during its design, please see: 
+https://forum.anoma.net/t/design-philosophy-of-al-bibliography/2698
 
-- system wipes and rollbacks
+## Getting Started
+
+Install from terminal using `iex -S mix` or as a mix dependency.
+From IEx, you can run `require AL`.
+
+`lib/examples` contains examples.
+`lib/AL/bootstrap` contains the bootstrap code.
+`lib/AL` contains the runtime code.
+
+Tips:
+
+- Use `examine(:my_object_id_here, info)` in order to get quick information about an object via its ID, such as its class(es!), superclass(es!), methods, and in the case of method objects, relevant clauses.
