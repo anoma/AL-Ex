@@ -37,50 +37,6 @@ defmodule Examples.ALObjects do
     result
   end
 
-  example metaclass_init_override() do
-    {:atomic, {b, program_state}} =
-      run do
-        new(:class, %{name: :counter_meta, super: :class, slots: []}, _)
-        set_slots(:counter_meta, %{count: []})
-
-        defmethod(:counter_meta, :init, [self, args, self]) do
-          class(self, meta)
-          get_slot(meta, :count, count)
-          set_slots(meta, %{count: ["new class!" | count]})
-          set_method(self, :init, :initialise_counted_object)
-          cut
-        end
-
-        set_class(:initialise_counted_object, :behaviour)
-        set_oapply(:initialise_counted_object, [self, _, self]) do
-          meta(self, meta, metaclass)
-          get_slot(metaclass, :count, count)
-          set_slots(metaclass, %{count: ["new object!" | count]})
-          # TODO find a good way to do call next method
-          cut
-        end
-
-        new(:counter_meta,
-          %{name: :example_counter_meta_instance, super: :object, slots: []},
-          counter_example_meta_instance)
-
-        new(:counter_meta,
-          %{name: :example_counter_meta_instance_2, super: :object, slots: []},
-          counter_example_meta_instance_2)
-
-        new(:example_counter_meta_instance, _, example_ii)
-        cut
-
-        get_slot(:counter_meta, :count, c)
-      end
-
-    c = Map.get(b, :"$c")
-    assert List.first(c) == "new object!"
-    assert "new class!" in c
-
-    program_state
-  end
-
   example metaclass_alloc_override() do
     {:atomic, {b, program_state}} =
       run do

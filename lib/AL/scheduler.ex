@@ -17,7 +17,7 @@ defmodule AL.Scheduler do
          {:write, :command, {:command, _t, _tx_id, {:send_async, {object, method, args}}}, _old, _tid}},
         state
   ) do
-    Task.start(fn -> AL.eval([{:oapply, :send, [object, method, args]}]) end)
+    Task.start(fn -> AL.eval([{:send, object, method, args}]) end)
     {:noreply, state}
   end
 

@@ -37,6 +37,38 @@ defmodule Examples.AL do
     result
   end
 
+  example does_not_understand_dispatch() do
+    {:atomic, {b, _}} =
+      run do
+        new(:class, %{name: :gadget, super: :object, slots: []}, _)
+
+        defmethod(:gadget, :poke, [self, x]) do
+          unify(x, :ok)
+        end
+
+        defmethod(:gadget, :does_not_understand, [self, _m, _a]) do
+        end
+
+        new(:gadget, _, g)
+      end
+
+    g = Map.get(b, :"$g")
+
+    # head matches, body succeeds -> runs
+    {:atomic, _} = run do poke(^g, :ok) end
+
+    # head matches, body fails -> plain failure, not DNU
+    {:aborted, _} = run do poke(^g, :bad) end
+
+    # absent selector -> DNU (override succeeds)
+    {:atomic, _} = run do zap(^g) end
+
+    # wrong arity, no clause head matches -> DNU
+    {:atomic, _} = run do poke(^g, :a, :b) end
+
+    :ok
+  end
+
   example get_oapply_command() do
     run do
       method(:object, :init, init_method)

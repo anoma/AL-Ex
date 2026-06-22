@@ -5,17 +5,16 @@ defmodule AL.Bootstrap.Constraints do
     run do
       new(:class, %{name: :cell, super: :object, slots: [:subscribers, :value, :name]}, _)
       
-      defmethod(:cell, :allocate, [self, args, cell_name]) do
+      defmethod(:cell, :allocate, [self, args, new]) do
         class(self, meta)
-        map_get(args, :name, cell_name)
+        gensym(new)
 
-        set_class(cell_name, meta)
-        set_super(cell_name, :object)
+        set_class(new, meta)
+        set_super(new, :object)
       end
 
       defmethod(:cell, :init, [self, args, self]) do
-        map_get(args, :name, cell_name)
-        set_slots(cell_name, %{name: cell_name, subscribers: [], value: :absent})        
+        set_slots(self, %{name: cell_name, subscribers: [], value: :absent})        
       end
 
       defmethod(:cell, :constrain, [self, value]) do

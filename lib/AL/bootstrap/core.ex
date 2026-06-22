@@ -11,7 +11,6 @@ defmodule AL.Bootstrap.Core do
       set_super(:behaviour, :object)
 
       set_method(:object, :lookup, :lookup)
-      set_method(:object, :send, :send)
       set_method(:object, :meta, :metaclass)
       set_method(:object, :defmethod, :defmethod)
 
@@ -29,29 +28,16 @@ defmodule AL.Bootstrap.Core do
            lookup(super, name, id)])
       end
 
-      set_class(:send, :behaviour)
-      set_oapply(:send, [self, method, args]) do
-        class(self, class)
-        implies(
-          [method(self, method, id)],
-          [
-            oapply(id, [self | args])
-          ],
-          [implies(
-              [lookup(class, method, id)],
-              [
-                oapply(id, [self | args])
-              ],
-              [:fail]
-            )])
-      end
-
       set_class(:defmethod, :behaviour)
       set_oapply(:defmethod, [self, method_name, head, body]) do
         fresh_id(impl)
         set_method(self, method_name, impl)
         set_class(impl, :behaviour)
         set_oapply(impl, head, body)
+      end
+
+      defmethod(:object, :does_not_understand, [self, method, args]) do
+        :fail
       end
 
       set_class(:map, :class)

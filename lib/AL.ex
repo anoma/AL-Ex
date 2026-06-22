@@ -77,6 +77,7 @@ defmodule AL do
           | {:not, [goal()]}
           | {:unify, AL.Var.t(), AL.Var.t()}
           | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
+          | {:send, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | :fail
 
   @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
@@ -104,6 +105,7 @@ defmodule AL do
 
   @arithmetic_ops [:+, :-, :*, :/, :**]
   @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id]
+  @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
   def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
 
@@ -197,8 +199,9 @@ defmodule AL do
 
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
+
   def ast_to_pattern({:send, _, [receiver, method, args]}),
-    do: {:oapply, :send, [ast_to_pattern(receiver), ast_to_pattern(method), ast_to_pattern(args)]}
+    do: {:send, ast_to_pattern(receiver), ast_to_pattern(method), ast_to_pattern(args)}
 
   def ast_to_pattern({:send_async, _, [object, method, args]}),
     do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
@@ -222,7 +225,7 @@ defmodule AL do
     do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({method, _, [receiver | args]}) when is_atom(method) and is_list(args),
-    do: {:oapply, :send, [ast_to_pattern(receiver), method, Enum.map(args, &ast_to_pattern/1)]}
+    do: {:send, ast_to_pattern(receiver), method, Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
     do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
@@ -1018,6 +1021,65 @@ defmodule AL do
 
   def interp(:fail, state) do
     backtrack(state)
+  end
+
+  def interp({:send, self, method, args}, state) do
+    call_args = [self | args]
+
+    case resolve_method_id(self, method) do
+      nil ->
+        dnu(self, method, args, state)
+
+      id ->
+        if has_matching_clause?(id, call_args, state.active_choicepoint.bindings) do
+          interp({:oapply, id, call_args}, state)
+        else
+          dnu(self, method, args, state)
+        end
+    end
+  end
+
+  defp dnu(_self, :does_not_understand, _args, state), do: backtrack(state)
+
+  defp dnu(self, method, args, state),
+    do: interp({:send, self, :does_not_understand, [method, args]}, state)
+
+  defp resolve_method_id(self, method) when is_map(self),
+    do: resolve_in_chain([Map.get(self, :class, :map)], method)
+
+  defp resolve_method_id(self, method) when is_list(self), do: resolve_in_chain([:list], method)
+
+  defp resolve_method_id(self, method) do
+    case method_ids(self, method) do
+      [id | _] -> id
+      [] -> resolve_in_chain(for({:class, _o, c} <- AL.Object.scan_class(self, :"$class"), do: c), method)
+    end
+  end
+
+  defp resolve_in_chain(classes, method),
+    do: Enum.find_value(classes, fn c -> chain_first_id(c, method) end)
+
+  defp chain_first_id(class, method) do
+    case method_ids(class, method) do
+      [id | _] -> id
+      [] -> resolve_in_chain(for({:super, _o, s} <- AL.Object.scan_super(class, :"$super"), do: s), method)
+    end
+  end
+
+  defp method_ids(obj, method) do
+    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id"), do: id
+  end
+
+  defp has_matching_clause?(id, call_args, bindings) do
+    id in @primitive_methods or any_clause_matches?(id, call_args, bindings)
+  end
+
+  defp any_clause_matches?(id, call_args, bindings) do
+    scope = AL.Command.fresh_scope()
+
+    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body"), fn {:oapply, _id, head, _body} ->
+      AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
+    end)
   end
 
   defp collect_all_solutions(condition, bindings, tx_id) do

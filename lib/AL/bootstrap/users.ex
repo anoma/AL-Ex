@@ -3,14 +3,17 @@ defmodule AL.Bootstrap.Users do
 
   def setup() do
     run do
-      new(:class, %{name: :owned, super: :object, slots: [:owner]}, _)
+      new(:class, %{name: :durable_object, super: :object, slots: [:owner]}, _)
 
-      defmethod(:owned, :allocate, [self, args, new]) do
+      defmethod(:durable_object, :allocate, [self, args, new]) do
         class(self, meta)
         gensym(new)
         set_class(new, meta)
-        set_super(new, :object)
+        set_super(new, :super)
       end
+
+      new(:class, %{name: :user, super: :durable_object, slots: [:name]}, _)
+      new(:class, %{name: :owned, super: :durable_object, slots: []}, _)
 
       defmethod(:owned, :init, [self, args, self]) do
         set_slots(self, args)
@@ -25,25 +28,13 @@ defmodule AL.Bootstrap.Users do
         unify(caller, owner)
       end
 
-      set_class(:guarded_send, :behaviour)
-      set_oapply(:guarded_send, [caller, self, method, args]) do
+      defmethod(:owned, :guarded_send, [self, caller, method, args]) do
         may(self, caller, method, args)
         send(self, method, args)
       end
 
-      new(:class, %{name: :user, super: :owned, slots: [:name]}, _)
-
-      new(:class, %{name: :owned_class, super: :class, slots: []}, _)
-
-      defmethod(:owned_class, :allocate, [self, args, name]) do
-        map_get(args, :name, name)
-        map_get(args, :super, super)
-        map_get(args, :owner, owner)
-
-        class(self, meta)
-        set_class(name, meta)
-        set_super(name, super)
-        set_slots(name, %{owner: owner})
+      defmethod(:owned, :does_not_understand, [self, method, [caller, args]]) do
+        guarded_send(self, caller, method, args)
       end
     end
   end
