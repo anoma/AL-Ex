@@ -839,29 +839,29 @@ defmodule AL do
 
   def interp({:set_class, object, _class}, state) when is_map(object), do: state
   def interp({:set_class, object_pattern, class_pattern}, state) do
-    AL.Command.set_class(state.tx_id, object_pattern, class_pattern)
-    AL.Object.set_class(object_pattern, class_pattern)
+    AL.Command.set_class(state.tx_id, object_pattern, class_pattern, state.store)
+    AL.Object.set_class(object_pattern, class_pattern, state.store)
     state
   end
 
   def interp({:set_super, object, _super}, state) when is_map(object), do: state
   def interp({:set_super, object_pattern, super_pattern}, state) do
-    AL.Command.set_super(state.tx_id, object_pattern, super_pattern)
-    AL.Object.set_super(object_pattern, super_pattern)
+    AL.Command.set_super(state.tx_id, object_pattern, super_pattern, state.store)
+    AL.Object.set_super(object_pattern, super_pattern, state.store)
     state
   end
 
   def interp({:set_method, object, _name, _id}, state) when is_map(object), do: state
   def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    AL.Command.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern)
-    AL.Object.set_method(object_pattern, method_name_pattern, method_id_pattern)
+    AL.Command.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern, state.store)
+    AL.Object.set_method(object_pattern, method_name_pattern, method_id_pattern, state.store)
     state
   end
 
   def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern)
-    AL.Object.set_oapply(object_pattern, head_pattern, body_pattern)
+    AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern, state.store)
+    AL.Object.set_oapply(object_pattern, head_pattern, body_pattern, state.store)
     state
   end
 
@@ -907,53 +907,53 @@ defmodule AL do
 
   def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
-    AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern)
-    AL.Object.set_slots(object_pattern, slots_pattern)
+    AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern, state.store)
+    AL.Object.set_slots(object_pattern, slots_pattern, state.store)
     state
   end
 
   def interp({:retract_class, object, _class}, state) when is_map(object), do: state
   def interp({:retract_class, object, class}, state) do
-    AL.Command.retract_class(state.tx_id, object, class)
-    AL.Object.retract_class(object, class)
+    AL.Command.retract_class(state.tx_id, object, class, state.store)
+    AL.Object.retract_class(object, class, state.store)
     state
   end
 
   def interp({:retract_super, object, _super}, state) when is_map(object), do: state
   def interp({:retract_super, object, super}, state) do
-    AL.Command.retract_super(state.tx_id, object, super)
-    AL.Object.retract_super(object, super)
+    AL.Command.retract_super(state.tx_id, object, super, state.store)
+    AL.Object.retract_super(object, super, state.store)
     state
   end
 
   def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
   def interp({:retract_method, object, name, id}, state) do
-    AL.Command.retract_method(state.tx_id, object, name, id)
-    AL.Object.retract_method(object, name, id)
+    AL.Command.retract_method(state.tx_id, object, name, id, state.store)
+    AL.Object.retract_method(object, name, id, state.store)
     state
   end
 
   def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
   def interp({:retract_oapply, object, head}, state) do
-    AL.Command.retract_oapply(state.tx_id, object, head)
-    AL.Object.retract_oapply(object, head)
+    AL.Command.retract_oapply(state.tx_id, object, head, state.store)
+    AL.Object.retract_oapply(object, head, state.store)
     state
   end
 
   def interp({:retract_slots, object, _slots}, state) when is_map(object), do: state
   def interp({:retract_slots, object, slots}, state) do
-    AL.Command.retract_slots(state.tx_id, object, slots)
-    AL.Object.retract_slots(object, slots)
+    AL.Command.retract_slots(state.tx_id, object, slots, state.store)
+    AL.Object.retract_slots(object, slots, state.store)
     state
   end
     
   def interp({:send_async, object, method, args}, state) do
-    AL.Command.send_async(state.tx_id, object, method, args)
+    AL.Command.send_async(state.tx_id, object, method, args, state.store)
     state
   end
 
   def interp({:send_elixir, pid, message}, state) do
-    AL.Command.send_elixir(state.tx_id, pid, message)
+    AL.Command.send_elixir(state.tx_id, pid, message, state.store)
     state
   end
   

@@ -55,20 +55,31 @@ defmodule AL.Object do
   end
 
   @doc """
-  Fork a new store, materialised from the log as of time `at` (default `:tip`,
-  i.e. now). Returns the new store's name. Forks currently derive from the main
-  log; drop one with `drop_store/1`.
+  Fork a new store from `:main` as of time `at` (default `:tip`, i.e. now). The
+  fork gets its OWN command log (the parent's prefix copied in) and its own
+  projection; subsequent writes against it diverge. Returns the fork's name;
+  remove it with `discard/1`.
   """
   @spec fork(non_neg_integer() | :tip) :: store()
   def fork(at \\ :tip) do
     store = :"fork_#{System.unique_integer([:positive])}"
+    AL.Command.create_log(store)
+    AL.Command.copy_prefix(:main, store, at_time(at))
     create_store(store)
-    hydrate_until(at_time(at), store)
+    hydrate_since(0, store)
     store
   end
 
   defp at_time(:tip), do: AL.Command.system_time()
   defp at_time(t) when is_integer(t), do: t
+
+  @doc "Discard a fork: drop its projection and its command log."
+  @spec discard(store()) :: :ok
+  def discard(store) do
+    drop_store(store)
+    AL.Command.drop_log(store)
+    :ok
+  end
 
   defp create_table(relation, store) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
@@ -227,13 +238,13 @@ defmodule AL.Object do
   @doc "Replay commands at or after time `t` into `store`."
   @spec hydrate_since(non_neg_integer(), store()) :: {:atomic, any()} | {:aborted, term()}
   def hydrate_since(t, store \\ :main) do
-    hydrate(fn -> AL.Command.commands_since(t) end, store)
+    hydrate(fn -> AL.Command.commands_since(t, store) end, store)
   end
 
   @doc "Replay commands up to and including time `t` into `store`."
   @spec hydrate_until(non_neg_integer(), store()) :: {:atomic, any()} | {:aborted, term()}
   def hydrate_until(t, store \\ :main) do
-    hydrate(fn -> AL.Command.commands_until(t) end, store)
+    hydrate(fn -> AL.Command.commands_until(t, store) end, store)
   end
 
   defp hydrate(fetch, store) do

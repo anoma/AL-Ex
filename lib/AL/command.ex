@@ -93,11 +93,20 @@ defmodule AL.Command do
   end
 
   @doc """
+  Table name for a store's command log. `:main` is the live log; a fork uses a
+  suffixed table created with `record_name: :command`.
+  """
+  @spec log(AL.Object.store()) :: atom()
+  def log(store \\ :main)
+  def log(:main), do: :command
+  def log(store), do: :"command@#{store}"
+
+  @doc """
   Read a command at time t
   """
-  @spec command(non_neg_integer()) :: command() | :absent
-  def command(t) do
-    case :mnesia.read(:command, t) do
+  @spec command(non_neg_integer(), AL.Object.store()) :: command() | :absent
+  def command(t, store \\ :main) do
+    case :mnesia.read(log(store), t) do
       [{_, ^t, _tx_id, command}] -> command
       [] -> :absent
     end
@@ -106,9 +115,9 @@ defmodule AL.Command do
   @doc """
   Read all commands since time t
   """
-  @spec commands_since(non_neg_integer()) :: [command()]
-  def commands_since(t) do
-    :mnesia.select(:command, [
+  @spec commands_since(non_neg_integer(), AL.Object.store()) :: [command()]
+  def commands_since(t, store \\ :main) do
+    :mnesia.select(log(store), [
       {{:command, :"$1", :"$2", :"$3"}, [{:>=, :"$1", t}], [:"$_"]}
     ])
   end
@@ -116,9 +125,9 @@ defmodule AL.Command do
   @doc """
   Read all commands up to and including time t
   """
-  @spec commands_until(non_neg_integer()) :: [command()]
-  def commands_until(t) do
-    :mnesia.select(:command, [
+  @spec commands_until(non_neg_integer(), AL.Object.store()) :: [command()]
+  def commands_until(t, store \\ :main) do
+    :mnesia.select(log(store), [
       {{:command, :"$1", :"$2", :"$3"}, [{:"=<", :"$1", t}], [:"$_"]}
     ])
   end
@@ -126,91 +135,126 @@ defmodule AL.Command do
   @doc """
   Read all commands for a given transaction
   """
-  def commands_for_transaction(tx_id) do
-    :mnesia.select(:command, [
+  def commands_for_transaction(tx_id, store \\ :main) do
+    :mnesia.select(log(store), [
       {{:command, :"$1", tx_id, :"$3"}, [], [:"$_"]}
     ])
+  end
+
+  @doc "Create a fork's command log. Idempotent."
+  @spec create_log(AL.Object.store()) :: :ok
+  def create_log(store) do
+    case :mnesia.create_table(log(store),
+           attributes: [:t, :tx_id, :command],
+           type: :ordered_set,
+           ram_copies: [node()],
+           record_name: :command
+         ) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, _}} -> :ok
+    end
+
+    :mnesia.wait_for_tables([log(store)], 5_000)
+    :ok
+  end
+
+  @doc "Delete a fork's command log."
+  @spec drop_log(AL.Object.store()) :: :ok
+  def drop_log(store) do
+    :mnesia.delete_table(log(store))
+    :ok
+  end
+
+  @doc "Copy `src`'s commands up to and including time `t` into `dst`'s log."
+  @spec copy_prefix(AL.Object.store(), AL.Object.store(), non_neg_integer()) ::
+          {:atomic, any()} | {:aborted, term()}
+  def copy_prefix(src, dst, t) do
+    :mnesia.transaction(fn ->
+      for {:command, ct, tx, cmd} <- commands_until(t, src) do
+        :mnesia.write(log(dst), {:command, ct, tx, cmd}, :write)
+      end
+    end)
   end
 
   @doc """
   Write a command that says a class of an object was set
   """
-  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def set_class(tx_id, object, class) do
-    write_command(tx_id, {:set_class, {object, class}})
+  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def set_class(tx_id, object, class, store \\ :main) do
+    write_command(tx_id, {:set_class, {object, class}}, store)
   end
 
   @doc """
   Write a command that says a superclass of an object was set
   """
-  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def set_super(tx_id, object, super) do
-    write_command(tx_id, {:set_super, {object, super}})
+  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def set_super(tx_id, object, super, store \\ :main) do
+    write_command(tx_id, {:set_super, {object, super}}, store)
   end
 
   @doc """
   Write a command that says a method was set for an object
   """
-  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
-  def set_method(tx_id, object, method_name, method_id) do
-    write_command(tx_id, {:set_method, {object, method_name, method_id}})
+  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def set_method(tx_id, object, method_name, method_id, store \\ :main) do
+    write_command(tx_id, {:set_method, {object, method_name, method_id}}, store)
   end
 
   @doc """
   Write a command that says the object was given a run method
   """
-  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()]) :: :ok
-  def set_oapply(tx_id, object, head, body) do
-    write_command(tx_id, {:set_oapply, {object, head, body}})
+  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Object.store()) :: :ok
+  def set_oapply(tx_id, object, head, body, store \\ :main) do
+    write_command(tx_id, {:set_oapply, {object, head, body}}, store)
   end
 
   @doc """
   Write a command that says slots were set for an object
   """
-  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def set_slots(tx_id, object, slots) do
-    write_command(tx_id, {:set_slots, {object, slots}})
+  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def set_slots(tx_id, object, slots, store \\ :main) do
+    write_command(tx_id, {:set_slots, {object, slots}}, store)
   end
 
-  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def retract_class(tx_id, object, class) do
-    write_command(tx_id, {:retract_class, {object, class}})
+  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def retract_class(tx_id, object, class, store \\ :main) do
+    write_command(tx_id, {:retract_class, {object, class}}, store)
   end
 
-  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def retract_super(tx_id, object, super) do
-    write_command(tx_id, {:retract_super, {object, super}})
+  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def retract_super(tx_id, object, super, store \\ :main) do
+    write_command(tx_id, {:retract_super, {object, super}}, store)
   end
 
-  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
-  def retract_method(tx_id, object, name, id) do
-    write_command(tx_id, {:retract_method, {object, name, id}})
+  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def retract_method(tx_id, object, name, id, store \\ :main) do
+    write_command(tx_id, {:retract_method, {object, name, id}}, store)
   end
 
-  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def retract_oapply(tx_id, object, head) do
-    write_command(tx_id, {:retract_oapply, {object, head}})
+  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def retract_oapply(tx_id, object, head, store \\ :main) do
+    write_command(tx_id, {:retract_oapply, {object, head}}, store)
   end
 
-  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
-  def retract_slots(tx_id, object, slots) do
-    write_command(tx_id, {:retract_slots, {object, slots}})
+  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def retract_slots(tx_id, object, slots, store \\ :main) do
+    write_command(tx_id, {:retract_slots, {object, slots}}, store)
   end
 
-  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok
-  def send_async(tx_id, object, method, args) do
-    write_command(tx_id, {:send_async, {object, method, args}})
+  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  def send_async(tx_id, object, method, args, store \\ :main) do
+    write_command(tx_id, {:send_async, {object, method, args}}, store)
   end
 
-  @spec send_elixir(non_neg_integer(), pid(), term()) :: :ok
-  def send_elixir(tx_id, pid, message) do
-    write_command(tx_id, {:send_elixir, {pid, message}})
+  @spec send_elixir(non_neg_integer(), pid(), term(), AL.Object.store()) :: :ok
+  def send_elixir(tx_id, pid, message, store \\ :main) do
+    write_command(tx_id, {:send_elixir, {pid, message}}, store)
   end
 
-  @spec write_command(non_neg_integer(), command()) :: :ok
-  def write_command(tx_id, command) do
+  @spec write_command(non_neg_integer(), command(), AL.Object.store()) :: :ok
+  def write_command(tx_id, command, store \\ :main) do
     {t1, _t2} = inc_system_time()
-    :mnesia.write({:command, t1, tx_id, command})
+    :mnesia.write(log(store), {:command, t1, tx_id, command}, :write)
   end
 
   @doc """
