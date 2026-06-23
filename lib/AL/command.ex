@@ -114,6 +114,16 @@ defmodule AL.Command do
   end
 
   @doc """
+  Read all commands up to and including time t
+  """
+  @spec commands_until(non_neg_integer()) :: [command()]
+  def commands_until(t) do
+    :mnesia.select(:command, [
+      {{:command, :"$1", :"$2", :"$3"}, [{:"=<", :"$1", t}], [:"$_"]}
+    ])
+  end
+
+  @doc """
   Read all commands for a given transaction
   """
   def commands_for_transaction(tx_id) do

@@ -91,6 +91,7 @@ defmodule AL do
     field(:program, [goal()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
+    field(:store, AL.Object.store(), default: :main)
   end
 
   defmacro __using__(_opts) do
@@ -241,17 +242,22 @@ defmodule AL do
   def ast_to_pattern(x), do: x
 
   @doc """
-  I provide the DSL for the AL interpreter
+  I provide the DSL for the AL interpreter. I run against the live store by
+  default; `run store: s do ... end` runs against store `s` (e.g. a `fork`).
   """
-  defmacro run(do: program) do
+  defmacro run(opts \\ [], do: program) do
     goals =
       case ast_to_pattern(program) do
         list when is_list(list) -> list
         goal -> [goal]
       end
 
-    quote do
-      AL.eval(unquote(Macro.escape(goals, unquote: true)))
+    escaped = Macro.escape(goals, unquote: true)
+
+    if Keyword.has_key?(opts, :store) do
+      quote do: AL.eval(unquote(escaped), nil, unquote(opts[:store]))
+    else
+      quote do: AL.eval(unquote(escaped))
     end
   end
 
@@ -301,8 +307,9 @@ defmodule AL do
    TODO fix leakiness on -> marks? Or maybe not necessary
    TODO Make fresheners deterministic 
   """
-  @spec eval([goal()], AL.Var.bindings()) :: {:atomic, t() | nil} | {:aborted, term()}
-  def eval(program, initial_bindings \\ nil) do
+  @spec eval([goal()], AL.Var.bindings(), AL.Object.store()) ::
+          {:atomic, t() | nil} | {:aborted, term()}
+  def eval(program, initial_bindings \\ nil, store \\ :main) do
     bindings = initial_bindings || AL.Var.empty_bindings()
     input_vars = AL.Var.find_vars(program)
 
@@ -320,6 +327,7 @@ defmodule AL do
           },
           choicepoint_stack: [{:mark, 0}],
           tx_id: tx_id,
+          store: store,
           trace: [],
           program: program,
           tracepoints: AL.Trace.tracepoints()
@@ -478,7 +486,7 @@ defmodule AL do
           }
       }
     else
-      case AL.Object.scan_class(object_pattern, class_pattern) do
+      case AL.Object.scan_class(object_pattern, class_pattern, state.store) do
         [] ->
           backtrack(state)
 
@@ -513,7 +521,7 @@ defmodule AL do
   end
 
   def interp({:get_super, object_pattern, super_pattern}, state) do
-    case AL.Object.scan_super(object_pattern, super_pattern) do
+    case AL.Object.scan_super(object_pattern, super_pattern, state.store) do
       [] ->
         backtrack(state)
 
@@ -546,7 +554,7 @@ defmodule AL do
   end
 
   def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    case AL.Object.scan_method(object_pattern, method_name_pattern, method_id_pattern) do
+    case AL.Object.scan_method(object_pattern, method_name_pattern, method_id_pattern, state.store) do
       [] ->
         backtrack(state)
 
@@ -579,7 +587,7 @@ defmodule AL do
   end
 
   def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    case AL.Object.scan_oapply(object_pattern, head_pattern, body_pattern) do
+    case AL.Object.scan_oapply(object_pattern, head_pattern, body_pattern, state.store) do
       [] ->
         backtrack(state)
 
@@ -697,7 +705,7 @@ defmodule AL do
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body") do
+    case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body", state.store) do
       [] ->
         backtrack(state)
 
@@ -859,7 +867,7 @@ defmodule AL do
 
   def interp({:get_slot, object, key, value}, state) do
     entries =
-      case :mnesia.read(:slots, object) do
+      case AL.Object.read_slots(object, state.store) do
         [{:slots, ^object, m}] when is_map(m) ->
           if AL.Var.var?(key) do
             Map.to_list(m)
@@ -968,7 +976,7 @@ defmodule AL do
   end
 
   def interp({:forall, condition, body}, state) do
-    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id)
+    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id, state.store)
 
     body_goals =
       Enum.flat_map(solutions, fn bindings ->
@@ -984,7 +992,7 @@ defmodule AL do
   end
 
   def interp({:findall, template, condition, result}, state) do
-    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id)
+    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id, state.store)
 
     collected = Enum.map(solutions, fn bindings -> AL.Var.subst(template, bindings) end)
 
@@ -1034,7 +1042,7 @@ defmodule AL do
   end
 
   def interp({:not, condition}, state) do
-    case collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id) do
+    case collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id, state.store) do
       [] -> state
       _ -> backtrack(state)
     end
@@ -1047,12 +1055,12 @@ defmodule AL do
   def interp({:send, self, method, args}, state) do
     call_args = [self | args]
 
-    case resolve_method_id(self, method) do
+    case resolve_method_id(self, method, state.store) do
       nil ->
         dnu(self, method, args, state)
 
       id ->
-        if has_matching_clause?(id, call_args, state.active_choicepoint.bindings) do
+        if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.store) do
           interp({:oapply, id, call_args}, state)
         else
           dnu(self, method, args, state)
@@ -1065,45 +1073,46 @@ defmodule AL do
   defp dnu(self, method, args, state),
     do: interp({:send, self, :does_not_understand, [method, args]}, state)
 
-  defp resolve_method_id(self, method) when is_map(self),
-    do: resolve_in_chain([Map.get(self, :class, :map)], method)
+  defp resolve_method_id(self, method, store) when is_map(self),
+    do: resolve_in_chain([Map.get(self, :class, :map)], method, store)
 
-  defp resolve_method_id(self, method) when is_list(self), do: resolve_in_chain([:list], method)
+  defp resolve_method_id(self, method, store) when is_list(self),
+    do: resolve_in_chain([:list], method, store)
 
-  defp resolve_method_id(self, method) do
-    case method_ids(self, method) do
+  defp resolve_method_id(self, method, store) do
+    case method_ids(self, method, store) do
       [id | _] -> id
-      [] -> resolve_in_chain(for({:class, _o, c} <- AL.Object.scan_class(self, :"$class"), do: c), method)
+      [] -> resolve_in_chain(for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", store), do: c), method, store)
     end
   end
 
-  defp resolve_in_chain(classes, method),
-    do: Enum.find_value(classes, fn c -> chain_first_id(c, method) end)
+  defp resolve_in_chain(classes, method, store),
+    do: Enum.find_value(classes, fn c -> chain_first_id(c, method, store) end)
 
-  defp chain_first_id(class, method) do
-    case method_ids(class, method) do
+  defp chain_first_id(class, method, store) do
+    case method_ids(class, method, store) do
       [id | _] -> id
-      [] -> resolve_in_chain(for({:super, _o, s} <- AL.Object.scan_super(class, :"$super"), do: s), method)
+      [] -> resolve_in_chain(for({:super, _o, s} <- AL.Object.scan_super(class, :"$super", store), do: s), method, store)
     end
   end
 
-  defp method_ids(obj, method) do
-    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id"), do: id
+  defp method_ids(obj, method, store) do
+    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", store), do: id
   end
 
-  defp has_matching_clause?(id, call_args, bindings) do
-    id in @primitive_methods or any_clause_matches?(id, call_args, bindings)
+  defp has_matching_clause?(id, call_args, bindings, store) do
+    id in @primitive_methods or any_clause_matches?(id, call_args, bindings, store)
   end
 
-  defp any_clause_matches?(id, call_args, bindings) do
+  defp any_clause_matches?(id, call_args, bindings, store) do
     scope = AL.Command.fresh_scope()
 
-    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body"), fn {:oapply, _id, head, _body} ->
+    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", store), fn {:oapply, _id, head, _body} ->
       AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
     end)
   end
 
-  defp collect_all_solutions(condition, bindings, tx_id) do
+  defp collect_all_solutions(condition, bindings, tx_id, store) do
     initial = %AL{
       active_choicepoint: %AL.Choicepoint{
         goals: condition,
@@ -1114,6 +1123,7 @@ defmodule AL do
       },
       choicepoint_stack: [],
       tx_id: tx_id,
+      store: store,
       trace: [],
       program: condition,
       tracepoints: AL.Trace.tracepoints()
