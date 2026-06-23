@@ -14,8 +14,8 @@ defmodule ALProcessTest do
   use ExExample.ExUnit, for: Examples.ALProcesses
 end
 
-defmodule ALLogTest do
-  use ExExample.ExUnit, for: Examples.ALLog
+defmodule ALBranchTest do
+  use ExExample.ExUnit, for: Examples.ALBranch
 end
 
 defmodule ALGenserverTest do

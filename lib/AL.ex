@@ -257,7 +257,7 @@ defmodule AL do
     if Keyword.has_key?(opts, :store) do
       quote do: AL.eval(unquote(escaped), nil, unquote(opts[:store]))
     else
-      quote do: AL.eval(unquote(escaped))
+      quote do: AL.eval(unquote(escaped), nil, AL.Branch.head())
     end
   end
 

@@ -34,11 +34,6 @@ defmodule AL.Object do
   def table(relation, :main), do: relation
   def table(relation, store), do: :"#{relation}@#{store}"
 
-  def setup() do
-    create_store(:main)
-    hydrate_since(0)
-  end
-
   @doc "Create the table set for a store. Idempotent."
   @spec create_store(store()) :: :ok
   def create_store(store) do
@@ -51,33 +46,6 @@ defmodule AL.Object do
   @spec drop_store(store()) :: :ok
   def drop_store(store) do
     for relation <- Map.keys(@relations), do: :mnesia.delete_table(table(relation, store))
-    :ok
-  end
-
-  @doc """
-  Fork a new store from `:main` as of time `at` (default `:tip`, i.e. now). The
-  fork gets its OWN command log (the parent's prefix copied in) and its own
-  projection; subsequent writes against it diverge. Returns the fork's name;
-  remove it with `discard/1`.
-  """
-  @spec fork(non_neg_integer() | :tip) :: store()
-  def fork(at \\ :tip) do
-    store = :"fork_#{System.unique_integer([:positive])}"
-    AL.Command.create_log(store)
-    AL.Command.copy_prefix(:main, store, at_time(at))
-    create_store(store)
-    hydrate_since(0, store)
-    store
-  end
-
-  defp at_time(:tip), do: AL.Command.system_time()
-  defp at_time(t) when is_integer(t), do: t
-
-  @doc "Discard a fork: drop its projection and its command log."
-  @spec discard(store()) :: :ok
-  def discard(store) do
-    drop_store(store)
-    AL.Command.drop_log(store)
     :ok
   end
 

@@ -141,13 +141,13 @@ defmodule AL.Command do
     ])
   end
 
-  @doc "Create a fork's command log. Idempotent."
+  @doc "Create a fork's command log (persisted to disc). Idempotent."
   @spec create_log(AL.Object.store()) :: :ok
   def create_log(store) do
     case :mnesia.create_table(log(store),
            attributes: [:t, :tx_id, :command],
            type: :ordered_set,
-           ram_copies: [node()],
+           disc_copies: [node()],
            record_name: :command
          ) do
       {:atomic, :ok} -> :ok

@@ -1,6 +1,6 @@
-defmodule Examples.ALLog do
+defmodule Examples.ALBranch do
   @moduledoc """
-  I provide command-log forking (Git-like) examples for AL: a `fork` is a
+  I provide branch (Git-like command-log fork) examples for AL: a branch is a
   divergent command log materialised into its own store.
   """
 
@@ -13,8 +13,8 @@ defmodule Examples.ALLog do
     before = AL.Command.system_time()
     {:atomic, _} = run do set_class(:tt_thing, :object) end
 
-    past = AL.Object.fork(before - 1)
-    tip = AL.Object.fork()
+    past = AL.Branch.fork(before - 1)
+    tip = AL.Branch.fork()
 
     # the tip fork sees :tt_thing; the past fork does not
     {:atomic, _} = run store: tip do class(:tt_thing, :object) end
@@ -23,13 +23,13 @@ defmodule Examples.ALLog do
     # both forks still carry the bootstrap
     {:atomic, _} = run store: past do class(:object, :class) end
 
-    AL.Object.discard(past)
-    AL.Object.discard(tip)
+    AL.Branch.discard(past)
+    AL.Branch.discard(tip)
     :ok
   end
 
   example write_to_fork() do
-    tip = AL.Object.fork()
+    tip = AL.Branch.fork()
 
     # write only into the fork, then read it back from the fork's projection
     {:atomic, {bindings, _}} =
@@ -43,7 +43,23 @@ defmodule Examples.ALLog do
     # main never saw :widget — the write stayed in the fork's log
     {:aborted, _} = run do get_slot(:widget, :x, x) end
 
-    AL.Object.discard(tip)
+    AL.Branch.discard(tip)
+    :ok
+  end
+
+  example checkout_switches_head() do
+    branch = AL.Branch.fork()
+    AL.Branch.checkout(branch)
+
+    # with the branch checked out, plain `run` acts against it
+    {:atomic, _} = run do set_class(:on_branch, :object) end
+    {:atomic, _} = run do class(:on_branch, :object) end
+
+    # back on main, the branch's write is invisible
+    AL.Branch.checkout(:main)
+    {:aborted, _} = run do class(:on_branch, :object) end
+
+    AL.Branch.discard(branch)
     :ok
   end
 end
