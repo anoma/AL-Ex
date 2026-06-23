@@ -258,54 +258,6 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")
     :ok
   end
-
-  example create_process() do
-    head = [:"$self", :"$object", :"$class"]
-    body = [{:set_slots, :"$object", %{processed: true}}]
-
-    {:atomic, {bindings, _}} =
-      run do
-        new(:process, %{method: :handle, head: ^head, body: ^body}, new_proc)
-        cut
-      end
-
-    new_proc = Map.get(bindings, :"$new_proc")
-    assert is_atom(new_proc)
-
-    bindings
-  end
-
-  example process_handles_command() do
-    new_proc = Map.get(create_process(), :"$new_proc")
-
-    {:atomic, _} =
-      run do
-        send_async(^new_proc, :handle, [:test_object, :test_class])
-      end
-
-    Process.sleep(50)
-
-    {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Object.scan_slots(:test_object, :"$slots") end)
-
-    assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
-  end
-
-  example process_called_by_var() do
-    _new_proc = Map.get(create_process(), :"$new_proc")
-
-    {:atomic, _} =
-      run do
-        send_async(proc, :handle, [:test_object_2, :test_class])
-      end
-
-    Process.sleep(50)
-
-    {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Object.scan_slots(:test_object_2, :"$slots") end)
-
-    assert Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
-  end
   
   example arithmetic() do
     {:atomic, {bindings, result}} = run do
@@ -402,26 +354,6 @@ defmodule Examples.AL do
       map([:a, :b, :c], [x, %{id: x}], [], out)
       end
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
-    :ok
-  end
-
-  example time_travel_fork() do
-    # time just before we introduce :tt_thing
-    before = AL.Command.system_time()
-    {:atomic, _} = run do set_class(:tt_thing, :object) end
-
-    past = AL.Object.fork(before - 1)
-    tip = AL.Object.fork()
-
-    # the tip fork sees :tt_thing; the past fork does not
-    {:atomic, _} = run store: tip do class(:tt_thing, :object) end
-    {:aborted, _} = run store: past do class(:tt_thing, :object) end
-
-    # both forks still carry the bootstrap
-    {:atomic, _} = run store: past do class(:object, :class) end
-
-    AL.Object.drop_store(past)
-    AL.Object.drop_store(tip)
     :ok
   end
 end

@@ -10,6 +10,14 @@ defmodule AlObjectsTest do
   use ExExample.ExUnit, for: Examples.ALObjects
 end
 
+defmodule ALProcessTest do
+  use ExExample.ExUnit, for: Examples.ALProcesses
+end
+
+defmodule ALBitemporalityTest do
+  use ExExample.ExUnit, for: Examples.ALBitemporality
+end
+
 defmodule ALGenserverTest do
   use ExExample.ExUnit, for: Examples.ALGenserver
 end
@@ -25,3 +33,4 @@ end
 defmodule ALUsersTest do
   use ExExample.ExUnit, for: Examples.ALUsers
 end
+
