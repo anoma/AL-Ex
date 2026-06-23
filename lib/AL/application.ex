@@ -20,16 +20,8 @@ defmodule AL.Application do
   end
 
   def bootstrap() do
-    case :mnesia.table_info(:command, :size) do
-      0 ->
-        AL.Bootstrap.Core.setup()
-        AL.Bootstrap.Users.setup()
-        AL.Bootstrap.Lists.setup()
-        AL.Bootstrap.ElixirProcess.setup()
-        AL.Bootstrap.Process.setup()
-        AL.Bootstrap.Constraints.setup()
-      _ ->
-        :ok
-    end
+    :al
+    |> Application.get_env(:packages, [])
+    |> AL.Package.install_all()
   end
 end

@@ -13,6 +13,7 @@ defmodule AL.Command do
           | :retract_super
           | :retract_method
           | :retract_oapply
+          | :retract_slots
           | :send_async
           | :send_elixir
 
@@ -26,6 +27,7 @@ defmodule AL.Command do
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
           | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_slots, {AL.Var.t(), AL.Var.t()}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {AL.Var.t(), AL.Var.t()}}
 
@@ -178,6 +180,11 @@ defmodule AL.Command do
   @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
   def retract_oapply(tx_id, object, head) do
     write_command(tx_id, {:retract_oapply, {object, head}})
+  end
+
+  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_slots(tx_id, object, slots) do
+    write_command(tx_id, {:retract_slots, {object, slots}})
   end
 
   @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t()) :: :ok

@@ -1,8 +1,7 @@
-defmodule AL.Bootstrap.ElixirProcess do
-  use AL
+defmodule AL.Package.ElixirProcess do
+  use AL.Package
 
-  def setup() do
-    run do
+  defpackage :elixir_process, version: 1, deps: [:bootstrap] do
       new(:class, %{name: :elixir_process, super: :object, slots: []}, _)
       defmethod(:elixir_process, :allocate, [self, args, new_obj]) do
         class(self, meta)
@@ -14,6 +13,5 @@ defmodule AL.Bootstrap.ElixirProcess do
         map_get(args, :pid, pid)
         set_slots(self, %{pid: pid})
       end
-    end
   end
 end

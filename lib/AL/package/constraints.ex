@@ -1,8 +1,7 @@
-defmodule AL.Bootstrap.Constraints do
-  use AL
-  
-  def setup() do
-    run do
+defmodule AL.Package.Constraints do
+  use AL.Package
+
+  defpackage :constraints, version: 1, deps: [:bootstrap] do
       new(:class, %{name: :cell, super: :object, slots: [:subscribers, :value, :name]}, _)
       
       defmethod(:cell, :allocate, [self, args, new]) do
@@ -68,6 +67,5 @@ defmodule AL.Bootstrap.Constraints do
         constrain(self, input_cell_values, output_value)
         send_async(output_cell, :constrain, [output_value])
       end
-    end
   end
-end  
+end

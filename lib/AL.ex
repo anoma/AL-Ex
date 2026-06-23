@@ -70,6 +70,7 @@ defmodule AL do
           | {:retract_super, AL.Var.t(), AL.Var.t()}
           | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:retract_oapply, AL.Var.t(), AL.Var.t()}
+          | {:retract_slots, AL.Var.t(), AL.Var.t()}
           | {:send_async, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:send_elixir, AL.Var.t(), AL.Var.t()}
           | {:gensym, AL.Var.t()}
@@ -104,7 +105,7 @@ defmodule AL do
   defdelegate tracepoints(), to: AL.Trace
 
   @arithmetic_ops [:+, :-, :*, :/, :**]
-  @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id]
+  @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id, :current_tx]
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
   def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
@@ -176,6 +177,9 @@ defmodule AL do
 
   def ast_to_pattern({:retract_oapply, _, [object, head]}),
     do: {:retract_oapply, ast_to_pattern(object), ast_to_pattern(head)}
+
+  def ast_to_pattern({:retract_slots, _, [object, slots]}),
+    do: {:retract_slots, ast_to_pattern(object), ast_to_pattern(slots)}
 
   def ast_to_pattern({:gensym, _, [var]}), do: {:gensym, ast_to_pattern(var)}
 
@@ -629,6 +633,16 @@ defmodule AL do
     }
   end
 
+  def interp({:oapply, :current_tx, [result]}, state) do
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | bindings: AL.Var.unify(result, state.tx_id, state.active_choicepoint.bindings)
+        }
+    }
+  end
+
   def interp({:oapply, :map_get, [m, k_pattern, v_pattern]}, state) do
     case m
          |> Enum.map(fn pair ->
@@ -915,6 +929,13 @@ defmodule AL do
   def interp({:retract_oapply, object, head}, state) do
     AL.Command.retract_oapply(state.tx_id, object, head)
     AL.Object.retract_oapply(object, head)
+    state
+  end
+
+  def interp({:retract_slots, object, _slots}, state) when is_map(object), do: state
+  def interp({:retract_slots, object, slots}, state) do
+    AL.Command.retract_slots(state.tx_id, object, slots)
+    AL.Object.retract_slots(object, slots)
     state
   end
     

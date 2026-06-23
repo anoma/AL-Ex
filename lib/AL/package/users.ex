@@ -1,17 +1,7 @@
-defmodule AL.Bootstrap.Users do
-  use AL
+defmodule AL.Package.Users do
+  use AL.Package
 
-  def setup() do
-    run do
-      new(:class, %{name: :durable_object, super: :object, slots: [:owner]}, _)
-
-      defmethod(:durable_object, :allocate, [self, args, new]) do
-        class(self, meta)
-        gensym(new)
-        set_class(new, meta)
-        set_super(new, :super)
-      end
-
+  defpackage :users, version: 1, deps: [:bootstrap] do
       new(:class, %{name: :user, super: :durable_object, slots: [:name]}, _)
       new(:class, %{name: :owned, super: :durable_object, slots: []}, _)
 
@@ -36,6 +26,5 @@ defmodule AL.Bootstrap.Users do
       defmethod(:owned, :does_not_understand, [self, method, [caller, args]]) do
         guarded_send(self, caller, method, args)
       end
-    end
   end
 end

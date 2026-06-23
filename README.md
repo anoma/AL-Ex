@@ -41,7 +41,7 @@ Install from terminal using `iex -S mix` or as a mix dependency.
 From IEx, you can run `require AL`.
 
 `lib/examples` contains examples.
-`lib/AL/bootstrap` contains the bootstrap code.
+`lib/AL/package` contains the bundled packages (the `bootstrap` package is the foundational one).
 `lib/AL` contains the runtime code.
 
 Tips:

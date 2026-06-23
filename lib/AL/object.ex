@@ -130,6 +130,24 @@ defmodule AL.Object do
     :ok
   end
 
+  @spec retract_slots(AL.Var.t(), AL.Var.t()) :: :ok
+  def retract_slots(object, slots) when is_map(slots) do
+    case :mnesia.read(:slots, object) do
+      [{:slots, ^object, existing}] when is_map(existing) ->
+        case Map.drop(existing, Map.keys(slots)) do
+          remaining when remaining == %{} -> :mnesia.delete({:slots, object})
+          remaining -> :mnesia.write({:slots, object, remaining})
+        end
+
+      _ ->
+        :mnesia.delete({:slots, object})
+    end
+  end
+
+  def retract_slots(object, _slots) do
+    :mnesia.delete({:slots, object})
+  end
+
   @spec set_class(AL.Var.t(), AL.Var.t()) :: :ok
   def set_class(object_pattern, class_pattern) do
     :mnesia.write({:class, object_pattern, class_pattern})
@@ -198,6 +216,10 @@ defmodule AL.Object do
       :retract_oapply ->
         {object, head} = event
         retract_oapply(object, head)
+
+      :retract_slots ->
+        {object, slots} = event
+        retract_slots(object, slots)
 
       :set_slots ->
         {object, new_slots} = event

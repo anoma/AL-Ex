@@ -1,8 +1,7 @@
-defmodule AL.Bootstrap.Process do
-  use AL
+defmodule AL.Package.Process do
+  use AL.Package
 
-  def setup() do
-    run do
+  defpackage :process, version: 1, deps: [:bootstrap] do
       new(:class, %{name: :process, super: :object, slots: []}, _)
       defmethod(:process, :allocate, [self, args, new_obj]) do
         class(self, meta)
@@ -21,6 +20,5 @@ defmodule AL.Bootstrap.Process do
         set_class(impl, :behaviour)
         set_oapply(impl, head, body)
       end
-    end
   end
 end
