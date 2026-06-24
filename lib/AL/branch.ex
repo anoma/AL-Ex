@@ -26,15 +26,21 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Fork a new branch from `:main` as of time `at` (default `:tip`, i.e. now). The
-  branch gets its own (disc) command log with the parent's prefix copied in, plus
-  its own projection; subsequent writes against it diverge. Returns its name.
+  Fork a new branch from `from` (default the checked-out branch, HEAD) as of time
+  `at` (default `:tip`, i.e. now). The branch gets its own (disc) command log with
+  `from`'s prefix copied in, plus its own projection; subsequent writes against it
+  diverge. `from` may be `:main` or any existing fork, so forks can be forked.
+  Returns the new branch's name.
   """
-  @spec fork(non_neg_integer() | :tip) :: AL.Object.store()
-  def fork(at \\ :tip) do
+  @spec fork(non_neg_integer() | :tip, AL.Object.store()) :: AL.Object.store()
+  def fork(at \\ :tip, from \\ head()) do
+    unless from == :main or from in list() do
+      raise ArgumentError, "cannot fork from unknown branch #{inspect(from)}"
+    end
+
     branch = :"fork_#{System.unique_integer([:positive])}"
     AL.Command.create_log(branch)
-    AL.Command.copy_prefix(:main, branch, at_time(at))
+    AL.Command.copy_prefix(from, branch, at_time(at))
     AL.Object.create_store(branch)
     AL.Object.hydrate_since(0, branch)
     register(branch)

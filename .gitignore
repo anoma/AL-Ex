@@ -23,3 +23,6 @@ al-*.tar
 /tmp/
 
 /.mnesiastore/
+
+# Mnesia core/checkpoint dumps written to the project root.
+/MnesiaCore.*

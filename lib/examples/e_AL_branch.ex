@@ -65,4 +65,47 @@ defmodule Examples.ALBranch do
     AL.Branch.discard(branch)
     :ok
   end
+
+  example fork_from_another_branch() do
+    parent = AL.Branch.fork()
+
+    # a write that lives only on the parent fork
+    {:atomic, _} = run store: parent do set_class(:on_parent, :object) end
+
+    # forking the parent (not main) carries the parent's divergent history
+    child = AL.Branch.fork(:tip, parent)
+    {:atomic, _} = run store: child do class(:on_parent, :object) end
+
+    # writes to the parent after the child forked don't reach the child
+    {:atomic, _} = run store: parent do set_class(:later_on_parent, :object) end
+    {:aborted, _} = run store: child do class(:later_on_parent, :object) end
+
+    # main never saw any of it
+    {:aborted, _} = run do class(:on_parent, :object) end
+
+    AL.Branch.discard(child)
+    AL.Branch.discard(parent)
+    :ok
+  end
+
+  example fork_defaults_to_head() do
+    branch = AL.Branch.fork()
+    AL.Branch.checkout(branch)
+
+    {:atomic, _} = run do set_class(:on_head, :object) end
+
+    # fork() with no args forks the checked-out branch, not main
+    child = AL.Branch.fork()
+    {:atomic, _} = run store: child do class(:on_head, :object) end
+
+    # main, which was never checked out, has no such object to fork
+    AL.Branch.checkout(:main)
+    fresh = AL.Branch.fork()
+    {:aborted, _} = run store: fresh do class(:on_head, :object) end
+
+    AL.Branch.discard(fresh)
+    AL.Branch.discard(child)
+    AL.Branch.discard(branch)
+    :ok
+  end
 end
