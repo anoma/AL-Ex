@@ -133,6 +133,25 @@ record tags and scan patterns are identical across stores. Almost every
   and wire a `…Test` module in `al_test.exs`.
 - Test capabilities, not sugar: e.g. async tests build their receiver from
   bootstrap primitives (`defmethod`) rather than a convenience package.
+- **DSL gotcha — `do…end` bodies vs `[…]` goal lists.** A method/`run` body is a
+  `do…end` block, so goals are newline- *or* comma-separated. But the branches of
+  `forall(cond, body)`, `findall(t, cond, r)`, `not`, and `call` are **list
+  literals** — their goals must be **comma-separated**. Writing them
+  newline-separated like a block gives a confusing `syntax error before: <goal>`.
+  (Not a parser bug — just Elixir list syntax.)
+- **`implies` uses a `cond`-style `->` block** (the only form):
+  ```elixir
+  implies do
+    [cond_goals] -> then_goals
+    [more_goals] -> body      # extra clauses read as `else if`, nesting in the else
+    :else -> else_goals       # optional; omitting it means an empty (failing) else
+  end
+  ```
+  It lowers (via `build_implies/1` in lib/AL.ex) to nested `{:implies, cond, then,
+  else}` goals. Branch bodies are `do`-block clauses (newline-separated goals), so
+  unlike `forall`/`findall`/`not` it side-steps the comma gotcha above. A `->`
+  clause can't have an empty body, so for an empty then-branch put the shared
+  trailing goals inside each branch instead.
 - Module docs are written first-person ("I am …", "I provide …").
 - Mnesia DB artifacts (`.mnesiastore/`, root `MnesiaCore.*`) are gitignored —
   never commit them. The store persists across runs, so stale objects can linger

@@ -139,8 +139,7 @@ defmodule AL do
   def ast_to_pattern({:oapply, _, [method_id, args]}),
     do: {:oapply, ast_to_pattern(method_id), ast_to_pattern(args)}
 
-  def ast_to_pattern({:implies, _, [condition, then, other]}),
-    do: {:implies, ast_to_pattern(condition), ast_to_pattern(then), ast_to_pattern(other)}
+  def ast_to_pattern({:implies, _, [[do: clauses]]}), do: build_implies(clauses)
 
   def ast_to_pattern({:alternative, _, [left, right]}),
     do: {:or, ast_to_pattern(left), ast_to_pattern(right)}
@@ -241,6 +240,33 @@ defmodule AL do
   def ast_to_pattern({a, b}), do: {ast_to_pattern(a), ast_to_pattern(b)}
 
   def ast_to_pattern(x), do: x
+
+  # Lower the `->`-clause form of `implies` into nested `{:implies, …}` goals:
+  #
+  #     implies do
+  #       [cond] -> body
+  #       [other] -> body
+  #       :else -> body
+  #     end
+  #
+  # Each non-`:else` clause becomes an `implies` whose else branch is the rest of
+  # the chain (so extra clauses read as `else if`); a trailing `:else ->` is the
+  # final else, and its absence means an empty (failing) else.
+  defp build_implies([{:->, _, [[conds], body]} | rest]),
+    do: {:implies, clause_goals(conds), clause_goals(body), implies_else(rest)}
+
+  defp implies_else([]), do: []
+  defp implies_else([{:->, _, [[:else], body]}]), do: clause_goals(body)
+  defp implies_else(rest), do: [build_implies(rest)]
+
+  # Normalise a clause side (a `[g, …]` condition list, a single goal, or a `do`
+  # block) to a list of goal patterns.
+  defp clause_goals(ast) do
+    case ast_to_pattern(ast) do
+      list when is_list(list) -> list
+      goal -> [goal]
+    end
+  end
 
   @doc """
   I provide the DSL for the AL interpreter. I run against the live store by

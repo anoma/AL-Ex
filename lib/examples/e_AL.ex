@@ -114,11 +114,9 @@ defmodule Examples.AL do
   example implies_then() do
     {:atomic, {bindings, result}} =
       run do
-        implies(
-          [class(object, class)],
-          [class(class, metaclass)],
-          []
-        )
+        implies do
+          [class(object, class)] -> class(class, metaclass)
+        end
       end
 
     assert Map.get(bindings, :"$metaclass") != nil
@@ -129,11 +127,10 @@ defmodule Examples.AL do
   example implies_else() do
     {:atomic, {_bindings, result}} =
       run do
-        implies(
-          [class(:blah, class)],
-          [class(class, metaclass)],
-          [class(metaclass, class)]
-        )
+        implies do
+          [class(:blah, class)] -> class(class, metaclass)
+          :else -> class(metaclass, class)
+        end
       end
 
     result
@@ -381,7 +378,12 @@ defmodule Examples.AL do
 
         findall(
           r,
-          [implies([super(:ite_test, x)], [unify(r, x)], [unify(r, :none)])],
+          [
+            implies do
+              [super(:ite_test, x)] -> unify(r, x)
+              :else -> unify(r, :none)
+            end
+          ],
           results
         )
       end
@@ -390,8 +392,6 @@ defmodule Examples.AL do
     :ok
   end
 
-  # `oapply` is bidirectional: a head var bound inside the body is visible to the
-  # caller's linked variable (output flows back through the shared bindings).
   example oapply_passes_output_back_to_caller() do
     {:atomic, {bindings, _}} =
       run do
@@ -403,6 +403,48 @@ defmodule Examples.AL do
       end
 
     assert Map.get(bindings, :"$result") == :produced
+    :ok
+  end
+
+  example implies_block_runs_then() do
+    {:atomic, {bindings, _}} =
+      run do
+        implies do
+          [class(:object, c)] -> unify(out, :then_ran)
+          :else -> unify(out, :else_ran)
+        end
+      end
+
+    assert Map.get(bindings, :"$out") == :then_ran
+    :ok
+  end
+
+  example implies_block_runs_else() do
+    {:atomic, {bindings, _}} =
+      run do
+        implies do
+          [class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
+          :else -> unify(out, :else_ran)
+        end
+      end
+
+    assert Map.get(bindings, :"$out") == :else_ran
+    :ok
+  end
+
+  example implies_block_multiway() do
+    {:atomic, {bindings, _}} =
+      run do
+        set_class(:branch_pick, :widget)
+
+        implies do
+          [class(:branch_pick, :gadget)] -> unify(out, :first)
+          [class(:branch_pick, :widget)] -> unify(out, :second)
+          :else -> unify(out, :none)
+        end
+      end
+
+    assert Map.get(bindings, :"$out") == :second
     :ok
   end
 end

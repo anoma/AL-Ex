@@ -69,4 +69,15 @@ defmodule Examples.AL.Var do
     assert AL.Var.unify(:"$x", [1, 2, :"$y"]) == %{"$x": [1, 2, :"$y"]}
     :ok
   end
+
+  example subst_and_find_vars_cover_map_keys() do
+    bindings = AL.Var.unify(:"$k", :resolved)
+
+    # a variable in key position is substituted, not left as a (freshened) var
+    assert AL.Var.subst(%{:"$k" => :v}, bindings) == %{resolved: :v}
+
+    # and find_vars sees variables in key position too
+    assert MapSet.member?(AL.Var.find_vars(%{:"$k" => :v}), :"$k")
+    :ok
+  end
 end

@@ -32,10 +32,20 @@ defmodule AL.Package.Bootstrap do
     set_class(:defmethod, :behaviour)
 
     set_oapply(:defmethod, [self, method_name, head, body]) do
-      fresh_id(impl)
-      set_method(self, method_name, impl)
-      set_class(impl, :behaviour)
-      set_oapply(impl, head, body)
+      # Reuse the existing method id if this (object, name) is already defined,
+      # otherwise mint a fresh behaviour. Either way append `head :- body` as a
+      # clause, so repeated `defmethod`s on one name accrete clauses (Prolog-style)
+      # rather than creating separate, unreachable method ids.
+      implies do
+        [method(self, method_name, impl)] ->
+          set_oapply(impl, head, body)
+
+        :else ->
+          fresh_id(impl)
+          set_method(self, method_name, impl)
+          set_class(impl, :behaviour)
+          set_oapply(impl, head, body)
+      end
     end
 
     defmethod(:object, :does_not_understand, [self, method, args]) do
@@ -133,16 +143,15 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :tl, [[_h | t], t]) do
     end
 
-    set_method(:list, :concat, :list_concat)
-    set_class(:list_concat, :behaviour)
-
-    set_oapply(:list_concat, [[], second, second]) do
+    defmethod(:list, :concat, [[], second, second]) do
     end
 
-    set_oapply(:list_concat, [[fh | ft], second, [fh | inner]]) do
+    defmethod(:list, :concat, [[fh | ft], second, [fh | inner]]) do
       concat(ft, second, inner)
     end
 
+    # member keeps a stable behaviour id (`:list_member`) so the trace example can
+    # trace it: its receiver is a raw list, so it can only be traced by id.
     set_method(:list, :member, :list_member)
     set_class(:list_member, :behaviour)
 
@@ -153,71 +162,59 @@ defmodule AL.Package.Bootstrap do
       member(t, x)
     end
 
-    set_method(:list, :reverse, :list_reverse)
-    set_class(:list_reverse, :behaviour)
-
-    set_oapply(:list_reverse, [[], []]) do
+    defmethod(:list, :reverse, [[], []]) do
     end
 
-    set_oapply(:list_reverse, [[h | t], reversed]) do
+    defmethod(:list, :reverse, [[h | t], reversed]) do
       reverse(t, reversed_tl)
       concat(reversed_tl, [h], reversed)
     end
 
-    set_method(:list, :map, :list_map)
-    set_class(:list_map, :behaviour)
-
-    set_oapply(:list_map, [[], _func, []]) do
+    defmethod(:list, :map, [[], _func, []]) do
     end
 
-    set_oapply(:list_map, [[], _head, _body, []]) do
+    defmethod(:list, :map, [[], _head, _body, []]) do
     end
 
-    set_oapply(:list_map, [[fh | ft], func, [sh | st]]) do
+    defmethod(:list, :map, [[fh | ft], func, [sh | st]]) do
       send(fh, func, [sh])
       map(ft, func, st)
     end
 
-    set_oapply(:list_map, [[fh | ft], head, body, [sh | st]]) do
+    defmethod(:list, :map, [[fh | ft], head, body, [sh | st]]) do
       call(head, body, [fh, sh])
       map(ft, head, body, st)
     end
 
-    set_method(:list, :fold_left, :list_fold_left)
-    set_class(:list_fold_left, :behaviour)
-
-    set_oapply(:list_fold_left, [[], _func, acc, acc]) do
+    defmethod(:list, :fold_left, [[], _func, acc, acc]) do
     end
 
-    set_oapply(:list_fold_left, [[], _head, _body, acc, acc]) do
+    defmethod(:list, :fold_left, [[], _head, _body, acc, acc]) do
     end
 
-    set_oapply(:list_fold_left, [[h | t], func, acc, result]) do
+    defmethod(:list, :fold_left, [[h | t], func, acc, result]) do
       send(acc, func, [h, next_acc])
       fold_left(t, func, next_acc, result)
     end
 
-    set_oapply(:list_fold_left, [[h | t], head, body, acc, result]) do
+    defmethod(:list, :fold_left, [[h | t], head, body, acc, result]) do
       print(acc)
       call(head, body, [acc, h, next_acc])
       fold_left(t, head, body, next_acc, result)
     end
 
-    set_method(:list, :fold_right, :list_fold_right)
-    set_class(:list_fold_right, :behaviour)
-
-    set_oapply(:list_fold_right, [[], _func, acc, acc]) do
+    defmethod(:list, :fold_right, [[], _func, acc, acc]) do
     end
 
-    set_oapply(:list_fold_right, [[], _head, _body, acc, acc]) do
+    defmethod(:list, :fold_right, [[], _head, _body, acc, acc]) do
     end
 
-    set_oapply(:list_fold_right, [[h | t], func, acc, result]) do
+    defmethod(:list, :fold_right, [[h | t], func, acc, result]) do
       fold_right(t, func, acc, next_acc)
       send(next_acc, func, [h, result])
     end
 
-    set_oapply(:list_fold_right, [[h | t], head, body, acc, result]) do
+    defmethod(:list, :fold_right, [[h | t], head, body, acc, result]) do
       fold_right(t, head, body, acc, next_acc)
       call(head, body, [next_acc, h, result])
     end
@@ -226,13 +223,10 @@ defmodule AL.Package.Bootstrap do
       fold_left(lists, :concat, [], result)
     end
 
-    set_method(:list, :same_length, :list_same_length)
-    set_class(:list_same_length, :behaviour)
-
-    set_oapply(:list_same_length, [[], []]) do
+    defmethod(:list, :same_length, [[], []]) do
     end
 
-    set_oapply(:list_same_length, [[_fh | ft], [_sh | st]]) do
+    defmethod(:list, :same_length, [[_fh | ft], [_sh | st]]) do
       same_length(ft, st)
     end
   end

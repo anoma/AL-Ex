@@ -36,7 +36,7 @@ defmodule Examples.ALConstraints do
     {:atomic, {_bindings, _state}} =
       run do
         new(:cell, %{name: :y}, y)
-        new(:propagator, %{input_cells: [:x], output_cell: y}, propagator)
+        new(:propagator, %{input_cells: [:x], output_cell: y, name: :x_y}, propagator)
 
         defmethod(propagator, :constrain, [_self, [x_val], y_val]) do
           is(y_val, 1 + x_val)
@@ -53,6 +53,21 @@ defmodule Examples.ALConstraints do
     assert Map.get(bindings, :"$value") == 3
 
     bindings
+  end
+
+  example network_dependents() do
+    inc()
+
+    {:atomic, {bindings, _state}} =
+      run do
+        dependents(:x, dependents)
+    end
+
+    dependents = Map.get(bindings, :"$dependents")
+
+    assert MapSet.new(Map.keys(dependents)) == MapSet.new([:x, :y, :x_y])
+    
+    dependents
   end
 
   example bidirectional_adder() do
@@ -92,5 +107,20 @@ defmodule Examples.ALConstraints do
     assert Map.get(bindings, :"$value") == 2
 
     bindings
+  end
+
+  example network_dependents_do_not_infinitely_recur() do
+    bidirectional_adder()
+
+    {:atomic, {bindings, _state}} =
+      run do
+        dependents(:a, dependents)
+    end
+
+    dependents = Map.get(bindings, :"$dependents")
+
+    assert MapSet.new(Map.keys(dependents)) == MapSet.new([:c, :b, :a, :ab_c, :ac_b, :bc_a])
+
+    dependents
   end
 end

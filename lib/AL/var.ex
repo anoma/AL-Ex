@@ -210,7 +210,7 @@ defmodule AL.Var do
   end
 
   def subst(m, bindings) when is_map(m) do
-    Map.new(m, fn {k, v} -> {k, subst(v, bindings)} end)
+    Map.new(m, fn {k, v} -> {subst(k, bindings), subst(v, bindings)} end)
   end
 
   def subst(xs, bindings) when is_tuple(xs) do
@@ -243,8 +243,8 @@ defmodule AL.Var do
   end
 
   def find_vars(m, s) when is_map(m) do
-    Enum.reduce(Map.keys(m), s, fn k, acc ->
-      find_vars(Map.get(m, k), acc)
+    Enum.reduce(m, s, fn {k, v}, acc ->
+      find_vars(v, find_vars(k, acc))
     end)
   end
 

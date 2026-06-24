@@ -64,6 +64,27 @@ defmodule Examples.ALObjects do
     program_state
   end
 
+  example defmethod_accretes_clauses() do
+    {:atomic, _} =
+      run do
+        set_class(:multi, :object)
+        defmethod(:multi, :pick, [self, :a, :first]) do end
+        defmethod(:multi, :pick, [self, :b, :second]) do end
+      end
+
+    # both clauses are reachable on the same method
+    {:atomic, {b1, _}} = run do pick(:multi, :a, r) end
+    {:atomic, {b2, _}} = run do pick(:multi, :b, r) end
+
+    assert Map.get(b1, :"$r") == :first
+    assert Map.get(b2, :"$r") == :second
+
+    # the two defmethods accreted clauses onto one id, not two separate methods
+    {:atomic, {b3, _}} = run do findall(id, [method(:multi, :pick, id)], ids) end
+    assert length(Enum.uniq(Map.get(b3, :"$ids"))) == 1
+    :ok
+  end
+
   example examine() do
     {:atomic, {bindings, program_state}} =
       run do
