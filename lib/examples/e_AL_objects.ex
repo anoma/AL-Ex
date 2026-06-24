@@ -40,22 +40,23 @@ defmodule Examples.ALObjects do
   example metaclass_alloc_override() do
     {:atomic, {b, program_state}} =
       run do
-      new(:class, %{name: :durable_meta, super: :object, slots: []}, _)
-      defmethod(:durable_meta, :allocate, [self, args, name]) do
-        map_get(args, :name, name)
-        map_get(args, :slots, slots)
+        new(:class, %{name: :durable_meta, super: :object, slots: []}, _)
 
-        class(self, meta)
+        defmethod(:durable_meta, :allocate, [self, args, name]) do
+          map_get(args, :name, name)
+          map_get(args, :slots, slots)
 
-        set_class(name, meta)
-        set_super(name, :object)
-        set_slots(name, slots)        
+          class(self, meta)
+
+          set_class(name, meta)
+          set_super(name, :object)
+          set_slots(name, slots)
+        end
+
+        new(:durable_meta, %{slots: [], name: :alloc_overriden}, obj)
+
+        class(obj, obj_class)
       end
-
-      new(:durable_meta, %{slots: [], name: :alloc_overriden}, obj)
-
-      class(obj, obj_class)
-    end
 
     assert is_atom(Map.get(b, :"$obj"))
     assert Map.get(b, :"$obj_class") == :durable_meta
@@ -64,14 +65,15 @@ defmodule Examples.ALObjects do
   end
 
   example examine() do
-    {:atomic, {bindings, program_state}} = run do
-      examine(:class, info)
-      map_get(info, :methods, methods)
-      map_get(info, :classes, classes)
-      map_get(info, :supers, supers)
-    end
+    {:atomic, {bindings, program_state}} =
+      run do
+        examine(:class, info)
+        map_get(info, :methods, methods)
+        map_get(info, :classes, classes)
+        map_get(info, :supers, supers)
+      end
 
-    assert Map.get(bindings, :"$classes") == [:class] 
+    assert Map.get(bindings, :"$classes") == [:class]
     assert Map.get(bindings, :"$supers") == [:object]
 
     program_state

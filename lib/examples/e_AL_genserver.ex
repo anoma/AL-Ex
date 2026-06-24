@@ -18,13 +18,16 @@ defmodule Examples.ALGenserver do
     @impl true
     def init(object_id) do
       pid = self()
+
       run do
         new(:elixir_process, %{name: ^object_id, pid: ^pid}, _)
+
         defmethod(^object_id, :increment, [self, amount]) do
           get_slot(self, :pid, p)
           send_elixir(p, {:increment, amount})
         end
       end
+
       {:ok, %{object_id: object_id, count: 0}}
     end
 
@@ -42,6 +45,7 @@ defmodule Examples.ALGenserver do
     @impl true
     def terminate(_reason, state) do
       object_id = state.object_id
+
       run do
         retract_class(^object_id, c)
         retract_super(^object_id, s)
@@ -50,6 +54,7 @@ defmodule Examples.ALGenserver do
 
     def count(pid) do
       send(pid, {:get_count, self()})
+
       receive do
         {:count, n} -> n
       after

@@ -115,7 +115,11 @@ defmodule AL.Object do
 
   @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), store()) :: :ok
   def retract_method(object_pattern, method_name_pattern, method_id_pattern, store \\ :main) do
-    delete_all(:method, scan_method(object_pattern, method_name_pattern, method_id_pattern, store), store)
+    delete_all(
+      :method,
+      scan_method(object_pattern, method_name_pattern, method_id_pattern, store),
+      store
+    )
   end
 
   @spec retract_oapply(AL.Var.t(), AL.Var.t(), store()) :: :ok

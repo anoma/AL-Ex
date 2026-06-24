@@ -10,8 +10,16 @@ defmodule AlObjectsTest do
   use ExExample.ExUnit, for: Examples.ALObjects
 end
 
-defmodule ALProcessTest do
-  use ExExample.ExUnit, for: Examples.ALProcesses
+defmodule ALTasksTest do
+  use ExExample.ExUnit, for: Examples.ALTasks
+end
+
+defmodule ALArithmeticTest do
+  use ExExample.ExUnit, for: Examples.ALArithmetic
+end
+
+defmodule ALListsTest do
+  use ExExample.ExUnit, for: Examples.ALLists
 end
 
 defmodule ALBranchTest do
@@ -33,4 +41,3 @@ end
 defmodule ALUsersTest do
   use ExExample.ExUnit, for: Examples.ALUsers
 end
-

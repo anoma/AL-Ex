@@ -21,7 +21,7 @@ defmodule Examples.ALUsers do
     :ok
   end
 
-  example owner_gated_update() do    
+  example owner_gated_update() do
     {:atomic, {b, _}} =
       run do
         new(:user, %{name: :bob}, bob)
@@ -49,7 +49,7 @@ defmodule Examples.ALUsers do
       run do
         update(^obj, ^bob, [%{label: :hacked}])
       end
-    
+
     :ok
   end
-  end
+end

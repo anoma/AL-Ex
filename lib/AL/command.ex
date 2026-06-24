@@ -31,7 +31,6 @@ defmodule AL.Command do
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {AL.Var.t(), AL.Var.t()}}
 
-          
   @doc """
   Initialise the event log, or re-use the one on disc.
   """
@@ -195,7 +194,8 @@ defmodule AL.Command do
   @doc """
   Write a command that says a method was set for an object
   """
-  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) ::
+          :ok
   def set_method(tx_id, object, method_name, method_id, store \\ :main) do
     write_command(tx_id, {:set_method, {object, method_name, method_id}}, store)
   end
@@ -203,7 +203,8 @@ defmodule AL.Command do
   @doc """
   Write a command that says the object was given a run method
   """
-  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Object.store()) :: :ok
+  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Object.store()) ::
+          :ok
   def set_oapply(tx_id, object, head, body, store \\ :main) do
     write_command(tx_id, {:set_oapply, {object, head, body}}, store)
   end
@@ -226,7 +227,8 @@ defmodule AL.Command do
     write_command(tx_id, {:retract_super, {object, super}}, store)
   end
 
-  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) ::
+          :ok
   def retract_method(tx_id, object, name, id, store \\ :main) do
     write_command(tx_id, {:retract_method, {object, name, id}}, store)
   end
@@ -241,7 +243,8 @@ defmodule AL.Command do
     write_command(tx_id, {:retract_slots, {object, slots}}, store)
   end
 
-  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
+  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) ::
+          :ok
   def send_async(tx_id, object, method, args, store \\ :main) do
     write_command(tx_id, {:send_async, {object, method, args}}, store)
   end

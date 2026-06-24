@@ -55,16 +55,28 @@ defmodule Examples.AL do
     g = Map.get(b, :"$g")
 
     # head matches, body succeeds -> runs
-    {:atomic, _} = run do poke(^g, :ok) end
+    {:atomic, _} =
+      run do
+        poke(^g, :ok)
+      end
 
     # head matches, body fails -> plain failure, not DNU
-    {:aborted, _} = run do poke(^g, :bad) end
+    {:aborted, _} =
+      run do
+        poke(^g, :bad)
+      end
 
     # absent selector -> DNU (override succeeds)
-    {:atomic, _} = run do zap(^g) end
+    {:atomic, _} =
+      run do
+        zap(^g)
+      end
 
     # wrong arity, no clause head matches -> DNU
-    {:atomic, _} = run do poke(^g, :a, :b) end
+    {:atomic, _} =
+      run do
+        poke(^g, :a, :b)
+      end
 
     :ok
   end
@@ -221,7 +233,7 @@ defmodule Examples.AL do
     assert slots == %{a: 99, b: 2}
     slots
   end
-    
+
   example map_get() do
     {:atomic, {bindings, program_state}} =
       run do
@@ -243,11 +255,11 @@ defmodule Examples.AL do
         put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
       end
 
-    assert bindings|> Map.get(:"$m2") |> Map.get(:c) == 4
-    
+    assert bindings |> Map.get(:"$m2") |> Map.get(:c) == 4
+
     program_state
   end
-  
+
   example gensym() do
     {:atomic, {bindings, _}} =
       run do
@@ -258,45 +270,22 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")
     :ok
   end
-  
-  example arithmetic() do
-    {:atomic, {bindings, result}} = run do
-      is(a, (123 + 5) - 3)
-      is(f, 10000 - 3)
-      is(a, 122 + 3)
-      is(1000122, 122 + 1000000)
-      is(b, a + 12)
-      is(c, (b ** 2) + 1)
-      is(d, c / 3)
-      is(e, (c * 3) + 2)
-      is(e, 5 - e + 2*e - 5)
-      is(g, -7)
-      is(h, +7)
-    end
-    assert Map.get(bindings, :"$a") == 125
-    assert Map.get(bindings, :"$f") == 9997
-    assert Map.get(bindings, :"$b") == 137
-    assert Map.get(bindings, :"$c") == 18770
-    assert Map.get(bindings, :"$d") == 6256
-    assert Map.get(bindings, :"$e") == 56312
-    assert Map.get(bindings, :"$g") == -7
-    assert Map.get(bindings, :"$h") == 7
-    result
-  end
-  
+
   example not_succeeds_when_goal_fails() do
     {:atomic, {_bindings, _}} =
       run do
-        not([class(:nonexistent_xyz, c)])
+        not [class(:nonexistent_xyz, c)]
       end
+
     :ok
   end
 
   example not_fails_when_goal_succeeds() do
     {:aborted, _} =
       run do
-        not([class(:object, c)])
+        not [class(:object, c)]
       end
+
     :ok
   end
 
@@ -305,13 +294,22 @@ defmodule Examples.AL do
       run do
         unify(x, :hello)
       end
+
     assert Map.get(bindings, :"$x") == :hello
     :ok
   end
 
   example unify_checks_equality() do
-    {:aborted, _} = run do unify(:foo, :bar) end
-    {:atomic, _} = run do unify(:foo, :foo) end
+    {:aborted, _} =
+      run do
+        unify(:foo, :bar)
+      end
+
+    {:atomic, _} =
+      run do
+        unify(:foo, :foo)
+      end
+
     :ok
   end
 
@@ -320,58 +318,8 @@ defmodule Examples.AL do
       run do
         call([x, result], [unify(result, x)], [:hello, out])
       end
+
     assert Map.get(bindings, :"$out") == :hello
-    :ok
-  end
-  
-  example list_tests() do
-    {:atomic, {bindings, result}} = run do
-      hd([:w, :x, :y, :z], head)
-      tl([:w, :x, :y, :z], tail)
-      concat([:a, :b, :c], [:d, :e, :f], sum)
-      reverse([:b, :c, :d, :e, :f], reversed)
-      map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
-      fold_left([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_left)
-      fold_right([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_right)
-      flatten([[:a, :b], [:c, :d, :e]], flattened)
-      same_length([:c, :d, :e, :f], of_same_length)
-    end
-    assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
-    assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
-    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
-    assert Map.get(bindings, :"$folded_left") == [:starter, :a, :b, :c, :d]
-    assert Map.get(bindings, :"$folded_right") == [:starter, :d, :c, :b, :a]
-    assert Map.get(bindings, :"$flattened") == [:a, :b, :c, :d, :e]
-    assert Map.get(bindings, :"$head") == :w
-    assert Map.get(bindings, :"$tail") == [:x, :y, :z]
-    assert length(Map.get(bindings, :"$of_same_length")) == 4
-    result
-  end
-
-  example call_lambda_map() do
-    {:atomic, {bindings, _}} =
-      run do
-      map([:a, :b, :c], [x, %{id: x}], [], out)
-      end
-    assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
-    :ok
-  end
-
-  example is_fails_gracefully_on_unbound() do
-    # `is/2` over an unbound operand fails the goal (backtracks) instead of
-    # crashing the transaction
-    {:aborted, _} = run do is(x, y + 1) end
-    :ok
-  end
-
-  example is_fails_on_division_by_zero() do
-    {:aborted, _} = run do is(x, 1 / 0) end
-    :ok
-  end
-
-  example is_still_computes() do
-    {:atomic, {bindings, _}} = run do is(x, (2 ** 3) + 1) end
-    assert Map.get(bindings, :"$x") == 9
     :ok
   end
 end

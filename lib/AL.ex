@@ -215,12 +215,13 @@ defmodule AL do
     do: {:send_elixir, ast_to_pattern(pid), ast_to_pattern(message)}
 
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
-    {:oapply, :defmethod, [
-      ast_to_pattern(class),
-      ast_to_pattern(method_name),
-      ast_to_pattern(head),
-      ast_to_pattern(body)]
-    }
+    {:oapply, :defmethod,
+     [
+       ast_to_pattern(class),
+       ast_to_pattern(method_name),
+       ast_to_pattern(head),
+       ast_to_pattern(body)
+     ]}
   end
 
   def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
@@ -331,21 +332,23 @@ defmodule AL do
           trace: [],
           program: program,
           tracepoints: AL.Trace.tracepoints()
-                 })
+        })
 
       if result.active_choicepoint.bindings == nil do
         :mnesia.abort(format_failure(result.trace))
       else
-        output_vars = input_vars
-        |> Enum.map(fn variable ->
-          val = AL.Var.subst(variable, result.active_choicepoint.bindings)
-          if AL.Var.var?(val) do
-            {variable, variable}
-          else
-            {variable, val}
-          end
-        end)
-        |> Map.new()
+        output_vars =
+          input_vars
+          |> Enum.map(fn variable ->
+            val = AL.Var.subst(variable, result.active_choicepoint.bindings)
+
+            if AL.Var.var?(val) do
+              {variable, variable}
+            else
+              {variable, val}
+            end
+          end)
+          |> Map.new()
 
         {output_vars, result}
       end
@@ -411,7 +414,7 @@ defmodule AL do
   @spec continue(t()) :: t() | nil
   def continue(nil), do: nil
 
-  def continue(state) do    
+  def continue(state) do
     cond do
       state.active_choicepoint.bindings == nil ->
         backtrack(state)
@@ -477,46 +480,47 @@ defmodule AL do
               }
           }
       end
-    else if is_list(object_pattern) do
-      %AL{
-        state
-        | active_choicepoint: %AL.Choicepoint{
-            state.active_choicepoint
-            | bindings: AL.Var.unify(:list, class_pattern, state.active_choicepoint.bindings)
-          }
-      }
     else
-      case AL.Object.scan_class(object_pattern, class_pattern, state.store) do
-        [] ->
-          backtrack(state)
+      if is_list(object_pattern) do
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{
+              state.active_choicepoint
+              | bindings: AL.Var.unify(:list, class_pattern, state.active_choicepoint.bindings)
+            }
+        }
+      else
+        case AL.Object.scan_class(object_pattern, class_pattern, state.store) do
+          [] ->
+            backtrack(state)
 
-        [choice | next_choices] ->
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{
-                state.active_choicepoint
-                | bindings:
-                    AL.Var.unify(
-                      choice,
-                      {:class, object_pattern, class_pattern},
-                      state.active_choicepoint.bindings
-                    )
-              },
-              choicepoint_stack:
-                Enum.map(next_choices, fn c ->
-                  %AL.Choicepoint{
-                    state.active_choicepoint
-                    | bindings:
-                        AL.Var.unify(
-                          c,
-                          {:class, object_pattern, class_pattern},
-                          state.active_choicepoint.bindings
-                        )
-                  }
-                end) ++ state.choicepoint_stack
-          }
+          [choice | next_choices] ->
+            %AL{
+              state
+              | active_choicepoint: %AL.Choicepoint{
+                  state.active_choicepoint
+                  | bindings:
+                      AL.Var.unify(
+                        choice,
+                        {:class, object_pattern, class_pattern},
+                        state.active_choicepoint.bindings
+                      )
+                },
+                choicepoint_stack:
+                  Enum.map(next_choices, fn c ->
+                    %AL.Choicepoint{
+                      state.active_choicepoint
+                      | bindings:
+                          AL.Var.unify(
+                            c,
+                            {:class, object_pattern, class_pattern},
+                            state.active_choicepoint.bindings
+                          )
+                    }
+                  end) ++ state.choicepoint_stack
+            }
+        end
       end
-    end
     end
   end
 
@@ -554,7 +558,12 @@ defmodule AL do
   end
 
   def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    case AL.Object.scan_method(object_pattern, method_name_pattern, method_id_pattern, state.store) do
+    case AL.Object.scan_method(
+           object_pattern,
+           method_name_pattern,
+           method_id_pattern,
+           state.store
+         ) do
       [] ->
         backtrack(state)
 
@@ -624,7 +633,8 @@ defmodule AL do
       state
       | active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
-          | bindings: AL.Var.unify(result, AL.Command.fresh_id(), state.active_choicepoint.bindings)
+          | bindings:
+              AL.Var.unify(result, AL.Command.fresh_id(), state.active_choicepoint.bindings)
         }
     }
   end
@@ -645,7 +655,9 @@ defmodule AL do
            AL.Var.unify({k_pattern, v_pattern}, pair, state.active_choicepoint.bindings)
          end)
          |> Enum.filter(fn t -> t end) do
-      [] -> backtrack(state)
+      [] ->
+        backtrack(state)
+
       [choice | next_choices] ->
         %AL{
           state
@@ -666,7 +678,9 @@ defmodule AL do
 
   def interp({:oapply, :map_put, [m1, k_pattern, v_pattern, m2]}, state) do
     case AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), state.active_choicepoint.bindings) do
-      nil -> backtrack(state)
+      nil ->
+        backtrack(state)
+
       choice ->
         %AL{
           state
@@ -678,7 +692,7 @@ defmodule AL do
         }
     end
   end
-  
+
   def interp({:oapply, :is, [a, b]}, state) do
     a_deref = AL.Var.deref(state.active_choicepoint.bindings, a)
 
@@ -687,12 +701,14 @@ defmodule AL do
         backtrack(state)
 
       expr ->
-        %AL{state |
-          active_choicepoint: %AL.Choicepoint{
-            state.active_choicepoint |
-              bindings: AL.Var.unify(a_deref, expr, state.active_choicepoint.bindings),
-          },
-          choicepoint_stack: state.choicepoint_stack}
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{
+              state.active_choicepoint
+              | bindings: AL.Var.unify(a_deref, expr, state.active_choicepoint.bindings)
+            },
+            choicepoint_stack: state.choicepoint_stack
+        }
     end
   end
 
@@ -704,7 +720,6 @@ defmodule AL do
         backtrack(state)
 
       [{:oapply, id, head, body} | next_choices] ->
-
         freshener = AL.Command.fresh_scope()
 
         head_pattern = AL.Var.freshen(head, freshener)
@@ -735,20 +750,20 @@ defmodule AL do
         %AL{
           state
           | active_choicepoint: %AL.Choicepoint{
-            goals: body_pattern,
-            bindings:
-            AL.Var.unify(
-              {head_pattern, id},
-              {bind_head_pattern, method_id_pattern},
-              state.active_choicepoint.bindings
-            ),
-            continuations: [continuation | state.active_choicepoint.continuations],
-            goal_pointer: 0,
-            scope_pointer: freshener
-          },
-          traced_calls: record_traced_call(state.traced_calls, freshener, trace_info),
-          choicepoint_stack:
-          alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
+              goals: body_pattern,
+              bindings:
+                AL.Var.unify(
+                  {head_pattern, id},
+                  {bind_head_pattern, method_id_pattern},
+                  state.active_choicepoint.bindings
+                ),
+              continuations: [continuation | state.active_choicepoint.continuations],
+              goal_pointer: 0,
+              scope_pointer: freshener
+            },
+            traced_calls: record_traced_call(state.traced_calls, freshener, trace_info),
+            choicepoint_stack:
+              alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
         }
     end
   end
@@ -757,12 +772,14 @@ defmodule AL do
     %AL{
       state
       | active_choicepoint: state.active_choicepoint,
-      choicepoint_stack:
-      Enum.drop_while(state.choicepoint_stack, fn choice ->
-        case choice do
-          {:mark, f} ->
-            f != state.active_choicepoint.scope_pointer
-          _choice -> true
+        choicepoint_stack:
+          Enum.drop_while(state.choicepoint_stack, fn choice ->
+            case choice do
+              {:mark, f} ->
+                f != state.active_choicepoint.scope_pointer
+
+              _choice ->
+                true
             end
           end)
     }
@@ -832,6 +849,7 @@ defmodule AL do
   end
 
   def interp({:set_class, object, _class}, state) when is_map(object), do: state
+
   def interp({:set_class, object_pattern, class_pattern}, state) do
     AL.Command.set_class(state.tx_id, object_pattern, class_pattern, state.store)
     AL.Object.set_class(object_pattern, class_pattern, state.store)
@@ -839,6 +857,7 @@ defmodule AL do
   end
 
   def interp({:set_super, object, _super}, state) when is_map(object), do: state
+
   def interp({:set_super, object_pattern, super_pattern}, state) do
     AL.Command.set_super(state.tx_id, object_pattern, super_pattern, state.store)
     AL.Object.set_super(object_pattern, super_pattern, state.store)
@@ -846,13 +865,22 @@ defmodule AL do
   end
 
   def interp({:set_method, object, _name, _id}, state) when is_map(object), do: state
+
   def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    AL.Command.set_method(state.tx_id, object_pattern, method_name_pattern, method_id_pattern, state.store)
+    AL.Command.set_method(
+      state.tx_id,
+      object_pattern,
+      method_name_pattern,
+      method_id_pattern,
+      state.store
+    )
+
     AL.Object.set_method(object_pattern, method_name_pattern, method_id_pattern, state.store)
     state
   end
 
   def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
+
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
     AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern, state.store)
     AL.Object.set_oapply(object_pattern, head_pattern, body_pattern, state.store)
@@ -900,6 +928,7 @@ defmodule AL do
   end
 
   def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
+
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
     AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern, state.store)
     AL.Object.set_slots(object_pattern, slots_pattern, state.store)
@@ -907,6 +936,7 @@ defmodule AL do
   end
 
   def interp({:retract_class, object, _class}, state) when is_map(object), do: state
+
   def interp({:retract_class, object, class}, state) do
     AL.Command.retract_class(state.tx_id, object, class, state.store)
     AL.Object.retract_class(object, class, state.store)
@@ -914,6 +944,7 @@ defmodule AL do
   end
 
   def interp({:retract_super, object, _super}, state) when is_map(object), do: state
+
   def interp({:retract_super, object, super}, state) do
     AL.Command.retract_super(state.tx_id, object, super, state.store)
     AL.Object.retract_super(object, super, state.store)
@@ -921,6 +952,7 @@ defmodule AL do
   end
 
   def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
+
   def interp({:retract_method, object, name, id}, state) do
     AL.Command.retract_method(state.tx_id, object, name, id, state.store)
     AL.Object.retract_method(object, name, id, state.store)
@@ -928,6 +960,7 @@ defmodule AL do
   end
 
   def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
+
   def interp({:retract_oapply, object, head}, state) do
     AL.Command.retract_oapply(state.tx_id, object, head, state.store)
     AL.Object.retract_oapply(object, head, state.store)
@@ -935,12 +968,13 @@ defmodule AL do
   end
 
   def interp({:retract_slots, object, _slots}, state) when is_map(object), do: state
+
   def interp({:retract_slots, object, slots}, state) do
     AL.Command.retract_slots(state.tx_id, object, slots, state.store)
     AL.Object.retract_slots(object, slots, state.store)
     state
   end
-    
+
   def interp({:send_async, object, method, args}, state) do
     AL.Command.send_async(state.tx_id, object, method, args, state.store)
     state
@@ -950,7 +984,7 @@ defmodule AL do
     AL.Command.send_elixir(state.tx_id, pid, message, state.store)
     state
   end
-  
+
   def interp({:gensym, var}, state) do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
 
@@ -970,7 +1004,13 @@ defmodule AL do
   end
 
   def interp({:forall, condition, body}, state) do
-    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id, state.store)
+    solutions =
+      collect_all_solutions(
+        condition,
+        state.active_choicepoint.bindings,
+        state.tx_id,
+        state.store
+      )
 
     body_goals =
       Enum.flat_map(solutions, fn bindings ->
@@ -986,7 +1026,13 @@ defmodule AL do
   end
 
   def interp({:findall, template, condition, result}, state) do
-    solutions = collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id, state.store)
+    solutions =
+      collect_all_solutions(
+        condition,
+        state.active_choicepoint.bindings,
+        state.tx_id,
+        state.store
+      )
 
     collected = Enum.map(solutions, fn bindings -> AL.Var.subst(template, bindings) end)
 
@@ -1015,28 +1061,40 @@ defmodule AL do
         scope_pointer: state.active_choicepoint.scope_pointer
       }
 
-      %AL{state |
-        active_choicepoint: %AL.Choicepoint{
-          goals: fresh_body,
-          bindings: bindings,
-          continuations: [continuation | state.active_choicepoint.continuations],
-          goal_pointer: 0,
-          scope_pointer: freshener
-        },
-        choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            goals: fresh_body,
+            bindings: bindings,
+            continuations: [continuation | state.active_choicepoint.continuations],
+            goal_pointer: 0,
+            scope_pointer: freshener
+          },
+          choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
       }
     end
   end
 
   def interp({:unify, a, b}, state) do
     case AL.Var.unify(a, b, state.active_choicepoint.bindings) do
-      nil -> backtrack(state)
-      bindings -> %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: bindings}}
+      nil ->
+        backtrack(state)
+
+      bindings ->
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: bindings}
+        }
     end
   end
 
   def interp({:not, condition}, state) do
-    case collect_all_solutions(condition, state.active_choicepoint.bindings, state.tx_id, state.store) do
+    case collect_all_solutions(
+           condition,
+           state.active_choicepoint.bindings,
+           state.tx_id,
+           state.store
+         ) do
       [] -> state
       _ -> backtrack(state)
     end
@@ -1075,8 +1133,15 @@ defmodule AL do
 
   defp resolve_method_id(self, method, store) do
     case method_ids(self, method, store) do
-      [id | _] -> id
-      [] -> resolve_in_chain(for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", store), do: c), method, store)
+      [id | _] ->
+        id
+
+      [] ->
+        resolve_in_chain(
+          for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", store), do: c),
+          method,
+          store
+        )
     end
   end
 
@@ -1085,8 +1150,15 @@ defmodule AL do
 
   defp chain_first_id(class, method, store) do
     case method_ids(class, method, store) do
-      [id | _] -> id
-      [] -> resolve_in_chain(for({:super, _o, s} <- AL.Object.scan_super(class, :"$super", store), do: s), method, store)
+      [id | _] ->
+        id
+
+      [] ->
+        resolve_in_chain(
+          for({:super, _o, s} <- AL.Object.scan_super(class, :"$super", store), do: s),
+          method,
+          store
+        )
     end
   end
 
@@ -1233,4 +1305,3 @@ defimpl Inspect, for: AL do
     "#AL<>"
   end
 end
-

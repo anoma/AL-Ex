@@ -1,0 +1,46 @@
+defmodule Examples.ALLists do
+  @moduledoc """
+  I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
+  reverse, map, fold, flatten, same_length) and mapping a lambda over a list.
+  """
+
+  use ExExample
+  use AL
+  import ExUnit.Assertions
+
+  example list_tests() do
+    {:atomic, {bindings, result}} =
+      run do
+        hd([:w, :x, :y, :z], head)
+        tl([:w, :x, :y, :z], tail)
+        concat([:a, :b, :c], [:d, :e, :f], sum)
+        reverse([:b, :c, :d, :e, :f], reversed)
+        map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
+        fold_left([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_left)
+        fold_right([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_right)
+        flatten([[:a, :b], [:c, :d, :e]], flattened)
+        same_length([:c, :d, :e, :f], of_same_length)
+      end
+
+    assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
+    assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
+    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
+    assert Map.get(bindings, :"$folded_left") == [:starter, :a, :b, :c, :d]
+    assert Map.get(bindings, :"$folded_right") == [:starter, :d, :c, :b, :a]
+    assert Map.get(bindings, :"$flattened") == [:a, :b, :c, :d, :e]
+    assert Map.get(bindings, :"$head") == :w
+    assert Map.get(bindings, :"$tail") == [:x, :y, :z]
+    assert length(Map.get(bindings, :"$of_same_length")) == 4
+    result
+  end
+
+  example call_lambda_map() do
+    {:atomic, {bindings, _}} =
+      run do
+        map([:a, :b, :c], [x, %{id: x}], [], out)
+      end
+
+    assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
+    :ok
+  end
+end
