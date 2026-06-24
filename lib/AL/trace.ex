@@ -54,7 +54,7 @@ defmodule AL.Trace do
     s = Atom.to_string(a)
 
     cond do
-      hash?(s) -> :"##{AL.Command.id_label(a)}"
+      hash?(s) -> :"##{AL.Command.id_label(a, AL.Branch.head())}"
       AL.Var.var?(a) -> :"#{strip_freshener(s)}"
       true -> a
     end

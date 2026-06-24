@@ -33,9 +33,9 @@ ACID transactions, durable + replayable state, Git-like branching.
 
 - **`AL` (lib/AL.ex)** — the interpreter. A choicepoint machine:
   - `run do … end` macro → `ast_to_pattern` lowers surface syntax to `goal()`
-    tuples → `eval/3` runs them inside `:mnesia.transaction`. `run store: s do … end`
-    runs against store `s` (a fork); bare `run` uses `AL.Branch.head()`.
-  - State = `%AL{active_choicepoint, choicepoint_stack, store, tx_id, …}`.
+    tuples → `eval/3` runs them inside `:mnesia.transaction`. `run branch: b do … end`
+    runs against branch `b` (a fork); bare `run` uses `AL.Branch.head()`.
+  - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, …}`.
     `continue/1` drives goals; `backtrack/1` pops the stack. Success returns
     `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, trace}`.
   - `interp/2` has one clause per goal. `oapply` expands a method head into its
@@ -105,7 +105,7 @@ know how far to reach:
 `:main` uses base table names; a fork `f` uses `@f`-suffixed tables
 (`class@f`, `command@f`, …) created with `record_name:` the base relation, so
 record tags and scan patterns are identical across stores. Almost every
-`AL.Object`/`AL.Command` function takes a trailing `store \\ :main`.
+`AL.Object`/`AL.Command` function takes a trailing `branch \\ :main`.
 
 ## Adding a goal
 
@@ -153,6 +153,9 @@ record tags and scan patterns are identical across stores. Almost every
   clause can't have an empty body, so for an empty then-branch put the shared
   trailing goals inside each branch instead.
 - Module docs are written first-person ("I am …", "I provide …").
+- **No junk comments.** Do not add comments that restate the code, narrate the
+  obvious, or explain a one-liner. Names and types carry the meaning; comment only
+  a non-obvious *why*. Keep docstrings terse — a single line is usually enough.
 - Mnesia DB artifacts (`.mnesiastore/`, root `MnesiaCore.*`) are gitignored —
   never commit them. The store persists across runs, so stale objects can linger
   after a package is removed (retract with `AL.Package.uninstall/1` or wipe

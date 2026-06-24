@@ -32,6 +32,54 @@ defmodule AL.Command do
           | {:send_elixir, {AL.Var.t(), AL.Var.t()}}
 
   @doc """
+  Table name for a branch's command log. `:main` is the live log; a fork uses a
+  suffixed table created with `record_name: :command`.
+  """
+  @spec table(atom(), AL.Branch.t()) :: atom()
+  def table(relation, branch \\ :main)
+  def table(relation, :main), do: relation
+  def table(relation, branch), do: :"#{relation}@#{branch}"
+          
+  @doc "Create a fork's command and meta tables (persisted to disc). Idempotent."
+  @spec create_tables(AL.Branch.t()) :: :ok
+  def create_tables(branch \\ :main) do
+    command_reference = table(:command, branch)
+    meta_reference = table(:meta, branch)
+    
+    case :mnesia.create_table(command_reference,
+           attributes: [:t, :tx_id, :command],
+           type: :ordered_set,
+           disc_copies: [node()],
+           record_name: :command
+         ) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, _}} -> :ok
+    end
+
+    case :mnesia.create_table(meta_reference,
+           attributes: [:key, :value],
+           type: :set,
+           disc_copies: [node()],
+           record_name: :meta
+         ) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, _}} -> :ok
+    end
+    
+    :mnesia.wait_for_tables([command_reference, meta_reference], 5_000)
+
+    {:ok, {command_reference, meta_reference}}
+  end
+
+  @doc "Delete a fork's command and meta tables."
+  @spec drop_tables(AL.Branch.t()) :: :ok
+  def drop_tables(branch \\ :main) do
+    :mnesia.delete_table(table(:command, branch))
+    :mnesia.delete_table(table(:meta, branch))
+    :ok
+  end
+
+  @doc """
   Initialise the event log, or re-use the one on disc.
   """
   def setup() do
@@ -44,68 +92,34 @@ defmodule AL.Command do
 
     :ok = :mnesia.start()
 
-    case :mnesia.create_table(:command,
-           attributes: [:t, :tx_id, :command],
-           type: :ordered_set,
-           disc_copies: [node()]
-         ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
-    end
+    {:ok, _references} = create_tables(:main)
 
-    case :mnesia.create_table(:meta,
-           attributes: [:key, :value],
-           type: :set,
-           disc_copies: [node()]
-         ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
-    end
+    :mnesia.transaction(fn ->
+      for key <- [:system_time, :id_counter] do
+        if read_meta(:main, key, :absent) == :absent, do: write_meta(:main, key, 0)
+      end
+    end)
 
-    :mnesia.wait_for_tables([:command, :meta], 5_000)
-
-    case :mnesia.dirty_read(:meta, :system_time) do
-      [] -> :mnesia.dirty_write({:meta, :system_time, 0})
-      [{_, :system_time, _}] -> :ok
-    end
-
-    case :mnesia.dirty_read(:meta, :id_counter) do
-      [] -> :mnesia.dirty_write({:meta, :id_counter, 0})
-      [{_, :id_counter, _}] -> :ok
-    end
-
-    case :mnesia.dirty_read(:meta, :scope_counter) do
-      [] -> :mnesia.dirty_write({:meta, :scope_counter, 0})
-      [{_, :scope_counter, _}] -> :ok
-    end
+    :ok
   end
 
   @doc """
   Read current system time of the command log. The next command will be written at this value.
   """
-  @spec system_time() :: non_neg_integer()
-  def system_time() do
-    case :mnesia.dirty_read(:meta, :system_time) do
-      [{_, :system_time, t}] -> t
-      [] -> :absent
-    end
+  @spec system_time(AL.Branch.t()) :: non_neg_integer() | :absent
+  def system_time(branch \\ :main) do
+    {:atomic, t} = :mnesia.transaction(fn -> read_meta(branch, :system_time, :absent) end)
+    t
   end
-
-  @doc """
-  Table name for a store's command log. `:main` is the live log; a fork uses a
-  suffixed table created with `record_name: :command`.
-  """
-  @spec log(AL.Object.store()) :: atom()
-  def log(store \\ :main)
-  def log(:main), do: :command
-  def log(store), do: :"command@#{store}"
 
   @doc """
   Read a command at time t
   """
-  @spec command(non_neg_integer(), AL.Object.store()) :: command() | :absent
-  def command(t, store \\ :main) do
-    case :mnesia.read(log(store), t) do
+  @spec command(non_neg_integer(), AL.Branch.t()) :: command() | :absent
+  def command(t, branch \\ :main) do
+    command_reference = table(:command, branch)
+    
+    case :mnesia.read(command_reference, t) do
       [{_, ^t, _tx_id, command}] -> command
       [] -> :absent
     end
@@ -114,9 +128,11 @@ defmodule AL.Command do
   @doc """
   Read all commands since time t
   """
-  @spec commands_since(non_neg_integer(), AL.Object.store()) :: [command()]
-  def commands_since(t, store \\ :main) do
-    :mnesia.select(log(store), [
+  @spec commands_since(non_neg_integer(), AL.Branch.t()) :: [command()]
+  def commands_since(t, branch \\ :main) do
+    command_reference = table(:command, branch)
+    
+    :mnesia.select(command_reference, [
       {{:command, :"$1", :"$2", :"$3"}, [{:>=, :"$1", t}], [:"$_"]}
     ])
   end
@@ -124,9 +140,11 @@ defmodule AL.Command do
   @doc """
   Read all commands up to and including time t
   """
-  @spec commands_until(non_neg_integer(), AL.Object.store()) :: [command()]
-  def commands_until(t, store \\ :main) do
-    :mnesia.select(log(store), [
+  @spec commands_until(non_neg_integer(), AL.Branch.t()) :: [command()]
+  def commands_until(t, branch \\ :main) do
+    command_reference = table(:command, branch)
+    
+    :mnesia.select(command_reference, [
       {{:command, :"$1", :"$2", :"$3"}, [{:"=<", :"$1", t}], [:"$_"]}
     ])
   end
@@ -134,43 +152,27 @@ defmodule AL.Command do
   @doc """
   Read all commands for a given transaction
   """
-  def commands_for_transaction(tx_id, store \\ :main) do
-    :mnesia.select(log(store), [
+  def commands_for_transaction(tx_id, branch \\ :main) do
+    :mnesia.select(table(:command, branch), [
       {{:command, :"$1", tx_id, :"$3"}, [], [:"$_"]}
     ])
   end
 
-  @doc "Create a fork's command log (persisted to disc). Idempotent."
-  @spec create_log(AL.Object.store()) :: :ok
-  def create_log(store) do
-    case :mnesia.create_table(log(store),
-           attributes: [:t, :tx_id, :command],
-           type: :ordered_set,
-           disc_copies: [node()],
-           record_name: :command
-         ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
-    end
-
-    :mnesia.wait_for_tables([log(store)], 5_000)
-    :ok
-  end
-
-  @doc "Delete a fork's command log."
-  @spec drop_log(AL.Object.store()) :: :ok
-  def drop_log(store) do
-    :mnesia.delete_table(log(store))
-    :ok
-  end
-
+  
   @doc "Copy `src`'s commands up to and including time `t` into `dst`'s log."
-  @spec copy_prefix(AL.Object.store(), AL.Object.store(), non_neg_integer()) ::
-          {:atomic, any()} | {:aborted, term()}
+  @spec copy_prefix(AL.Branch.t(), AL.Branch.t(), non_neg_integer()) ::
+  {:atomic, any()} | {:aborted, term()}
   def copy_prefix(src, dst, t) do
     :mnesia.transaction(fn ->
       for {:command, ct, tx, cmd} <- commands_until(t, src) do
-        :mnesia.write(log(dst), {:command, ct, tx, cmd}, :write)
+        :mnesia.write(table(:command, dst), {:command, ct, tx, cmd}, :write)
+      end
+
+      write_meta(dst, :system_time, read_meta(src, :system_time, 0))
+
+      case read_meta(src, :id_counter, :absent) do
+        :absent -> :ok
+        value -> write_meta(dst, :id_counter, value)
       end
     end)
   end
@@ -178,153 +180,149 @@ defmodule AL.Command do
   @doc """
   Write a command that says a class of an object was set
   """
-  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def set_class(tx_id, object, class, store \\ :main) do
-    write_command(tx_id, {:set_class, {object, class}}, store)
+  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def set_class(tx_id, object, class, branch \\ :main) do
+    write_command(tx_id, {:set_class, {object, class}}, branch)
   end
 
   @doc """
   Write a command that says a superclass of an object was set
   """
-  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def set_super(tx_id, object, super, store \\ :main) do
-    write_command(tx_id, {:set_super, {object, super}}, store)
+  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def set_super(tx_id, object, super, branch \\ :main) do
+    write_command(tx_id, {:set_super, {object, super}}, branch)
   end
 
   @doc """
   Write a command that says a method was set for an object
   """
-  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) ::
+  @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
-  def set_method(tx_id, object, method_name, method_id, store \\ :main) do
-    write_command(tx_id, {:set_method, {object, method_name, method_id}}, store)
+  def set_method(tx_id, object, method_name, method_id, branch \\ :main) do
+    write_command(tx_id, {:set_method, {object, method_name, method_id}}, branch)
   end
 
   @doc """
   Write a command that says the object was given a run method
   """
-  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Object.store()) ::
+  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Branch.t()) ::
           :ok
-  def set_oapply(tx_id, object, head, body, store \\ :main) do
-    write_command(tx_id, {:set_oapply, {object, head, body}}, store)
+  def set_oapply(tx_id, object, head, body, branch \\ :main) do
+    write_command(tx_id, {:set_oapply, {object, head, body}}, branch)
   end
 
   @doc """
   Write a command that says slots were set for an object
   """
-  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def set_slots(tx_id, object, slots, store \\ :main) do
-    write_command(tx_id, {:set_slots, {object, slots}}, store)
+  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def set_slots(tx_id, object, slots, branch \\ :main) do
+    write_command(tx_id, {:set_slots, {object, slots}}, branch)
   end
 
-  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def retract_class(tx_id, object, class, store \\ :main) do
-    write_command(tx_id, {:retract_class, {object, class}}, store)
+  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def retract_class(tx_id, object, class, branch \\ :main) do
+    write_command(tx_id, {:retract_class, {object, class}}, branch)
   end
 
-  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def retract_super(tx_id, object, super, store \\ :main) do
-    write_command(tx_id, {:retract_super, {object, super}}, store)
+  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def retract_super(tx_id, object, super, branch \\ :main) do
+    write_command(tx_id, {:retract_super, {object, super}}, branch)
   end
 
-  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) ::
+  @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
-  def retract_method(tx_id, object, name, id, store \\ :main) do
-    write_command(tx_id, {:retract_method, {object, name, id}}, store)
+  def retract_method(tx_id, object, name, id, branch \\ :main) do
+    write_command(tx_id, {:retract_method, {object, name, id}}, branch)
   end
 
-  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def retract_oapply(tx_id, object, head, store \\ :main) do
-    write_command(tx_id, {:retract_oapply, {object, head}}, store)
+  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def retract_oapply(tx_id, object, head, branch \\ :main) do
+    write_command(tx_id, {:retract_oapply, {object, head}}, branch)
   end
 
-  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Object.store()) :: :ok
-  def retract_slots(tx_id, object, slots, store \\ :main) do
-    write_command(tx_id, {:retract_slots, {object, slots}}, store)
+  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  def retract_slots(tx_id, object, slots, branch \\ :main) do
+    write_command(tx_id, {:retract_slots, {object, slots}}, branch)
   end
 
-  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Object.store()) ::
+  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
-  def send_async(tx_id, object, method, args, store \\ :main) do
-    write_command(tx_id, {:send_async, {object, method, args}}, store)
+  def send_async(tx_id, object, method, args, branch \\ :main) do
+    write_command(tx_id, {:send_async, {object, method, args}}, branch)
   end
 
-  @spec send_elixir(non_neg_integer(), pid(), term(), AL.Object.store()) :: :ok
-  def send_elixir(tx_id, pid, message, store \\ :main) do
-    write_command(tx_id, {:send_elixir, {pid, message}}, store)
+  @spec send_elixir(non_neg_integer(), pid(), term(), AL.Branch.t()) :: :ok
+  def send_elixir(tx_id, pid, message, branch \\ :main) do
+    write_command(tx_id, {:send_elixir, {pid, message}}, branch)
   end
 
-  @spec write_command(non_neg_integer(), command(), AL.Object.store()) :: :ok
-  def write_command(tx_id, command, store \\ :main) do
-    {t1, _t2} = inc_system_time()
-    :mnesia.write(log(store), {:command, t1, tx_id, command}, :write)
+  @spec write_command(non_neg_integer(), command(), AL.Branch.t()) :: :ok
+  def write_command(tx_id, command, branch \\ :main) do
+    command_reference = table(:command, branch)
+    
+    {t1, _t2} = inc_system_time(branch)
+    :mnesia.write(command_reference, {:command, t1, tx_id, command}, :write)
   end
 
   @doc """
   I increase the monotonic system time of the log
   """
-  def inc_system_time() do
-    t =
-      case :mnesia.read(:meta, :system_time, :write) do
-        [{_, :system_time, t}] -> t
-        [] -> 0
-      end
-
-    :mnesia.write({:meta, :system_time, t + 1})
+  def inc_system_time(branch \\ :main) do
+    t = read_meta(branch, :system_time, 0, :write)
+    write_meta(branch, :system_time, t + 1)
     {t, t + 1}
   end
 
-  @spec fresh_id() :: atom()
-  def fresh_id() do
-    label =
-      case :mnesia.read(:meta, :id_counter) do
-        [{:meta, :id_counter, n}] -> n
-        [] -> 0
-      end
-
-    :mnesia.dirty_write({:meta, :id_counter, label + 1})
-    :"##{label}"
+  @spec fresh_id(AL.Branch.t()) :: atom()
+  def fresh_id(branch \\ :main) do
+    n = read_meta(branch, :id_counter, 0, :write)
+    write_meta(branch, :id_counter, n + 1)
+    :"##{n}"
   end
 
-  @spec id_label(atom()) :: non_neg_integer()
-  def id_label(id) do
-    meta_label(:id_label, :id_counter, id)
+  @spec id_label(AL.Branch.t(), atom()) :: non_neg_integer()
+  def id_label(branch, id) do
+    meta_label(branch, :id_label, :id_counter, id)
   end
 
-  @spec fresh_scope() :: String.t()
-  def fresh_scope() do
-    n =
-      case :mnesia.read(:meta, :scope_counter) do
-        [{:meta, :scope_counter, n}] -> n
-        [] -> 0
-      end
-
-    :mnesia.dirty_write({:meta, :scope_counter, n + 1})
-    Integer.to_string(n)
-  end
-
-  @spec scope_label(String.t()) :: non_neg_integer()
-  def scope_label(scope) do
-    meta_label(:scope_label, :scope_counter, scope)
-  end
-
-  defp meta_label(namespace, counter_key, key) do
+  defp meta_label(branch, namespace, counter_key, key) do
     meta_key = {namespace, key}
 
-    case :mnesia.dirty_read(:meta, meta_key) do
-      [{:meta, ^meta_key, label}] ->
-        label
+    {:atomic, label} =
+      :mnesia.transaction(fn ->
+        case read_meta(branch, meta_key, :absent, :write) do
+          :absent ->
+            n = read_meta(branch, counter_key, 0, :write)
+            write_meta(branch, counter_key, n + 1)
+            write_meta(branch, meta_key, n)
+            n
 
-      [] ->
-        label =
-          case :mnesia.dirty_read(:meta, counter_key) do
-            [{:meta, ^counter_key, n}] -> n
-            [] -> 0
-          end
+          existing ->
+            existing
+        end
+      end)
 
-        :mnesia.dirty_write({:meta, counter_key, label + 1})
-        :mnesia.dirty_write({:meta, meta_key, label})
-        label
+    label
+  end
+
+  defp read_meta(branch, key, default, lock \\ :read) do
+    case :mnesia.read(table(:meta, branch), key, lock) do
+      [{:meta, ^key, value}] -> value
+      [] -> default
     end
+  end
+
+  defp write_meta(branch, key, value) do
+    :mnesia.write(table(:meta, branch), {:meta, key, value}, :write)
+  end
+
+  def dump_meta(branch \\ :main) do
+    meta_reference = table(:meta, branch)
+
+    :mnesia.transaction(fn ->
+      :mnesia.select(meta_reference, [
+            {{:meta, :"$1", :"$2"}, [], [:"$_"]}
+          ])
+    end)
   end
 end

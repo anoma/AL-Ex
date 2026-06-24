@@ -4,21 +4,34 @@ defmodule AL.Branch do
   (the parent's prefix copied in) and its own object projection. `:main` is the
   root branch. I also track which branch is checked out (HEAD).
 
-  Branch metadata lives in the `:meta` table: `:stores` (the list of forks) and
-  `:head` (the checked-out branch). `AL.Command` owns command-log primitives and
-  `AL.Object` owns projection primitives; I orchestrate both.
+  Lineage lives in the `:branch` table, a bag of `{parent, child}` edges. Each
+  branch owns its own command, meta, and object projection tables. HEAD is the
+  `:head` key in `:main`'s `:meta` table. `AL.Command` owns command-log primitives
+  and `AL.Object` owns projection primitives; I orchestrate both.
   """
 
+  @type t() :: atom()
+  
   @doc """
-  Bring up every branch: for `:main` and each persisted fork, create its
-  projection tables and replay its command log. Run at startup.
-  """
+  Setup existing branches with their object tables and hydrate 
+  """  
   @spec setup() :: :ok
   def setup() do
-    init_meta()
+    case :mnesia.create_table(:branch,
+           attributes: [:parent, :child],
+           type: :bag,
+           disc_copies: [node()]
+         ) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, _}} -> :ok
+    end
+    
+    :mnesia.wait_for_tables([:branch], 5_000)
+
+    if stored_head() not in [:main | list()], do: set_head(:main)
 
     for branch <- [:main | list()] do
-      AL.Object.create_store(branch)
+      AL.Object.create_tables(branch)
       AL.Object.hydrate_since(0, branch)
     end
 
@@ -26,79 +39,136 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Fork a new branch from `from` (default the checked-out branch, HEAD) as of time
-  `at` (default `:tip`, i.e. now). The branch gets its own (disc) command log with
-  `from`'s prefix copied in, plus its own projection; subsequent writes against it
-  diverge. `from` may be `:main` or any existing fork, so forks can be forked.
-  Returns the new branch's name.
+  Fork a command log
   """
-  @spec fork(non_neg_integer() | :tip, AL.Object.store()) :: AL.Object.store()
+  @spec fork(non_neg_integer() | :tip, t()) :: t()
   def fork(at \\ :tip, from \\ head()) do
     unless from == :main or from in list() do
       raise ArgumentError, "cannot fork from unknown branch #{inspect(from)}"
     end
 
     branch = :"fork_#{System.unique_integer([:positive])}"
-    AL.Command.create_log(branch)
+    AL.Command.create_tables(branch)
     AL.Command.copy_prefix(from, branch, at_time(at))
-    AL.Object.create_store(branch)
+    AL.Object.create_tables(branch)
     AL.Object.hydrate_since(0, branch)
-    register(branch)
+    register(branch, from)
     AL.Scheduler.start(branch)
     branch
   end
 
-  @doc "Discard a branch: drop its projection and command log, untrack it."
-  @spec discard(AL.Object.store()) :: :ok
+  @doc "Discard a branch: reparent its forks onto its parent, reset HEAD if checked out, drop its scheduler, projection and command log."
+  @spec discard(t()) :: :ok
   def discard(branch) do
     unregister(branch)
-    if head() == branch, do: set_head(:main)
+    if stored_head() == branch, do: set_head(:main)
     AL.Scheduler.stop(branch)
-    AL.Object.drop_store(branch)
-    AL.Command.drop_log(branch)
+    AL.Object.drop_tables(branch)
+    AL.Command.drop_tables(branch)
     :ok
   end
 
   @doc "Check out a branch (Git HEAD-style): `run do ... end` now acts against it."
-  @spec checkout(AL.Object.store()) :: :ok
+  @spec checkout(AL.Branch.t()) :: :ok
   def checkout(branch), do: set_head(branch)
 
-  @doc "The currently checked-out branch (default `:main`)."
-  @spec head() :: AL.Object.store()
+  @doc """
+  Current checked-out branch
+  """
+  @spec head() :: t()
   def head() do
-    case :mnesia.dirty_read(:meta, :head) do
-      [{_, :head, branch}] -> branch
-      [] -> :main
+    case stored_head() do
+      :main -> :main
+      branch -> if branch in list(), do: branch, else: :main
     end
   end
 
-  @doc "All forks (not including `:main`)."
-  @spec list() :: [AL.Object.store()]
+  @doc """
+  All forks (not including `:main`).
+  """
+  @spec list() :: [t()]
   def list() do
-    case :mnesia.dirty_read(:meta, :stores) do
-      [{_, :stores, names}] -> names
-      [] -> []
-    end
+    {:atomic, children} =
+      :mnesia.transaction(fn ->
+        :mnesia.select(:branch, [{{:branch, :"$1", :"$2"}, [], [:"$2"]}])
+      end)
+
+    children
+  end
+
+  @doc """
+  The lineage as `{:branch, parent, child}` edges.
+  """
+  @spec branch_graph() :: [{:branch, t(), t()}]
+  def branch_graph() do
+    {:atomic, edges} =
+      :mnesia.transaction(fn ->
+        :mnesia.select(:branch, [{{:branch, :"$1", :"$2"}, [], [:"$_"]}])
+      end)
+
+    edges
   end
 
   defp at_time(:tip), do: AL.Command.system_time()
   defp at_time(t) when is_integer(t), do: t
 
-  defp set_head(branch), do: :mnesia.dirty_write({:meta, :head, branch})
+  defp stored_head() do
+    {:atomic, branch} =
+      :mnesia.transaction(fn ->
+        case :mnesia.read(:meta, :head) do
+          [{:meta, :head, branch}] -> branch
+          [] -> :main
+        end
+      end)
 
-  defp register(name), do: :mnesia.dirty_write({:meta, :stores, Enum.uniq([name | list()])})
+    branch
+  end
 
-  defp unregister(name), do: :mnesia.dirty_write({:meta, :stores, list() -- [name]})
+  defp set_head(branch) do
+    {:atomic, :ok} =
+      :mnesia.transaction(fn ->
+        :mnesia.write(:meta, {:meta, :head, branch}, :write)
+        :ok
+      end)
 
-  defp init_meta() do
-    case :mnesia.dirty_read(:meta, :stores) do
-      [] -> :mnesia.dirty_write({:meta, :stores, []})
-      _ -> :ok
+    :ok
+  end
+
+  defp register(child, parent) do
+    {:atomic, :ok} =
+      :mnesia.transaction(fn ->
+        :mnesia.write(:branch, {:branch, parent, child}, :write)
+        :ok
+      end)
+
+    :ok
+  end
+
+  defp unregister(branch) do
+    {:atomic, :ok} =
+      :mnesia.transaction(fn ->
+        parent = parent_of(branch)
+
+        for child <- children_of(branch) do
+          :mnesia.delete_object(:branch, {:branch, branch, child}, :write)
+          :mnesia.write(:branch, {:branch, parent, child}, :write)
+        end
+
+        :mnesia.delete_object(:branch, {:branch, parent, branch}, :write)
+        :ok
+      end)
+
+    :ok
+  end
+
+  defp parent_of(branch) do
+    case :mnesia.select(:branch, [{{:branch, :"$1", branch}, [], [:"$1"]}]) do
+      [parent | _] -> parent
+      [] -> :main
     end
+  end
 
-    case :mnesia.dirty_read(:meta, :head) do
-      [] -> :mnesia.dirty_write({:meta, :head, :main})
-      _ -> :ok
-    end
+  defp children_of(branch) do
+    :mnesia.select(:branch, [{{:branch, branch, :"$1"}, [], [:"$1"]}])
   end
 end

@@ -46,7 +46,7 @@ defmodule AL do
   """
   use TypedStruct
 
-  @type scope() :: non_neg_integer() | binary()
+  @type scope() :: non_neg_integer()
 
   @type goal() ::
           {:get_class, AL.Var.t(), AL.Var.t()}
@@ -91,7 +91,7 @@ defmodule AL do
     field(:program, [goal()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
-    field(:store, AL.Object.store(), default: :main)
+    field(:branch, AL.Branch.t(), default: :main)
   end
 
   defmacro __using__(_opts) do
@@ -269,8 +269,8 @@ defmodule AL do
   end
 
   @doc """
-  I provide the DSL for the AL interpreter. I run against the live store by
-  default; `run store: s do ... end` runs against store `s` (e.g. a `fork`).
+  I provide the DSL for the AL interpreter. I run against the live branch by
+  default; `run branch: s do ... end` runs against branch `s` (e.g. a `fork`).
   """
   defmacro run(opts \\ [], do: program) do
     goals =
@@ -281,8 +281,8 @@ defmodule AL do
 
     escaped = Macro.escape(goals, unquote: true)
 
-    if Keyword.has_key?(opts, :store) do
-      quote do: AL.eval(unquote(escaped), nil, unquote(opts[:store]))
+    if Keyword.has_key?(opts, :branch) do
+      quote do: AL.eval(unquote(escaped), nil, unquote(opts[:branch]))
     else
       quote do: AL.eval(unquote(escaped), nil, AL.Branch.head())
     end
@@ -330,13 +330,10 @@ defmodule AL do
    __:implies__
    __:or__
    __:print__
-
-   TODO fix leakiness on -> marks? Or maybe not necessary
-   TODO Make fresheners deterministic 
   """
-  @spec eval([goal()], AL.Var.bindings(), AL.Object.store()) ::
+  @spec eval([goal()], AL.Var.bindings(), AL.Branch.t()) ::
           {:atomic, t() | nil} | {:aborted, term()}
-  def eval(program, initial_bindings \\ nil, store \\ :main) do
+  def eval(program, initial_bindings \\ nil, branch \\ :main) do
     bindings = initial_bindings || AL.Var.empty_bindings()
     input_vars = AL.Var.find_vars(program)
 
@@ -354,7 +351,7 @@ defmodule AL do
           },
           choicepoint_stack: [{:mark, 0}],
           tx_id: tx_id,
-          store: store,
+          branch: branch,
           trace: [],
           program: program,
           tracepoints: AL.Trace.tracepoints()
@@ -516,7 +513,7 @@ defmodule AL do
             }
         }
       else
-        case AL.Object.scan_class(object_pattern, class_pattern, state.store) do
+        case AL.Object.scan_class(object_pattern, class_pattern, state.branch) do
           [] ->
             backtrack(state)
 
@@ -551,7 +548,7 @@ defmodule AL do
   end
 
   def interp({:get_super, object_pattern, super_pattern}, state) do
-    case AL.Object.scan_super(object_pattern, super_pattern, state.store) do
+    case AL.Object.scan_super(object_pattern, super_pattern, state.branch) do
       [] ->
         backtrack(state)
 
@@ -588,7 +585,7 @@ defmodule AL do
            object_pattern,
            method_name_pattern,
            method_id_pattern,
-           state.store
+           state.branch
          ) do
       [] ->
         backtrack(state)
@@ -622,7 +619,7 @@ defmodule AL do
   end
 
   def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    case AL.Object.scan_oapply(object_pattern, head_pattern, body_pattern, state.store) do
+    case AL.Object.scan_oapply(object_pattern, head_pattern, body_pattern, state.branch) do
       [] ->
         backtrack(state)
 
@@ -660,7 +657,7 @@ defmodule AL do
       | active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | bindings:
-              AL.Var.unify(result, AL.Command.fresh_id(), state.active_choicepoint.bindings)
+              AL.Var.unify(result, AL.Command.fresh_id(state.branch), state.active_choicepoint.bindings)
         }
     }
   end
@@ -741,12 +738,13 @@ defmodule AL do
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body", state.store) do
+    case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body", state.branch) do
       [] ->
         backtrack(state)
 
       [{:oapply, id, head, body} | next_choices] ->
-        freshener = AL.Command.fresh_scope()
+        scope = fresh_scope()
+        freshener = Integer.to_string(scope)
 
         head_pattern = AL.Var.freshen(head, freshener)
         body_pattern = AL.Var.freshen(body, freshener)
@@ -769,7 +767,7 @@ defmodule AL do
                 ),
               continuations: [continuation | state.active_choicepoint.continuations],
               goal_pointer: 0,
-              scope_pointer: freshener
+              scope_pointer: scope
             }
           end)
 
@@ -785,11 +783,11 @@ defmodule AL do
                 ),
               continuations: [continuation | state.active_choicepoint.continuations],
               goal_pointer: 0,
-              scope_pointer: freshener
+              scope_pointer: scope
             },
-            traced_calls: record_traced_call(state.traced_calls, freshener, trace_info),
+            traced_calls: record_traced_call(state.traced_calls, scope, trace_info),
             choicepoint_stack:
-              alternative_choicepoints ++ [{:mark, freshener} | state.choicepoint_stack]
+              alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
         }
     end
   end
@@ -877,16 +875,16 @@ defmodule AL do
   def interp({:set_class, object, _class}, state) when is_map(object), do: state
 
   def interp({:set_class, object_pattern, class_pattern}, state) do
-    AL.Command.set_class(state.tx_id, object_pattern, class_pattern, state.store)
-    AL.Object.set_class(object_pattern, class_pattern, state.store)
+    AL.Command.set_class(state.tx_id, object_pattern, class_pattern, state.branch)
+    AL.Object.set_class(object_pattern, class_pattern, state.branch)
     state
   end
 
   def interp({:set_super, object, _super}, state) when is_map(object), do: state
 
   def interp({:set_super, object_pattern, super_pattern}, state) do
-    AL.Command.set_super(state.tx_id, object_pattern, super_pattern, state.store)
-    AL.Object.set_super(object_pattern, super_pattern, state.store)
+    AL.Command.set_super(state.tx_id, object_pattern, super_pattern, state.branch)
+    AL.Object.set_super(object_pattern, super_pattern, state.branch)
     state
   end
 
@@ -898,24 +896,24 @@ defmodule AL do
       object_pattern,
       method_name_pattern,
       method_id_pattern,
-      state.store
+      state.branch
     )
 
-    AL.Object.set_method(object_pattern, method_name_pattern, method_id_pattern, state.store)
+    AL.Object.set_method(object_pattern, method_name_pattern, method_id_pattern, state.branch)
     state
   end
 
   def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
 
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern, state.store)
-    AL.Object.set_oapply(object_pattern, head_pattern, body_pattern, state.store)
+    AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern, state.branch)
+    AL.Object.set_oapply(object_pattern, head_pattern, body_pattern, state.branch)
     state
   end
 
   def interp({:get_slot, object, key, value}, state) do
     entries =
-      case AL.Object.read_slots(object, state.store) do
+      case AL.Object.read_slots(object, state.branch) do
         [{:slots, ^object, m}] when is_map(m) ->
           if AL.Var.var?(key) do
             Map.to_list(m)
@@ -956,58 +954,58 @@ defmodule AL do
   def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
 
   def interp({:set_slots, object_pattern, slots_pattern}, state) do
-    AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern, state.store)
-    AL.Object.set_slots(object_pattern, slots_pattern, state.store)
+    AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern, state.branch)
+    AL.Object.set_slots(object_pattern, slots_pattern, state.branch)
     state
   end
 
   def interp({:retract_class, object, _class}, state) when is_map(object), do: state
 
   def interp({:retract_class, object, class}, state) do
-    AL.Command.retract_class(state.tx_id, object, class, state.store)
-    AL.Object.retract_class(object, class, state.store)
+    AL.Command.retract_class(state.tx_id, object, class, state.branch)
+    AL.Object.retract_class(object, class, state.branch)
     state
   end
 
   def interp({:retract_super, object, _super}, state) when is_map(object), do: state
 
   def interp({:retract_super, object, super}, state) do
-    AL.Command.retract_super(state.tx_id, object, super, state.store)
-    AL.Object.retract_super(object, super, state.store)
+    AL.Command.retract_super(state.tx_id, object, super, state.branch)
+    AL.Object.retract_super(object, super, state.branch)
     state
   end
 
   def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
 
   def interp({:retract_method, object, name, id}, state) do
-    AL.Command.retract_method(state.tx_id, object, name, id, state.store)
-    AL.Object.retract_method(object, name, id, state.store)
+    AL.Command.retract_method(state.tx_id, object, name, id, state.branch)
+    AL.Object.retract_method(object, name, id, state.branch)
     state
   end
 
   def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
 
   def interp({:retract_oapply, object, head}, state) do
-    AL.Command.retract_oapply(state.tx_id, object, head, state.store)
-    AL.Object.retract_oapply(object, head, state.store)
+    AL.Command.retract_oapply(state.tx_id, object, head, state.branch)
+    AL.Object.retract_oapply(object, head, state.branch)
     state
   end
 
   def interp({:retract_slots, object, _slots}, state) when is_map(object), do: state
 
   def interp({:retract_slots, object, slots}, state) do
-    AL.Command.retract_slots(state.tx_id, object, slots, state.store)
-    AL.Object.retract_slots(object, slots, state.store)
+    AL.Command.retract_slots(state.tx_id, object, slots, state.branch)
+    AL.Object.retract_slots(object, slots, state.branch)
     state
   end
 
   def interp({:send_async, object, method, args}, state) do
-    AL.Command.send_async(state.tx_id, object, method, args, state.store)
+    AL.Command.send_async(state.tx_id, object, method, args, state.branch)
     state
   end
 
   def interp({:send_elixir, pid, message}, state) do
-    AL.Command.send_elixir(state.tx_id, pid, message, state.store)
+    AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
     state
   end
 
@@ -1035,12 +1033,12 @@ defmodule AL do
         condition,
         state.active_choicepoint.bindings,
         state.tx_id,
-        state.store
+        state.branch
       )
 
     body_goals =
       Enum.flat_map(solutions, fn bindings ->
-        freshener = AL.Command.fresh_scope()
+        freshener = Integer.to_string(fresh_scope())
 
         Enum.map(body, fn goal ->
           goal |> AL.Var.subst(bindings) |> AL.Var.freshen(freshener)
@@ -1057,7 +1055,7 @@ defmodule AL do
         condition,
         state.active_choicepoint.bindings,
         state.tx_id,
-        state.store
+        state.branch
       )
 
     collected = Enum.map(solutions, fn bindings -> AL.Var.subst(template, bindings) end)
@@ -1072,7 +1070,8 @@ defmodule AL do
   end
 
   def interp({:call, head, body, args}, state) do
-    freshener = AL.Command.fresh_scope()
+    scope = fresh_scope()
+    freshener = Integer.to_string(scope)
     fresh_head = AL.Var.freshen(head, freshener)
     fresh_body = AL.Var.freshen(body, freshener)
 
@@ -1094,9 +1093,9 @@ defmodule AL do
             bindings: bindings,
             continuations: [continuation | state.active_choicepoint.continuations],
             goal_pointer: 0,
-            scope_pointer: freshener
+            scope_pointer: scope
           },
-          choicepoint_stack: [{:mark, freshener} | state.choicepoint_stack]
+          choicepoint_stack: [{:mark, scope} | state.choicepoint_stack]
       }
     end
   end
@@ -1119,7 +1118,7 @@ defmodule AL do
            condition,
            state.active_choicepoint.bindings,
            state.tx_id,
-           state.store
+           state.branch
          ) do
       [] -> state
       _ -> backtrack(state)
@@ -1133,12 +1132,12 @@ defmodule AL do
   def interp({:send, self, method, args}, state) do
     call_args = [self | args]
 
-    case resolve_method_id(self, method, state.store) do
+    case resolve_method_id(self, method, state.branch) do
       nil ->
         dnu(self, method, args, state)
 
       id ->
-        if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.store) do
+        if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.branch) do
           interp({:oapply, id, call_args}, state)
         else
           dnu(self, method, args, state)
@@ -1151,60 +1150,60 @@ defmodule AL do
   defp dnu(self, method, args, state),
     do: interp({:send, self, :does_not_understand, [method, args]}, state)
 
-  defp resolve_method_id(self, method, store) when is_map(self),
-    do: resolve_in_chain([Map.get(self, :class, :map)], method, store)
+  defp resolve_method_id(self, method, branch) when is_map(self),
+    do: resolve_in_chain([Map.get(self, :class, :map)], method, branch)
 
-  defp resolve_method_id(self, method, store) when is_list(self),
-    do: resolve_in_chain([:list], method, store)
+  defp resolve_method_id(self, method, branch) when is_list(self),
+    do: resolve_in_chain([:list], method, branch)
 
-  defp resolve_method_id(self, method, store) do
-    case method_ids(self, method, store) do
+  defp resolve_method_id(self, method, branch) do
+    case method_ids(self, method, branch) do
       [id | _] ->
         id
 
       [] ->
         resolve_in_chain(
-          for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", store), do: c),
+          for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", branch), do: c),
           method,
-          store
+          branch
         )
     end
   end
 
-  defp resolve_in_chain(classes, method, store),
-    do: Enum.find_value(classes, fn c -> chain_first_id(c, method, store) end)
+  defp resolve_in_chain(classes, method, branch),
+    do: Enum.find_value(classes, fn c -> chain_first_id(c, method, branch) end)
 
-  defp chain_first_id(class, method, store) do
-    case method_ids(class, method, store) do
+  defp chain_first_id(class, method, branch) do
+    case method_ids(class, method, branch) do
       [id | _] ->
         id
 
       [] ->
         resolve_in_chain(
-          for({:super, _o, s} <- AL.Object.scan_super(class, :"$super", store), do: s),
+          for({:super, _o, s} <- AL.Object.scan_super(class, :"$super", branch), do: s),
           method,
-          store
+          branch
         )
     end
   end
 
-  defp method_ids(obj, method, store) do
-    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", store), do: id
+  defp method_ids(obj, method, branch) do
+    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
   end
 
-  defp has_matching_clause?(id, call_args, bindings, store) do
-    id in @primitive_methods or any_clause_matches?(id, call_args, bindings, store)
+  defp has_matching_clause?(id, call_args, bindings, branch) do
+    id in @primitive_methods or any_clause_matches?(id, call_args, bindings, branch)
   end
 
-  defp any_clause_matches?(id, call_args, bindings, store) do
-    scope = AL.Command.fresh_scope()
+  defp any_clause_matches?(id, call_args, bindings, branch) do
+    scope = Integer.to_string(fresh_scope())
 
-    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", store), fn {:oapply, _id, head, _body} ->
+    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", branch), fn {:oapply, _id, head, _body} ->
       AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
     end)
   end
 
-  defp collect_all_solutions(condition, bindings, tx_id, store) do
+  defp collect_all_solutions(condition, bindings, tx_id, branch) do
     initial = %AL{
       active_choicepoint: %AL.Choicepoint{
         goals: condition,
@@ -1215,7 +1214,7 @@ defmodule AL do
       },
       choicepoint_stack: [],
       tx_id: tx_id,
-      store: store,
+      branch: branch,
       trace: [],
       program: condition,
       tracepoints: AL.Trace.tracepoints()
@@ -1259,6 +1258,8 @@ defmodule AL do
       {depth, receiver, method_id}
     end
   end
+
+  defp fresh_scope(), do: System.unique_integer([:positive, :monotonic])
 
   defp record_traced_call(traced_calls, _freshener, nil), do: traced_calls
 

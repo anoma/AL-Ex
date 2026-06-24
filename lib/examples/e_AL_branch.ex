@@ -1,6 +1,6 @@
 defmodule Examples.ALBranch do
   @moduledoc """
-  I provide branch (Git-like command-log fork) examples for AL: a branch is a
+  I provide branch (Git-like command-log management) examples for AL: a branch is a
   divergent command log materialised into its own store.
   """
 
@@ -24,18 +24,18 @@ defmodule Examples.ALBranch do
 
     # the tip fork sees :tt_thing; the past fork does not
     {:atomic, _} =
-      run store: tip do
+      run branch: tip do
         class(^sym, :object)
       end
 
     {:aborted, _} =
-      run store: past do
+      run branch: past do
         class(^sym, :object)
       end
 
     # both forks still carry the bootstrap
     {:atomic, _} =
-      run store: past do
+      run branch: past do
         class(:object, :class)
       end
 
@@ -49,7 +49,7 @@ defmodule Examples.ALBranch do
 
     # write only into the fork, then read it back from the fork's projection
     {:atomic, {bindings, _}} =
-      run store: tip do
+      run branch: tip do
         set_slots(:widget, %{x: 3})
         get_slot(:widget, :x, x)
       end
@@ -98,7 +98,7 @@ defmodule Examples.ALBranch do
 
     # a write that lives only on the parent fork
     {:atomic, _} =
-      run store: parent do
+      run branch: parent do
         set_class(:on_parent, :object)
       end
 
@@ -106,18 +106,18 @@ defmodule Examples.ALBranch do
     child = AL.Branch.fork(:tip, parent)
 
     {:atomic, _} =
-      run store: child do
+      run branch: child do
         class(:on_parent, :object)
       end
 
     # writes to the parent after the child forked don't reach the child
     {:atomic, _} =
-      run store: parent do
+      run branch: parent do
         set_class(:later_on_parent, :object)
       end
 
     {:aborted, _} =
-      run store: child do
+      run branch: child do
         class(:later_on_parent, :object)
       end
 
@@ -145,7 +145,7 @@ defmodule Examples.ALBranch do
     child = AL.Branch.fork()
 
     {:atomic, _} =
-      run store: child do
+      run branch: child do
         class(:on_head, :object)
       end
 
@@ -154,7 +154,7 @@ defmodule Examples.ALBranch do
     fresh = AL.Branch.fork()
 
     {:aborted, _} =
-      run store: fresh do
+      run branch: fresh do
         class(:on_head, :object)
       end
 
@@ -169,7 +169,7 @@ defmodule Examples.ALBranch do
 
     # a worker object that lives only on the fork, built from bootstrap primitives
     {:atomic, _} =
-      run store: branch do
+      run branch: branch do
         set_class(:fork_worker, :object)
 
         defmethod(:fork_worker, :handle, [self, object]) do
@@ -179,14 +179,14 @@ defmodule Examples.ALBranch do
 
     # an async send written into the fork is handled against the fork
     {:atomic, _} =
-      run store: branch do
+      run branch: branch do
         send_async(:fork_worker, :handle, [:fork_obj])
       end
 
     Process.sleep(50)
 
     {:atomic, {fork_bindings, _}} =
-      run store: branch do
+      run branch: branch do
         get_slot(:fork_obj, :processed, v)
       end
 
@@ -199,6 +199,34 @@ defmodule Examples.ALBranch do
       end
 
     AL.Branch.discard(branch)
+    :ok
+  end
+
+  example discard_reparents_forks() do
+    parent = AL.Branch.fork()
+    child = AL.Branch.fork(:tip, parent)
+
+    assert {:branch, parent, child} in AL.Branch.branch_graph()
+
+    AL.Branch.discard(parent)
+
+    # the child is reparented onto the parent's parent, not orphaned or dropped
+    assert {:branch, :main, child} in AL.Branch.branch_graph()
+    refute parent in AL.Branch.list()
+    assert child in AL.Branch.list()
+
+    # the child's log is independent, so it still works after its parent is gone
+    {:atomic, _} =
+      run branch: child do
+        set_class(:survivor, :object)
+      end
+
+    {:atomic, _} =
+      run branch: child do
+        class(:survivor, :object)
+      end
+
+    AL.Branch.discard(child)
     :ok
   end
 end
