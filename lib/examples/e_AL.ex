@@ -322,4 +322,87 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$out") == :hello
     :ok
   end
+
+  # Regression: `next_solution` must fully substitute compound bindings (like
+  # `eval`/`run` does), not just deref the top-level variable.
+  example next_solution_substitutes_compound_bindings() do
+    {:atomic, {b1, state}} =
+      run do
+        set_super(:next_sol_test, :alpha)
+        set_super(:next_sol_test, :beta)
+        super(:next_sol_test, s)
+        unify(pair, [s, s])
+      end
+
+    {:atomic, {b2, _}} = next_solution(state)
+
+    pairs = [Map.get(b1, :"$pair"), Map.get(b2, :"$pair")]
+
+    # both solutions come back as ground lists, not [:"$s", :"$s"]
+    assert Enum.sort(pairs) == [[:alpha, :alpha], [:beta, :beta]]
+    :ok
+  end
+
+  # `cut` commits the choices made inside its own call scope: a cut in the first
+  # clause of a method prunes that method's remaining clauses.
+  example cut_commits_clauses_in_scope() do
+    {:atomic, _} =
+      run do
+        set_method(:chooser_cut, :pick, :pick_cut_impl)
+        set_class(:pick_cut_impl, :behaviour)
+        set_oapply(:pick_cut_impl, [self, :a]) do cut end
+        set_oapply(:pick_cut_impl, [self, :b]) do end
+
+        set_method(:chooser_plain, :pick, :pick_plain_impl)
+        set_class(:pick_plain_impl, :behaviour)
+        set_oapply(:pick_plain_impl, [self, :a]) do end
+        set_oapply(:pick_plain_impl, [self, :b]) do end
+      end
+
+    {:atomic, {cut_bindings, _}} =
+      run do findall(x, [pick(:chooser_cut, x)], xs) end
+
+    {:atomic, {plain_bindings, _}} =
+      run do findall(x, [pick(:chooser_plain, x)], xs) end
+
+    # the cut in the first clause prunes the second; without it, both are found
+    assert Map.get(cut_bindings, :"$xs") == [:a]
+    assert Enum.sort(Map.get(plain_bindings, :"$xs")) == [:a, :b]
+    :ok
+  end
+
+  # if-then-else commits to the condition's first solution (soft cut): even with
+  # a multi-solution condition, `then` runs once and the else branch is discarded.
+  example if_then_else_commits_to_first_condition_solution() do
+    {:atomic, {bindings, _}} =
+      run do
+        set_super(:ite_test, :s1)
+        set_super(:ite_test, :s2)
+
+        findall(
+          r,
+          [implies([super(:ite_test, x)], [unify(r, x)], [unify(r, :none)])],
+          results
+        )
+      end
+
+    assert length(Map.get(bindings, :"$results")) == 1
+    :ok
+  end
+
+  # `oapply` is bidirectional: a head var bound inside the body is visible to the
+  # caller's linked variable (output flows back through the shared bindings).
+  example oapply_passes_output_back_to_caller() do
+    {:atomic, {bindings, _}} =
+      run do
+        defmethod(:bidir_test, :make, [self, out]) do
+          unify(out, :produced)
+        end
+
+        make(:bidir_test, result)
+      end
+
+    assert Map.get(bindings, :"$result") == :produced
+    :ok
+  end
 end
