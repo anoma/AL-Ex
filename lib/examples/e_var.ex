@@ -54,4 +54,19 @@ defmodule Examples.AL.Var do
       Base.encode16(:crypto.strong_rand_bytes(2))
     )
   end
+
+  example occurs_check_rejects_cycle() do
+    # binding a var into a term that contains it would create a cyclic term;
+    # the occurs check refuses, so unification fails (nil)
+    assert AL.Var.unify(:"$x", [:"$x"]) == nil
+    assert AL.Var.unify([:"$x"], :"$x") == nil
+    assert AL.Var.occurs?(:"$x", {:f, [1, :"$x"]}, %{})
+
+    # an improper list (cons with a variable tail) is walked without crashing
+    refute AL.Var.occurs?(:"$x", [1 | :"$y"], %{})
+
+    # a var that does not occur in the term still binds normally
+    assert AL.Var.unify(:"$x", [1, 2, :"$y"]) == %{"$x": [1, 2, :"$y"]}
+    :ok
+  end
 end

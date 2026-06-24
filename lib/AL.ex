@@ -681,13 +681,19 @@ defmodule AL do
   
   def interp({:oapply, :is, [a, b]}, state) do
     a_deref = AL.Var.deref(state.active_choicepoint.bindings, a)
-    expr = interp_is(b, state.active_choicepoint.bindings)
-    %AL{state |
-      active_choicepoint: %AL.Choicepoint{
-        state.active_choicepoint |
-          bindings: AL.Var.unify(a_deref, expr, state.active_choicepoint.bindings),
-      },
-      choicepoint_stack: state.choicepoint_stack}
+
+    case interp_is(b, state.active_choicepoint.bindings) do
+      :error ->
+        backtrack(state)
+
+      expr ->
+        %AL{state |
+          active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint |
+              bindings: AL.Var.unify(a_deref, expr, state.active_choicepoint.bindings),
+          },
+          choicepoint_stack: state.choicepoint_stack}
+    end
   end
 
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
@@ -1172,23 +1178,54 @@ defmodule AL do
     end
   end
 
-  def interp_is({:oapply, :+, [a, b]}, bindings), do: interp_is(a, bindings) + interp_is(b, bindings)
+  @doc """
+  I evaluate an arithmetic expression against `bindings`, returning a number or
+  `:error` if any operand is unbound or non-numeric (so `is/2` can fail the goal
+  cleanly instead of crashing the transaction). Division by zero is `:error`.
+  """
+  def interp_is({:oapply, :/, [a, b]}, bindings) do
+    with x when is_number(x) <- interp_is(a, bindings),
+         y when is_number(y) and y != 0 <- interp_is(b, bindings) do
+      div(x, y)
+    else
+      _ -> :error
+    end
+  end
 
-  def interp_is({:oapply, :-, [a, b]}, bindings), do: interp_is(a, bindings) - interp_is(b, bindings)
+  def interp_is({:oapply, op, [a, b]}, bindings) when op in [:+, :-, :*, :**] do
+    with x when is_number(x) <- interp_is(a, bindings),
+         y when is_number(y) <- interp_is(b, bindings) do
+      binop(op, x, y)
+    else
+      _ -> :error
+    end
+  end
 
-  def interp_is({:oapply, :*, [a, b]}, bindings), do: interp_is(a, bindings) * interp_is(b, bindings)
+  def interp_is({:oapply, op, [a]}, bindings) when op in [:+, :-] do
+    case interp_is(a, bindings) do
+      x when is_number(x) -> binop(op, x)
+      _ -> :error
+    end
+  end
 
-  def interp_is({:oapply, :/, [a, b]}, bindings), do: div(interp_is(a, bindings), interp_is(b, bindings))
+  def interp_is(a, _bindings) when is_number(a), do: a
 
-  def interp_is({:oapply, :**, [a, b]}, bindings), do: interp_is(a, bindings) ** interp_is(b, bindings)
+  def interp_is(a, bindings) when is_atom(a) do
+    case AL.Var.deref(bindings, a) do
+      x when is_number(x) -> x
+      _ -> :error
+    end
+  end
 
-  def interp_is({:oapply, :-, [a]}, bindings), do: -interp_is(a, bindings)
+  def interp_is(_a, _bindings), do: :error
 
-  def interp_is({:oapply, :+, [a]}, bindings), do: +interp_is(a, bindings)
+  defp binop(:+, x, y), do: x + y
+  defp binop(:-, x, y), do: x - y
+  defp binop(:*, x, y), do: x * y
+  defp binop(:**, x, y), do: x ** y
 
-  def interp_is(a, _bindings) when is_integer(a), do: a
-
-  def interp_is(a, bindings) when is_map_key(bindings, a), do: AL.Var.deref(bindings, a)
+  defp binop(:+, x), do: +x
+  defp binop(:-, x), do: -x
 end
 
 defimpl Inspect, for: AL do

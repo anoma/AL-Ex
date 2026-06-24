@@ -106,7 +106,7 @@ defmodule AL.Var do
     end
   end
 
-  @spec extend(bindings(), t(), t()) :: bindings()
+  @spec extend(bindings(), t(), t()) :: bindings() | nil
   def extend(bindings, x, y) do
     rx = deref(bindings, x)
     ry = deref(bindings, y)
@@ -116,14 +116,43 @@ defmodule AL.Var do
 
     cond do
       rx == ry -> bindings
-      not is_var_rx && is_var_ry -> Map.put(bindings, ry, x)
-      rx == x && is_var_ry -> Map.put(bindings, ry, x)
-      not is_var_ry && is_var_rx -> Map.put(bindings, rx, y)
-      ry == y && is_var_rx -> Map.put(bindings, rx, y)
-      is_var_ry && is_var_rx -> Map.put(bindings, rx, ry)
+      not is_var_rx && is_var_ry -> bind(bindings, ry, x)
+      rx == x && is_var_ry -> bind(bindings, ry, x)
+      not is_var_ry && is_var_rx -> bind(bindings, rx, y)
+      ry == y && is_var_rx -> bind(bindings, rx, y)
+      is_var_ry && is_var_rx -> bind(bindings, rx, ry)
       true -> unify(rx, ry, bindings)
     end
   end
+
+  # Bind `var` to `term`, refusing (returning nil, i.e. unification failure) if
+  # `var` occurs in `term` — the occurs check, which keeps cyclic terms out of
+  # the bindings so `subst`/`deref` can't loop forever.
+  @spec bind(bindings(), variable(), t()) :: bindings() | nil
+  defp bind(bindings, var, term) do
+    if occurs?(var, term, bindings), do: nil, else: Map.put(bindings, var, term)
+  end
+
+  @spec occurs?(variable(), t(), bindings()) :: boolean()
+  def occurs?(var, term, bindings) do
+    term = if is_atom(term), do: deref(bindings, term), else: term
+
+    cond do
+      var?(term) -> term == var
+      # handle cons cells directly so improper lists (`[h | $tail]`) work
+      is_list(term) -> occurs_in_list?(var, term, bindings)
+      is_tuple(term) -> occurs_in_list?(var, Tuple.to_list(term), bindings)
+      is_map(term) -> occurs_in_list?(var, Map.values(term), bindings)
+      true -> false
+    end
+  end
+
+  defp occurs_in_list?(var, [head | tail], bindings),
+    do: occurs?(var, head, bindings) or occurs_in_list?(var, tail, bindings)
+
+  defp occurs_in_list?(_var, [], _bindings), do: false
+
+  defp occurs_in_list?(var, tail, bindings), do: occurs?(var, tail, bindings)
 
   @spec unify(t(), t(), bindings()) :: bindings() | nil
   def unify(x, y, bindings \\ %{}) do

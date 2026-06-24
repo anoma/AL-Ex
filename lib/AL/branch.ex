@@ -44,6 +44,7 @@ defmodule AL.Branch do
     AL.Object.create_store(branch)
     AL.Object.hydrate_since(0, branch)
     register(branch)
+    AL.Scheduler.start(branch)
     branch
   end
 
@@ -52,6 +53,7 @@ defmodule AL.Branch do
   def discard(branch) do
     unregister(branch)
     if head() == branch, do: set_head(:main)
+    AL.Scheduler.stop(branch)
     AL.Object.drop_store(branch)
     AL.Command.drop_log(branch)
     :ok

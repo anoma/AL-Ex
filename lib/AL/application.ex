@@ -12,7 +12,9 @@ defmodule AL.Application do
     AL.Branch.setup()
 
     opts = [strategy: :one_for_one, name: Al.Supervisor]
-    {:ok, pid} = Supervisor.start_link([AL.Scheduler], opts)
+    {:ok, pid} = Supervisor.start_link([AL.Scheduler.supervisor_spec()], opts)
+
+    AL.Scheduler.start_all()
 
     bootstrap()
 

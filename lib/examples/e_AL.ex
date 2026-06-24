@@ -356,4 +356,22 @@ defmodule Examples.AL do
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
     :ok
   end
+
+  example is_fails_gracefully_on_unbound() do
+    # `is/2` over an unbound operand fails the goal (backtracks) instead of
+    # crashing the transaction
+    {:aborted, _} = run do is(x, y + 1) end
+    :ok
+  end
+
+  example is_fails_on_division_by_zero() do
+    {:aborted, _} = run do is(x, 1 / 0) end
+    :ok
+  end
+
+  example is_still_computes() do
+    {:atomic, {bindings, _}} = run do is(x, (2 ** 3) + 1) end
+    assert Map.get(bindings, :"$x") == 9
+    :ok
+  end
 end

@@ -108,4 +108,35 @@ defmodule Examples.ALBranch do
     AL.Branch.discard(branch)
     :ok
   end
+
+  example async_send_stays_on_fork() do
+    branch = AL.Branch.fork()
+
+    head = [:"$self", :"$object", :"$class"]
+    body = [{:set_slots, :"$object", %{processed: true}}]
+
+    # a process object that lives only on the fork
+    {:atomic, {bindings, _}} =
+      run store: branch do
+        new(:process, %{method: :handle, head: ^head, body: ^body}, new_proc)
+        cut
+      end
+
+    proc = Map.get(bindings, :"$new_proc")
+
+    # an async send written into the fork is handled against the fork
+    {:atomic, _} = run store: branch do send_async(^proc, :handle, [:fork_obj, :test_class]) end
+    Process.sleep(50)
+
+    {:atomic, {fork_bindings, _}} =
+      run store: branch do get_slot(:fork_obj, :processed, v) end
+
+    assert Map.get(fork_bindings, :"$v") == true
+
+    # main never saw the object or the effect
+    {:aborted, _} = run do get_slot(:fork_obj, :processed, v) end
+
+    AL.Branch.discard(branch)
+    :ok
+  end
 end
