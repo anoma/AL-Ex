@@ -261,15 +261,20 @@ defmodule AL.Command do
   I increase the monotonic system time of the log
   """
   def inc_system_time() do
-    t = system_time()
-    :mnesia.dirty_write({:meta, :system_time, t + 1})
+    t =
+      case :mnesia.read(:meta, :system_time, :write) do
+        [{_, :system_time, t}] -> t
+        [] -> 0
+      end
+
+    :mnesia.write({:meta, :system_time, t + 1})
     {t, t + 1}
   end
 
   @spec fresh_id() :: atom()
   def fresh_id() do
     label =
-      case :mnesia.dirty_read(:meta, :id_counter) do
+      case :mnesia.read(:meta, :id_counter) do
         [{:meta, :id_counter, n}] -> n
         [] -> 0
       end
@@ -286,7 +291,7 @@ defmodule AL.Command do
   @spec fresh_scope() :: String.t()
   def fresh_scope() do
     n =
-      case :mnesia.dirty_read(:meta, :scope_counter) do
+      case :mnesia.read(:meta, :scope_counter) do
         [{:meta, :scope_counter, n}] -> n
         [] -> 0
       end

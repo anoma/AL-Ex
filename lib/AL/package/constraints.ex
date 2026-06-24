@@ -4,16 +4,8 @@ defmodule AL.Package.Constraints do
   defpackage :constraints, version: 1, deps: [:bootstrap] do
       new(:class, %{name: :cell, super: :object, slots: [:subscribers, :value, :name]}, _)
       
-      defmethod(:cell, :allocate, [self, args, new]) do
-        class(self, meta)
-        gensym(new)
-
-        set_class(new, meta)
-        set_super(new, :object)
-      end
-
       defmethod(:cell, :init, [self, args, self]) do
-        set_slots(self, %{name: cell_name, subscribers: [], value: :absent})        
+        set_slots(self, %{name: self, subscribers: [], value: :absent})        
       end
 
       defmethod(:cell, :constrain, [self, value]) do
@@ -31,21 +23,13 @@ defmodule AL.Package.Constraints do
         set_slots(self, %{subscribers: [subscriber | subscribers]})
       end
 
-      new(:class, %{name: :propagator, super: :object, slots: [:input_cells, :output_cell]}, _)
-
-      defmethod(:propagator, :allocate, [self, args, propagator]) do
-        class(self, meta)
-        gensym(propagator)
-
-        set_class(propagator, meta)
-        set_super(propagator, :object)
-      end
+      new(:class, %{name: :propagator, super: :object, slots: [:input_cells, :output_cell, :name]}, _)
 
       defmethod(:propagator, :init, [self, args, self]) do
         map_get(args, :input_cells, input_cells)
         map_get(args, :output_cell, output_cell)
 
-        set_slots(self, %{input_cells: input_cells, output_cell: output_cell})
+        set_slots(self, %{input_cells: input_cells, output_cell: output_cell, name: self})
 
         forall([member(input_cells, input_cell)],
           [subscribe(input_cell, self)])

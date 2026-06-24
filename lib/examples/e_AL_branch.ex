@@ -11,14 +11,17 @@ defmodule Examples.ALBranch do
   example read_from_fork() do
     # time just before we introduce :tt_thing
     before = AL.Command.system_time()
-    {:atomic, _} = run do set_class(:tt_thing, :object) end
+
+    sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+    
+    {:atomic, _} = run do set_class(^sym, :object) end
 
     past = AL.Branch.fork(before - 1)
     tip = AL.Branch.fork()
 
     # the tip fork sees :tt_thing; the past fork does not
-    {:atomic, _} = run store: tip do class(:tt_thing, :object) end
-    {:aborted, _} = run store: past do class(:tt_thing, :object) end
+    {:atomic, _} = run store: tip do class(^sym, :object) end
+    {:aborted, _} = run store: past do class(^sym, :object) end
 
     # both forks still carry the bootstrap
     {:atomic, _} = run store: past do class(:object, :class) end

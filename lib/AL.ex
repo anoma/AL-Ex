@@ -619,18 +619,6 @@ defmodule AL do
     end
   end
 
-  def interp({:oapply, :gensym, [result]}, state) do
-    fresh = :"gensym_#{System.unique_integer([:monotonic, :positive])}"
-
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | bindings: AL.Var.unify(result, fresh, state.active_choicepoint.bindings)
-        }
-    }
-  end
-
   def interp({:oapply, :fresh_id, [result]}, state) do
     %AL{
       state

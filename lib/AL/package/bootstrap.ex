@@ -40,7 +40,7 @@ defmodule AL.Package.Bootstrap do
       end
 
       set_class(:map, :class)
-      set_super(:map, :object)
+      set_super(:map, :ephemeral)
       
       set_class(:map_get, :behaviour)
       set_method(:map, :get, :map_get)
@@ -65,8 +65,10 @@ defmodule AL.Package.Bootstrap do
         set_slots(name, slots)
       end
 
-      defmethod(:object, :allocate, [self, _, self]) do
-        # print(["allocate", self])
+      defmethod(:object, :allocate, [self, args, name]) do
+        class(self, meta)
+        alternative([map_get(args, :name, name)], [gensym(name)])
+        set_class(name, meta)
       end
 
       defmethod(:object, :init, [self, _, self]) do
@@ -79,6 +81,12 @@ defmodule AL.Package.Bootstrap do
         init(alloc, args, new)
       end
 
+      new(:class, %{name: :ephemeral, super: :object, slots: []}, _)
+
+      defmethod(:ephemeral, :allocate, [self, _, self]) do
+        # print(["allocate", self])
+      end
+      
       defmethod(:object, :examine, [self, %{
                                        id: self,
                                        classes: classes,
@@ -99,16 +107,7 @@ defmodule AL.Package.Bootstrap do
         findall([slot_name, slot_value], [get_slot(self, slot_name, slot_value)], slots)
       end
 
-      new(:class, %{name: :durable_object, super: :object, slots: [:owner]}, _)
-
-      defmethod(:durable_object, :allocate, [self, args, new]) do
-        class(self, meta)
-        gensym(new)
-        set_class(new, meta)
-        set_super(new, :durable_object)
-      end
-
-      new(:class, %{name: :package, super: :durable_object, slots: [:name, :version, :deps, :tx]}, _)
+      new(:class, %{name: :package, super: :object, slots: [:name, :version, :deps, :tx]}, _)
 
       defmethod(:package, :init, [self, args, self]) do
         map_get(args, :name, name)
@@ -118,7 +117,7 @@ defmodule AL.Package.Bootstrap do
         set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
       end
 
-      new(:class, %{name: :list, super: :object, slots: []}, _)
+      new(:class, %{name: :list, super: :ephemeral, slots: []}, _)
 
       defmethod(:list, :hd, [[h | _t], h]) do end
       defmethod(:list, :tl, [[_h | t], t]) do end

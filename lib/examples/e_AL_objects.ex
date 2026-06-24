@@ -10,7 +10,7 @@ defmodule Examples.ALObjects do
   example defmethod() do
     {:atomic, {bindings, _}} =
       run do
-        new(:class, %{name: :greeter, super: :object, slots: []}, _)
+        new(:class, %{name: :greeter, super: :ephemeral, slots: []}, _)
 
         defmethod(:greeter, :greet, [self, name]) do
         end
@@ -26,7 +26,7 @@ defmodule Examples.ALObjects do
   example make_point_object() do
     {:atomic, {bindings, result}} =
       run do
-        new(:class, %{name: :point, super: :object, slots: []}, new_point_class)
+        new(:class, %{name: :point, super: :ephemeral, slots: []}, new_point_class)
         new(new_point_class, _, new_point_object)
         cut
       end

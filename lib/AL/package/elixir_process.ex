@@ -7,8 +7,9 @@ defmodule AL.Package.ElixirProcess do
         class(self, meta)
         map_get(args, :name, new_obj)
         set_class(new_obj, meta)
-        set_super(new_obj, :elixir_process)
+        set_super(new_obj, :object)
       end
+
       defmethod(:elixir_process, :init, [self, args, self]) do
         map_get(args, :pid, pid)
         set_slots(self, %{pid: pid})
