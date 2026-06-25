@@ -145,6 +145,7 @@ defmodule Examples.AL do
       end
 
     assert Enum.sort(Map.get(bindings, :"$supers")) == [:a, :b]
+    assert Map.get(bindings, :"$s") == nil
     :ok
   end
 

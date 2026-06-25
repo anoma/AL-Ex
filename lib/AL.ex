@@ -335,7 +335,7 @@ defmodule AL do
           {:atomic, t() | nil} | {:aborted, term()}
   def eval(program, initial_bindings \\ nil, branch \\ :main) do
     bindings = initial_bindings || AL.Var.empty_bindings()
-    input_vars = AL.Var.find_vars(program)
+    input_vars = observable_vars(program)
 
     :mnesia.transaction(fn ->
       tx_id = AL.Command.system_time()
@@ -379,7 +379,7 @@ defmodule AL do
   end
 
   def next_solution(state) do
-    input_vars = AL.Var.find_vars(state.program)
+    input_vars = observable_vars(state.program)
 
     :mnesia.transaction(fn ->
       tx_id = AL.Command.system_time()
@@ -1058,7 +1058,10 @@ defmodule AL do
         state.branch
       )
 
-    collected = Enum.map(solutions, fn bindings -> AL.Var.subst(template, bindings) end)
+    collected =
+      Enum.map(solutions, fn bindings ->
+        template |> AL.Var.subst(bindings) |> standardize_apart()
+      end)
 
     %AL{
       state
@@ -1130,6 +1133,28 @@ defmodule AL do
   end
 
   def interp({:send, self, method, args}, state) do
+    # An unbound receiver is a query over the store: enumerate the concrete
+    # objects (binding `self` to each, with choicepoints to backtrack over the
+    # rest), then re-dispatch the now-grounded send. This mirrors the old
+    # Prolog `send` whose body opened with `class(self, class)`. `:"$_"` is the
+    # match-anything wildcard, not a receiver to ground, so it falls through.
+    if AL.Var.var?(self) and self != :"$_" do
+      class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
+
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint
+            | goals:
+                splice_goals(state, [{:get_class, self, class_var}, {:send, self, method, args}])
+          }
+      }
+    else
+      do_send(self, method, args, state)
+    end
+  end
+
+  defp do_send(self, method, args, state) do
     call_args = [self | args]
 
     case resolve_method_id(self, method, state.branch) do
@@ -1201,6 +1226,47 @@ defmodule AL do
     Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", branch), fn {:oapply, _id, head, _body} ->
       AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
     end)
+  end
+
+  # The variables a `run`/`next_solution` should report. `findall`/`not`/`forall`
+  # open a local scope: their template and condition variables are existentially
+  # quantified (like Prolog), so only a `findall`'s result var escapes — the rest
+  # must not surface as outer bindings. A variable used both inside such a scope
+  # and elsewhere stays observable via that other (non-local) occurrence.
+  defp observable_vars(goals) when is_list(goals),
+    do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
+
+  defp observable_vars({:findall, _template, _condition, result}),
+    do: AL.Var.find_vars(result)
+
+  defp observable_vars({:not, _condition}), do: MapSet.new()
+
+  defp observable_vars({:forall, _condition, _body}), do: MapSet.new()
+
+  defp observable_vars({:or, left, right}),
+    do: MapSet.union(observable_vars(left), observable_vars(right))
+
+  defp observable_vars({:implies, condition, then, otherwise}),
+    do:
+      observable_vars(condition)
+      |> MapSet.union(observable_vars(then))
+      |> MapSet.union(observable_vars(otherwise))
+
+  defp observable_vars({:then, then}), do: observable_vars(then)
+
+  defp observable_vars(goal), do: AL.Var.find_vars(goal)
+
+  # Standardise a collected solution apart: any variable the template still holds
+  # (the goal never bound it) is renamed to a clean, fresh variable, so internal
+  # freshened scope names never leak out and each solution's vars stay distinct —
+  # AL's take on Prolog's `copy_term` over `findall` results.
+  defp standardize_apart(term) do
+    rename =
+      term
+      |> AL.Var.find_vars()
+      |> Map.new(fn v -> {v, AL.Var.var("_G#{fresh_scope()}")} end)
+
+    AL.Var.subst(term, rename)
   end
 
   defp collect_all_solutions(condition, bindings, tx_id, branch) do

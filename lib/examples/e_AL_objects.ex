@@ -99,4 +99,33 @@ defmodule Examples.ALObjects do
 
     program_state
   end
+
+  # A send to an unbound receiver is a query over the store: it grounds `self`
+  # to a concrete object that understands the method (and backtracks over the
+  # rest), rather than running the body with `self` still an internal var.
+  example anonymous_send_grounds_receiver() do
+    {:atomic, _} =
+      run do
+        set_class(:ping_class, :object)
+        defmethod(:ping_class, :ping, [self, :pong]) do end
+        set_class(:ping_a, :ping_class)
+        set_class(:ping_b, :ping_class)
+      end
+
+    {:atomic, {b, _}} = run do ping(o, r) end
+    first = Map.get(b, :"$o")
+
+    assert is_atom(first) and not AL.Var.var?(first)
+
+    # backtracking enumerates the candidate receivers: every solution grounds
+    # `self` to a concrete object (never a leaked internal var), and for our two
+    # instances the method actually runs, binding its argument to :pong
+    {:atomic, {b2, _}} = run do findall([o, r], [ping(o, r)], pairs) end
+    pairs = Map.get(b2, :"$pairs")
+
+    assert Enum.all?(pairs, fn [o, _r] -> is_atom(o) and not AL.Var.var?(o) end)
+    assert [:ping_a, :pong] in pairs
+    assert [:ping_b, :pong] in pairs
+    :ok
+  end
 end
