@@ -15,7 +15,7 @@ defmodule AL.Package.Users do
 
     defmethod(:owned, :may, [self, caller, _method, _args]) do
       get_slot(self, :owner, owner)
-      unify(caller, owner)
+      caller == owner
     end
 
     defmethod(:owned, :guarded_send, [self, caller, method, args]) do

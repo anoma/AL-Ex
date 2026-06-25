@@ -43,12 +43,11 @@ ACID transactions, durable + replayable state, Git-like branching.
     head with the call args into the *shared* binding map, runs the body, and a
     continuation resumes the caller with that same map — so anything the body
     binds to a head var is visible to the caller's linked vars (no copy-back step).
-  - `send` resolves a method id up the class/super chain, else
-    `does_not_understand`. A **variable in receiver position** lowers to a Mnesia
-    wildcard (`to_mnesia_pattern`), so resolution finds the *first* object anywhere
-    with a method of that name — "anonymous send" is first-match at the send level
-    (it does not backtrack over candidate objects), though the chosen method's
-    multiple clauses still backtrack via `oapply`.
+  - `send` resolves a method id up the class/super chain and applies it (see
+    "How a `send` evaluates" below). A **var in the receiver or selector
+    position turns the send into a query** that backtracks over candidate
+    objects / methods; `does_not_understand` fires only for a fully ground
+    (directed) send.
   - Object creation is **three-phase**: `construct` (make an ephemeral object,
     e.g. `%{class: self}`) → `allocate` (persist it / give it identity) →
     `init` (setup logic). `new` on `:class` chains all three; this is AL's take on
@@ -99,6 +98,53 @@ know how far to reach:
 - **`or`** just pushes the right branch as a normal choicepoint (no mark).
 - `scope_pointer` is carried in continuations, so returning from a method restores
   the caller's scope for the next `cut`.
+
+## How a `send` evaluates
+
+1. **Lowering (`ast_to_pattern`).** `send(recv, sel, args)` and the implicit
+   `sel(recv, …)` (any atom head with ≥1 arg) both become `{:send, recv, sel,
+   args}`. Names that are direct VM ops never become sends: arithmetic
+   (`+ - * / **`) and `@oapply_primitives` (`is`, `map_get`, `map_put`,
+   `lookup`, `fresh_id`, `current_tx`) lower straight to `{:oapply, …}`; a
+   zero-arg `foo()` → `{:oapply, foo, []}`.
+2. **Pre-substitution.** `continue` substitutes the goal against the bindings
+   before `interp` sees it, so "var receiver/selector" means *still unbound
+   after deref*.
+3. **`dispatch/5` picks a mode** (`:send` passes `on_miss = dnu`, `:send_query`
+   passes `on_miss = backtrack`):
+   - **var receiver** (not `:"$_"`) → query over objects: splice
+     `[{:get_class, self, _}, {:send_query, …}]`; `get_class` enumerates every
+     object with a class row, binding `self` with choicepoints, and each
+     grounded receiver is re-dispatched as a query.
+   - **var selector** (not `:"$_"`) → query over the receiver's methods:
+     `understood_method_names` walks `self` then its class/super chain
+     (deduped); a choicepoint per name binds `sel`, then re-dispatches as a
+     query. The arg shape decides which match.
+   - **both ground** → `do_send`. (Both var: receiver query fires first, grounds
+     the object, and the spliced `send_query` re-enters dispatch for the selector.)
+4. **`do_send`** with `call_args = [self | args]`:
+   - `resolve_method_id`: map receiver → `:class` key (default `:map`) chain;
+     list → `:list`; atom → methods defined directly on it, else up its classes
+     and their supers. **First match wins** — no backtracking over candidates
+     here (that's what the query modes add).
+   - no id → `on_miss`.
+   - id → `has_matching_clause?`: the primitive selectors
+     `is/map_get/map_put/gensym/fresh_id` are allowlisted (no stored clauses —
+     e.g. `map`'s `:get` → `:map_get`); else a freshened clause head must unify
+     with `call_args`. No clause fits the arg shape → `on_miss`.
+   - match → `{:oapply, id, call_args}` (bidirectional expansion; a method's
+     other clauses become alternative choicepoints — see the execution model).
+5. **`on_miss`:** directed (`dnu`) re-sends as `does_not_understand(self, [sel,
+   args])`, resolved like any send (default `:object` body is `:fail`); the
+   `dnu` guard backtracks if `does_not_understand` itself isn't understood, so no
+   loop. Query (`backtrack`) just falls to the next candidate — **DNU never fires
+   for a query send.**
+
+Edge cases: a query with no candidates fails (backtracks), never DNUs; only
+fully-ground sends can DNU; `:"$_"` in receiver/selector position is the
+match-anything wildcard, not a slot to ground (it falls to `do_send`, scans as a
+wildcard, takes the first method — use a real var for a query); the receiver
+query only sees objects that have a class row.
 
 ## Stores
 
@@ -160,9 +206,22 @@ record tags and scan patterns are identical across stores. Almost every
   never commit them. The store persists across runs, so stale objects can linger
   after a package is removed (retract with `AL.Package.uninstall/1` or wipe
   `.mnesiastore/`).
+- **Don't `rm -rf .mnesiastore` to pick up a changed definition.** The on-disk
+  command log is meant to be authoritative, append-only history — wiping it
+  throws that away. When a source-level change to a package/method isn't
+  reflected (because the old definition is already installed in the durable
+  log), test in a **throwaway fork** (`AL.Branch.fork` … `discard`) and patch at
+  runtime there. Caveat: `defmethod` *accretes* a clause rather than replacing,
+  so to truly swap a buggy method clause you must retract the old oapply/clause
+  or `uninstall` + reinstall the package — doing that inside a fork you then
+  discard keeps `:main` untouched.
 
 ## Roadmap context
 
 README promises **bitemporality** (valid-time, not just the log's transaction-time
 `t`) and easy time-travel between branch points. Forks are the groundwork;
 diff/merge and valid-time queries are unbuilt.
+
+`method_scopes/2` (the materialised resolution order) is the substrate for a
+future `call_next_method`: have resolution return its position in that list and
+let a `call_next_method` goal re-resolve the selector from the next scope on.

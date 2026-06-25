@@ -52,4 +52,29 @@ defmodule Examples.ALUsers do
 
     :ok
   end
+
+  # An unspecified caller must be denied: the guard is structural equality, not
+  # unification, so an unbound caller can't be silently bound to the owner.
+  example owner_gate_rejects_unbound_caller() do
+    {:atomic, {b, _}} =
+      run do
+        new(:user, %{name: :dana}, dana)
+        new(:owned, %{owner: dana, label: :guarded}, obj)
+      end
+
+    obj = Map.get(b, :"$obj")
+
+    {:aborted, _} =
+      run do
+        update(^obj, caller, [%{label: :leaked}])
+      end
+
+    {:atomic, {b2, _}} =
+      run do
+        get_slot(^obj, :label, l)
+      end
+
+    assert Map.get(b2, :"$l") == :guarded
+    :ok
+  end
 end

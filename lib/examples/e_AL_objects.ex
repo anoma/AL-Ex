@@ -100,9 +100,9 @@ defmodule Examples.ALObjects do
     program_state
   end
 
-  # A send to an unbound receiver is a query over the store: it grounds `self`
-  # to a concrete object that understands the method (and backtracks over the
-  # rest), rather than running the body with `self` still an internal var.
+  # A send to a var receiver is a query over the store: it grounds `self` to a
+  # concrete object that genuinely implements the method, backtracking over the
+  # rest, and never consults `does_not_understand`.
   example anonymous_send_grounds_receiver() do
     {:atomic, _} =
       run do
@@ -110,6 +110,9 @@ defmodule Examples.ALObjects do
         defmethod(:ping_class, :ping, [self, :pong]) do end
         set_class(:ping_a, :ping_class)
         set_class(:ping_b, :ping_class)
+
+        set_class(:ping_proxy, :object)
+        defmethod(:ping_proxy, :does_not_understand, [self, _m, _a]) do end
       end
 
     {:atomic, {b, _}} = run do ping(o, r) end
@@ -117,15 +120,109 @@ defmodule Examples.ALObjects do
 
     assert is_atom(first) and not AL.Var.var?(first)
 
-    # backtracking enumerates the candidate receivers: every solution grounds
-    # `self` to a concrete object (never a leaked internal var), and for our two
-    # instances the method actually runs, binding its argument to :pong
     {:atomic, {b2, _}} = run do findall([o, r], [ping(o, r)], pairs) end
     pairs = Map.get(b2, :"$pairs")
+    receivers = Enum.map(pairs, fn [o, _r] -> o end)
 
-    assert Enum.all?(pairs, fn [o, _r] -> is_atom(o) and not AL.Var.var?(o) end)
+    assert Enum.all?(receivers, fn o -> is_atom(o) and not AL.Var.var?(o) end)
     assert [:ping_a, :pong] in pairs
     assert [:ping_b, :pong] in pairs
+
+    # the catch-all DNU object has no real :ping, so a query skips it...
+    refute :ping_proxy in receivers
+    # ...but a directed send still escalates to does_not_understand
+    {:atomic, _} = run do ping(:ping_proxy, :anything) end
+    :ok
+  end
+
+  # An unspecified selector turns a send into a query over the object's methods:
+  # it binds the selector to each method whose clause accepts the call's arg
+  # shape, backtracking over them.
+  example send_with_unbound_selector_queries_methods() do
+    {:atomic, _} =
+      run do
+        set_class(:queryable, :object)
+        defmethod(:queryable, :alpha, [self, :a]) do end
+        defmethod(:queryable, :delta, [self, :a]) do end
+        defmethod(:queryable, :beta, [self, :b]) do end
+      end
+
+    {:atomic, {b, _}} = run do findall(m, [send(:queryable, m, [:a])], ms) end
+    ms = Map.get(b, :"$ms")
+
+    assert Enum.all?(ms, fn m -> is_atom(m) and not AL.Var.var?(m) end)
+    # :alpha and :delta accept arg :a; :beta wants :b, so it's not a match
+    assert MapSet.subset?(MapSet.new([:alpha, :delta]), MapSet.new(ms))
+    refute :beta in ms
+
+    # a different arg shape selects a different method
+    {:atomic, {b2, _}} = run do findall(m, [send(:queryable, m, [:b])], ms) end
+    ms2 = Map.get(b2, :"$ms")
+
+    assert :beta in ms2
+    refute :alpha in ms2
+    refute :delta in ms2
+    :ok
+  end
+
+  # Resolution walks the receiver's class then up its supers, first match wins —
+  # so an inherited method is found, and a method on a nearer class shadows it.
+  example send_resolves_up_super_chain_with_override() do
+    {:atomic, _} =
+      run do
+        set_class(:animal, :object)
+        defmethod(:animal, :speak, [self, :generic_sound]) do end
+
+        set_super(:dog, :animal)
+        set_class(:rex, :dog)
+
+        set_super(:cat, :animal)
+        defmethod(:cat, :speak, [self, :meow]) do end
+        set_class(:felix, :cat)
+      end
+
+    # rex has no speak of its own; it's inherited dog -> animal
+    {:atomic, {b, _}} = run do speak(:rex, s) end
+    assert Map.get(b, :"$s") == :generic_sound
+
+    # cat defines speak, shadowing animal's for felix
+    {:atomic, {b2, _}} = run do speak(:felix, s) end
+    assert Map.get(b2, :"$s") == :meow
+    :ok
+  end
+
+  # The safety property behind query sends: enumerating a receiver must not fire
+  # the does_not_understand of objects that don't match — DNU can have side
+  # effects, and a query is meant to be a read-only probe.
+  example query_send_does_not_trigger_dnu_side_effects() do
+    {:atomic, _} =
+      run do
+        set_class(:real_pinger_class, :object)
+        defmethod(:real_pinger_class, :probe, [self, :hit]) do end
+        set_class(:real_pinger, :real_pinger_class)
+
+        set_class(:tripwire, :object)
+        set_slots(:tripwire, %{tripped: :no})
+
+        defmethod(:tripwire, :does_not_understand, [self, _m, _a]) do
+          set_slots(self, %{tripped: :yes})
+        end
+      end
+
+    # a query for :probe grounds to real implementers and skips :tripwire without
+    # consulting its does_not_understand
+    {:atomic, {b, _}} = run do findall(o, [probe(o, :hit)], os) end
+    os = Map.get(b, :"$os")
+    assert :real_pinger in os
+    refute :tripwire in os
+
+    {:atomic, {b2, _}} = run do get_slot(:tripwire, :tripped, t) end
+    assert Map.get(b2, :"$t") == :no
+
+    # a directed send of the same unimplemented method *does* fire DNU
+    {:atomic, _} = run do probe(:tripwire, :hit) end
+    {:atomic, {b3, _}} = run do get_slot(:tripwire, :tripped, t) end
+    assert Map.get(b3, :"$t") == :yes
     :ok
   end
 end

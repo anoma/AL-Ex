@@ -77,8 +77,10 @@ defmodule AL do
           | {:print, AL.Var.t()}
           | {:not, [goal()]}
           | {:unify, AL.Var.t(), AL.Var.t()}
+          | {:equal, AL.Var.t(), AL.Var.t()}
           | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
           | {:send, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:send_query, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | :fail
 
   @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
@@ -200,6 +202,9 @@ defmodule AL do
 
   def ast_to_pattern({:unify, _, [a, b]}),
     do: {:unify, ast_to_pattern(a), ast_to_pattern(b)}
+
+  def ast_to_pattern({:==, _, [a, b]}),
+    do: {:equal, ast_to_pattern(a), ast_to_pattern(b)}
 
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
@@ -1116,6 +1121,19 @@ defmodule AL do
     end
   end
 
+  # Structural equality (Prolog `==`): succeeds only if both sides are already
+  # the same term. Unlike `unify`, it never binds, so an unbound side fails
+  # rather than being silently made equal — what authorization checks need.
+  def interp({:equal, a, b}, state) do
+    bindings = state.active_choicepoint.bindings
+
+    if AL.Var.subst(a, bindings) == AL.Var.subst(b, bindings) do
+      state
+    else
+      backtrack(state)
+    end
+  end
+
   def interp({:not, condition}, state) do
     case collect_all_solutions(
            condition,
@@ -1132,40 +1150,98 @@ defmodule AL do
     backtrack(state)
   end
 
-  def interp({:send, self, method, args}, state) do
-    # An unbound receiver is a query over the store: enumerate the concrete
-    # objects (binding `self` to each, with choicepoints to backtrack over the
-    # rest), then re-dispatch the now-grounded send. This mirrors the old
-    # Prolog `send` whose body opened with `class(self, class)`. `:"$_"` is the
-    # match-anything wildcard, not a receiver to ground, so it falls through.
-    if AL.Var.var?(self) and self != :"$_" do
-      class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
+  def interp({:send, self, method, args}, state),
+    do: dispatch(self, method, args, state, &dnu(self, method, args, &1))
 
-      %AL{
-        state
-        | active_choicepoint: %AL.Choicepoint{
-            state.active_choicepoint
-            | goals:
-                splice_goals(state, [{:get_class, self, class_var}, {:send, self, method, args}])
-          }
-      }
-    else
-      do_send(self, method, args, state)
+  # Re-dispatch of a query send: a non-match is skipped, never escalated to
+  # `does_not_understand` (a directed-send hook that may carry side effects we
+  # must not fire against every candidate in the store).
+  def interp({:send_query, self, method, args}, state),
+    do: dispatch(self, method, args, state, &backtrack/1)
+
+  # A var in the receiver or selector position turns a send into a query over
+  # the store: enumerate the candidates, ground that position, and re-dispatch as
+  # a query (so misses backtrack instead of firing DNU). Only a fully ground send
+  # is "directed" and uses `on_miss`. `:"$_"` is the wildcard, not a position to
+  # ground.
+  defp dispatch(self, method, args, state, on_miss) do
+    cond do
+      AL.Var.var?(self) and self != :"$_" ->
+        class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
+
+        splice_into(state, [
+          {:get_class, self, class_var},
+          {:send_query, self, method, args}
+        ])
+
+      AL.Var.var?(method) and method != :"$_" ->
+        enumerate_selectors(self, method, args, state)
+
+      true ->
+        do_send(self, method, args, state, on_miss)
     end
   end
 
-  defp do_send(self, method, args, state) do
+  defp splice_into(state, goals) do
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | goals: splice_goals(state, goals)
+        }
+    }
+  end
+
+  # Bind the selector to each method `self` understands (with choicepoints to
+  # backtrack over them) and re-dispatch as a query, so the call's arg shape
+  # selects which methods actually match.
+  defp enumerate_selectors(self, method, args, state) do
+    case understood_method_names(self, state.branch) do
+      [] ->
+        backtrack(state)
+
+      names ->
+        spliced = splice_goals(state, [{:send_query, self, method, args}])
+
+        candidate = fn name ->
+          %AL.Choicepoint{
+            state.active_choicepoint
+            | goals: spliced,
+              bindings: AL.Var.unify(method, name, state.active_choicepoint.bindings)
+          }
+        end
+
+        [first | rest] = names
+
+        %AL{
+          state
+          | active_choicepoint: candidate.(first),
+            choicepoint_stack: Enum.map(rest, candidate) ++ state.choicepoint_stack
+        }
+    end
+  end
+
+  defp understood_method_names(self, branch) do
+    method_scopes(self, branch)
+    |> Enum.flat_map(fn scope ->
+      for {:method, _o, name, _id} <- AL.Object.scan_method(scope, :"$name", :"$id", branch),
+          do: name
+    end)
+    |> Enum.uniq()
+  end
+
+  defp do_send(self, method, args, state, on_miss) do
     call_args = [self | args]
 
     case resolve_method_id(self, method, state.branch) do
       nil ->
-        dnu(self, method, args, state)
+        on_miss.(state)
 
       id ->
         if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.branch) do
           interp({:oapply, id, call_args}, state)
         else
-          dnu(self, method, args, state)
+          on_miss.(state)
         end
     end
   end
@@ -1175,40 +1251,38 @@ defmodule AL do
   defp dnu(self, method, args, state),
     do: interp({:send, self, :does_not_understand, [method, args]}, state)
 
-  defp resolve_method_id(self, method, branch) when is_map(self),
-    do: resolve_in_chain([Map.get(self, :class, :map)], method, branch)
-
-  defp resolve_method_id(self, method, branch) when is_list(self),
-    do: resolve_in_chain([:list], method, branch)
-
   defp resolve_method_id(self, method, branch) do
-    case method_ids(self, method, branch) do
-      [id | _] ->
-        id
-
-      [] ->
-        resolve_in_chain(
-          for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", branch), do: c),
-          method,
-          branch
-        )
-    end
+    Enum.find_value(method_scopes(self, branch), fn scope ->
+      case method_ids(scope, method, branch) do
+        [id | _] -> id
+        [] -> nil
+      end
+    end)
   end
 
-  defp resolve_in_chain(classes, method, branch),
-    do: Enum.find_value(classes, fn c -> chain_first_id(c, method, branch) end)
+  # The ordered scopes a method lookup searches: the receiver itself (for an atom
+  # object), then its classes and their supers, depth-first and deduped. Map/list
+  # receivers start from their `:class`/`:list` pseudo-class. Shared by method
+  # resolution (first scope with the method wins) and the selector query (every
+  # method name across the scopes).
+  defp method_scopes(self, branch) when is_map(self),
+    do: super_chain([Map.get(self, :class, :map)], branch)
 
-  defp chain_first_id(class, method, branch) do
-    case method_ids(class, method, branch) do
-      [id | _] ->
-        id
+  defp method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch)
 
-      [] ->
-        resolve_in_chain(
-          for({:super, _o, s} <- AL.Object.scan_super(class, :"$super", branch), do: s),
-          method,
-          branch
-        )
+  defp method_scopes(self, branch),
+    do: [self | super_chain(for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", branch), do: c), branch)]
+
+  defp super_chain(seeds, branch), do: super_chain(seeds, branch, MapSet.new(), [])
+
+  defp super_chain([], _branch, _seen, acc), do: Enum.reverse(acc)
+
+  defp super_chain([class | rest], branch, seen, acc) do
+    if MapSet.member?(seen, class) do
+      super_chain(rest, branch, seen, acc)
+    else
+      supers = for {:super, _o, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
+      super_chain(supers ++ rest, branch, MapSet.put(seen, class), [class | acc])
     end
   end
 
@@ -1228,11 +1302,9 @@ defmodule AL do
     end)
   end
 
-  # The variables a `run`/`next_solution` should report. `findall`/`not`/`forall`
-  # open a local scope: their template and condition variables are existentially
-  # quantified (like Prolog), so only a `findall`'s result var escapes — the rest
-  # must not surface as outer bindings. A variable used both inside such a scope
-  # and elsewhere stays observable via that other (non-local) occurrence.
+  # Variables a `run` reports. `findall`/`not`/`forall` are local scopes: only a
+  # `findall`'s result var escapes, so their template/condition vars don't
+  # surface as outer bindings (unless used elsewhere too).
   defp observable_vars(goals) when is_list(goals),
     do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
 
@@ -1256,10 +1328,8 @@ defmodule AL do
 
   defp observable_vars(goal), do: AL.Var.find_vars(goal)
 
-  # Standardise a collected solution apart: any variable the template still holds
-  # (the goal never bound it) is renamed to a clean, fresh variable, so internal
-  # freshened scope names never leak out and each solution's vars stay distinct —
-  # AL's take on Prolog's `copy_term` over `findall` results.
+  # Rename a solution's still-unbound vars to fresh clean ones, so internal
+  # freshened scope names never leak out (Prolog's `copy_term` over solutions).
   defp standardize_apart(term) do
     rename =
       term
