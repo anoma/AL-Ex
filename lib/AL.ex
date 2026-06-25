@@ -629,27 +629,20 @@ defmodule AL do
         backtrack(state)
 
       [choice | next_choices] ->
+        clause = {:oapply, object_pattern, :"$_", head_pattern, body_pattern}
+
         %AL{
           state
           | active_choicepoint: %AL.Choicepoint{
               state.active_choicepoint
               | bindings:
-                  AL.Var.unify(
-                    choice,
-                    {:oapply, object_pattern, head_pattern, body_pattern},
-                    state.active_choicepoint.bindings
-                  )
+                  AL.Var.unify(choice, clause, state.active_choicepoint.bindings)
             },
             choicepoint_stack:
               Enum.map(next_choices, fn c ->
                 %AL.Choicepoint{
                   state.active_choicepoint
-                  | bindings:
-                      AL.Var.unify(
-                        c,
-                        {:oapply, object_pattern, head_pattern, body_pattern},
-                        state.active_choicepoint.bindings
-                      )
+                  | bindings: AL.Var.unify(c, clause, state.active_choicepoint.bindings)
                 }
               end) ++ state.choicepoint_stack
         }
@@ -747,7 +740,7 @@ defmodule AL do
       [] ->
         backtrack(state)
 
-      [{:oapply, id, head, body} | next_choices] ->
+      [{:oapply, id, _seq, head, body} | next_choices] ->
         scope = fresh_scope()
         freshener = Integer.to_string(scope)
 
@@ -761,7 +754,7 @@ defmodule AL do
         }
 
         alternative_choicepoints =
-          Enum.map(next_choices, fn {:oapply, alt_id, alt_head, alt_body} ->
+          Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
             %AL.Choicepoint{
               goals: AL.Var.freshen(alt_body, freshener),
               bindings:
@@ -911,8 +904,9 @@ defmodule AL do
   def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
 
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    AL.Command.set_oapply(state.tx_id, object_pattern, head_pattern, body_pattern, state.branch)
-    AL.Object.set_oapply(object_pattern, head_pattern, body_pattern, state.branch)
+    seq = AL.Object.next_oapply_seq(object_pattern, state.branch)
+    AL.Command.set_oapply(state.tx_id, object_pattern, seq, head_pattern, body_pattern, state.branch)
+    AL.Object.set_oapply(object_pattern, seq, head_pattern, body_pattern, state.branch)
     state
   end
 
@@ -1297,7 +1291,7 @@ defmodule AL do
   defp any_clause_matches?(id, call_args, bindings, branch) do
     scope = Integer.to_string(fresh_scope())
 
-    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", branch), fn {:oapply, _id, head, _body} ->
+    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", branch), fn {:oapply, _id, _seq, head, _body} ->
       AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
     end)
   end

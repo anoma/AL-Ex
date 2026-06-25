@@ -146,6 +146,38 @@ match-anything wildcard, not a slot to ground (it falls to `do_send`, scans as a
 wildcard, takes the first method — use a real var for a query); the receiver
 query only sees objects that have a class row.
 
+## Tables
+
+Fields listed key-first. Projection tables (`AL.Object`) are per-branch
+`ram_copies` — a **materialised view** rebuilt by replaying `command` in
+`t`-order; the log + lineage are the durable truth.
+
+Projection (`AL.Object`):
+- `class {object, class}` · `:bag` — `object` is an instance of `class` (class
+  membership; several rows = multiple classification).
+- `super {object, super}` · `:bag` — class `object` has superclass `super` (the
+  inheritance relation; several rows = multiple inheritance).
+- `slots {object, slots}` · `:set` — `object`'s slot map; one row per object,
+  latest write wins.
+- `method {object, method_name, method_id}` · `:bag` — class/object `object`
+  answers `method_name` with the method object `method_id`. Resolution walks
+  this up the class/super chain (see "How a `send` evaluates").
+- `oapply {object, head, body}` · `:bag` — the **clauses** of a method: `object`
+  here is a `method_id`, `head` the arg pattern (`[self | …]`), `body` the goal
+  list. Several rows = several clauses, tried in scan order — **that order is
+  currently incidental bag order, not explicit data** (what the clause-ordering
+  work makes first-class).
+
+Log + metadata (`AL.Command`, durable):
+- `command {t, tx_id, command}` · `:ordered_set` — the append-only log. `t` is
+  the global monotonic counter (the ordering key); `command` is the op.
+  Authoritative history; everything else is derived from it.
+- `meta {key, value}` · `:set` — per-branch key/value (e.g. `:head` → current
+  branch, kept in `:main`'s `meta`).
+
+Lineage (`AL.Branch`, `:main` only):
+- `branch {parent, child}` · `:bag` — fork lineage edges; HEAD is `meta[:head]`.
+
 ## Stores
 
 `:main` uses base table names; a fork `f` uses `@f`-suffixed tables
@@ -168,6 +200,13 @@ record tags and scan patterns are identical across stores. Almost every
   `example` blocks and are wired into `test/al_test.exs` via
   `use ExExample.ExUnit, for: Examples.X`. Run with `mix test`. Examples are
   memoised nodes — one `example` can call another to reuse its result.
+- **Examples before implementation, then sweep for edges.** Write the `example`
+  for the behaviour you intend *first* — it should fail (red) before any
+  implementation exists — then implement until it passes. Prefer asserting
+  *observable behaviour* (what a `send`/query returns) over internal storage, so
+  the example pins the goal, not the mechanism. **After** it works, revisit and
+  add examples for the corners the implementation surfaced (boundary args, empty
+  results, backtracking, interaction with `cut`/DNU/forks, idempotence/replay).
 - **Every bug fix ships with a test.** When you discover a bug, before/with the
   fix write the *simplest* `example` that exercises the correct behaviour — one
   that fails on the old code and passes on the new. This is the primary way AL

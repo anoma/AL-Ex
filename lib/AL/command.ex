@@ -21,7 +21,7 @@ defmodule AL.Command do
           {:set_class, {AL.Var.t(), AL.Var.t()}}
           | {:set_super, {AL.Var.t(), AL.Var.t()}}
           | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
-          | {:set_oapply, {AL.Var.t(), AL.Var.t(), [AL.goal()]}}
+          | {:set_oapply, {AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()]}}
           | {:set_slots, {AL.Var.t(), AL.Var.t()}}
           | {:retract_class, {AL.Var.t(), AL.Var.t()}}
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
@@ -205,10 +205,10 @@ defmodule AL.Command do
   @doc """
   Write a command that says the object was given a run method
   """
-  @spec set_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Branch.t()) ::
+  @spec set_oapply(non_neg_integer(), AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) ::
           :ok
-  def set_oapply(tx_id, object, head, body, branch \\ :main) do
-    write_command(tx_id, {:set_oapply, {object, head, body}}, branch)
+  def set_oapply(tx_id, object, seq, head, body, branch \\ :main) do
+    write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
   end
 
   @doc """

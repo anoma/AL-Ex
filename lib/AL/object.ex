@@ -13,14 +13,14 @@ defmodule AL.Object do
   @type super_record() :: {:super, AL.Var.t(), AL.Var.t()}
   @type slots_record() :: {:slots, AL.Var.t(), AL.Var.t()}
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-  @type oapply_record() :: {:oapply, AL.Var.t(), AL.Var.t(), [AL.goal()]}
+  @type oapply_record() :: {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()]}
 
   @relations %{
     class: [:object, :class],
     super: [:object, :super],
     slots: [:object, :slots],
     method: [:object, :method_name, :method_id],
-    oapply: [:object, :head, :body]
+    oapply: [:object, :seq, :head, :body]
   }
   @bags [:class, :super, :method, :oapply]
 
@@ -93,8 +93,10 @@ defmodule AL.Object do
   @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [oapply_record()]
   def scan_oapply(self_pattern, head_pattern, body_pattern, branch \\ :main) do
     :mnesia.select(table(:oapply, branch), [
-      {AL.Var.to_mnesia_pattern({:oapply, self_pattern, head_pattern, body_pattern}), [], [:"$_"]}
+      {AL.Var.to_mnesia_pattern({:oapply, self_pattern, :"$oapply_seq", head_pattern, body_pattern}),
+       [], [:"$_"]}
     ])
+    |> Enum.sort_by(fn {:oapply, _object, seq, _head, _body} -> seq end)
   end
 
   @spec read_slots(AL.Var.t(), AL.Branch.t()) :: [slots_record()]
@@ -166,9 +168,18 @@ defmodule AL.Object do
     :mnesia.write(table(:method, branch), {:method, object, method_name, method_id}, :write)
   end
 
-  @spec set_oapply(AL.Var.t(), AL.Var.t(), [AL.goal()], AL.Branch.t()) :: :ok
-  def set_oapply(object, head, body, branch \\ :main) do
-    :mnesia.write(table(:oapply, branch), {:oapply, object, head, body}, :write)
+  @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) :: :ok
+  def set_oapply(object, seq, head, body, branch \\ :main) do
+    :mnesia.write(table(:oapply, branch), {:oapply, object, seq, head, body}, :write)
+  end
+
+  @doc "The next clause `seq` for `object` — one past its current maximum, 0 if none."
+  @spec next_oapply_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  def next_oapply_seq(object, branch \\ :main) do
+    case :mnesia.read(table(:oapply, branch), object) do
+      [] -> 0
+      rows -> rows |> Enum.map(fn {:oapply, _o, seq, _h, _b} -> seq end) |> Enum.max() |> Kernel.+(1)
+    end
   end
 
   @spec set_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
@@ -194,7 +205,7 @@ defmodule AL.Object do
       :set_class -> with {o, c} <- event, do: set_class(o, c, branch)
       :set_super -> with {o, s} <- event, do: set_super(o, s, branch)
       :set_method -> with {o, n, id} <- event, do: set_method(o, n, id, branch)
-      :set_oapply -> with {o, h, b} <- event, do: set_oapply(o, h, b, branch)
+      :set_oapply -> with {o, s, h, b} <- event, do: set_oapply(o, s, h, b, branch)
       :set_slots -> with {o, s} <- event, do: set_slots(o, s, branch)
       :retract_class -> with {o, c} <- event, do: retract_class(o, c, branch)
       :retract_super -> with {o, s} <- event, do: retract_super(o, s, branch)

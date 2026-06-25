@@ -41,3 +41,7 @@ end
 defmodule ALUsersTest do
   use ExExample.ExUnit, for: Examples.ALUsers
 end
+
+defmodule ALClausesTest do
+  use ExExample.ExUnit, for: Examples.ALClauses
+end
