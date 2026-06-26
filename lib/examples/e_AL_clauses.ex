@@ -20,7 +20,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first]) do
@@ -31,7 +31,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         findall(t, [tag(^c, t)], ts)
       end
 
@@ -45,7 +45,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first]) do
@@ -55,7 +55,7 @@ defmodule Examples.ALClauses do
         end
       end
 
-    tip = AL.Branch.fork()
+    tip = AL.Branch.fork(:tip, :examples)
 
     {:atomic, {b, _}} =
       run branch: tip do
@@ -74,7 +74,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first]) do
@@ -85,13 +85,13 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         method(^c, :tag, id)
         retract_oapply(id, _)
       end
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         method(^c, :tag, id)
 
         set_oapply(id, [self, :second]) do
@@ -102,7 +102,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         findall(t, [tag(^c, t)], ts)
       end
 
@@ -116,7 +116,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first]) do
@@ -127,7 +127,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         method(^c, :tag, id)
         findall(s, [clause(id, s, h, body)], seqs)
       end
@@ -143,7 +143,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first]) do
@@ -154,13 +154,13 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         method(^c, :tag, id)
         retract_oapply(id, _)
       end
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         method(^c, :tag, id)
 
         set_oapply(id, 1, [self, :first]) do
@@ -171,7 +171,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         findall(t, [tag(^c, t)], ts)
       end
 
@@ -186,7 +186,7 @@ defmodule Examples.ALClauses do
   # standardized apart, so the query matches regardless of the names it uses.
   example clause_read_does_not_capture_query_vars() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         findall(head, [clause(:defmethod, head, body)], heads)
       end
 
@@ -213,7 +213,7 @@ defmodule Examples.ALClauses do
 
   defp at_clause_arities() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         method(:list, :at, id)
         findall(head, [clause(id, head, body)], heads)
       end
@@ -223,7 +223,7 @@ defmodule Examples.ALClauses do
 
   defp swap_first_two_at_clauses() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         method(:list, :at, id)
         findall([head, body], [clause(id, head, body)], clauses)
       end
@@ -232,7 +232,7 @@ defmodule Examples.ALClauses do
     reordered = [y, x, z]
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         reorder_clauses(:list, :at, _, ^reordered)
       end
   end

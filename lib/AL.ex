@@ -348,12 +348,12 @@ defmodule AL do
   """
   @spec eval([goal()], AL.Var.bindings() | nil, AL.Branch.t()) ::
           {:atomic, {AL.Var.bindings(), t()}} | {:aborted, term()}
-  def eval(program, initial_bindings \\ nil, branch \\ :main) do
+  def eval(program, initial_bindings \\ nil, branch \\ AL.Branch.head()) do
     bindings = initial_bindings || AL.Var.empty_bindings()
     input_vars = observable_vars(program)
 
     :mnesia.transaction(fn ->
-      tx_id = AL.Command.system_time()
+      tx_id = AL.Command.system_time(branch)
 
       result =
         continue(%AL{
@@ -397,7 +397,7 @@ defmodule AL do
     input_vars = observable_vars(state.program)
 
     :mnesia.transaction(fn ->
-      tx_id = AL.Command.system_time()
+      tx_id = AL.Command.system_time(state.branch)
       result = backtrack(%AL{state | tx_id: tx_id})
 
       if result.active_choicepoint.bindings == nil do

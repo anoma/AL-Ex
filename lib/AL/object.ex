@@ -29,7 +29,7 @@ defmodule AL.Object do
   end
 
   @spec table(atom(), AL.Branch.t()) :: atom()
-  def table(relation, branch \\ :main)
+  def table(relation, branch \\ AL.Branch.head())
   def table(relation, :main), do: relation
   def table(relation, branch), do: :"#{relation}@#{branch}"
 
@@ -62,28 +62,28 @@ defmodule AL.Object do
   defp type(_relation), do: :set
 
   @spec scan_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [class_record()]
-  def scan_class(self_pattern, class_pattern, branch \\ :main) do
+  def scan_class(self_pattern, class_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:class, branch), [
       {AL.Var.to_mnesia_pattern({:class, self_pattern, class_pattern}), [], [:"$_"]}
     ])
   end
 
   @spec scan_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [super_record()]
-  def scan_super(self_pattern, super_pattern, branch \\ :main) do
+  def scan_super(self_pattern, super_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:super, branch), [
       {AL.Var.to_mnesia_pattern({:super, self_pattern, super_pattern}), [], [:"$_"]}
     ])
   end
 
   @spec scan_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [slots_record()]
-  def scan_slots(self_pattern, slots_pattern, branch \\ :main) do
+  def scan_slots(self_pattern, slots_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:slots, branch), [
       {AL.Var.to_mnesia_pattern({:slots, self_pattern, slots_pattern}), [], [:"$_"]}
     ])
   end
 
   @spec scan_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [method_record()]
-  def scan_method(self_pattern, method_name_pattern, method_id_pattern, branch \\ :main) do
+  def scan_method(self_pattern, method_name_pattern, method_id_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:method, branch), [
       {AL.Var.to_mnesia_pattern({:method, self_pattern, method_name_pattern, method_id_pattern}),
        [], [:"$_"]}
@@ -93,7 +93,7 @@ defmodule AL.Object do
   @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [
           oapply_record()
         ]
-  def scan_oapply(self_pattern, seq_pattern, head_pattern, body_pattern, branch \\ :main) do
+  def scan_oapply(self_pattern, seq_pattern, head_pattern, body_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:oapply, branch), [
       {AL.Var.to_mnesia_pattern({:oapply, self_pattern, seq_pattern, head_pattern, body_pattern}),
        [], [:"$_"]}
@@ -102,22 +102,22 @@ defmodule AL.Object do
   end
 
   @spec read_slots(AL.Var.t(), AL.Branch.t()) :: [slots_record()]
-  def read_slots(object, branch \\ :main) do
+  def read_slots(object, branch \\ AL.Branch.head()) do
     :mnesia.read(table(:slots, branch), object)
   end
 
   @spec retract_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_class(object_pattern, class_pattern, branch \\ :main) do
+  def retract_class(object_pattern, class_pattern, branch \\ AL.Branch.head()) do
     delete_all(:class, scan_class(object_pattern, class_pattern, branch), branch)
   end
 
   @spec retract_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_super(object_pattern, super_pattern, branch \\ :main) do
+  def retract_super(object_pattern, super_pattern, branch \\ AL.Branch.head()) do
     delete_all(:super, scan_super(object_pattern, super_pattern, branch), branch)
   end
 
   @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_method(object_pattern, method_name_pattern, method_id_pattern, branch \\ :main) do
+  def retract_method(object_pattern, method_name_pattern, method_id_pattern, branch \\ AL.Branch.head()) do
     delete_all(
       :method,
       scan_method(object_pattern, method_name_pattern, method_id_pattern, branch),
@@ -126,7 +126,7 @@ defmodule AL.Object do
   end
 
   @spec retract_oapply(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_oapply(object_pattern, head_pattern, branch \\ :main) do
+  def retract_oapply(object_pattern, head_pattern, branch \\ AL.Branch.head()) do
     delete_all(
       :oapply,
       scan_oapply(object_pattern, :"$seq", head_pattern, :"$body", branch),
@@ -140,7 +140,7 @@ defmodule AL.Object do
   end
 
   @spec retract_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_slots(object, slots, branch \\ :main)
+  def retract_slots(object, slots, branch \\ AL.Branch.head())
 
   def retract_slots(object, slots, branch) when is_map(slots) do
     case read_slots(object, branch) do
@@ -160,28 +160,28 @@ defmodule AL.Object do
   end
 
   @spec set_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_class(object, class, branch \\ :main) do
+  def set_class(object, class, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:class, branch), {:class, object, class}, :write)
   end
 
   @spec set_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_super(object, super, branch \\ :main) do
+  def set_super(object, super, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:super, branch), {:super, object, super}, :write)
   end
 
   @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_method(object, method_name, method_id, branch \\ :main) do
+  def set_method(object, method_name, method_id, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:method, branch), {:method, object, method_name, method_id}, :write)
   end
 
   @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) :: :ok
-  def set_oapply(object, seq, head, body, branch \\ :main) do
+  def set_oapply(object, seq, head, body, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:oapply, branch), {:oapply, object, seq, head, body}, :write)
   end
 
   @doc "The next clause `seq` for `object` — one past its current maximum, 0 if none."
   @spec next_oapply_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
-  def next_oapply_seq(object, branch \\ :main) do
+  def next_oapply_seq(object, branch \\ AL.Branch.head()) do
     case :mnesia.read(table(:oapply, branch), object) do
       [] ->
         0
@@ -192,7 +192,7 @@ defmodule AL.Object do
   end
 
   @spec set_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_slots(object, new_slots, branch \\ :main)
+  def set_slots(object, new_slots, branch \\ AL.Branch.head())
 
   def set_slots(object, new_slots, branch) when is_map(new_slots) do
     existing =
@@ -209,7 +209,7 @@ defmodule AL.Object do
   end
 
   @spec hydrate_event(AL.Command.command_op(), tuple(), AL.Branch.t()) :: any()
-  def hydrate_event(op, event, branch \\ :main) do
+  def hydrate_event(op, event, branch \\ AL.Branch.head()) do
     case op do
       :set_class -> with {o, c} <- event, do: set_class(o, c, branch)
       :set_super -> with {o, s} <- event, do: set_super(o, s, branch)
@@ -228,13 +228,13 @@ defmodule AL.Object do
 
   @doc "Replay commands at or after time `t` into `branch`."
   @spec hydrate_since(non_neg_integer(), AL.Branch.t()) :: {:atomic, any()} | {:aborted, term()}
-  def hydrate_since(t, branch \\ :main) do
+  def hydrate_since(t, branch \\ AL.Branch.head()) do
     hydrate(fn -> AL.Command.commands_since(t, branch) end, branch)
   end
 
   @doc "Replay commands up to and including time `t` into `branch`."
   @spec hydrate_until(non_neg_integer(), AL.Branch.t()) :: {:atomic, any()} | {:aborted, term()}
-  def hydrate_until(t, branch \\ :main) do
+  def hydrate_until(t, branch \\ AL.Branch.head()) do
     hydrate(fn -> AL.Command.commands_until(t, branch) end, branch)
   end
 

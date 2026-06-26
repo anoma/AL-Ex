@@ -13,7 +13,7 @@ defmodule Examples.ALTrace do
 
     output =
       capture_io(fn ->
-        run do
+        run branch: :examples do
           new(:cell, %{name: :traced}, c)
         end
       end)
@@ -29,7 +29,7 @@ defmodule Examples.ALTrace do
 
     output =
       capture_io(fn ->
-        run do
+        run branch: :examples do
           member([:a, :b], :z)
         end
       end)

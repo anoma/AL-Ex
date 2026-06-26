@@ -9,7 +9,7 @@ defmodule Examples.ALObjects do
 
   example defmethod() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         new(:class, %{name: :greeter, super: :ephemeral, slots: []}, _)
 
         defmethod(:greeter, :greet, [self, name]) do
@@ -25,7 +25,7 @@ defmodule Examples.ALObjects do
 
   example make_point_object() do
     {:atomic, {bindings, result}} =
-      run do
+      run branch: :examples do
         new(:class, %{name: :point, super: :ephemeral, slots: []}, new_point_class)
         new(new_point_class, _, new_point_object)
         cut
@@ -39,7 +39,7 @@ defmodule Examples.ALObjects do
 
   example metaclass_alloc_override() do
     {:atomic, {b, program_state}} =
-      run do
+      run branch: :examples do
         new(:class, %{name: :durable_meta, super: :object, slots: []}, _)
 
         defmethod(:durable_meta, :allocate, [self, args, name]) do
@@ -66,7 +66,7 @@ defmodule Examples.ALObjects do
 
   example defmethod_accretes_clauses() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:multi, :object)
 
         defmethod(:multi, :pick, [self, :a, :first]) do
@@ -78,12 +78,12 @@ defmodule Examples.ALObjects do
 
     # both clauses are reachable on the same method
     {:atomic, {b1, _}} =
-      run do
+      run branch: :examples do
         pick(:multi, :a, r)
       end
 
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         pick(:multi, :b, r)
       end
 
@@ -92,7 +92,7 @@ defmodule Examples.ALObjects do
 
     # the two defmethods accreted clauses onto one id, not two separate methods
     {:atomic, {b3, _}} =
-      run do
+      run branch: :examples do
         findall(id, [method(:multi, :pick, id)], ids)
       end
 
@@ -102,7 +102,7 @@ defmodule Examples.ALObjects do
 
   example examine() do
     {:atomic, {bindings, program_state}} =
-      run do
+      run branch: :examples do
         examine(:class, info)
         map_get(info, :methods, methods)
         map_get(info, :classes, classes)
@@ -120,7 +120,7 @@ defmodule Examples.ALObjects do
   # rest, and never consults `does_not_understand`.
   example anonymous_send_grounds_receiver() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:ping_class, :object)
 
         defmethod(:ping_class, :ping, [self, :pong]) do
@@ -136,7 +136,7 @@ defmodule Examples.ALObjects do
       end
 
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         ping(o, r)
       end
 
@@ -145,7 +145,7 @@ defmodule Examples.ALObjects do
     assert is_atom(first) and not AL.Var.var?(first)
 
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         findall([o, r], [ping(o, r)], pairs)
       end
 
@@ -160,7 +160,7 @@ defmodule Examples.ALObjects do
     refute :ping_proxy in receivers
     # ...but a directed send still escalates to does_not_understand
     {:atomic, _} =
-      run do
+      run branch: :examples do
         ping(:ping_proxy, :anything)
       end
 
@@ -172,7 +172,7 @@ defmodule Examples.ALObjects do
   # shape, backtracking over them.
   example send_with_unbound_selector_queries_methods() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:queryable, :object)
 
         defmethod(:queryable, :alpha, [self, :a]) do
@@ -186,7 +186,7 @@ defmodule Examples.ALObjects do
       end
 
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         findall(m, [send(:queryable, m, [:a])], ms)
       end
 
@@ -199,7 +199,7 @@ defmodule Examples.ALObjects do
 
     # a different arg shape selects a different method
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         findall(m, [send(:queryable, m, [:b])], ms)
       end
 
@@ -215,7 +215,7 @@ defmodule Examples.ALObjects do
   # so an inherited method is found, and a method on a nearer class shadows it.
   example send_resolves_up_super_chain_with_override() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:animal, :object)
 
         defmethod(:animal, :speak, [self, :generic_sound]) do
@@ -234,7 +234,7 @@ defmodule Examples.ALObjects do
 
     # rex has no speak of its own; it's inherited dog -> animal
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         speak(:rex, s)
       end
 
@@ -242,7 +242,7 @@ defmodule Examples.ALObjects do
 
     # cat defines speak, shadowing animal's for felix
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         speak(:felix, s)
       end
 
@@ -255,7 +255,7 @@ defmodule Examples.ALObjects do
   # effects, and a query is meant to be a read-only probe.
   example query_send_does_not_trigger_dnu_side_effects() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:real_pinger_class, :object)
 
         defmethod(:real_pinger_class, :probe, [self, :hit]) do
@@ -274,7 +274,7 @@ defmodule Examples.ALObjects do
     # a query for :probe grounds to real implementers and skips :tripwire without
     # consulting its does_not_understand
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         findall(o, [probe(o, :hit)], os)
       end
 
@@ -283,7 +283,7 @@ defmodule Examples.ALObjects do
     refute :tripwire in os
 
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         get_slot(:tripwire, :tripped, t)
       end
 
@@ -291,12 +291,12 @@ defmodule Examples.ALObjects do
 
     # a directed send of the same unimplemented method *does* fire DNU
     {:atomic, _} =
-      run do
+      run branch: :examples do
         probe(:tripwire, :hit)
       end
 
     {:atomic, {b3, _}} =
-      run do
+      run branch: :examples do
         get_slot(:tripwire, :tripped, t)
       end
 

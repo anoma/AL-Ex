@@ -19,7 +19,7 @@ defmodule Examples.ALGenserver do
     def init(object_id) do
       pid = self()
 
-      run do
+      run branch: :examples do
         new(:elixir_process, %{name: ^object_id, pid: ^pid}, _)
 
         defmethod(^object_id, :increment, [self, amount]) do
@@ -46,7 +46,7 @@ defmodule Examples.ALGenserver do
     def terminate(_reason, state) do
       object_id = state.object_id
 
-      run do
+      run branch: :examples do
         retract_class(^object_id, c)
         retract_super(^object_id, s)
       end
@@ -67,12 +67,12 @@ defmodule Examples.ALGenserver do
     {:ok, pid} = CounterService.start_link(:my_counter)
 
     {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Object.scan_class(:my_counter, :"$class") end)
+      :mnesia.transaction(fn -> AL.Object.scan_class(:my_counter, :"$class", :examples) end)
 
     assert Enum.any?(results, fn {:class, _, c} -> c == :elixir_process end)
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         send_async(:my_counter, :increment, [5])
       end
 
@@ -84,7 +84,7 @@ defmodule Examples.ALGenserver do
     Process.sleep(50)
 
     {:atomic, after_stop} =
-      :mnesia.transaction(fn -> AL.Object.scan_class(:my_counter, :"$class") end)
+      :mnesia.transaction(fn -> AL.Object.scan_class(:my_counter, :"$class", :examples) end)
 
     assert after_stop == []
 

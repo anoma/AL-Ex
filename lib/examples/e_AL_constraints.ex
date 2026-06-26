@@ -8,7 +8,7 @@ defmodule Examples.ALConstraints do
 
   example constant() do
     {:atomic, {_bindings, _state}} =
-      run do
+      run branch: :examples do
         new(:cell, %{name: :x}, x)
         new(:propagator, %{input_cells: [], output_cell: x}, propagator)
 
@@ -21,7 +21,7 @@ defmodule Examples.ALConstraints do
     Process.sleep(50)
 
     {:atomic, {bindings, _state}} =
-      run do
+      run branch: :examples do
         get_slot(:x, :value, value)
       end
 
@@ -34,7 +34,7 @@ defmodule Examples.ALConstraints do
     constant()
 
     {:atomic, {_bindings, _state}} =
-      run do
+      run branch: :examples do
         new(:cell, %{name: :y}, y)
         new(:propagator, %{input_cells: [:x], output_cell: y, name: :x_y}, propagator)
 
@@ -46,7 +46,7 @@ defmodule Examples.ALConstraints do
     Process.sleep(50)
 
     {:atomic, {bindings, _state}} =
-      run do
+      run branch: :examples do
         get_slot(:y, :value, value)
       end
 
@@ -59,7 +59,7 @@ defmodule Examples.ALConstraints do
     inc()
 
     {:atomic, {bindings, _state}} =
-      run do
+      run branch: :examples do
         dependents(:x, dependents)
       end
 
@@ -72,7 +72,7 @@ defmodule Examples.ALConstraints do
 
   example bidirectional_adder() do
     {:atomic, {_bindings, _state}} =
-      run do
+      run branch: :examples do
         new(:cell, %{name: :a}, a)
         new(:cell, %{name: :b}, b)
         new(:cell, %{name: :c}, c)
@@ -100,7 +100,7 @@ defmodule Examples.ALConstraints do
     Process.sleep(100)
 
     {:atomic, {bindings, _state}} =
-      run do
+      run branch: :examples do
         get_slot(:a, :value, value)
       end
 
@@ -113,7 +113,7 @@ defmodule Examples.ALConstraints do
     bidirectional_adder()
 
     {:atomic, {bindings, _state}} =
-      run do
+      run branch: :examples do
         dependents(:a, dependents)
       end
 

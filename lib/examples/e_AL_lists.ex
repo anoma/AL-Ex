@@ -10,7 +10,7 @@ defmodule Examples.ALLists do
 
   example list_tests() do
     {:atomic, {bindings, state}} =
-      run do
+      run branch: :examples do
         hd([:w, :x, :y, :z], head)
         tl([:w, :x, :y, :z], tail)
         tl([:w, :x, :y, :z], tail)
@@ -37,7 +37,7 @@ defmodule Examples.ALLists do
   end
 
   example at_is_bidirectional() do
-    {:atomic, {bindings, state}} = run do
+    {:atomic, {bindings, state}} = run branch: :examples do
       findall([i, x], [at([1, 2, 3], i, x)], elems)
     end
 
@@ -48,7 +48,7 @@ defmodule Examples.ALLists do
 
   example call_lambda_map() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         map([:a, :b, :c], [x, %{id: x}], [], out)
       end
 

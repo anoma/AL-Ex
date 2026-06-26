@@ -10,7 +10,7 @@ defmodule Examples.ALArithmetic do
 
   example arithmetic() do
     {:atomic, {bindings, result}} =
-      run do
+      run branch: :examples do
         is(a, 123 + 5 - 3)
         is(f, 10000 - 3)
         is(a, 122 + 3)
@@ -39,7 +39,7 @@ defmodule Examples.ALArithmetic do
     # `is/2` over an unbound operand fails the goal (backtracks) instead of
     # crashing the transaction
     {:aborted, _} =
-      run do
+      run branch: :examples do
         is(x, y + 1)
       end
 
@@ -48,7 +48,7 @@ defmodule Examples.ALArithmetic do
 
   example is_fails_on_division_by_zero() do
     {:aborted, _} =
-      run do
+      run branch: :examples do
         is(x, 1 / 0)
       end
 
@@ -57,7 +57,7 @@ defmodule Examples.ALArithmetic do
 
   example is_still_computes() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         is(x, 2 ** 3 + 1)
       end
 

@@ -36,13 +36,13 @@ defmodule AL.Command do
   suffixed table created with `record_name: :command`.
   """
   @spec table(atom(), AL.Branch.t()) :: atom()
-  def table(relation, branch \\ :main)
+  def table(relation, branch \\ AL.Branch.head())
   def table(relation, :main), do: relation
   def table(relation, branch), do: :"#{relation}@#{branch}"
 
   @doc "Create a fork's command and meta tables (persisted to disc). Idempotent."
   @spec create_tables(AL.Branch.t()) :: {:ok, {atom(), atom()}}
-  def create_tables(branch \\ :main) do
+  def create_tables(branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
     meta_reference = table(:meta, branch)
 
@@ -73,7 +73,7 @@ defmodule AL.Command do
 
   @doc "Delete a fork's command and meta tables."
   @spec drop_tables(AL.Branch.t()) :: :ok
-  def drop_tables(branch \\ :main) do
+  def drop_tables(branch \\ AL.Branch.head()) do
     :mnesia.delete_table(table(:command, branch))
     :mnesia.delete_table(table(:meta, branch))
     :ok
@@ -107,7 +107,7 @@ defmodule AL.Command do
   Read current system time of the command log. The next command will be written at this value.
   """
   @spec system_time(AL.Branch.t()) :: non_neg_integer() | :absent
-  def system_time(branch \\ :main) do
+  def system_time(branch \\ AL.Branch.head()) do
     {:atomic, t} = :mnesia.transaction(fn -> read_meta(branch, :system_time, :absent) end)
     t
   end
@@ -116,7 +116,7 @@ defmodule AL.Command do
   Read a command at time t
   """
   @spec command(non_neg_integer(), AL.Branch.t()) :: command() | :absent
-  def command(t, branch \\ :main) do
+  def command(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
     case :mnesia.read(command_reference, t) do
@@ -129,7 +129,7 @@ defmodule AL.Command do
   Read all commands since time t
   """
   @spec commands_since(non_neg_integer(), AL.Branch.t()) :: [command()]
-  def commands_since(t, branch \\ :main) do
+  def commands_since(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
     :mnesia.select(command_reference, [
@@ -141,7 +141,7 @@ defmodule AL.Command do
   Read all commands up to and including time t
   """
   @spec commands_until(non_neg_integer(), AL.Branch.t()) :: [command()]
-  def commands_until(t, branch \\ :main) do
+  def commands_until(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
     :mnesia.select(command_reference, [
@@ -152,7 +152,7 @@ defmodule AL.Command do
   @doc """
   Read all commands for a given transaction
   """
-  def commands_for_transaction(tx_id, branch \\ :main) do
+  def commands_for_transaction(tx_id, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:command, branch), [
       {{:command, :"$1", tx_id, :"$3"}, [], [:"$_"]}
     ])
@@ -180,7 +180,7 @@ defmodule AL.Command do
   Write a command that says a class of an object was set
   """
   @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_class(tx_id, object, class, branch \\ :main) do
+  def set_class(tx_id, object, class, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_class, {object, class}}, branch)
   end
 
@@ -188,7 +188,7 @@ defmodule AL.Command do
   Write a command that says a superclass of an object was set
   """
   @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_super(tx_id, object, super, branch \\ :main) do
+  def set_super(tx_id, object, super, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_super, {object, super}}, branch)
   end
 
@@ -197,7 +197,7 @@ defmodule AL.Command do
   """
   @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
-  def set_method(tx_id, object, method_name, method_id, branch \\ :main) do
+  def set_method(tx_id, object, method_name, method_id, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_method, {object, method_name, method_id}}, branch)
   end
 
@@ -213,7 +213,7 @@ defmodule AL.Command do
           AL.Branch.t()
         ) ::
           :ok
-  def set_oapply(tx_id, object, seq, head, body, branch \\ :main) do
+  def set_oapply(tx_id, object, seq, head, body, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
   end
 
@@ -221,49 +221,49 @@ defmodule AL.Command do
   Write a command that says slots were set for an object
   """
   @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_slots(tx_id, object, slots, branch \\ :main) do
+  def set_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_slots, {object, slots}}, branch)
   end
 
   @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_class(tx_id, object, class, branch \\ :main) do
+  def retract_class(tx_id, object, class, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_class, {object, class}}, branch)
   end
 
   @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_super(tx_id, object, super, branch \\ :main) do
+  def retract_super(tx_id, object, super, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_super, {object, super}}, branch)
   end
 
   @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
-  def retract_method(tx_id, object, name, id, branch \\ :main) do
+  def retract_method(tx_id, object, name, id, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_method, {object, name, id}}, branch)
   end
 
   @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_oapply(tx_id, object, head, branch \\ :main) do
+  def retract_oapply(tx_id, object, head, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_oapply, {object, head}}, branch)
   end
 
   @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_slots(tx_id, object, slots, branch \\ :main) do
+  def retract_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_slots, {object, slots}}, branch)
   end
 
   @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
-  def send_async(tx_id, object, method, args, branch \\ :main) do
+  def send_async(tx_id, object, method, args, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:send_async, {object, method, args}}, branch)
   end
 
   @spec send_elixir(non_neg_integer(), pid(), term(), AL.Branch.t()) :: :ok
-  def send_elixir(tx_id, pid, message, branch \\ :main) do
+  def send_elixir(tx_id, pid, message, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:send_elixir, {pid, message}}, branch)
   end
 
   @spec write_command(non_neg_integer(), command(), AL.Branch.t()) :: :ok
-  def write_command(tx_id, command, branch \\ :main) do
+  def write_command(tx_id, command, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
     {t1, _t2} = inc_system_time(branch)
@@ -273,14 +273,14 @@ defmodule AL.Command do
   @doc """
   I increase the monotonic system time of the log
   """
-  def inc_system_time(branch \\ :main) do
+  def inc_system_time(branch \\ AL.Branch.head()) do
     t = read_meta(branch, :system_time, 0, :write)
     write_meta(branch, :system_time, t + 1)
     {t, t + 1}
   end
 
   @spec fresh_id(AL.Branch.t()) :: atom()
-  def fresh_id(branch \\ :main) do
+  def fresh_id(branch \\ AL.Branch.head()) do
     n = read_meta(branch, :id_counter, 0, :write)
     write_meta(branch, :id_counter, n + 1)
     :"##{n}"
@@ -322,7 +322,7 @@ defmodule AL.Command do
     :mnesia.write(table(:meta, branch), {:meta, key, value}, :write)
   end
 
-  def dump_meta(branch \\ :main) do
+  def dump_meta(branch \\ AL.Branch.head()) do
     meta_reference = table(:meta, branch)
 
     :mnesia.transaction(fn ->

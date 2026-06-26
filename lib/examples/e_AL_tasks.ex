@@ -13,7 +13,7 @@ defmodule Examples.ALTasks do
   # An object with one method that records, in a slot, that it ran.
   example worker() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:worker, :object)
 
         defmethod(:worker, :handle, [self, object]) do
@@ -26,7 +26,7 @@ defmodule Examples.ALTasks do
 
   defp processed?(object) do
     {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Object.scan_slots(object, :"$slots") end)
+      :mnesia.transaction(fn -> AL.Object.scan_slots(object, :"$slots", :examples) end)
 
     Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
   end
@@ -35,7 +35,7 @@ defmodule Examples.ALTasks do
     worker()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         send_async(:worker, :handle, [:async_obj])
       end
 
@@ -48,7 +48,7 @@ defmodule Examples.ALTasks do
     worker()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         unify(w, :worker)
         send_async(w, :handle, [:async_obj_2])
       end

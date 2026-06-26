@@ -47,7 +47,21 @@ defmodule AL.Branch do
       raise ArgumentError, "cannot fork from unknown branch #{inspect(from)}"
     end
 
-    branch = :"fork_#{System.unique_integer([:positive])}"
+    create_fork(:"fork_#{System.unique_integer([:positive])}", at, from)
+  end
+
+  @doc """
+  Ensure a fresh `:examples` branch forked from `:main`. Examples run here so they
+  don't pollute `:main`, while still accreting across one another within a session.
+  Rebuilt on each boot so it tracks `:main`'s current bootstrap.
+  """
+  @spec ensure_examples() :: t()
+  def ensure_examples() do
+    if :examples in list(), do: discard(:examples)
+    create_fork(:examples, :tip, :main)
+  end
+
+  defp create_fork(branch, at, from) do
     AL.Command.create_tables(branch)
     AL.Command.copy_prefix(from, branch, at_time(from, at))
     AL.Object.create_tables(branch)

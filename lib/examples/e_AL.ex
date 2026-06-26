@@ -15,7 +15,7 @@ defmodule Examples.AL do
 
   example get_class_command() do
     {:atomic, {bindings, result}} =
-      run do
+      run branch: :examples do
         class(a, b)
       end
 
@@ -32,7 +32,7 @@ defmodule Examples.AL do
 
   example metaclass() do
     {:atomic, {bindings, result}} =
-      run do
+      run branch: :examples do
         method(:object, :init, init_method)
         class(init_method, b)
         class(b, :class)
@@ -45,7 +45,7 @@ defmodule Examples.AL do
 
   example does_not_understand_dispatch() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         new(:class, %{name: :gadget, super: :ephemeral, slots: []}, _)
 
         defmethod(:gadget, :poke, [self, x]) do
@@ -62,25 +62,25 @@ defmodule Examples.AL do
 
     # head matches, body succeeds -> runs
     {:atomic, _} =
-      run do
+      run branch: :examples do
         poke(^g, :ok)
       end
 
     # head matches, body fails -> plain failure, not DNU
     {:aborted, _} =
-      run do
+      run branch: :examples do
         poke(^g, :bad)
       end
 
     # absent selector -> DNU (override succeeds)
     {:atomic, _} =
-      run do
+      run branch: :examples do
         zap(^g)
       end
 
     # wrong arity, no clause head matches -> DNU
     {:atomic, _} =
-      run do
+      run branch: :examples do
         poke(^g, :a, :b)
       end
 
@@ -88,7 +88,7 @@ defmodule Examples.AL do
   end
 
   example get_oapply_command() do
-    run do
+    run branch: :examples do
       method(:object, :init, init_method)
       get_oapply(init_method, [:"$self" | :"$args"], :"$body")
     end
@@ -96,7 +96,7 @@ defmodule Examples.AL do
 
   example execute_metaclass_method() do
     {:atomic, {bindings, result}} =
-      run do
+      run branch: :examples do
         method(:object, :init, init_method)
         meta(init_method, :"$class", :"$metaclass")
       end
@@ -108,7 +108,7 @@ defmodule Examples.AL do
 
   example cut() do
     {:atomic, {_bindings, result}} =
-      run do
+      run branch: :examples do
         class(object, class)
         cut
       end
@@ -119,7 +119,7 @@ defmodule Examples.AL do
 
   example implies_then() do
     {:atomic, {bindings, result}} =
-      run do
+      run branch: :examples do
         implies do
           [class(object, class)] -> class(class, metaclass)
         end
@@ -132,7 +132,7 @@ defmodule Examples.AL do
 
   example implies_else() do
     {:atomic, {_bindings, result}} =
-      run do
+      run branch: :examples do
         implies do
           [class(:blah, class)] -> class(class, metaclass)
           :else -> class(metaclass, class)
@@ -144,7 +144,7 @@ defmodule Examples.AL do
 
   example findall_supers() do
     {:atomic, {bindings, _result}} =
-      run do
+      run branch: :examples do
         set_super(:findall_test, :a)
         set_super(:findall_test, :b)
         findall(s, [super(:findall_test, s)], supers)
@@ -157,7 +157,7 @@ defmodule Examples.AL do
 
   example forall_over_supers() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_super(:forall_test, :class)
         set_super(:forall_test, :behaviour)
 
@@ -168,10 +168,10 @@ defmodule Examples.AL do
       end
 
     {:atomic, [{:slots, :class, class_slots}]} =
-      :mnesia.transaction(fn -> :mnesia.read(:slots, :class) end)
+      :mnesia.transaction(fn -> AL.Object.read_slots(:class, :examples) end)
 
     {:atomic, [{:slots, :behaviour, behaviour_slots}]} =
-      :mnesia.transaction(fn -> :mnesia.read(:slots, :behaviour) end)
+      :mnesia.transaction(fn -> AL.Object.read_slots(:behaviour, :examples) end)
 
     assert Map.get(class_slots, :forall_visited) == true
     assert Map.get(behaviour_slots, :forall_visited) == true
@@ -180,25 +180,25 @@ defmodule Examples.AL do
 
   example retractall_class() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_class(:retract_test, :foo)
         set_class(:retract_test, :bar)
       end
 
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         findall(c, [class(:retract_test, c)], before_retract)
       end
 
     assert Enum.sort(Map.get(bindings, :"$before_retract")) == [:bar, :foo]
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         retract_class(:retract_test, c)
       end
 
     {:atomic, {bindings2, _}} =
-      run do
+      run branch: :examples do
         findall(c, [class(:retract_test, c)], after_retract)
       end
 
@@ -208,7 +208,7 @@ defmodule Examples.AL do
 
   example get_slot() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         set_slots(:slot_get_test, %{name: :alice, age: 42})
         get_slot(:slot_get_test, :name, name)
       end
@@ -225,14 +225,14 @@ defmodule Examples.AL do
 
   example slot_merge_semantics() do
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_slots(:slot_test, %{a: 1})
         set_slots(:slot_test, %{b: 2})
         set_slots(:slot_test, %{a: 99})
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
-      :mnesia.transaction(fn -> :mnesia.read(:slots, :slot_test) end)
+      :mnesia.transaction(fn -> AL.Object.read_slots(:slot_test, :examples) end)
 
     assert slots == %{a: 99, b: 2}
     slots
@@ -240,7 +240,7 @@ defmodule Examples.AL do
 
   example map_get() do
     {:atomic, {bindings, program_state}} =
-      run do
+      run branch: :examples do
         get(%{a: 3, b: 4, c: 3}, k, 3)
       end
 
@@ -255,7 +255,7 @@ defmodule Examples.AL do
 
   example map_put() do
     {:atomic, {bindings, program_state}} =
-      run do
+      run branch: :examples do
         put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
       end
 
@@ -266,7 +266,7 @@ defmodule Examples.AL do
 
   example gensym() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         gensym(a)
         gensym(b)
       end
@@ -277,7 +277,7 @@ defmodule Examples.AL do
 
   example not_succeeds_when_goal_fails() do
     {:atomic, {_bindings, _}} =
-      run do
+      run branch: :examples do
         not [class(:nonexistent_xyz, c)]
       end
 
@@ -286,7 +286,7 @@ defmodule Examples.AL do
 
   example not_fails_when_goal_succeeds() do
     {:aborted, _} =
-      run do
+      run branch: :examples do
         not [class(:object, c)]
       end
 
@@ -295,7 +295,7 @@ defmodule Examples.AL do
 
   example unify_binds_variable() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         unify(x, :hello)
       end
 
@@ -305,12 +305,12 @@ defmodule Examples.AL do
 
   example unify_checks_equality() do
     {:aborted, _} =
-      run do
+      run branch: :examples do
         unify(:foo, :bar)
       end
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         unify(:foo, :foo)
       end
 
@@ -319,7 +319,7 @@ defmodule Examples.AL do
 
   example call_lambda() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         call([x, result], [unify(result, x)], [:hello, out])
       end
 
@@ -331,7 +331,7 @@ defmodule Examples.AL do
   # `eval`/`run` does), not just deref the top-level variable.
   example next_solution_substitutes_compound_bindings() do
     {:atomic, {b1, state}} =
-      run do
+      run branch: :examples do
         set_super(:next_sol_test, :alpha)
         set_super(:next_sol_test, :beta)
         super(:next_sol_test, s)
@@ -358,7 +358,7 @@ defmodule Examples.AL do
     plain_impl = fresh_id()
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         set_method(^chooser_cut, :pick, ^cut_impl)
         set_class(^cut_impl, :behaviour)
 
@@ -380,12 +380,12 @@ defmodule Examples.AL do
       end
 
     {:atomic, {cut_bindings, _}} =
-      run do
+      run branch: :examples do
         findall(x, [pick(^chooser_cut, x)], xs)
       end
 
     {:atomic, {plain_bindings, _}} =
-      run do
+      run branch: :examples do
         findall(x, [pick(^chooser_plain, x)], xs)
       end
 
@@ -399,7 +399,7 @@ defmodule Examples.AL do
   # a multi-solution condition, `then` runs once and the else branch is discarded.
   example if_then_else_commits_to_first_condition_solution() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         set_super(:ite_test, :s1)
         set_super(:ite_test, :s2)
 
@@ -421,7 +421,7 @@ defmodule Examples.AL do
 
   example oapply_passes_output_back_to_caller() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         defmethod(:bidir_test, :make, [self, out]) do
           unify(out, :produced)
         end
@@ -435,7 +435,7 @@ defmodule Examples.AL do
 
   example implies_block_runs_then() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         implies do
           [class(:object, c)] -> unify(out, :then_ran)
           :else -> unify(out, :else_ran)
@@ -448,7 +448,7 @@ defmodule Examples.AL do
 
   example implies_block_runs_else() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         implies do
           [class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
           :else -> unify(out, :else_ran)
@@ -461,7 +461,7 @@ defmodule Examples.AL do
 
   example implies_block_multiway() do
     {:atomic, {bindings, _}} =
-      run do
+      run branch: :examples do
         set_class(:branch_pick, :widget)
 
         implies do
@@ -472,6 +472,32 @@ defmodule Examples.AL do
       end
 
     assert Map.get(bindings, :"$out") == :second
+    :ok
+  end
+
+  # Two separate writing transactions on the same branch must get distinct tx_ids,
+  # so their commands stay groupable apart. `tx_id` comes from the *written*
+  # branch's counter, which each write advances — using a fixed branch (e.g. head)
+  # would freeze it and make every transaction share an id.
+  example writing_transactions_get_distinct_tx_ids() do
+    a = fresh_id()
+    b = fresh_id()
+
+    {:atomic, _} = run branch: :examples do set_class(^a, :object) end
+    {:atomic, _} = run branch: :examples do set_class(^b, :object) end
+
+    {:atomic, commands} =
+      :mnesia.transaction(fn -> AL.Command.commands_since(0, :examples) end)
+
+    tx_of = fn obj ->
+      Enum.find_value(commands, fn
+        {:command, _t, tx_id, {:set_class, {^obj, :object}}} -> tx_id
+        _ -> nil
+      end)
+    end
+
+    assert tx_of.(a) != nil
+    assert tx_of.(a) != tx_of.(b)
     :ok
   end
 end

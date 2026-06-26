@@ -9,7 +9,7 @@ defmodule Examples.ALUsers do
 
   example owner_is_a_slot() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         new(:user, %{name: :alice}, alice)
         new(:owned, %{owner: alice, label: :thing}, obj)
         get_slot(obj, :owner, owner)
@@ -23,7 +23,7 @@ defmodule Examples.ALUsers do
 
   example owner_gated_update() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         new(:user, %{name: :bob}, bob)
         new(:user, %{name: :charlie}, charlie)
         new(:owned, %{owner: charlie, label: :secret}, obj)
@@ -34,19 +34,19 @@ defmodule Examples.ALUsers do
     obj = Map.get(b, :"$obj")
 
     {:atomic, _} =
-      run do
+      run branch: :examples do
         update(^obj, ^charlie, [%{label: :updated}])
       end
 
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         get_slot(^obj, :label, l)
       end
 
     assert Map.get(b2, :"$l") == :updated
 
     {:aborted, _} =
-      run do
+      run branch: :examples do
         update(^obj, ^bob, [%{label: :hacked}])
       end
 
@@ -57,7 +57,7 @@ defmodule Examples.ALUsers do
   # unification, so an unbound caller can't be silently bound to the owner.
   example owner_gate_rejects_unbound_caller() do
     {:atomic, {b, _}} =
-      run do
+      run branch: :examples do
         new(:user, %{name: :dana}, dana)
         new(:owned, %{owner: dana, label: :guarded}, obj)
       end
@@ -65,12 +65,12 @@ defmodule Examples.ALUsers do
     obj = Map.get(b, :"$obj")
 
     {:aborted, _} =
-      run do
+      run branch: :examples do
         update(^obj, caller, [%{label: :leaked}])
       end
 
     {:atomic, {b2, _}} =
-      run do
+      run branch: :examples do
         get_slot(^obj, :label, l)
       end
 

@@ -17,6 +17,7 @@ defmodule AL.Application do
     AL.Scheduler.start_all()
 
     bootstrap()
+    AL.Branch.ensure_examples()
 
     {:ok, pid}
   end
