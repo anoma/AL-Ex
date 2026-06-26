@@ -52,7 +52,7 @@ defmodule AL do
           {:get_class, AL.Var.t(), AL.Var.t()}
           | {:get_super, AL.Var.t(), AL.Var.t()}
           | {:get_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:oapply, AL.Var.t(), AL.Var.t()}
           | :cut
           | {:implies, [goal()], [goal()], [goal()]}
@@ -63,7 +63,7 @@ defmodule AL do
           | {:set_class, AL.Var.t(), AL.Var.t()}
           | {:set_super, AL.Var.t(), AL.Var.t()}
           | {:set_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:get_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:set_slots, AL.Var.t(), AL.Var.t()}
           | {:retract_class, AL.Var.t(), AL.Var.t()}
@@ -138,6 +138,11 @@ defmodule AL do
   def ast_to_pattern({:clause, _, [object, head, body]}),
     do: {:get_oapply, ast_to_pattern(object), :"$_", ast_to_pattern(head), ast_to_pattern(body)}
 
+  def ast_to_pattern({:clause, _, [object, seq, head, body]}),
+    do:
+      {:get_oapply, ast_to_pattern(object), ast_to_pattern(seq), ast_to_pattern(head),
+       ast_to_pattern(body)}
+
   def ast_to_pattern({:oapply, _, [method_id, args]}),
     do: {:oapply, ast_to_pattern(method_id), ast_to_pattern(args)}
 
@@ -160,7 +165,12 @@ defmodule AL do
     do: {:set_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
 
   def ast_to_pattern({:set_oapply, _, [object, head, body]}),
-    do: {:set_oapply, ast_to_pattern(object), ast_to_pattern(head), ast_to_pattern(body)}
+    do: {:set_oapply, ast_to_pattern(object), :next, ast_to_pattern(head), ast_to_pattern(body)}
+
+  def ast_to_pattern({:set_oapply, _, [object, seq, head, body]}),
+    do:
+      {:set_oapply, ast_to_pattern(object), ast_to_pattern(seq), ast_to_pattern(head),
+       ast_to_pattern(body)}
 
   def ast_to_pattern({:set_slots, _, [object, slots]}),
     do: {:set_slots, ast_to_pattern(object), ast_to_pattern(slots)}
@@ -319,9 +329,9 @@ defmodule AL do
    Scan the method table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
    E.G., {:get_method, :class, :init, :"$id"} should find :"$id" == :initialise_class with choicepoints for any other solutions 
    
-   __{:get_oapply, object_pattern, head_pattern, body_pattern}__
-   Scan the oapply table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
-   E.G., {:get_oapply, :initialise_class, :$head, :"$body"} should find all the implementations of initialise_class and bind :"$head" and :"$body" with that data
+   __{:get_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}__
+   Scan the oapply table and unify with given patterns. Found solutions are pushed onto the choicepoint stack, in clause `seq` order.
+   E.G., {:get_oapply, :initialise_class, :"$seq", :"$head", :"$body"} should find all the implementations of initialise_class and bind :"$seq", :"$head" and :"$body" with that data
    
    __{:oapply, method_id_pattern, bind_head_pattern}__
    Oapply takes a method_id and a binding for the head and executes the body as the new set of goals- AKA it expands the head into the body
@@ -623,7 +633,7 @@ defmodule AL do
     end
   end
 
-  def interp({:get_oapply, seq_pattern, object_pattern, head_pattern, body_pattern}, state) do
+  def interp({:get_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}, state) do
     case AL.Object.scan_oapply(
            object_pattern,
            seq_pattern,
@@ -637,17 +647,32 @@ defmodule AL do
       [choice | next_choices] ->
         clause = {:oapply, object_pattern, seq_pattern, head_pattern, body_pattern}
 
+        # Standardize each scanned clause apart (copy_term) before unifying, so a
+        # stored clause's own vars can't collide with the caller's query vars —
+        # e.g. reading `:defmethod`, whose head is `[self, method_name, head,
+        # body]`, with a query that also names vars `head`/`body` would otherwise
+        # fail the occurs-check and silently match nothing.
         %AL{
           state
           | active_choicepoint: %AL.Choicepoint{
               state.active_choicepoint
-              | bindings: AL.Var.unify(choice, clause, state.active_choicepoint.bindings)
+              | bindings:
+                  AL.Var.unify(
+                    standardize_apart(choice),
+                    clause,
+                    state.active_choicepoint.bindings
+                  )
             },
             choicepoint_stack:
               Enum.map(next_choices, fn c ->
                 %AL.Choicepoint{
                   state.active_choicepoint
-                  | bindings: AL.Var.unify(c, clause, state.active_choicepoint.bindings)
+                  | bindings:
+                      AL.Var.unify(
+                        standardize_apart(c),
+                        clause,
+                        state.active_choicepoint.bindings
+                      )
                 }
               end) ++ state.choicepoint_stack
         }
@@ -910,10 +935,14 @@ defmodule AL do
     state
   end
 
-  def interp({:set_oapply, object, _head, _body}, state) when is_map(object), do: state
+  def interp({:set_oapply, object, _seq, _head, _body}, state) when is_map(object), do: state
 
-  def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    seq = AL.Object.next_oapply_seq(object_pattern, state.branch)
+  def interp({:set_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}, state) do
+    seq =
+      case seq_pattern do
+        :next -> AL.Object.next_oapply_seq(object_pattern, state.branch)
+        given -> given
+      end
 
     AL.Command.set_oapply(
       state.tx_id,

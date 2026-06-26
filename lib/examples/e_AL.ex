@@ -7,6 +7,12 @@ defmodule Examples.AL do
   use AL
   import ExUnit.Assertions
 
+  # A unique id per run, so examples that write to the persistent log don't
+  # accrete state across runs.
+  defp fresh_id do
+    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+  end
+
   example get_class_command() do
     {:atomic, {bindings, result}} =
       run do
@@ -344,36 +350,43 @@ defmodule Examples.AL do
   # `cut` commits the choices made inside its own call scope: a cut in the first
   # clause of a method prunes that method's remaining clauses.
   example cut_commits_clauses_in_scope() do
+    # Fresh ids per run: these methods/clauses are written to the persistent log,
+    # so fixed ids would accrete a duplicate `:a`/`:b` clause on every run.
+    chooser_cut = fresh_id()
+    cut_impl = fresh_id()
+    chooser_plain = fresh_id()
+    plain_impl = fresh_id()
+
     {:atomic, _} =
       run do
-        set_method(:chooser_cut, :pick, :pick_cut_impl)
-        set_class(:pick_cut_impl, :behaviour)
+        set_method(^chooser_cut, :pick, ^cut_impl)
+        set_class(^cut_impl, :behaviour)
 
-        set_oapply(:pick_cut_impl, [self, :a]) do
+        set_oapply(^cut_impl, [self, :a]) do
           cut
         end
 
-        set_oapply(:pick_cut_impl, [self, :b]) do
+        set_oapply(^cut_impl, [self, :b]) do
         end
 
-        set_method(:chooser_plain, :pick, :pick_plain_impl)
-        set_class(:pick_plain_impl, :behaviour)
+        set_method(^chooser_plain, :pick, ^plain_impl)
+        set_class(^plain_impl, :behaviour)
 
-        set_oapply(:pick_plain_impl, [self, :a]) do
+        set_oapply(^plain_impl, [self, :a]) do
         end
 
-        set_oapply(:pick_plain_impl, [self, :b]) do
+        set_oapply(^plain_impl, [self, :b]) do
         end
       end
 
     {:atomic, {cut_bindings, _}} =
       run do
-        findall(x, [pick(:chooser_cut, x)], xs)
+        findall(x, [pick(^chooser_cut, x)], xs)
       end
 
     {:atomic, {plain_bindings, _}} =
       run do
-        findall(x, [pick(:chooser_plain, x)], xs)
+        findall(x, [pick(^chooser_plain, x)], xs)
       end
 
     # the cut in the first clause prunes the second; without it, both are found

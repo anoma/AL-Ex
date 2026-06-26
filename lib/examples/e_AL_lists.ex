@@ -9,9 +9,10 @@ defmodule Examples.ALLists do
   import ExUnit.Assertions
 
   example list_tests() do
-    {:atomic, {bindings, result}} =
+    {:atomic, {bindings, state}} =
       run do
         hd([:w, :x, :y, :z], head)
+        tl([:w, :x, :y, :z], tail)
         tl([:w, :x, :y, :z], tail)
         concat([:a, :b, :c], [:d, :e, :f], sum)
         reverse([:b, :c, :d, :e, :f], reversed)
@@ -31,7 +32,18 @@ defmodule Examples.ALLists do
     assert Map.get(bindings, :"$head") == :w
     assert Map.get(bindings, :"$tail") == [:x, :y, :z]
     assert length(Map.get(bindings, :"$of_same_length")) == 4
-    result
+
+    state
+  end
+
+  example at_is_bidirectional() do
+    {:atomic, {bindings, state}} = run do
+      findall([i, x], [at([1, 2, 3], i, x)], elems)
+    end
+
+    assert Map.get(bindings, :"$elems") == [[0, 1], [1, 2], [2, 3]]
+
+    state
   end
 
   example call_lambda_map() do

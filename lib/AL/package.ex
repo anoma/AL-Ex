@@ -120,7 +120,7 @@ defmodule AL.Package do
       {:set_class, {o, c}} -> [{:retract_class, o, c}]
       {:set_super, {o, s}} -> [{:retract_super, o, s}]
       {:set_method, {o, n, id}} -> [{:retract_method, o, n, id}]
-      {:set_oapply, {o, h, _b}} -> [{:retract_oapply, o, h}]
+      {:set_oapply, {o, _seq, h, _b}} -> [{:retract_oapply, o, h}]
       {:set_slots, {o, s}} -> [{:retract_slots, o, s}]
       _ -> []
     end

@@ -52,6 +52,13 @@ defmodule AL.Package.Bootstrap do
       :fail
     end
 
+    defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
+      method(self, method_name, method_object)
+      findall([head, body], [clause(method_object, head, body)], left)
+      forall([member(left, [head, _])], [retract_oapply(method_object, head)])
+      forall([member(right, [head, body])], [set_oapply(method_object, head, body)])
+    end
+
     set_class(:map, :class)
     set_super(:map, :ephemeral)
 
@@ -143,6 +150,18 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :tl, [[_h | t], t]) do
     end
 
+    defmethod(:list, :at, [xs, n, x]) do
+      at(xs, n, 0, x)
+    end
+    
+    defmethod(:list, :at, [[h | _t], n, n, h]) do
+    end
+    
+    defmethod(:list, :at, [[h | t], n, i, v]) do
+      is(i1, i + 1)
+      at(t, n, i1, v)
+    end
+    
     defmethod(:list, :concat, [[], second, second]) do
     end
 
