@@ -61,12 +61,12 @@ defmodule Examples.ALConstraints do
     {:atomic, {bindings, _state}} =
       run do
         dependents(:x, dependents)
-    end
+      end
 
     dependents = Map.get(bindings, :"$dependents")
 
     assert MapSet.new(Map.keys(dependents)) == MapSet.new([:x, :y, :x_y])
-    
+
     dependents
   end
 
@@ -115,7 +115,7 @@ defmodule Examples.ALConstraints do
     {:atomic, {bindings, _state}} =
       run do
         dependents(:a, dependents)
-    end
+      end
 
     dependents = Map.get(bindings, :"$dependents")
 

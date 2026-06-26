@@ -348,20 +348,33 @@ defmodule Examples.AL do
       run do
         set_method(:chooser_cut, :pick, :pick_cut_impl)
         set_class(:pick_cut_impl, :behaviour)
-        set_oapply(:pick_cut_impl, [self, :a]) do cut end
-        set_oapply(:pick_cut_impl, [self, :b]) do end
+
+        set_oapply(:pick_cut_impl, [self, :a]) do
+          cut
+        end
+
+        set_oapply(:pick_cut_impl, [self, :b]) do
+        end
 
         set_method(:chooser_plain, :pick, :pick_plain_impl)
         set_class(:pick_plain_impl, :behaviour)
-        set_oapply(:pick_plain_impl, [self, :a]) do end
-        set_oapply(:pick_plain_impl, [self, :b]) do end
+
+        set_oapply(:pick_plain_impl, [self, :a]) do
+        end
+
+        set_oapply(:pick_plain_impl, [self, :b]) do
+        end
       end
 
     {:atomic, {cut_bindings, _}} =
-      run do findall(x, [pick(:chooser_cut, x)], xs) end
+      run do
+        findall(x, [pick(:chooser_cut, x)], xs)
+      end
 
     {:atomic, {plain_bindings, _}} =
-      run do findall(x, [pick(:chooser_plain, x)], xs) end
+      run do
+        findall(x, [pick(:chooser_plain, x)], xs)
+      end
 
     # the cut in the first clause prunes the second; without it, both are found
     assert Map.get(cut_bindings, :"$xs") == [:a]

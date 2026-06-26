@@ -22,11 +22,19 @@ defmodule Examples.ALClauses do
     {:atomic, _} =
       run do
         set_class(^c, :object)
-        defmethod(^c, :tag, [self, :first]) do end
-        defmethod(^c, :tag, [self, :second]) do end
+
+        defmethod(^c, :tag, [self, :first]) do
+        end
+
+        defmethod(^c, :tag, [self, :second]) do
+        end
       end
 
-    {:atomic, {b, _}} = run do findall(t, [tag(^c, t)], ts) end
+    {:atomic, {b, _}} =
+      run do
+        findall(t, [tag(^c, t)], ts)
+      end
+
     assert Map.get(b, :"$ts") == [:first, :second]
     :ok
   end
@@ -39,13 +47,21 @@ defmodule Examples.ALClauses do
     {:atomic, _} =
       run do
         set_class(^c, :object)
-        defmethod(^c, :tag, [self, :first]) do end
-        defmethod(^c, :tag, [self, :second]) do end
+
+        defmethod(^c, :tag, [self, :first]) do
+        end
+
+        defmethod(^c, :tag, [self, :second]) do
+        end
       end
 
     tip = AL.Branch.fork()
 
-    {:atomic, {b, _}} = run branch: tip do findall(t, [tag(^c, t)], ts) end
+    {:atomic, {b, _}} =
+      run branch: tip do
+        findall(t, [tag(^c, t)], ts)
+      end
+
     assert Map.get(b, :"$ts") == [:first, :second]
 
     AL.Branch.discard(tip)
@@ -60,8 +76,12 @@ defmodule Examples.ALClauses do
     {:atomic, _} =
       run do
         set_class(^c, :object)
-        defmethod(^c, :tag, [self, :first]) do end
-        defmethod(^c, :tag, [self, :second]) do end
+
+        defmethod(^c, :tag, [self, :first]) do
+        end
+
+        defmethod(^c, :tag, [self, :second]) do
+        end
       end
 
     {:atomic, _} =
@@ -73,11 +93,19 @@ defmodule Examples.ALClauses do
     {:atomic, _} =
       run do
         method(^c, :tag, id)
-        set_oapply(id, [self, :second]) do end
-        set_oapply(id, [self, :first]) do end
+
+        set_oapply(id, [self, :second]) do
+        end
+
+        set_oapply(id, [self, :first]) do
+        end
       end
 
-    {:atomic, {b, _}} = run do findall(t, [tag(^c, t)], ts) end
+    {:atomic, {b, _}} =
+      run do
+        findall(t, [tag(^c, t)], ts)
+      end
+
     assert Map.get(b, :"$ts") == [:second, :first]
     :ok
   end

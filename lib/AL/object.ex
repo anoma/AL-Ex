@@ -90,10 +90,12 @@ defmodule AL.Object do
     ])
   end
 
-  @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [oapply_record()]
-  def scan_oapply(self_pattern, head_pattern, body_pattern, branch \\ :main) do
+  @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [
+          oapply_record()
+        ]
+  def scan_oapply(self_pattern, seq_pattern, head_pattern, body_pattern, branch \\ :main) do
     :mnesia.select(table(:oapply, branch), [
-      {AL.Var.to_mnesia_pattern({:oapply, self_pattern, :"$oapply_seq", head_pattern, body_pattern}),
+      {AL.Var.to_mnesia_pattern({:oapply, self_pattern, seq_pattern, head_pattern, body_pattern}),
        [], [:"$_"]}
     ])
     |> Enum.sort_by(fn {:oapply, _object, seq, _head, _body} -> seq end)
@@ -125,7 +127,11 @@ defmodule AL.Object do
 
   @spec retract_oapply(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_oapply(object_pattern, head_pattern, branch \\ :main) do
-    delete_all(:oapply, scan_oapply(object_pattern, head_pattern, :"$body", branch), branch)
+    delete_all(
+      :oapply,
+      scan_oapply(object_pattern, :"$seq", head_pattern, :"$body", branch),
+      branch
+    )
   end
 
   defp delete_all(relation, records, branch) do
@@ -177,8 +183,11 @@ defmodule AL.Object do
   @spec next_oapply_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def next_oapply_seq(object, branch \\ :main) do
     case :mnesia.read(table(:oapply, branch), object) do
-      [] -> 0
-      rows -> rows |> Enum.map(fn {:oapply, _o, seq, _h, _b} -> seq end) |> Enum.max() |> Kernel.+(1)
+      [] ->
+        0
+
+      rows ->
+        rows |> Enum.map(fn {:oapply, _o, seq, _h, _b} -> seq end) |> Enum.max() |> Kernel.+(1)
     end
   end
 

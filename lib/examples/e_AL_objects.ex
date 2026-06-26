@@ -68,19 +68,34 @@ defmodule Examples.ALObjects do
     {:atomic, _} =
       run do
         set_class(:multi, :object)
-        defmethod(:multi, :pick, [self, :a, :first]) do end
-        defmethod(:multi, :pick, [self, :b, :second]) do end
+
+        defmethod(:multi, :pick, [self, :a, :first]) do
+        end
+
+        defmethod(:multi, :pick, [self, :b, :second]) do
+        end
       end
 
     # both clauses are reachable on the same method
-    {:atomic, {b1, _}} = run do pick(:multi, :a, r) end
-    {:atomic, {b2, _}} = run do pick(:multi, :b, r) end
+    {:atomic, {b1, _}} =
+      run do
+        pick(:multi, :a, r)
+      end
+
+    {:atomic, {b2, _}} =
+      run do
+        pick(:multi, :b, r)
+      end
 
     assert Map.get(b1, :"$r") == :first
     assert Map.get(b2, :"$r") == :second
 
     # the two defmethods accreted clauses onto one id, not two separate methods
-    {:atomic, {b3, _}} = run do findall(id, [method(:multi, :pick, id)], ids) end
+    {:atomic, {b3, _}} =
+      run do
+        findall(id, [method(:multi, :pick, id)], ids)
+      end
+
     assert length(Enum.uniq(Map.get(b3, :"$ids"))) == 1
     :ok
   end
@@ -107,20 +122,33 @@ defmodule Examples.ALObjects do
     {:atomic, _} =
       run do
         set_class(:ping_class, :object)
-        defmethod(:ping_class, :ping, [self, :pong]) do end
+
+        defmethod(:ping_class, :ping, [self, :pong]) do
+        end
+
         set_class(:ping_a, :ping_class)
         set_class(:ping_b, :ping_class)
 
         set_class(:ping_proxy, :object)
-        defmethod(:ping_proxy, :does_not_understand, [self, _m, _a]) do end
+
+        defmethod(:ping_proxy, :does_not_understand, [self, _m, _a]) do
+        end
       end
 
-    {:atomic, {b, _}} = run do ping(o, r) end
+    {:atomic, {b, _}} =
+      run do
+        ping(o, r)
+      end
+
     first = Map.get(b, :"$o")
 
     assert is_atom(first) and not AL.Var.var?(first)
 
-    {:atomic, {b2, _}} = run do findall([o, r], [ping(o, r)], pairs) end
+    {:atomic, {b2, _}} =
+      run do
+        findall([o, r], [ping(o, r)], pairs)
+      end
+
     pairs = Map.get(b2, :"$pairs")
     receivers = Enum.map(pairs, fn [o, _r] -> o end)
 
@@ -131,7 +159,11 @@ defmodule Examples.ALObjects do
     # the catch-all DNU object has no real :ping, so a query skips it...
     refute :ping_proxy in receivers
     # ...but a directed send still escalates to does_not_understand
-    {:atomic, _} = run do ping(:ping_proxy, :anything) end
+    {:atomic, _} =
+      run do
+        ping(:ping_proxy, :anything)
+      end
+
     :ok
   end
 
@@ -142,12 +174,22 @@ defmodule Examples.ALObjects do
     {:atomic, _} =
       run do
         set_class(:queryable, :object)
-        defmethod(:queryable, :alpha, [self, :a]) do end
-        defmethod(:queryable, :delta, [self, :a]) do end
-        defmethod(:queryable, :beta, [self, :b]) do end
+
+        defmethod(:queryable, :alpha, [self, :a]) do
+        end
+
+        defmethod(:queryable, :delta, [self, :a]) do
+        end
+
+        defmethod(:queryable, :beta, [self, :b]) do
+        end
       end
 
-    {:atomic, {b, _}} = run do findall(m, [send(:queryable, m, [:a])], ms) end
+    {:atomic, {b, _}} =
+      run do
+        findall(m, [send(:queryable, m, [:a])], ms)
+      end
+
     ms = Map.get(b, :"$ms")
 
     assert Enum.all?(ms, fn m -> is_atom(m) and not AL.Var.var?(m) end)
@@ -156,7 +198,11 @@ defmodule Examples.ALObjects do
     refute :beta in ms
 
     # a different arg shape selects a different method
-    {:atomic, {b2, _}} = run do findall(m, [send(:queryable, m, [:b])], ms) end
+    {:atomic, {b2, _}} =
+      run do
+        findall(m, [send(:queryable, m, [:b])], ms)
+      end
+
     ms2 = Map.get(b2, :"$ms")
 
     assert :beta in ms2
@@ -171,22 +217,35 @@ defmodule Examples.ALObjects do
     {:atomic, _} =
       run do
         set_class(:animal, :object)
-        defmethod(:animal, :speak, [self, :generic_sound]) do end
+
+        defmethod(:animal, :speak, [self, :generic_sound]) do
+        end
 
         set_super(:dog, :animal)
         set_class(:rex, :dog)
 
         set_super(:cat, :animal)
-        defmethod(:cat, :speak, [self, :meow]) do end
+
+        defmethod(:cat, :speak, [self, :meow]) do
+        end
+
         set_class(:felix, :cat)
       end
 
     # rex has no speak of its own; it's inherited dog -> animal
-    {:atomic, {b, _}} = run do speak(:rex, s) end
+    {:atomic, {b, _}} =
+      run do
+        speak(:rex, s)
+      end
+
     assert Map.get(b, :"$s") == :generic_sound
 
     # cat defines speak, shadowing animal's for felix
-    {:atomic, {b2, _}} = run do speak(:felix, s) end
+    {:atomic, {b2, _}} =
+      run do
+        speak(:felix, s)
+      end
+
     assert Map.get(b2, :"$s") == :meow
     :ok
   end
@@ -198,7 +257,10 @@ defmodule Examples.ALObjects do
     {:atomic, _} =
       run do
         set_class(:real_pinger_class, :object)
-        defmethod(:real_pinger_class, :probe, [self, :hit]) do end
+
+        defmethod(:real_pinger_class, :probe, [self, :hit]) do
+        end
+
         set_class(:real_pinger, :real_pinger_class)
 
         set_class(:tripwire, :object)
@@ -211,17 +273,33 @@ defmodule Examples.ALObjects do
 
     # a query for :probe grounds to real implementers and skips :tripwire without
     # consulting its does_not_understand
-    {:atomic, {b, _}} = run do findall(o, [probe(o, :hit)], os) end
+    {:atomic, {b, _}} =
+      run do
+        findall(o, [probe(o, :hit)], os)
+      end
+
     os = Map.get(b, :"$os")
     assert :real_pinger in os
     refute :tripwire in os
 
-    {:atomic, {b2, _}} = run do get_slot(:tripwire, :tripped, t) end
+    {:atomic, {b2, _}} =
+      run do
+        get_slot(:tripwire, :tripped, t)
+      end
+
     assert Map.get(b2, :"$t") == :no
 
     # a directed send of the same unimplemented method *does* fire DNU
-    {:atomic, _} = run do probe(:tripwire, :hit) end
-    {:atomic, {b3, _}} = run do get_slot(:tripwire, :tripped, t) end
+    {:atomic, _} =
+      run do
+        probe(:tripwire, :hit)
+      end
+
+    {:atomic, {b3, _}} =
+      run do
+        get_slot(:tripwire, :tripped, t)
+      end
+
     assert Map.get(b3, :"$t") == :yes
     :ok
   end

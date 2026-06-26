@@ -136,7 +136,7 @@ defmodule AL do
     do: {:get_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
 
   def ast_to_pattern({:clause, _, [object, head, body]}),
-    do: {:get_oapply, ast_to_pattern(object), ast_to_pattern(head), ast_to_pattern(body)}
+    do: {:get_oapply, ast_to_pattern(object), :"$_", ast_to_pattern(head), ast_to_pattern(body)}
 
   def ast_to_pattern({:oapply, _, [method_id, args]}),
     do: {:oapply, ast_to_pattern(method_id), ast_to_pattern(args)}
@@ -336,8 +336,8 @@ defmodule AL do
    __:or__
    __:print__
   """
-  @spec eval([goal()], AL.Var.bindings(), AL.Branch.t()) ::
-          {:atomic, t() | nil} | {:aborted, term()}
+  @spec eval([goal()], AL.Var.bindings() | nil, AL.Branch.t()) ::
+          {:atomic, {AL.Var.bindings(), t()}} | {:aborted, term()}
   def eval(program, initial_bindings \\ nil, branch \\ :main) do
     bindings = initial_bindings || AL.Var.empty_bindings()
     input_vars = observable_vars(program)
@@ -623,20 +623,25 @@ defmodule AL do
     end
   end
 
-  def interp({:get_oapply, object_pattern, head_pattern, body_pattern}, state) do
-    case AL.Object.scan_oapply(object_pattern, head_pattern, body_pattern, state.branch) do
+  def interp({:get_oapply, seq_pattern, object_pattern, head_pattern, body_pattern}, state) do
+    case AL.Object.scan_oapply(
+           object_pattern,
+           seq_pattern,
+           head_pattern,
+           body_pattern,
+           state.branch
+         ) do
       [] ->
         backtrack(state)
 
       [choice | next_choices] ->
-        clause = {:oapply, object_pattern, :"$_", head_pattern, body_pattern}
+        clause = {:oapply, object_pattern, seq_pattern, head_pattern, body_pattern}
 
         %AL{
           state
           | active_choicepoint: %AL.Choicepoint{
               state.active_choicepoint
-              | bindings:
-                  AL.Var.unify(choice, clause, state.active_choicepoint.bindings)
+              | bindings: AL.Var.unify(choice, clause, state.active_choicepoint.bindings)
             },
             choicepoint_stack:
               Enum.map(next_choices, fn c ->
@@ -655,7 +660,11 @@ defmodule AL do
       | active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | bindings:
-              AL.Var.unify(result, AL.Command.fresh_id(state.branch), state.active_choicepoint.bindings)
+              AL.Var.unify(
+                result,
+                AL.Command.fresh_id(state.branch),
+                state.active_choicepoint.bindings
+              )
         }
     }
   end
@@ -736,7 +745,7 @@ defmodule AL do
   def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case AL.Object.scan_oapply(method_id_pattern, :"$head", :"$body", state.branch) do
+    case AL.Object.scan_oapply(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
       [] ->
         backtrack(state)
 
@@ -905,7 +914,16 @@ defmodule AL do
 
   def interp({:set_oapply, object_pattern, head_pattern, body_pattern}, state) do
     seq = AL.Object.next_oapply_seq(object_pattern, state.branch)
-    AL.Command.set_oapply(state.tx_id, object_pattern, seq, head_pattern, body_pattern, state.branch)
+
+    AL.Command.set_oapply(
+      state.tx_id,
+      object_pattern,
+      seq,
+      head_pattern,
+      body_pattern,
+      state.branch
+    )
+
     AL.Object.set_oapply(object_pattern, seq, head_pattern, body_pattern, state.branch)
     state
   end
@@ -1265,7 +1283,13 @@ defmodule AL do
   defp method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch)
 
   defp method_scopes(self, branch),
-    do: [self | super_chain(for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", branch), do: c), branch)]
+    do: [
+      self
+      | super_chain(
+          for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", branch), do: c),
+          branch
+        )
+    ]
 
   defp super_chain(seeds, branch), do: super_chain(seeds, branch, MapSet.new(), [])
 
@@ -1291,7 +1315,9 @@ defmodule AL do
   defp any_clause_matches?(id, call_args, bindings, branch) do
     scope = Integer.to_string(fresh_scope())
 
-    Enum.any?(AL.Object.scan_oapply(id, :"$head", :"$body", branch), fn {:oapply, _id, _seq, head, _body} ->
+    Enum.any?(AL.Object.scan_oapply(id, :"$seq", :"$head", :"$body", branch), fn {:oapply, _id,
+                                                                                  _seq, head,
+                                                                                  _body} ->
       AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
     end)
   end

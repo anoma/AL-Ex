@@ -33,7 +33,7 @@ defmodule Examples.ALBootstrap do
 
   example bootstrapped_oapply() do
     :mnesia.transaction(fn ->
-      oapply_results = AL.Object.scan_oapply(:"$object", :"$head", :"$body")
+      oapply_results = AL.Object.scan_oapply(:"$object", :"$seq", :"$head", :"$body")
 
       Enum.take(oapply_results, 1)
     end)

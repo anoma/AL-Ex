@@ -11,10 +11,10 @@ defmodule AL.Branch do
   """
 
   @type t() :: atom()
-  
+
   @doc """
   Setup existing branches with their object tables and hydrate 
-  """  
+  """
   @spec setup() :: :ok
   def setup() do
     case :mnesia.create_table(:branch,
@@ -25,7 +25,7 @@ defmodule AL.Branch do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, _}} -> :ok
     end
-    
+
     :mnesia.wait_for_tables([:branch], 5_000)
 
     if stored_head() not in [:main | list()], do: set_head(:main)
@@ -49,7 +49,7 @@ defmodule AL.Branch do
 
     branch = :"fork_#{System.unique_integer([:positive])}"
     AL.Command.create_tables(branch)
-    AL.Command.copy_prefix(from, branch, at_time(at))
+    AL.Command.copy_prefix(from, branch, at_time(from, at))
     AL.Object.create_tables(branch)
     AL.Object.hydrate_since(0, branch)
     register(branch, from)
@@ -109,8 +109,8 @@ defmodule AL.Branch do
     edges
   end
 
-  defp at_time(:tip), do: AL.Command.system_time()
-  defp at_time(t) when is_integer(t), do: t
+  defp at_time(branch, :tip), do: AL.Command.system_time(branch)
+  defp at_time(_branch, t) when is_integer(t), do: t
 
   defp stored_head() do
     {:atomic, branch} =

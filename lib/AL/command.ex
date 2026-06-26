@@ -29,7 +29,7 @@ defmodule AL.Command do
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
           | {:retract_slots, {AL.Var.t(), AL.Var.t()}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
-          | {:send_elixir, {AL.Var.t(), AL.Var.t()}}
+          | {:send_elixir, {pid(), term()}}
 
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
@@ -39,13 +39,13 @@ defmodule AL.Command do
   def table(relation, branch \\ :main)
   def table(relation, :main), do: relation
   def table(relation, branch), do: :"#{relation}@#{branch}"
-          
+
   @doc "Create a fork's command and meta tables (persisted to disc). Idempotent."
-  @spec create_tables(AL.Branch.t()) :: :ok
+  @spec create_tables(AL.Branch.t()) :: {:ok, {atom(), atom()}}
   def create_tables(branch \\ :main) do
     command_reference = table(:command, branch)
     meta_reference = table(:meta, branch)
-    
+
     case :mnesia.create_table(command_reference,
            attributes: [:t, :tx_id, :command],
            type: :ordered_set,
@@ -65,7 +65,7 @@ defmodule AL.Command do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, _}} -> :ok
     end
-    
+
     :mnesia.wait_for_tables([command_reference, meta_reference], 5_000)
 
     {:ok, {command_reference, meta_reference}}
@@ -118,7 +118,7 @@ defmodule AL.Command do
   @spec command(non_neg_integer(), AL.Branch.t()) :: command() | :absent
   def command(t, branch \\ :main) do
     command_reference = table(:command, branch)
-    
+
     case :mnesia.read(command_reference, t) do
       [{_, ^t, _tx_id, command}] -> command
       [] -> :absent
@@ -131,7 +131,7 @@ defmodule AL.Command do
   @spec commands_since(non_neg_integer(), AL.Branch.t()) :: [command()]
   def commands_since(t, branch \\ :main) do
     command_reference = table(:command, branch)
-    
+
     :mnesia.select(command_reference, [
       {{:command, :"$1", :"$2", :"$3"}, [{:>=, :"$1", t}], [:"$_"]}
     ])
@@ -143,7 +143,7 @@ defmodule AL.Command do
   @spec commands_until(non_neg_integer(), AL.Branch.t()) :: [command()]
   def commands_until(t, branch \\ :main) do
     command_reference = table(:command, branch)
-    
+
     :mnesia.select(command_reference, [
       {{:command, :"$1", :"$2", :"$3"}, [{:"=<", :"$1", t}], [:"$_"]}
     ])
@@ -158,10 +158,9 @@ defmodule AL.Command do
     ])
   end
 
-  
   @doc "Copy `src`'s commands up to and including time `t` into `dst`'s log."
   @spec copy_prefix(AL.Branch.t(), AL.Branch.t(), non_neg_integer()) ::
-  {:atomic, any()} | {:aborted, term()}
+          {:atomic, any()} | {:aborted, term()}
   def copy_prefix(src, dst, t) do
     :mnesia.transaction(fn ->
       for {:command, ct, tx, cmd} <- commands_until(t, src) do
@@ -205,7 +204,14 @@ defmodule AL.Command do
   @doc """
   Write a command that says the object was given a run method
   """
-  @spec set_oapply(non_neg_integer(), AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) ::
+  @spec set_oapply(
+          non_neg_integer(),
+          AL.Var.t(),
+          non_neg_integer(),
+          AL.Var.t(),
+          [AL.goal()],
+          AL.Branch.t()
+        ) ::
           :ok
   def set_oapply(tx_id, object, seq, head, body, branch \\ :main) do
     write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
@@ -259,7 +265,7 @@ defmodule AL.Command do
   @spec write_command(non_neg_integer(), command(), AL.Branch.t()) :: :ok
   def write_command(tx_id, command, branch \\ :main) do
     command_reference = table(:command, branch)
-    
+
     {t1, _t2} = inc_system_time(branch)
     :mnesia.write(command_reference, {:command, t1, tx_id, command}, :write)
   end
@@ -321,8 +327,8 @@ defmodule AL.Command do
 
     :mnesia.transaction(fn ->
       :mnesia.select(meta_reference, [
-            {{:meta, :"$1", :"$2"}, [], [:"$_"]}
-          ])
+        {{:meta, :"$1", :"$2"}, [], [:"$_"]}
+      ])
     end)
   end
 end

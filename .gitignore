@@ -19,6 +19,10 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 al-*.tar
 
+# Dialyzer PLT files (machine-specific; keep the priv/plts dir tracked via .gitkeep).
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
+
 # Temporary files, for example, from tests.
 /tmp/
 

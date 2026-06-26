@@ -40,8 +40,10 @@ defmodule AL.Var do
     name
   end
 
+  @typep mnesia_acc() :: {pos_integer(), %{optional(variable()) => pos_integer()}}
+
   @spec to_mnesia_pattern(t()) :: t()
-  @spec to_mnesia_pattern(t(), pos_integer()) :: {t(), pos_integer()}
+  @spec to_mnesia_pattern(t(), mnesia_acc()) :: {t(), mnesia_acc()}
   def to_mnesia_pattern(p) do
     {p, _acc} = to_mnesia_pattern(p, {1, %{}})
     p
