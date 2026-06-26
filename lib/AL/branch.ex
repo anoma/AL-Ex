@@ -10,10 +10,19 @@ defmodule AL.Branch do
   and `AL.Object` owns projection primitives; I orchestrate both.
   """
 
-  @type t() :: atom()
+  use TypedStruct
+
+  typedstruct enforce: true do
+    field(:id, atom(), enforce: true)
+  end
+
+  @spec main() :: t()
+  def main() do
+    %__MODULE__{id: :main}
+  end
 
   @doc """
-  Setup existing branches with their object tables and hydrate 
+  Setup existing branches with their object tables and hydrate
   """
   @spec setup() :: :ok
   def setup() do
@@ -28,9 +37,9 @@ defmodule AL.Branch do
 
     :mnesia.wait_for_tables([:branch], 5_000)
 
-    if stored_head() not in [:main | list()], do: set_head(:main)
+    if stored_head() not in [main() | list()], do: set_head(main())
 
-    for branch <- [:main | list()] do
+    for branch <- [main() | list()] do
       AL.Object.create_tables(branch)
       AL.Object.hydrate_since(0, branch)
     end
@@ -42,12 +51,12 @@ defmodule AL.Branch do
   Fork a command log
   """
   @spec fork(non_neg_integer() | :tip, t()) :: t()
-  def fork(at \\ :tip, from \\ head()) do
-    unless from == :main or from in list() do
+  def fork(at \\ :tip, from = %__MODULE__{} \\ head()) do
+    unless from == main() or from in list() do
       raise ArgumentError, "cannot fork from unknown branch #{inspect(from)}"
     end
 
-    create_fork(:"fork_#{System.unique_integer([:positive])}", at, from)
+    create_fork(%__MODULE__{id: :"fork_#{System.unique_integer([:positive])}"}, at, from)
   end
 
   @doc """
@@ -57,8 +66,8 @@ defmodule AL.Branch do
   """
   @spec ensure_examples() :: t()
   def ensure_examples() do
-    if :examples in list(), do: discard(:examples)
-    create_fork(:examples, :tip, :main)
+    if %__MODULE__{id: :examples} in list(), do: discard(%__MODULE__{id: :examples})
+    create_fork(%__MODULE__{id: :examples}, :tip, %__MODULE__{id: :main})
   end
 
   defp create_fork(branch, at, from) do
@@ -75,7 +84,7 @@ defmodule AL.Branch do
   @spec discard(t()) :: :ok
   def discard(branch) do
     unregister(branch)
-    if stored_head() == branch, do: set_head(:main)
+    if stored_head() == branch, do: set_head(main())
     AL.Scheduler.stop(branch)
     AL.Object.drop_tables(branch)
     AL.Command.drop_tables(branch)
@@ -91,10 +100,8 @@ defmodule AL.Branch do
   """
   @spec head() :: t()
   def head() do
-    case stored_head() do
-      :main -> :main
-      branch -> if branch in list(), do: branch, else: :main
-    end
+    head = stored_head()
+    if head.id == :main or head in list(), do: head, else: main()
   end
 
   @doc """
@@ -107,7 +114,7 @@ defmodule AL.Branch do
         :mnesia.select(:branch, [{{:branch, :"$1", :"$2"}, [], [:"$2"]}])
       end)
 
-    children
+    Enum.map(children, &%__MODULE__{id: &1})
   end
 
   @doc """
@@ -120,12 +127,16 @@ defmodule AL.Branch do
         :mnesia.select(:branch, [{{:branch, :"$1", :"$2"}, [], [:"$_"]}])
       end)
 
-    edges
+    Enum.map(edges, fn {:branch, parent, child} ->
+      {:branch, %__MODULE__{id: parent}, %__MODULE__{id: child}}
+    end)
   end
 
+  @spec at_time(non_neg_integer() | :tip, AL.Branch.t()) :: non_neg_integer() | :absent
   defp at_time(branch, :tip), do: AL.Command.system_time(branch)
   defp at_time(_branch, t) when is_integer(t), do: t
 
+  @spec stored_head() :: t()
   defp stored_head() do
     {:atomic, branch} =
       :mnesia.transaction(fn ->
@@ -135,30 +146,33 @@ defmodule AL.Branch do
         end
       end)
 
-    branch
+    %__MODULE__{id: branch}
   end
 
+  @spec set_head(t()) :: :ok
   defp set_head(branch) do
     {:atomic, :ok} =
       :mnesia.transaction(fn ->
-        :mnesia.write(:meta, {:meta, :head, branch}, :write)
+        :mnesia.write(:meta, {:meta, :head, branch.id}, :write)
         :ok
       end)
 
     :ok
   end
 
+  @spec register(t(), t()) :: :ok
   defp register(child, parent) do
     {:atomic, :ok} =
       :mnesia.transaction(fn ->
-        :mnesia.write(:branch, {:branch, parent, child}, :write)
+        :mnesia.write(:branch, {:branch, parent.id, child.id}, :write)
         :ok
       end)
 
     :ok
   end
 
-  defp unregister(branch) do
+  @spec unregister(t()) :: :ok
+  defp unregister(%__MODULE__{id: branch}) do
     {:atomic, :ok} =
       :mnesia.transaction(fn ->
         parent = parent_of(branch)
@@ -175,6 +189,7 @@ defmodule AL.Branch do
     :ok
   end
 
+  @spec parent_of(atom()) :: atom()
   defp parent_of(branch) do
     case :mnesia.select(:branch, [{{:branch, :"$1", branch}, [], [:"$1"]}]) do
       [parent | _] -> parent
@@ -182,6 +197,7 @@ defmodule AL.Branch do
     end
   end
 
+  @spec children_of(atom()) :: atom()
   defp children_of(branch) do
     :mnesia.select(:branch, [{{:branch, branch, :"$1"}, [], [:"$1"]}])
   end

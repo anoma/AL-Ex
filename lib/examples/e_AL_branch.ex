@@ -24,18 +24,18 @@ defmodule Examples.ALBranch do
 
     # the tip fork sees :tt_thing; the past fork does not
     {:atomic, _} =
-      run branch: tip do
+      run branch: tip.id do
         class(^sym, :object)
       end
 
     {:aborted, _} =
-      run branch: past do
+      run branch: past.id do
         class(^sym, :object)
       end
 
     # both forks still carry the bootstrap
     {:atomic, _} =
-      run branch: past do
+      run branch: past.id do
         class(:object, :class)
       end
 
@@ -49,7 +49,7 @@ defmodule Examples.ALBranch do
 
     # write only into the fork, then read it back from the fork's projection
     {:atomic, {bindings, _}} =
-      run branch: tip do
+      run branch: tip.id do
         set_slots(:widget, %{x: 3})
         get_slot(:widget, :x, x)
       end
@@ -82,7 +82,7 @@ defmodule Examples.ALBranch do
       end
 
     # back on main, the branch's write is invisible
-    AL.Branch.checkout(:main)
+    AL.Branch.checkout(AL.Branch.main())
 
     {:aborted, _} =
       run do
@@ -98,7 +98,7 @@ defmodule Examples.ALBranch do
 
     # a write that lives only on the parent fork
     {:atomic, _} =
-      run branch: parent do
+      run branch: parent.id do
         set_class(:on_parent, :object)
       end
 
@@ -106,18 +106,18 @@ defmodule Examples.ALBranch do
     child = AL.Branch.fork(:tip, parent)
 
     {:atomic, _} =
-      run branch: child do
+      run branch: child.id do
         class(:on_parent, :object)
       end
 
     # writes to the parent after the child forked don't reach the child
     {:atomic, _} =
-      run branch: parent do
+      run branch: parent.id do
         set_class(:later_on_parent, :object)
       end
 
     {:aborted, _} =
-      run branch: child do
+      run branch: child.id do
         class(:later_on_parent, :object)
       end
 
@@ -145,16 +145,16 @@ defmodule Examples.ALBranch do
     child = AL.Branch.fork()
 
     {:atomic, _} =
-      run branch: child do
+      run branch: child.id do
         class(:on_head, :object)
       end
 
     # main, which was never checked out, has no such object to fork
-    AL.Branch.checkout(:main)
+    AL.Branch.checkout(AL.Branch.main())
     fresh = AL.Branch.fork()
 
     {:aborted, _} =
-      run branch: fresh do
+      run branch: fresh.id do
         class(:on_head, :object)
       end
 
@@ -169,7 +169,7 @@ defmodule Examples.ALBranch do
 
     # a worker object that lives only on the fork, built from bootstrap primitives
     {:atomic, _} =
-      run branch: branch do
+      run branch: branch.id do
         set_class(:fork_worker, :object)
 
         defmethod(:fork_worker, :handle, [self, object]) do
@@ -179,14 +179,14 @@ defmodule Examples.ALBranch do
 
     # an async send written into the fork is handled against the fork
     {:atomic, _} =
-      run branch: branch do
+      run branch: branch.id do
         send_async(:fork_worker, :handle, [:fork_obj])
       end
 
     Process.sleep(50)
 
     {:atomic, {fork_bindings, _}} =
-      run branch: branch do
+      run branch: branch.id do
         get_slot(:fork_obj, :processed, v)
       end
 
@@ -211,18 +211,18 @@ defmodule Examples.ALBranch do
     AL.Branch.discard(parent)
 
     # the child is reparented onto the parent's parent, not orphaned or dropped
-    assert {:branch, :main, child} in AL.Branch.branch_graph()
+    assert {:branch, AL.Branch.main(), child} in AL.Branch.branch_graph()
     refute parent in AL.Branch.list()
     assert child in AL.Branch.list()
 
     # the child's log is independent, so it still works after its parent is gone
     {:atomic, _} =
-      run branch: child do
+      run branch: child.id do
         set_class(:survivor, :object)
       end
 
     {:atomic, _} =
-      run branch: child do
+      run branch: child.id do
         class(:survivor, :object)
       end
 

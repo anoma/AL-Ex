@@ -29,9 +29,7 @@ defmodule AL.Object do
   end
 
   @spec table(atom(), AL.Branch.t()) :: atom()
-  def table(relation, branch \\ AL.Branch.head())
-  def table(relation, :main), do: relation
-  def table(relation, branch), do: :"#{relation}@#{branch}"
+  def table(relation, branch \\ AL.Branch.head()), do: AL.Command.table(relation, branch)
 
   @doc "Create the table set for a branch. Idempotent."
   @spec create_tables(AL.Branch.t()) :: :ok
@@ -50,7 +48,7 @@ defmodule AL.Object do
 
   defp create_table(relation, branch) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
-    opts = if branch == :main, do: opts, else: [{:record_name, relation} | opts]
+    opts = if branch.id == :main, do: opts, else: [{:record_name, relation} | opts]
 
     case :mnesia.create_table(table(relation, branch), opts) do
       {:atomic, :ok} -> :ok

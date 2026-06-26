@@ -93,7 +93,7 @@ defmodule AL do
     field(:program, [goal()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
-    field(:branch, AL.Branch.t(), default: :main)
+    field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
   end
 
   defmacro __using__(_opts) do
@@ -297,7 +297,7 @@ defmodule AL do
     escaped = Macro.escape(goals, unquote: true)
 
     if Keyword.has_key?(opts, :branch) do
-      quote do: AL.eval(unquote(escaped), nil, unquote(opts[:branch]))
+      quote do: AL.eval(unquote(escaped), nil, %AL.Branch{id: unquote(opts[:branch])})
     else
       quote do: AL.eval(unquote(escaped), nil, AL.Branch.head())
     end

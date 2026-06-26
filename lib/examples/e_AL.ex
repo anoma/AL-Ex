@@ -168,10 +168,10 @@ defmodule Examples.AL do
       end
 
     {:atomic, [{:slots, :class, class_slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:class, :examples) end)
+      :mnesia.transaction(fn -> AL.Object.read_slots(:class, %AL.Branch{id: :examples}) end)
 
     {:atomic, [{:slots, :behaviour, behaviour_slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:behaviour, :examples) end)
+      :mnesia.transaction(fn -> AL.Object.read_slots(:behaviour, %AL.Branch{id: :examples}) end)
 
     assert Map.get(class_slots, :forall_visited) == true
     assert Map.get(behaviour_slots, :forall_visited) == true
@@ -232,7 +232,7 @@ defmodule Examples.AL do
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:slot_test, :examples) end)
+      :mnesia.transaction(fn -> AL.Object.read_slots(:slot_test, %AL.Branch{id: :examples}) end)
 
     assert slots == %{a: 99, b: 2}
     slots
@@ -487,7 +487,7 @@ defmodule Examples.AL do
     {:atomic, _} = run branch: :examples do set_class(^b, :object) end
 
     {:atomic, commands} =
-      :mnesia.transaction(fn -> AL.Command.commands_since(0, :examples) end)
+      :mnesia.transaction(fn -> AL.Command.commands_since(0, %AL.Branch{id: :examples}) end)
 
     tx_of = fn obj ->
       Enum.find_value(commands, fn

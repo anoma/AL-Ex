@@ -19,7 +19,7 @@ defmodule AL.Scheduler do
   @doc "Start schedulers for `:main` and every existing fork. Run at boot."
   @spec start_all() :: :ok
   def start_all() do
-    for branch <- [:main | AL.Branch.list()], do: start(branch)
+    for branch <- [AL.Branch.main() | AL.Branch.list()], do: start(branch)
     :ok
   end
 
@@ -46,7 +46,7 @@ defmodule AL.Scheduler do
     GenServer.start_link(__MODULE__, branch, name: name(branch))
   end
 
-  defp name(branch), do: :"#{__MODULE__}.#{branch}"
+  defp name(branch), do: :"#{__MODULE__}.#{branch.id}"
 
   @impl true
   def init(branch) do

@@ -55,10 +55,10 @@ defmodule Examples.ALClauses do
         end
       end
 
-    tip = AL.Branch.fork(:tip, :examples)
+    tip = AL.Branch.fork(:tip, %AL.Branch{id: :examples})
 
     {:atomic, {b, _}} =
-      run branch: tip do
+      run branch: tip.id do
         findall(t, [tag(^c, t)], ts)
       end
 
