@@ -244,35 +244,4 @@ defmodule AL.Object do
       for {:command, _, _, {op, event}} <- fetch.(), do: hydrate_event(op, event, branch)
     end)
   end
-
-  defview methods(self = %AL.Object{}, builder) do
-    {:atomic, {b, _}} =
-      AL.run do
-        findall([n, id], [method(^self.id, n, id)], ms)
-      end
-
-    rows =
-      Enum.map(b[:"$ms"], fn [name, id] ->
-        {:atomic, {cb, _}} =
-          AL.run do
-            findall([h, bo], [clause(^id, h, bo)], cs)
-          end
-
-        source =
-          cb[:"$cs"]
-          |> Enum.map(fn [head, body] ->
-            AL.Source.defmethod_source(self.id, name, head, body)
-          end)
-          |> Enum.join("\n\n")
-
-        %{name: name, source: source}
-      end)
-
-    builder.columned_list()
-    |> ColumnedList.title("Methods")
-    |> ColumnedList.items(fn -> rows end)
-    |> ColumnedList.column("method", fn r -> to_string(r.name) end)
-    |> ColumnedList.column("source", fn r -> r.source end)
-    |> ColumnedList.send(fn r -> r.source end)
-  end
 end
