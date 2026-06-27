@@ -11,6 +11,8 @@ defmodule AL.Branch do
   """
 
   use TypedStruct
+  alias GtBridge.Phlow.ColumnedList
+  use GtBridge.View
 
   typedstruct enforce: true do
     field(:id, atom(), enforce: true)
@@ -200,5 +202,18 @@ defmodule AL.Branch do
   @spec children_of(atom()) :: atom()
   defp children_of(branch) do
     :mnesia.select(:branch, [{{:branch, branch, :"$1"}, [], [:"$1"]}])
+  end
+
+  defview command_log(self = %__MODULE__{}, builder) do
+    {:atomic, log} = :mnesia.transaction(fn -> AL.Command.commands_since(0, self) end)
+
+    builder.columned_list()
+    |> ColumnedList.title("Command Log")
+    |> ColumnedList.priority(10)
+    |> ColumnedList.items(fn -> log end)
+    |> ColumnedList.column("type", fn {_, type, _, _} -> to_string(type) end)
+    |> ColumnedList.column("tx", fn {_, _, tx, _} -> to_string(tx) end)
+    |> ColumnedList.column("op", fn {_, _, _, op} -> inspect(op) end)
+    |> ColumnedList.send(fn {_, _, _, op} -> op end)
   end
 end
