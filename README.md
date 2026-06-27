@@ -47,3 +47,12 @@ From IEx, you can run `require AL`.
 Tips:
 
 - Use `examine(:my_object_id_here, info)` in order to get quick information about an object via its ID, such as its class(es!), superclass(es!), methods, and in the case of method objects, relevant clauses.
+
+## Installing into Glamorous Toolkit
+
+```st
+Metacello new
+	repository: 'github://anoma/anoma-level-elixir-prototype:mariari/branch-datatype/src';
+	baseline: 'AL';
+	load
+```
