@@ -16,28 +16,11 @@ ALObject >> gtMethodsFor: aView [
 	 source decompiled from the stored clauses by AL.Source."
 	<gtView>
 	<gtBeamView>
-	^ aView explicit
+	^ aView forward
 		title: 'Methods';
 		priority: 9;
-		stencil: [
-			| container |
-			container := BlElement new
-				layout: BlLinearLayout vertical;
-				constraintsDo: [ :c | c horizontal matchParent. c vertical fitContent ];
-				padding: (BlInsets all: 5);
-				yourself.
-			self methodSources do: [ :pair |
-				| coder vm el |
-				coder := GtElixirCoderModel new
-					elixirLinkApplicationStrategy: LeElixirApplicationStrategy new;
-					sourceCode: (GtCoderExplicitStringSource new source: (pair itemAt: 1));
-					yourself.
-				vm := coder asCoderViewModel.
-				vm expanded: true.
-				el := vm asElement.
-				el constraintsDo: [ :c2 | c2 horizontal matchParent. c2 vertical fitContent ].
-				container addChild: el ].
-			container ]
+		object: [ALClassCoder forObject: self];
+		view: #gtClausesFor:
 ]
 
 { #category : 'querying' }
