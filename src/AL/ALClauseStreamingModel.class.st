@@ -15,11 +15,10 @@ ALClauseStreamingModel >> newCoderCacheKeyFor: anEntry [
 
 { #category : 'streaming' }
 ALClauseStreamingModel >> newCoderFor: anEntry [
-	"I build an ALClauseCoder (not an ElixirFunctionCoder) per stored clause,
-	 propagating selfObject and my list (for future reordering)."
+	"No reorder yet (gt4beam v0.17.3 has no list: API)"
+
 	| coder |
 	coder := ALClauseCoder forEntry: anEntry moduleCoder: moduleCoder.
 	coder selfObject: moduleCoder selfObject.
-	coder list: self.
 	^ coder
 ]
