@@ -142,42 +142,6 @@ defmodule Examples.AL do
     result
   end
 
-  example findall_supers() do
-    {:atomic, {bindings, _result}} =
-      run branch: :examples do
-        set_super(:findall_test, :a)
-        set_super(:findall_test, :b)
-        findall(s, [super(:findall_test, s)], supers)
-      end
-
-    assert Enum.sort(Map.get(bindings, :"$supers")) == [:a, :b]
-    assert Map.get(bindings, :"$s") == nil
-    :ok
-  end
-
-  example forall_over_supers() do
-    {:atomic, _} =
-      run branch: :examples do
-        set_super(:forall_test, :class)
-        set_super(:forall_test, :behaviour)
-
-        forall(
-          [super(forall_test, s)],
-          [set_slots(s, %{forall_visited: true})]
-        )
-      end
-
-    {:atomic, [{:slots, :class, class_slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:class, %AL.Branch{id: :examples}) end)
-
-    {:atomic, [{:slots, :behaviour, behaviour_slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:behaviour, %AL.Branch{id: :examples}) end)
-
-    assert Map.get(class_slots, :forall_visited) == true
-    assert Map.get(behaviour_slots, :forall_visited) == true
-    :ok
-  end
-
   example retractall_class() do
     {:atomic, _} =
       run branch: :examples do
@@ -272,24 +236,6 @@ defmodule Examples.AL do
       end
 
     assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")
-    :ok
-  end
-
-  example not_succeeds_when_goal_fails() do
-    {:atomic, {_bindings, _}} =
-      run branch: :examples do
-        not [class(:nonexistent_xyz, c)]
-      end
-
-    :ok
-  end
-
-  example not_fails_when_goal_succeeds() do
-    {:aborted, _} =
-      run branch: :examples do
-        not [class(:object, c)]
-      end
-
     :ok
   end
 
@@ -483,8 +429,15 @@ defmodule Examples.AL do
     a = fresh_id()
     b = fresh_id()
 
-    {:atomic, _} = run branch: :examples do set_class(^a, :object) end
-    {:atomic, _} = run branch: :examples do set_class(^b, :object) end
+    {:atomic, _} =
+      run branch: :examples do
+        set_class(^a, :object)
+      end
+
+    {:atomic, _} =
+      run branch: :examples do
+        set_class(^b, :object)
+      end
 
     {:atomic, commands} =
       :mnesia.transaction(fn -> AL.Command.commands_since(0, %AL.Branch{id: :examples}) end)

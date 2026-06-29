@@ -84,7 +84,12 @@ defmodule AL.Object do
   end
 
   @spec scan_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [method_record()]
-  def scan_method(self_pattern, method_name_pattern, method_id_pattern, branch \\ AL.Branch.head()) do
+  def scan_method(
+        self_pattern,
+        method_name_pattern,
+        method_id_pattern,
+        branch \\ AL.Branch.head()
+      ) do
     :mnesia.select(table(:method, branch), [
       {AL.Var.to_mnesia_pattern({:method, self_pattern, method_name_pattern, method_id_pattern}),
        [], [:"$_"]}
@@ -94,7 +99,13 @@ defmodule AL.Object do
   @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [
           oapply_record()
         ]
-  def scan_oapply(self_pattern, seq_pattern, head_pattern, body_pattern, branch \\ AL.Branch.head()) do
+  def scan_oapply(
+        self_pattern,
+        seq_pattern,
+        head_pattern,
+        body_pattern,
+        branch \\ AL.Branch.head()
+      ) do
     :mnesia.select(table(:oapply, branch), [
       {AL.Var.to_mnesia_pattern({:oapply, self_pattern, seq_pattern, head_pattern, body_pattern}),
        [], [:"$_"]}
@@ -118,7 +129,12 @@ defmodule AL.Object do
   end
 
   @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_method(object_pattern, method_name_pattern, method_id_pattern, branch \\ AL.Branch.head()) do
+  def retract_method(
+        object_pattern,
+        method_name_pattern,
+        method_id_pattern,
+        branch \\ AL.Branch.head()
+      ) do
     delete_all(
       :method,
       scan_method(object_pattern, method_name_pattern, method_id_pattern, branch),

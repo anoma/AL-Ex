@@ -153,15 +153,15 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :at, [xs, n, x]) do
       at(xs, n, 0, x)
     end
-    
+
     defmethod(:list, :at, [[h | _t], n, n, h]) do
     end
-    
+
     defmethod(:list, :at, [[h | t], n, i, v]) do
       is(i1, i + 1)
       at(t, n, i1, v)
     end
-    
+
     defmethod(:list, :concat, [[], second, second]) do
     end
 

@@ -37,9 +37,10 @@ defmodule Examples.ALLists do
   end
 
   example at_is_bidirectional() do
-    {:atomic, {bindings, state}} = run branch: :examples do
-      findall([i, x], [at([1, 2, 3], i, x)], elems)
-    end
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        findall([i, x], [at([1, 2, 3], i, x)], elems)
+      end
 
     assert Map.get(bindings, :"$elems") == [[0, 1], [1, 2], [2, 3]]
 

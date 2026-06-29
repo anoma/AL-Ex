@@ -67,7 +67,9 @@ defmodule Examples.ALGenserver do
     {:ok, pid} = CounterService.start_link(:my_counter)
 
     {:atomic, results} =
-      :mnesia.transaction(fn -> AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples})
+      end)
 
     assert Enum.any?(results, fn {:class, _, c} -> c == :elixir_process end)
 
@@ -84,7 +86,9 @@ defmodule Examples.ALGenserver do
     Process.sleep(50)
 
     {:atomic, after_stop} =
-      :mnesia.transaction(fn -> AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples})
+      end)
 
     assert after_stop == []
 

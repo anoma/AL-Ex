@@ -75,6 +75,7 @@ defmodule AL do
           | {:send_elixir, AL.Var.t(), AL.Var.t()}
           | {:gensym, AL.Var.t()}
           | {:print, AL.Var.t()}
+          | {:ground, AL.Var.t()}
           | {:not, [goal()]}
           | {:unify, AL.Var.t(), AL.Var.t()}
           | {:equal, AL.Var.t(), AL.Var.t()}
@@ -198,6 +199,8 @@ defmodule AL do
   def ast_to_pattern({:gensym, _, [var]}), do: {:gensym, ast_to_pattern(var)}
 
   def ast_to_pattern({:print, _, [pattern]}), do: {:print, ast_to_pattern(pattern)}
+
+  def ast_to_pattern({:ground, _, [term]}), do: {:ground, ast_to_pattern(term)}
 
   def ast_to_pattern([]), do: []
 
@@ -1193,6 +1196,14 @@ defmodule AL do
       state
     else
       _ -> backtrack(state)
+    end
+  end
+
+  def interp({:ground, term}, state) do
+    if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.bindings))) == 0 do
+      state
+    else
+      backtrack(state)
     end
   end
 

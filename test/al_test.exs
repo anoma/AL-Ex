@@ -45,3 +45,7 @@ end
 defmodule ALClausesTest do
   use ExExample.ExUnit, for: Examples.ALClauses
 end
+
+defmodule ALMetaTest do
+  use ExExample.ExUnit, for: Examples.ALMeta
+end
