@@ -52,7 +52,16 @@ Tips:
 
 ```st
 Metacello new
-	repository: 'github://anoma/anoma-level-elixir-prototype:mariari/branch-datatype/src';
+	repository: 'github://anoma/AL-Ex:main/src';
 	baseline: 'AL';
 	load
+```
+
+If you have an existing bridge with a different version you want to run this without error then run:
+
+```st
+Metacello new
+	repository: 'github://anoma/AL-Ex:main/src';
+	baseline: 'AL';
+	load: #dev
 ```
