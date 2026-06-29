@@ -78,6 +78,7 @@ defmodule AL do
           | {:not, [goal()]}
           | {:unify, AL.Var.t(), AL.Var.t()}
           | {:equal, AL.Var.t(), AL.Var.t()}
+          | {:compare, atom(), AL.Var.t(), AL.Var.t()}
           | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
           | {:send, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:send_query, AL.Var.t(), AL.Var.t(), AL.Var.t()}
@@ -108,6 +109,7 @@ defmodule AL do
   defdelegate tracepoints(), to: AL.Trace
 
   @arithmetic_ops [:+, :-, :*, :/, :**]
+  @comparison_ops [:<, :>, :<=, :>=]
   @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id, :current_tx]
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
@@ -215,6 +217,9 @@ defmodule AL do
 
   def ast_to_pattern({:==, _, [a, b]}),
     do: {:equal, ast_to_pattern(a), ast_to_pattern(b)}
+
+  def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
+    do: {:compare, op, ast_to_pattern(a), ast_to_pattern(b)}
 
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
@@ -1175,6 +1180,22 @@ defmodule AL do
     end
   end
 
+  # Arithmetic comparison (Prolog `</>/=</>=`): evaluate both sides with
+  # `interp_is/2` and compare. An unbound or non-numeric operand makes a side
+  # `:error`, which fails the goal cleanly (backtracks) rather than crashing —
+  # the same contract as `is/2`. A false comparison backtracks too.
+  def interp({:compare, op, a, b}, state) do
+    bindings = state.active_choicepoint.bindings
+
+    with x when is_number(x) <- interp_is(a, bindings),
+         y when is_number(y) <- interp_is(b, bindings),
+         true <- compare(op, x, y) do
+      state
+    else
+      _ -> backtrack(state)
+    end
+  end
+
   def interp({:not, condition}, state) do
     case collect_all_solutions(
            condition,
@@ -1510,6 +1531,11 @@ defmodule AL do
 
   defp binop(:+, x), do: +x
   defp binop(:-, x), do: -x
+
+  defp compare(:<, x, y), do: x < y
+  defp compare(:>, x, y), do: x > y
+  defp compare(:<=, x, y), do: x <= y
+  defp compare(:>=, x, y), do: x >= y
 end
 
 defimpl Inspect, for: AL do

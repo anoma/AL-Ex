@@ -64,4 +64,49 @@ defmodule Examples.ALArithmetic do
     assert Map.get(bindings, :"$x") == 9
     :ok
   end
+
+  example comparison_succeeds_when_true() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        is(x, 5)
+        x > 3
+        x >= 5
+        x < 10
+        x <= 5
+      end
+
+    assert Map.get(bindings, :"$x") == 5
+    :ok
+  end
+
+  example comparison_evaluates_expression_operands() do
+    {:atomic, _} =
+      run branch: :examples do
+        10 > 2 + 3
+        2 + 3 <= 5
+        2 ** 3 >= 8
+      end
+
+    :ok
+  end
+
+  example comparison_fails_when_false() do
+    {:aborted, _} =
+      run branch: :examples do
+        3 > 5
+      end
+
+    :ok
+  end
+
+  example comparison_fails_gracefully_on_unbound() do
+    # like `is/2`, an unbound operand fails the goal (backtracks) rather than
+    # crashing the transaction
+    {:aborted, _} =
+      run branch: :examples do
+        y > 1
+      end
+
+    :ok
+  end
 end
