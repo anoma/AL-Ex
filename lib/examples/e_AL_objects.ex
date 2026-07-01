@@ -301,4 +301,50 @@ defmodule Examples.ALObjects do
     assert Map.get(b3, :"$t") == :yes
     :ok
   end
+
+  # call_next_method continues resolution from where the current method sits, so an
+  # override can *extend* an inherited method rather than only replace it: pet's
+  # describe calls up into animal's and folds the result in.
+  example call_next_method_extends_super() do
+    {:atomic, {b, _}} =
+      run branch: :examples do
+        set_class(:cnm_animal, :object)
+
+        defmethod(:cnm_animal, :describe, [self, :i_am_animal]) do
+        end
+
+        set_super(:cnm_pet, :cnm_animal)
+
+        defmethod(:cnm_pet, :describe, [self, d]) do
+          call_next_method(self, [parent])
+          unify(d, [:i_am_pet, parent])
+        end
+
+        set_class(:cnm_rex, :cnm_pet)
+
+        describe(:cnm_rex, result)
+      end
+
+    assert Map.get(b, :"$result") == [:i_am_pet, :i_am_animal]
+    :ok
+  end
+
+  # With no further provider in the resolution order, call_next_method has nothing
+  # to run, so it fails (aborts the run) rather than looping or DNU-ing.
+  example call_next_method_with_no_super_fails() do
+    {:aborted, _} =
+      run branch: :examples do
+        set_class(:cnm_solo, :object)
+
+        defmethod(:cnm_solo, :only, [self, x]) do
+          call_next_method(self, [x])
+        end
+
+        set_class(:cnm_solo_i, :cnm_solo)
+
+        only(:cnm_solo_i, :v)
+      end
+
+    :ok
+  end
 end

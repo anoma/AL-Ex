@@ -83,7 +83,12 @@ defmodule AL do
           | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
           | {:send, AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:send_query, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          | {:call_next_method, AL.Var.t(), AL.Var.t()}
           | :fail
+
+  # A resolution cursor: the receiver, the selector it was dispatched under, and
+  # the providers left to try — what `call_next_method` walks.
+  @type cursor() :: {term(), atom(), [{term(), AL.Var.t()}]}
 
   @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
 
@@ -95,6 +100,8 @@ defmodule AL do
     field(:program, [goal()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
+    field(:call_cursors, %{optional(scope()) => cursor()}, default: %{})
+    field(:pending_cursor, cursor() | nil, default: nil)
     field(:diagnostics, [term()], default: [])
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
   end
@@ -231,6 +238,9 @@ defmodule AL do
   def ast_to_pattern({:send, _, [receiver, method, args]}),
     do: {:send, ast_to_pattern(receiver), ast_to_pattern(method), ast_to_pattern(args)}
 
+  def ast_to_pattern({:call_next_method, _, [self, args]}),
+    do: {:call_next_method, ast_to_pattern(self), ast_to_pattern(args)}
+
   def ast_to_pattern({:send_async, _, [object, method, args]}),
     do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
 
@@ -265,17 +275,9 @@ defmodule AL do
 
   def ast_to_pattern(x), do: x
 
-  # Lower the `->`-clause form of `implies` into nested `{:implies, …}` goals:
-  #
-  #     implies do
-  #       [cond] -> body
-  #       [other] -> body
-  #       :else -> body
-  #     end
-  #
-  # Each non-`:else` clause becomes an `implies` whose else branch is the rest of
-  # the chain (so extra clauses read as `else if`); a trailing `:else ->` is the
-  # final else, and its absence means an empty (failing) else.
+  # Lower the `->`-clause `implies do … end` into nested `{:implies, cond, then, else}`:
+  # extra clauses nest as the else (else-if); a trailing `:else ->` is the final else,
+  # its absence an empty (failing) else.
   defp build_implies([{:->, _, [[conds], body]} | rest]),
     do: {:implies, clause_goals(conds), clause_goals(body), implies_else(rest)}
 
@@ -324,36 +326,15 @@ defmodule AL do
   end
 
   @doc """
-   I am the top-level entrypoint for evaluating AL programs. AL programs are stacks of VM instructions / 'goals', which can be the following:
+  Top-level entry: run a program (a list of `goal()`s) in a Mnesia transaction,
+  returning `{:atomic, {output_vars, state}}` or `{:aborted, reason}`. The `goal()`
+  typespec and the `interp/2` clauses are the per-goal reference; two non-obvious
+  points they rely on:
 
-   __{:get_class, object_pattern, class_pattern}__
-   Scan the class table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
-   E.G., {:get_class, :class, :"$class"} should find :"$class" == :class only
-   
-   __{:get_super, object_pattern, super_pattern}__
-   Scan the superclass table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
-   E.G., {:get_super, :class, :"$super"} should find :"$super" == :object only
-
-   __{:get_method, object_pattern, method_name_pattern, method_id_pattern}__
-   Scan the method table and unify with given patterns. Found solutions are pushed onto the choicepoint stack
-   E.G., {:get_method, :class, :init, :"$id"} should find :"$id" == :initialise_class with choicepoints for any other solutions 
-   
-   __{:get_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}__
-   Scan the oapply table and unify with given patterns. Found solutions are pushed onto the choicepoint stack, in clause `seq` order.
-   E.G., {:get_oapply, :initialise_class, :"$seq", :"$head", :"$body"} should find all the implementations of initialise_class and bind :"$seq", :"$head" and :"$body" with that data
-   
-   __{:oapply, method_id_pattern, bind_head_pattern}__
-   Oapply takes a method_id and a binding for the head and executes the body as the new set of goals- AKA it expands the head into the body
-   In order to do this, it takes bindings provided from bind_head_pattern and unifies with a freshened head_pattern (using scope pointer) so that information can be passed in to the body.
-   A continuation is created in order to continue execution of the supergoal once the method is finished.
-   When the method is complete, information bound during method execution time is re-bound if it was queried in the binding head.
-   This means methods are executed bidirectionally.
-   __:cut__
-   Cut ('commit') all choicepoints discovered in call scope. This is not an mnesia-level transaction commit, it's a PROLOG-style commit that prunes the search space.
-
-   __:implies__
-   __:or__
-   __:print__
+  - `oapply` expands a method head into its body *bidirectionally* — head vars bound
+    while the body runs flow back to the caller (a continuation resumes it).
+  - `cut` is a Prolog-style commit pruning choicepoints in the call scope, not a
+    Mnesia transaction commit.
   """
   @spec eval([goal()], AL.Var.bindings() | nil, AL.Branch.t()) ::
           {:atomic, {AL.Var.bindings(), t()}} | {:aborted, term()}
@@ -504,275 +485,91 @@ defmodule AL do
     end
   end
 
+  defp bindings(state), do: state.active_choicepoint.bindings
+
+  defp put_bindings(state, nil), do: backtrack(state)
+
+  defp put_bindings(state, new),
+    do: %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: new}}
+
+  # Branch over `alts`, each mapped to a bindings map by `to_bindings`: the first is
+  # the current path, the rest wait on the stack for backtracking; empty => fail.
+  defp fan_out(state, alts, to_bindings) do
+    base = state.active_choicepoint
+    build = fn alt -> %AL.Choicepoint{base | bindings: to_bindings.(alt)} end
+
+    case alts do
+      [] ->
+        backtrack(state)
+
+      [first | rest] ->
+        %AL{
+          state
+          | active_choicepoint: build.(first),
+            choicepoint_stack: Enum.map(rest, build) ++ state.choicepoint_stack
+        }
+    end
+  end
+
   @spec interp(goal(), t()) :: t() | nil
-  def interp({:get_class, object_pattern, class_pattern}, state) do
-    if is_map(object_pattern) do
-      case Map.get(object_pattern, :class) do
-        nil ->
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{
-                state.active_choicepoint
-                | bindings: AL.Var.unify(:map, class_pattern, state.active_choicepoint.bindings)
-              }
-          }
+  def interp({:get_class, object, class_pattern}, state) when is_map(object),
+    do: put_bindings(state, AL.Var.unify(Map.get(object, :class, :map), class_pattern, bindings(state)))
 
-        class_name ->
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{
-                state.active_choicepoint
-                | bindings:
-                    AL.Var.unify(class_name, class_pattern, state.active_choicepoint.bindings)
-              }
-          }
-      end
-    else
-      if is_list(object_pattern) do
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings: AL.Var.unify(:list, class_pattern, state.active_choicepoint.bindings)
-            }
-        }
-      else
-        case AL.Object.scan_class(object_pattern, class_pattern, state.branch) do
-          [] ->
-            backtrack(state)
+  def interp({:get_class, object, class_pattern}, state) when is_list(object),
+    do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)))
 
-          [choice | next_choices] ->
-            %AL{
-              state
-              | active_choicepoint: %AL.Choicepoint{
-                  state.active_choicepoint
-                  | bindings:
-                      AL.Var.unify(
-                        choice,
-                        {:class, object_pattern, class_pattern},
-                        state.active_choicepoint.bindings
-                      )
-                },
-                choicepoint_stack:
-                  Enum.map(next_choices, fn c ->
-                    %AL.Choicepoint{
-                      state.active_choicepoint
-                      | bindings:
-                          AL.Var.unify(
-                            c,
-                            {:class, object_pattern, class_pattern},
-                            state.active_choicepoint.bindings
-                          )
-                    }
-                  end) ++ state.choicepoint_stack
-            }
-        end
-      end
-    end
+  def interp({:get_class, object, class_pattern}, state) do
+    fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
+      AL.Var.unify(row, {:class, object, class_pattern}, bindings(state))
+    end)
   end
 
-  def interp({:get_super, object_pattern, super_pattern}, state) do
-    case AL.Object.scan_super(object_pattern, super_pattern, state.branch) do
-      [] ->
-        backtrack(state)
-
-      [choice | next_choices] ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings:
-                  AL.Var.unify(
-                    choice,
-                    {:super, object_pattern, super_pattern},
-                    state.active_choicepoint.bindings
-                  )
-            },
-            choicepoint_stack:
-              Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint
-                  | bindings:
-                      AL.Var.unify(
-                        c,
-                        {:super, object_pattern, super_pattern},
-                        state.active_choicepoint.bindings
-                      )
-                }
-              end) ++ state.choicepoint_stack
-        }
-    end
+  def interp({:get_super, object, super_pattern}, state) do
+    fan_out(state, AL.Object.scan_super(object, super_pattern, state.branch), fn row ->
+      AL.Var.unify(row, {:super, object, super_pattern}, bindings(state))
+    end)
   end
 
-  def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
-    case AL.Object.scan_method(
-           object_pattern,
-           method_name_pattern,
-           method_id_pattern,
-           state.branch
-         ) do
-      [] ->
-        backtrack(state)
-
-      [choice | next_choices] ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings:
-                  AL.Var.unify(
-                    choice,
-                    {:method, object_pattern, method_name_pattern, method_id_pattern},
-                    state.active_choicepoint.bindings
-                  )
-            },
-            choicepoint_stack:
-              Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint
-                  | bindings:
-                      AL.Var.unify(
-                        c,
-                        {:method, object_pattern, method_name_pattern, method_id_pattern},
-                        state.active_choicepoint.bindings
-                      )
-                }
-              end) ++ state.choicepoint_stack
-        }
-    end
+  def interp({:get_method, object, name, id}, state) do
+    fan_out(state, AL.Object.scan_method(object, name, id, state.branch), fn row ->
+      AL.Var.unify(row, {:method, object, name, id}, bindings(state))
+    end)
   end
 
-  def interp({:get_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}, state) do
-    case AL.Object.scan_oapply(
-           object_pattern,
-           seq_pattern,
-           head_pattern,
-           body_pattern,
-           state.branch
-         ) do
-      [] ->
-        backtrack(state)
+  def interp({:get_oapply, object, seq, head, body}, state) do
+    clause = {:oapply, object, seq, head, body}
 
-      [choice | next_choices] ->
-        clause = {:oapply, object_pattern, seq_pattern, head_pattern, body_pattern}
-
-        # Standardize each scanned clause apart (copy_term) before unifying, so a
-        # stored clause's own vars can't collide with the caller's query vars —
-        # e.g. reading `:defmethod`, whose head is `[self, method_name, head,
-        # body]`, with a query that also names vars `head`/`body` would otherwise
-        # fail the occurs-check and silently match nothing.
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings:
-                  AL.Var.unify(
-                    standardize_apart(choice),
-                    clause,
-                    state.active_choicepoint.bindings
-                  )
-            },
-            choicepoint_stack:
-              Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint
-                  | bindings:
-                      AL.Var.unify(
-                        standardize_apart(c),
-                        clause,
-                        state.active_choicepoint.bindings
-                      )
-                }
-              end) ++ state.choicepoint_stack
-        }
-    end
+    # Standardize each scanned clause apart before unifying, so a stored clause's
+    # own vars can't collide with the caller's query vars (e.g. reading `:defmethod`,
+    # head `[self, method_name, head, body]`, with a query that also names
+    # `head`/`body` would fail the occurs-check and match nothing).
+    fan_out(state, AL.Object.scan_oapply(object, seq, head, body, state.branch), fn row ->
+      AL.Var.unify(standardize_apart(row), clause, bindings(state))
+    end)
   end
 
-  def interp({:oapply, :fresh_id, [result]}, state) do
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | bindings:
-              AL.Var.unify(
-                result,
-                AL.Command.fresh_id(state.branch),
-                state.active_choicepoint.bindings
-              )
-        }
-    }
-  end
+  def interp({:oapply, :fresh_id, [result]}, state),
+    do: put_bindings(state, AL.Var.unify(result, AL.Command.fresh_id(state.branch), bindings(state)))
 
-  def interp({:oapply, :current_tx, [result]}, state) do
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | bindings: AL.Var.unify(result, state.tx_id, state.active_choicepoint.bindings)
-        }
-    }
-  end
+  def interp({:oapply, :current_tx, [result]}, state),
+    do: put_bindings(state, AL.Var.unify(result, state.tx_id, bindings(state)))
 
   def interp({:oapply, :map_get, [m, k_pattern, v_pattern]}, state) do
-    case m
-         |> Enum.map(fn pair ->
-           AL.Var.unify({k_pattern, v_pattern}, pair, state.active_choicepoint.bindings)
-         end)
-         |> Enum.filter(fn t -> t end) do
-      [] ->
-        backtrack(state)
+    matches =
+      m
+      |> Enum.map(&AL.Var.unify({k_pattern, v_pattern}, &1, bindings(state)))
+      |> Enum.filter(& &1)
 
-      [choice | next_choices] ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings: choice
-            },
-            choicepoint_stack:
-              Enum.map(next_choices, fn c ->
-                %AL.Choicepoint{
-                  state.active_choicepoint
-                  | bindings: c
-                }
-              end) ++ state.choicepoint_stack
-        }
-    end
+    fan_out(state, matches, & &1)
   end
 
-  def interp({:oapply, :map_put, [m1, k_pattern, v_pattern, m2]}, state) do
-    case AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), state.active_choicepoint.bindings) do
-      nil ->
-        backtrack(state)
-
-      choice ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings: choice
-            },
-            choicepoint_stack: state.choicepoint_stack
-        }
-    end
-  end
+  def interp({:oapply, :map_put, [m1, k_pattern, v_pattern, m2]}, state),
+    do: put_bindings(state, AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), bindings(state)))
 
   def interp({:oapply, :is, [a, b]}, state) do
-    a_deref = AL.Var.deref(state.active_choicepoint.bindings, a)
-
-    case interp_is(b, state.active_choicepoint.bindings) do
-      :error ->
-        backtrack(state)
-
-      expr ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings: AL.Var.unify(a_deref, expr, state.active_choicepoint.bindings)
-            },
-            choicepoint_stack: state.choicepoint_stack
-        }
+    case interp_is(b, bindings(state)) do
+      :error -> backtrack(state)
+      expr -> put_bindings(state, AL.Var.unify(AL.Var.deref(bindings(state), a), expr, bindings(state)))
     end
   end
 
@@ -827,6 +624,8 @@ defmodule AL do
               scope_pointer: scope
             },
             traced_calls: record_traced_call(state.traced_calls, scope, trace_info),
+            call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
+            pending_cursor: nil,
             choicepoint_stack:
               alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
         }
@@ -983,27 +782,7 @@ defmodule AL do
           []
       end
 
-    case entries do
-      [] ->
-        backtrack(state)
-
-      [{k, v} | rest] ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings: AL.Var.unify({k, v}, {key, value}, state.active_choicepoint.bindings)
-            },
-            choicepoint_stack:
-              Enum.map(rest, fn {rk, rv} ->
-                %AL.Choicepoint{
-                  state.active_choicepoint
-                  | bindings:
-                      AL.Var.unify({rk, rv}, {key, value}, state.active_choicepoint.bindings)
-                }
-              end) ++ state.choicepoint_stack
-        }
-    end
+    fan_out(state, entries, fn entry -> AL.Var.unify(entry, {key, value}, bindings(state)) end)
   end
 
   def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
@@ -1066,14 +845,7 @@ defmodule AL do
 
   def interp({:gensym, var}, state) do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
-
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | bindings: AL.Var.unify(var, sym, state.active_choicepoint.bindings)
-        }
-    }
+    put_bindings(state, AL.Var.unify(var, sym, bindings(state)))
   end
 
   def interp({:print, pattern}, state) do
@@ -1158,22 +930,10 @@ defmodule AL do
     end
   end
 
-  def interp({:unify, a, b}, state) do
-    case AL.Var.unify(a, b, state.active_choicepoint.bindings) do
-      nil ->
-        backtrack(state)
+  def interp({:unify, a, b}, state),
+    do: put_bindings(state, AL.Var.unify(a, b, bindings(state)))
 
-      bindings ->
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: bindings}
-        }
-    end
-  end
-
-  # Structural equality (Prolog `==`): succeeds only if both sides are already
-  # the same term. Unlike `unify`, it never binds, so an unbound side fails
-  # rather than being silently made equal — what authorization checks need.
+  # Prolog `==`: structural equality; never binds, so an unbound side fails.
   def interp({:equal, a, b}, state) do
     bindings = state.active_choicepoint.bindings
 
@@ -1184,10 +944,8 @@ defmodule AL do
     end
   end
 
-  # Arithmetic comparison (Prolog `</>/=</>=`): evaluate both sides with
-  # `interp_is/2` and compare. An unbound or non-numeric operand makes a side
-  # `:error`, which fails the goal cleanly (backtracks) rather than crashing —
-  # the same contract as `is/2`. A false comparison backtracks too.
+  # Prolog `< > <= >=`: numeric compare via `interp_is/2`; unbound/non-numeric or a
+  # false comparison fails (same contract as `is/2`).
   def interp({:compare, op, a, b}, state) do
     bindings = state.active_choicepoint.bindings
 
@@ -1227,17 +985,26 @@ defmodule AL do
   def interp({:send, self, method, args}, state),
     do: dispatch(self, method, args, state, &dnu(self, method, args, &1))
 
-  # Re-dispatch of a query send: a non-match is skipped, never escalated to
-  # `does_not_understand` (a directed-send hook that may carry side effects we
-  # must not fire against every candidate in the store).
+  # Query re-dispatch: a miss is skipped, never escalated to `does_not_understand`
+  # (which may have side effects).
   def interp({:send_query, self, method, args}, state),
     do: dispatch(self, method, args, state, &backtrack/1)
 
-  # A var in the receiver or selector position turns a send into a query over
-  # the store: enumerate the candidates, ground that position, and re-dispatch as
-  # a query (so misses backtrack instead of firing DNU). Only a fully ground send
-  # is "directed" and uses `on_miss`. `:"$_"` is the wildcard, not a position to
-  # ground.
+  # Run the next provider of the same selector, from this frame's cursor. No cursor
+  # (called outside a resolved method) or none left → fail.
+  def interp({:call_next_method, self, args}, state) do
+    case Map.get(state.call_cursors, state.active_choicepoint.scope_pointer) do
+      {_self, selector, remaining} ->
+        run_providers(remaining, self, selector, [self | args], state, &backtrack/1)
+
+      nil ->
+        backtrack(state)
+    end
+  end
+
+  # A var receiver or selector makes the send a query: enumerate candidates, ground
+  # the hole, re-dispatch as a query (misses backtrack, not DNU). Only a fully ground
+  # send is directed and uses `on_miss`. `:"$_"` is the wildcard, not a hole.
   defp dispatch(self, method, args, state, on_miss) do
     cond do
       AL.Var.var?(self) and self != :"$_" ->
@@ -1266,9 +1033,8 @@ defmodule AL do
     }
   end
 
-  # Bind the selector to each method `self` understands (with choicepoints to
-  # backtrack over them) and re-dispatch as a query, so the call's arg shape
-  # selects which methods actually match.
+  # Bind the selector to each method `self` understands and re-dispatch as a query;
+  # the call's arg shape selects which match.
   defp enumerate_selectors(self, method, args, state) do
     case understood_method_names(self, state.branch) do
       [] ->
@@ -1304,20 +1070,34 @@ defmodule AL do
     |> Enum.uniq()
   end
 
-  defp do_send(self, method, args, state, on_miss) do
-    call_args = [self | args]
+  defp do_send(self, method, args, state, on_miss),
+    do: run_providers(providers(self, method, state.branch), self, method, [self | args], state, on_miss)
 
-    case resolve_method_id(self, method, state.branch) do
-      nil ->
-        on_miss.(state)
+  # Run the first provider whose clause fits, stashing the rest as a cursor for
+  # `call_next_method`. First match wins (a clause mismatch stays a miss). Primitives
+  # make no frame, so carry no cursor.
+  defp run_providers([], _self, _selector, _call_args, state, on_miss), do: on_miss.(state)
 
-      id ->
-        if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.branch) do
-          interp({:oapply, id, call_args}, state)
-        else
-          on_miss.(state)
-        end
+  defp run_providers([{_scope, id} | rest], self, selector, call_args, state, on_miss) do
+    if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.branch) do
+      state =
+        if id in @primitive_methods,
+          do: state,
+          else: %AL{state | pending_cursor: {self, selector, rest}}
+
+      interp({:oapply, id, call_args}, state)
+    else
+      on_miss.(state)
     end
+  end
+
+  # Ordered resolution view: every `{scope, id}` answering `selector` across `self`'s
+  # scopes. `send` takes the head, `call_next_method` walks the tail. The one seam all
+  # resolution reads through — where a cached view would slot in.
+  defp providers(self, selector, branch) do
+    for scope <- method_scopes(self, branch),
+        id <- method_ids(scope, selector, branch),
+        do: {scope, id}
   end
 
   defp dnu(_self, :does_not_understand, _args, state), do: backtrack(state)
@@ -1331,10 +1111,8 @@ defmodule AL do
     interp({:send, self, :does_not_understand, [method, args]}, state)
   end
 
-  # True when the receiver has no `does_not_understand` of its own — the miss
-  # would reach `:object`'s default (which just `:fail`s). Only then is a miss a
-  # genuine "message not understood" worth reporting, rather than something a
-  # user handler chose to swallow.
+  # True when the receiver has no `does_not_understand` of its own (a miss would hit
+  # `:object`'s default `:fail`) — only then is a miss worth reporting.
   defp default_dnu?(self, branch) do
     provider =
       Enum.find(method_scopes(self, branch), fn scope ->
@@ -1350,8 +1128,7 @@ defmodule AL do
     %AL{state | diagnostics: [entry | state.diagnostics]}
   end
 
-  # Rank a receiver's known selectors by string similarity to the one it didn't
-  # understand, so the report can offer a "did you mean" for the common typo case.
+  # Rank known selectors by similarity to the missed one, for a "did you mean".
   defp rank_suggestions(selector, known) do
     target = to_string(selector)
 
@@ -1361,20 +1138,8 @@ defmodule AL do
     |> Enum.take(3)
   end
 
-  defp resolve_method_id(self, method, branch) do
-    Enum.find_value(method_scopes(self, branch), fn scope ->
-      case method_ids(scope, method, branch) do
-        [id | _] -> id
-        [] -> nil
-      end
-    end)
-  end
-
-  # The ordered scopes a method lookup searches: the receiver itself (for an atom
-  # object), then its classes and their supers, depth-first and deduped. Map/list
-  # receivers start from their `:class`/`:list` pseudo-class. Shared by method
-  # resolution (first scope with the method wins) and the selector query (every
-  # method name across the scopes).
+  # Ordered lookup scopes: the receiver (if an atom), then its classes and their
+  # supers, depth-first and deduped. Map/list receivers start from `:map`/`:list`.
   defp method_scopes(self, branch) when is_map(self),
     do: super_chain([Map.get(self, :class, :map)], branch)
 
@@ -1420,9 +1185,8 @@ defmodule AL do
     end)
   end
 
-  # Variables a `run` reports. `findall`/`not`/`forall` are local scopes: only a
-  # `findall`'s result var escapes, so their template/condition vars don't
-  # surface as outer bindings (unless used elsewhere too).
+  # Vars a `run` reports. `findall`/`not`/`forall` are local scopes: only a
+  # `findall`'s result var escapes.
   defp observable_vars(goals) when is_list(goals),
     do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
 
@@ -1446,8 +1210,8 @@ defmodule AL do
 
   defp observable_vars(goal), do: AL.Var.find_vars(goal)
 
-  # Rename a solution's still-unbound vars to fresh clean ones, so internal
-  # freshened scope names never leak out (Prolog's `copy_term` over solutions).
+  # Prolog `copy_term`: rename a solution's unbound vars fresh so internal scope
+  # names don't leak out.
   defp standardize_apart(term) do
     rename =
       term
@@ -1490,10 +1254,8 @@ defmodule AL do
     end
   end
 
-  # Turn an exhausted run into a legible reason. An unhandled `does_not_understand`
-  # (recorded in `diagnostics`) is the most informative cause, so it wins; failing
-  # that we report the last goal actually reached. The trace is stripped of the
-  # `:backtrack` bookkeeping so it reads as the path taken, not the search noise.
+  # A legible failure reason: an unhandled `does_not_understand` wins, else the last
+  # goal reached. Trace stripped of `:backtrack` noise.
   defp format_failure(state) do
     steps =
       state.trace
@@ -1555,6 +1317,9 @@ defmodule AL do
 
   defp record_traced_call(traced_calls, freshener, info),
     do: Map.put(traced_calls, freshener, info)
+
+  defp record_cursor(cursors, _scope, nil), do: cursors
+  defp record_cursor(cursors, scope, cursor), do: Map.put(cursors, scope, cursor)
 
   defp trace_fail(state, freshener) do
     case Map.pop(state.traced_calls, freshener) do
