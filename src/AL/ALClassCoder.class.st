@@ -67,6 +67,13 @@ entries'.
 						yourself) ]
 ]
 
+{ #category : 'as yet unclassified' }
+ALClassCoder >> functionStreamingModel [
+	"Module-coder contract for gt_bridge function coders; I currently have no filter bar"
+
+	^ nil
+]
+
 { #category : 'gt-extensions' }
 ALClassCoder >> gtClausesFor: aView [
 	"I render each stored clause of my object's methods as a folded,
