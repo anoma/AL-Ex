@@ -64,9 +64,26 @@ defmodule AL.Package do
 
   @spec ensure(atom(), (-> any())) :: :ok
   def ensure(name, install) do
-    unless installed?(name), do: install.()
-    :ok
+    if installed?(name) do
+      :ok
+    else
+      # An install program that fails aborts its transaction rather than raising,
+      # which would otherwise leave a half-installed package behind silently. Turn
+      # that abort into a loud crash so a broken package can't pass for installed.
+      case install.() do
+        {:atomic, _} ->
+          :ok
+
+        {:aborted, reason} ->
+          raise "AL package #{inspect(name)} failed to install: #{explain(reason)}"
+      end
+    end
   end
+
+  # Prefer the legible failure message AL's interpreter now attaches; fall back to
+  # inspecting whatever the abort carried.
+  defp explain(%{message: message}), do: message
+  defp explain(reason), do: inspect(reason)
 
   @doc """
   I retract everything a package installed by reversing the commands of its

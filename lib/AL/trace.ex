@@ -63,7 +63,12 @@ defmodule AL.Trace do
   def pretty(t) when is_tuple(t),
     do: t |> Tuple.to_list() |> Enum.map(&pretty/1) |> List.to_tuple()
 
-  def pretty(l) when is_list(l), do: Enum.map(l, &pretty/1)
+  def pretty([]), do: []
+
+  # Hand-written cons recursion rather than `Enum.map`, so an improper list with an
+  # unbound-var tail (`[h | $tail]`, which AL forms freely) prettifies instead of
+  # crashing the formatter on a non-`[]` tail.
+  def pretty([h | t]), do: [pretty(h) | pretty(t)]
 
   def pretty(m) when is_map(m),
     do: Map.new(m, fn {k, v} -> {pretty(k), pretty(v)} end)

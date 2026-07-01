@@ -2,7 +2,7 @@ defmodule AL.Package.ElixirProcess do
   use AL.Package
 
   defpackage :elixir_process, version: 1, deps: [:bootstrap] do
-    new(:class, %{name: :elixir_process, super: :object, slots: []}, _)
+    new(:class, %{name: :elixir_process, super: :object}, _)
 
     defmethod(:elixir_process, :allocate, [self, args, new_obj]) do
       class(self, meta)

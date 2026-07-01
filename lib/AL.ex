@@ -95,6 +95,7 @@ defmodule AL do
     field(:program, [goal()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
+    field(:diagnostics, [term()], default: [])
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
   end
 
@@ -381,7 +382,7 @@ defmodule AL do
         })
 
       if result.active_choicepoint.bindings == nil do
-        :mnesia.abort(format_failure(result.trace))
+        :mnesia.abort(format_failure(result))
       else
         output_vars =
           input_vars
@@ -409,7 +410,7 @@ defmodule AL do
       result = backtrack(%AL{state | tx_id: tx_id})
 
       if result.active_choicepoint.bindings == nil do
-        :mnesia.abort(format_failure(result.trace))
+        :mnesia.abort(format_failure(result))
       else
         output_vars =
           input_vars
@@ -1321,8 +1322,44 @@ defmodule AL do
 
   defp dnu(_self, :does_not_understand, _args, state), do: backtrack(state)
 
-  defp dnu(self, method, args, state),
-    do: interp({:send, self, :does_not_understand, [method, args]}, state)
+  defp dnu(self, method, args, state) do
+    state =
+      if default_dnu?(self, state.branch),
+        do: record_dnu(state, self, method, args),
+        else: state
+
+    interp({:send, self, :does_not_understand, [method, args]}, state)
+  end
+
+  # True when the receiver has no `does_not_understand` of its own — the miss
+  # would reach `:object`'s default (which just `:fail`s). Only then is a miss a
+  # genuine "message not understood" worth reporting, rather than something a
+  # user handler chose to swallow.
+  defp default_dnu?(self, branch) do
+    provider =
+      Enum.find(method_scopes(self, branch), fn scope ->
+        method_ids(scope, :does_not_understand, branch) != []
+      end)
+
+    provider in [:object, nil]
+  end
+
+  defp record_dnu(state, self, method, args) do
+    suggestions = rank_suggestions(method, understood_method_names(self, state.branch))
+    entry = {self, method, length(args), suggestions}
+    %AL{state | diagnostics: [entry | state.diagnostics]}
+  end
+
+  # Rank a receiver's known selectors by string similarity to the one it didn't
+  # understand, so the report can offer a "did you mean" for the common typo case.
+  defp rank_suggestions(selector, known) do
+    target = to_string(selector)
+
+    known
+    |> Enum.reject(&(&1 == :does_not_understand))
+    |> Enum.sort_by(&String.jaro_distance(target, to_string(&1)), :desc)
+    |> Enum.take(3)
+  end
 
   defp resolve_method_id(self, method, branch) do
     Enum.find_value(method_scopes(self, branch), fn scope ->
@@ -1453,9 +1490,45 @@ defmodule AL do
     end
   end
 
-  defp format_failure(trace) do
-    steps = trace |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
-    %{failed_on: List.last(steps), trace: steps}
+  # Turn an exhausted run into a legible reason. An unhandled `does_not_understand`
+  # (recorded in `diagnostics`) is the most informative cause, so it wins; failing
+  # that we report the last goal actually reached. The trace is stripped of the
+  # `:backtrack` bookkeeping so it reads as the path taken, not the search noise.
+  defp format_failure(state) do
+    steps =
+      state.trace
+      |> Enum.reverse()
+      |> Enum.reject(&(&1 == :backtrack))
+      |> Enum.map(&AL.Trace.pretty/1)
+
+    case Enum.uniq(state.diagnostics) do
+      [{receiver, selector, arity, suggestions} | _] ->
+        receiver = AL.Trace.pretty(receiver)
+
+        hint =
+          case suggestions do
+            [top | _] -> " Did you mean #{inspect(top)}?"
+            [] -> ""
+          end
+
+        %{
+          message:
+            "#{inspect(receiver)} does not understand #{inspect(selector)}/#{arity}." <> hint,
+          reason: {:does_not_understand, receiver, selector, arity, suggestions},
+          failed_on: List.last(steps),
+          trace: steps
+        }
+
+      [] ->
+        failed_on = List.last(steps)
+
+        %{
+          message: "Goal failed: #{inspect(failed_on)}",
+          reason: {:goal_failed, failed_on},
+          failed_on: failed_on,
+          trace: steps
+        }
+    end
   end
 
   defp trace_call(state, method_id, bind_head) do

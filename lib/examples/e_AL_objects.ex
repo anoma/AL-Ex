@@ -10,7 +10,7 @@ defmodule Examples.ALObjects do
   example defmethod() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :greeter, super: :ephemeral, slots: []}, _)
+        new(:class, %{name: :greeter, super: :ephemeral}, _)
 
         defmethod(:greeter, :greet, [self, name]) do
         end
@@ -26,7 +26,7 @@ defmodule Examples.ALObjects do
   example make_point_object() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
-        new(:class, %{name: :point, super: :ephemeral, slots: []}, new_point_class)
+        new(:class, %{name: :point, super: :ephemeral}, new_point_class)
         new(new_point_class, _, new_point_object)
         cut
       end
@@ -40,20 +40,18 @@ defmodule Examples.ALObjects do
   example metaclass_alloc_override() do
     {:atomic, {b, program_state}} =
       run branch: :examples do
-        new(:class, %{name: :durable_meta, super: :object, slots: []}, _)
+        new(:class, %{name: :durable_meta, super: :object}, _)
 
         defmethod(:durable_meta, :allocate, [self, args, name]) do
           map_get(args, :name, name)
-          map_get(args, :slots, slots)
 
           class(self, meta)
 
           set_class(name, meta)
           set_super(name, :object)
-          set_slots(name, slots)
         end
 
-        new(:durable_meta, %{slots: [], name: :alloc_overriden}, obj)
+        new(:durable_meta, %{name: :alloc_overriden}, obj)
 
         class(obj, obj_class)
       end

@@ -49,3 +49,7 @@ end
 defmodule ALMetaTest do
   use ExExample.ExUnit, for: Examples.ALMeta
 end
+
+defmodule ALFailuresTest do
+  use ExExample.ExUnit, for: Examples.ALFailures
+end

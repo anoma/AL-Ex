@@ -77,13 +77,16 @@ defmodule AL.Package.Bootstrap do
     set_oapply(:allocate_class, [self, args, name]) do
       map_get(args, :name, name)
       map_get(args, :super, super)
-      map_get(args, :slots, slots)
+      alternative([map_get(args, :slots, slots)], [unify(slots, [])])
 
       class(self, meta)
 
       set_class(name, meta)
       set_super(name, super)
-      set_slots(name, slots)
+      # The declared instance-var names are reflective metadata about the class,
+      # held under `:ivars` in the class object's own slot map — so they sit
+      # alongside any class-side slot values rather than overwriting them.
+      set_slots(name, %{ivars: slots})
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
@@ -102,7 +105,7 @@ defmodule AL.Package.Bootstrap do
       init(alloc, args, new)
     end
 
-    new(:class, %{name: :ephemeral, super: :object, slots: []}, _)
+    new(:class, %{name: :ephemeral, super: :object}, _)
 
     defmethod(:ephemeral, :allocate, [self, _, self]) do
       # print(["allocate", self])
@@ -142,7 +145,7 @@ defmodule AL.Package.Bootstrap do
       set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
     end
 
-    new(:class, %{name: :list, super: :ephemeral, slots: []}, _)
+    new(:class, %{name: :list, super: :ephemeral}, _)
 
     defmethod(:list, :hd, [[h | _t], h]) do
     end
