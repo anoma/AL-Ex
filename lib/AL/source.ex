@@ -58,7 +58,7 @@ defmodule AL.Source do
       |> Enum.with_index()
       |> Map.new(fn {v, i} ->
         a = if i < 26, do: <<?a + i>>, else: "v#{i}"
-        {v, :"$#{a}"}
+        {v, AL.Var.var(a)}
       end)
 
     sub(term, map)
