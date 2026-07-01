@@ -3,6 +3,8 @@ defmodule AL.Command do
   I am the event-sourcing / command-logging module for AL. I manage the event/command log (stored in Mnesia) and provide the entrypoint for event hydration. System time here refers to a monotonic counter.
   """
 
+  use TypedStruct
+
   @type command_op() ::
           :set_class
           | :set_super
@@ -17,20 +19,85 @@ defmodule AL.Command do
           | :send_async
           | :send_elixir
 
-  @type command() ::
-          {:set_class, {AL.Var.t(), AL.Var.t()}}
-          | {:set_super, {AL.Var.t(), AL.Var.t()}}
-          | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
-          | {:set_oapply, {AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()]}}
-          | {:set_slots, {AL.Var.t(), AL.Var.t()}}
-          | {:retract_class, {AL.Var.t(), AL.Var.t()}}
-          | {:retract_super, {AL.Var.t(), AL.Var.t()}}
-          | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
-          | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
-          | {:retract_slots, {AL.Var.t(), AL.Var.t()}}
-          | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
-          | {:send_elixir, {pid(), term()}}
+  typedstruct enforce: true, module: SetClass do
+    field(:object, AL.Var.t())
+    field(:class, AL.Var.t())
+  end
 
+  typedstruct enforce: true, module: SetSuper do
+    field(:object, AL.Var.t())
+    field(:super, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: SetMethod do
+    field(:object, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:id, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: SetOapply do
+    field(:object, AL.Var.t())
+    field(:seq, non_neg_integer())
+    field(:head, AL.Var.t())
+    field(:body, [AL.goal()])
+  end
+
+  typedstruct enforce: true, module: SetSlots do
+    field(:object, AL.Var.t())
+    field(:slots, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: RetractClass do
+    field(:object, AL.Var.t())
+    field(:class, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: RetractSuper do
+    field(:object, AL.Var.t())
+    field(:super, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: RetractMethod do
+    field(:object, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:id, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: RetractOapply do
+    field(:object, AL.Var.t())
+    field(:head, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: RetractSlots do
+    field(:object, AL.Var.t())
+    field(:slots, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: SendAsync do
+    field(:object, AL.Var.t())
+    field(:method, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: SendElixir do
+    field(:pid, pid())
+    field(:message, term())
+  end
+
+  @type t() ::
+          SetClass.t()
+          | SetSuper.t()
+          | SetMethod.t()
+          | SetOapply.t()
+          | SetSlots.t()
+          | RetractClass.t()
+          | RetractSuper.t()
+          | RetractMethod.t()
+          | RetractOapply.t()
+          | RetractSlots.t()
+          | SendAsync.t()
+          | SendElixir.t()
+  @type command() :: t()
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
   suffixed table created with `record_name: :command`.

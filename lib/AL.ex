@@ -49,9 +49,7 @@ defmodule AL do
   @type scope() :: non_neg_integer()
 
   @type goal() ::
-          {:get_class, AL.Var.t(), AL.Var.t()}
-          | {:get_super, AL.Var.t(), AL.Var.t()}
-          | {:get_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+          AL.Command.t()
           | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:oapply, AL.Var.t(), AL.Var.t()}
           | :cut
@@ -60,19 +58,7 @@ defmodule AL do
           | {:then, [goal()]}
           | {:forall, [goal()], [goal()]}
           | {:findall, AL.Var.t(), [goal()], AL.Var.t()}
-          | {:set_class, AL.Var.t(), AL.Var.t()}
-          | {:set_super, AL.Var.t(), AL.Var.t()}
-          | {:set_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
           | {:get_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_slots, AL.Var.t(), AL.Var.t()}
-          | {:retract_class, AL.Var.t(), AL.Var.t()}
-          | {:retract_super, AL.Var.t(), AL.Var.t()}
-          | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:retract_oapply, AL.Var.t(), AL.Var.t()}
-          | {:retract_slots, AL.Var.t(), AL.Var.t()}
-          | {:send_async, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:send_elixir, AL.Var.t(), AL.Var.t()}
           | {:gensym, AL.Var.t()}
           | {:print, AL.Var.t()}
           | {:not, [goal()]}
