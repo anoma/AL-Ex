@@ -19,85 +19,8 @@ defmodule AL.Command do
           | :send_async
           | :send_elixir
 
-  typedstruct enforce: true, module: SetClass do
-    field(:object, AL.Var.t())
-    field(:class, AL.Var.t())
-  end
+  @type command() :: AL.Goal.command()
 
-  typedstruct enforce: true, module: SetSuper do
-    field(:object, AL.Var.t())
-    field(:super, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: SetMethod do
-    field(:object, AL.Var.t())
-    field(:name, AL.Var.t())
-    field(:id, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: SetOapply do
-    field(:object, AL.Var.t())
-    field(:seq, non_neg_integer())
-    field(:head, AL.Var.t())
-    field(:body, [AL.goal()])
-  end
-
-  typedstruct enforce: true, module: SetSlots do
-    field(:object, AL.Var.t())
-    field(:slots, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: RetractClass do
-    field(:object, AL.Var.t())
-    field(:class, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: RetractSuper do
-    field(:object, AL.Var.t())
-    field(:super, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: RetractMethod do
-    field(:object, AL.Var.t())
-    field(:name, AL.Var.t())
-    field(:id, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: RetractOapply do
-    field(:object, AL.Var.t())
-    field(:head, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: RetractSlots do
-    field(:object, AL.Var.t())
-    field(:slots, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: SendAsync do
-    field(:object, AL.Var.t())
-    field(:method, AL.Var.t())
-    field(:args, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: SendElixir do
-    field(:pid, pid())
-    field(:message, term())
-  end
-
-  @type t() ::
-          SetClass.t()
-          | SetSuper.t()
-          | SetMethod.t()
-          | SetOapply.t()
-          | SetSlots.t()
-          | RetractClass.t()
-          | RetractSuper.t()
-          | RetractMethod.t()
-          | RetractOapply.t()
-          | RetractSlots.t()
-          | SendAsync.t()
-          | SendElixir.t()
-  @type command() :: t()
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
   suffixed table created with `record_name: :command`.
