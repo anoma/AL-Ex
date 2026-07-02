@@ -16,7 +16,10 @@ defmodule AL.Goal do
           | SendElixir.t()
 
   @type instructions() ::
-          GetOapply.t()
+          GetClass.t()
+          | GetSuper.t()
+          | GetMethod.t()
+          | GetOapply.t()
           | OApply.t()
           | Cut.t()
           | Implies.t()
@@ -105,6 +108,22 @@ defmodule AL.Goal do
 
   # General Goals -----------------------------------
 
+  typedstruct enforce: true, module: GetClass do
+    field(:object, AL.Var.t())
+    field(:class, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: GetSuper do
+    field(:object, AL.Var.t())
+    field(:super, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: GetMethod do
+    field(:object, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:id, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: GetOapply do
     field(:object, AL.Var.t())
     field(:seq, non_neg_integer())
@@ -113,8 +132,8 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: OApply do
-    field(:object, AL.Var.t())
-    field(:head, AL.Var.t())
+    field(:method_id, AL.Var.t())
+    field(:args, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Cut do
@@ -175,14 +194,14 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Call do
-    field(:object, [AL.Var.t()])
-    field(:method, [AL.Goal.t()])
+    field(:head, [AL.Var.t()])
+    field(:body, [AL.Goal.t()])
     field(:args, [AL.Var.t()])
   end
 
   typedstruct enforce: true, module: Send do
-    field(:head, AL.Var.t())
-    field(:body, AL.Var.t())
+    field(:object, AL.Var.t())
+    field(:method, AL.Var.t())
     field(:args, AL.Var.t())
   end
 
