@@ -214,8 +214,6 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: Fail do
   end
 
-  # --- generic goal traversal: shape-preserving map / fold over leaves ---
-
   @doc "Transform every leaf of a goal term with `fun`."
   @spec map(term(), (term() -> term())) :: term()
   def map([], _fun), do: []
@@ -247,4 +245,88 @@ defmodule AL.Goal do
     do: term |> Tuple.to_list() |> reduce(acc, fun)
 
   def reduce(leaf, acc, fun), do: fun.(leaf, acc)
+
+  # struct <-> stored tuple. `:term` fields copy as-is, `:goals` fields recurse.
+  @forms [
+    {SetClass, :set_class, [object: :term, class: :term]},
+    {SetSuper, :set_super, [object: :term, super: :term]},
+    {SetMethod, :set_method, [object: :term, name: :term, id: :term]},
+    {SetOapply, :set_oapply, [object: :term, seq: :term, head: :term, body: :goals]},
+    {SetSlots, :set_slots, [object: :term, slots: :term]},
+    {RetractClass, :retract_class, [object: :term, class: :term]},
+    {RetractSuper, :retract_super, [object: :term, super: :term]},
+    {RetractMethod, :retract_method, [object: :term, name: :term, id: :term]},
+    {RetractOapply, :retract_oapply, [object: :term, head: :term]},
+    {RetractSlots, :retract_slots, [object: :term, slots: :term]},
+    {SendAsync, :send_async, [object: :term, method: :term, args: :term]},
+    {SendElixir, :send_elixir, [pid: :term, message: :term]},
+    {GetClass, :get_class, [object: :term, class: :term]},
+    {GetSuper, :get_super, [object: :term, super: :term]},
+    {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
+    {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
+    {OApply, :oapply, [method_id: :term, args: :term]},
+    {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
+    {Or, :or, [or: :goals, then: :goals]},
+    {Then, :then, [then: :goals]},
+    {Forall, :forall, [condition: :goals, body: :goals]},
+    {Findall, :findall, [template: :term, condition: :goals, result: :term]},
+    {GetSlots, :get_slot, [object: :term, key: :term, value: :term]},
+    {Gensym, :gensym, [var: :term]},
+    {Print, :print, [pattern: :term]},
+    {Not, :not, [condition: :goals]},
+    {Unify, :unify, [a: :term, b: :term]},
+    {Equal, :equal, [a: :term, b: :term]},
+    {Call, :call, [head: :term, body: :goals, args: :term]},
+    {Send, :send, [object: :term, method: :term, args: :term]},
+    {SendQuery, :send_query, [object: :term, method: :term, args: :term]}
+  ]
+
+  @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
+  @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
+
+  @doc "Serialize one goal struct to its stored tuple form."
+  @spec to_stored(t()) :: tuple() | atom()
+  def to_stored(%Cut{}), do: :cut
+  def to_stored(%Fail{}), do: :fail
+
+  def to_stored(goal) when is_struct(goal) do
+    case Map.fetch(@to_form, goal.__struct__) do
+      {:ok, {tag, fields}} ->
+        List.to_tuple([
+          tag | Enum.map(fields, fn {name, kind} -> store(kind, Map.fetch!(goal, name)) end)
+        ])
+
+      :error ->
+        goal
+    end
+  end
+
+  def to_stored(other), do: other
+
+  defp store(:term, v), do: v
+  defp store(:goals, gs) when is_list(gs), do: Enum.map(gs, &to_stored/1)
+  defp store(:goals, other), do: other
+
+  @doc "Rebuild a goal struct from its stored tuple form (inverse of to_stored/1)."
+  @spec from_stored(tuple() | atom()) :: t()
+  def from_stored(:cut), do: %Cut{}
+  def from_stored(:fail), do: %Fail{}
+
+  def from_stored(stored) when is_tuple(stored) do
+    [tag | args] = Tuple.to_list(stored)
+
+    case Map.fetch(@from_form, tag) do
+      {:ok, {mod, fields}} ->
+        struct(mod, Enum.zip_with(fields, args, fn {name, kind}, v -> {name, load(kind, v)} end))
+
+      :error ->
+        stored
+    end
+  end
+
+  def from_stored(other), do: other
+
+  defp load(:term, v), do: v
+  defp load(:goals, gs) when is_list(gs), do: Enum.map(gs, &from_stored/1)
+  defp load(:goals, other), do: other
 end
