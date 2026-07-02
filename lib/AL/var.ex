@@ -195,94 +195,30 @@ defmodule AL.Var do
   end
 
   @spec subst(t(), bindings()) :: t()
-  def subst(x, bindings) when is_atom(x) do
-    rx = deref(bindings, x)
+  def subst(term, bindings), do: AL.Goal.map(term, &subst_leaf(&1, bindings))
 
-    if rx == x do
-      x
-    else
-      subst(rx, bindings)
+  # A bound var derefs to its term, which is itself substituted
+  defp subst_leaf(leaf, bindings) when is_atom(leaf) do
+    case deref(bindings, leaf) do
+      ^leaf -> leaf
+      other -> subst(other, bindings)
     end
   end
 
-  def subst([], _bindings), do: []
-
-  def subst([x | xs], bindings) do
-    [subst(x, bindings) | subst(xs, bindings)]
-  end
-
-  def subst(m, bindings) when is_map(m) do
-    Map.new(m, fn {k, v} -> {subst(k, bindings), subst(v, bindings)} end)
-  end
-
-  def subst(xs, bindings) when is_tuple(xs) do
-    xs
-    |> Tuple.to_list()
-    |> subst(bindings)
-    |> List.to_tuple()
-  end
-
-  def subst(x, _), do: x
+  defp subst_leaf(leaf, _bindings), do: leaf
 
   @spec find_vars(t()) :: MapSet.t(variable())
   @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())
-  def find_vars(d) do
-    find_vars(d, MapSet.new([]))
+  def find_vars(term), do: find_vars(term, MapSet.new())
+
+  def find_vars(term, acc) do
+    AL.Goal.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
   end
-
-  def find_vars(v, s) when is_atom(v) do
-    if var?(v) do
-      MapSet.put(s, v)
-    else
-      s
-    end
-  end
-
-  def find_vars([], s), do: s
-
-  def find_vars([x | xs], s) do
-    find_vars(xs, find_vars(x, s))
-  end
-
-  def find_vars(m, s) when is_map(m) do
-    Enum.reduce(m, s, fn {k, v}, acc ->
-      find_vars(v, find_vars(k, acc))
-    end)
-  end
-
-  def find_vars(xs, s) when is_tuple(xs) do
-    xs
-    |> Tuple.to_list()
-    |> find_vars(s)
-  end
-
-  def find_vars(_, s), do: s
 
   @spec freshen(t(), String.t()) :: t()
-  def freshen(v, f) when is_atom(v) do
-    if var?(v) && v != :"$_" do
-      var(name(v) <> "_" <> f)
-    else
-      v
-    end
+  def freshen(term, f) do
+    AL.Goal.map(term, fn leaf ->
+      if var?(leaf) and leaf != :"$_", do: var(name(leaf) <> "_" <> f), else: leaf
+    end)
   end
-
-  def freshen([], _f), do: []
-
-  def freshen([x | xs], f) do
-    [freshen(x, f) | freshen(xs, f)]
-  end
-
-  def freshen(m, f) when is_map(m) do
-    Map.new(m, fn {k, v} -> {freshen(k, f), freshen(v, f)} end)
-  end
-
-  def freshen(xs, f) when is_tuple(xs) do
-    xs
-    |> Tuple.to_list()
-    |> freshen(f)
-    |> List.to_tuple()
-  end
-
-  def freshen(v, _f), do: v
 end
