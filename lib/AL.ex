@@ -8,7 +8,7 @@ defmodule AL.Continuation do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, [AL.Goal.goal()], enforce: true, default: [])
+    field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
   end
@@ -27,7 +27,7 @@ defmodule AL.Choicepoint do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, [AL.Goal.goal()], enforce: true, default: [])
+    field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:bindings, AL.Var.bindings() | nil, enforce: true, default: %{})
     field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)

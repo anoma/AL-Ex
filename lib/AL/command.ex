@@ -3,8 +3,6 @@ defmodule AL.Command do
   I am the event-sourcing / command-logging module for AL. I manage the event/command log (stored in Mnesia) and provide the entrypoint for event hydration. System time here refers to a monotonic counter.
   """
 
-  use TypedStruct
-
   @type command_op() ::
           :set_class
           | :set_super
