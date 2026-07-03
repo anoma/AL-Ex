@@ -61,7 +61,9 @@ defmodule AL.Scheduler do
           _tid}},
         %{branch: branch} = state
       ) do
-    Task.start(fn -> AL.eval([{:send, object, method, args}], nil, branch) end)
+    Task.start(fn ->
+      AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+    end)
     {:noreply, state}
   end
 

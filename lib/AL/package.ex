@@ -134,11 +134,11 @@ defmodule AL.Package do
 
   defp inverse({:command, _t, _tx, command}) do
     case command do
-      {:set_class, {o, c}} -> [{:retract_class, o, c}]
-      {:set_super, {o, s}} -> [{:retract_super, o, s}]
-      {:set_method, {o, n, id}} -> [{:retract_method, o, n, id}]
-      {:set_oapply, {o, _seq, h, _b}} -> [{:retract_oapply, o, h}]
-      {:set_slots, {o, s}} -> [{:retract_slots, o, s}]
+      {:set_class, {o, c}} -> [%AL.Goal.RetractClass{object: o, class: c}]
+      {:set_super, {o, s}} -> [%AL.Goal.RetractSuper{object: o, super: s}]
+      {:set_method, {o, n, id}} -> [%AL.Goal.RetractMethod{object: o, name: n, id: id}]
+      {:set_oapply, {o, _seq, h, _b}} -> [%AL.Goal.RetractOapply{object: o, head: h}]
+      {:set_slots, {o, s}} -> [%AL.Goal.RetractSlots{object: o, slots: s}]
       _ -> []
     end
   end

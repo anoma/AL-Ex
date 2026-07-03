@@ -58,39 +58,21 @@ defmodule AL.Source do
       |> Enum.with_index()
       |> Map.new(fn {v, i} ->
         a = if i < 26, do: <<?a + i>>, else: "v#{i}"
-        {v, :"$#{a}"}
+        {v, AL.Var.var(a)}
       end)
 
     sub(term, map)
   end
 
-  # Remember we have improper lists
+  # Vars in first-appearance order (with dups; caller dedups).
   @spec collect(any()) :: [AL.Var.t()]
-  defp collect(a) when is_atom(a), do: if(var?(a), do: [a], else: [])
-  defp collect([]), do: []
-  defp collect([h | t]), do: collect(h) ++ collect(t)
-  defp collect(m) when is_map(m), do: Enum.flat_map(m, fn {k, v} -> collect(k) ++ collect(v) end)
-  defp collect(t) when is_tuple(t), do: Enum.flat_map(Tuple.to_list(t), &collect/1)
-  defp collect(_), do: []
-
-  @spec sub(term(), %{optional(atom()) => atom()}) :: term()
-  defp sub(a, map) when is_atom(a), do: Map.get(map, a, a)
-  defp sub([], _map), do: []
-
-  defp sub([h | t], map),
-    do: [sub(h, map) | sub(t, map)]
-
-  defp sub(m, map) when is_map(m),
-    do: Map.new(m, fn {k, v} -> {sub(k, map), sub(v, map)} end)
-
-  defp sub(t, map) when is_tuple(t) do
-    t
-    |> Tuple.to_list()
-    |> Enum.map(&sub(&1, map))
-    |> List.to_tuple()
+  defp collect(term) do
+    AL.Goal.reduce(term, [], fn leaf, acc -> if var?(leaf), do: [leaf | acc], else: acc end)
+    |> Enum.reverse()
   end
 
-  defp sub(x, _map), do: x
+  @spec sub(term(), %{optional(atom()) => atom()}) :: term()
+  defp sub(term, map), do: AL.Goal.map(term, fn leaf -> Map.get(map, leaf, leaf) end)
 
   # --- goals -> surface AST ---
   @spec goals([AL.goal()]) :: Macro.t()

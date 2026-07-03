@@ -8,7 +8,7 @@ defmodule AL.Continuation do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, [AL.goal()], enforce: true, default: [])
+    field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
   end
@@ -27,7 +27,7 @@ defmodule AL.Choicepoint do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, [AL.goal()], enforce: true, default: [])
+    field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:bindings, AL.Var.bindings() | nil, enforce: true, default: %{})
     field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
@@ -45,46 +45,9 @@ defmodule AL do
   choicepoint_stack: Stack of most recent choicepoints discovered (thus reflecting DFS)
   """
   use TypedStruct
+  alias AL.Goal
 
   @type scope() :: non_neg_integer()
-
-  @type goal() ::
-          {:get_class, AL.Var.t(), AL.Var.t()}
-          | {:get_super, AL.Var.t(), AL.Var.t()}
-          | {:get_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:oapply, AL.Var.t(), AL.Var.t()}
-          | :cut
-          | {:implies, [goal()], [goal()], [goal()]}
-          | {:or, [goal()], [goal()]}
-          | {:then, [goal()]}
-          | {:forall, [goal()], [goal()]}
-          | {:findall, AL.Var.t(), [goal()], AL.Var.t()}
-          | {:set_class, AL.Var.t(), AL.Var.t()}
-          | {:set_super, AL.Var.t(), AL.Var.t()}
-          | {:set_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:get_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_slots, AL.Var.t(), AL.Var.t()}
-          | {:retract_class, AL.Var.t(), AL.Var.t()}
-          | {:retract_super, AL.Var.t(), AL.Var.t()}
-          | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:retract_oapply, AL.Var.t(), AL.Var.t()}
-          | {:retract_slots, AL.Var.t(), AL.Var.t()}
-          | {:send_async, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:send_elixir, AL.Var.t(), AL.Var.t()}
-          | {:gensym, AL.Var.t()}
-          | {:print, AL.Var.t()}
-          | {:ground, AL.Var.t()}
-          | {:not, [goal()]}
-          | {:unify, AL.Var.t(), AL.Var.t()}
-          | {:equal, AL.Var.t(), AL.Var.t()}
-          | {:compare, atom(), AL.Var.t(), AL.Var.t()}
-          | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
-          | {:send, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:send_query, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:call_next_method, AL.Var.t(), AL.Var.t()}
-          | :fail
 
   # A resolution cursor: the receiver, the selector it was dispatched under, and
   # the providers left to try — what `call_next_method` walks.
@@ -96,8 +59,8 @@ defmodule AL do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
     field(:choicepoint_stack, [stack_entry()], default: [])
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
-    field(:trace, [goal()], enforce: true, default: [])
-    field(:program, [goal()], enforce: true, default: [])
+    field(:trace, [AL.Goal.t()], enforce: true, default: [])
+    field(:program, [AL.Goal.t()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
     field(:call_cursors, %{optional(scope()) => cursor()}, default: %{})
@@ -138,136 +101,190 @@ defmodule AL do
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
   def ast_to_pattern({:class, _, [object, class]}),
-    do: {:get_class, ast_to_pattern(object), ast_to_pattern(class)}
+    do: %Goal.GetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
   def ast_to_pattern({:super, _, [object, super]}),
-    do: {:get_super, ast_to_pattern(object), ast_to_pattern(super)}
+    do: %Goal.GetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:method, _, [object, name, id]}),
-    do: {:get_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+    do: %Goal.GetMethod{
+      object: ast_to_pattern(object),
+      name: ast_to_pattern(name),
+      id: ast_to_pattern(id)
+    }
 
   def ast_to_pattern({:clause, _, [object, head, body]}),
-    do: {:get_oapply, ast_to_pattern(object), :"$_", ast_to_pattern(head), ast_to_pattern(body)}
+    do: %Goal.GetOapply{
+      object: ast_to_pattern(object),
+      seq: :"$_",
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:clause, _, [object, seq, head, body]}),
-    do:
-      {:get_oapply, ast_to_pattern(object), ast_to_pattern(seq), ast_to_pattern(head),
-       ast_to_pattern(body)}
+    do: %Goal.GetOapply{
+      object: ast_to_pattern(object),
+      seq: ast_to_pattern(seq),
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:oapply, _, [method_id, args]}),
-    do: {:oapply, ast_to_pattern(method_id), ast_to_pattern(args)}
+    do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
 
   def ast_to_pattern({:implies, _, [[do: clauses]]}), do: build_implies(clauses)
 
   def ast_to_pattern({:alternative, _, [left, right]}),
-    do: {:or, ast_to_pattern(left), ast_to_pattern(right)}
+    do: %Goal.Or{or: ast_to_pattern(left), then: ast_to_pattern(right)}
 
-  def ast_to_pattern({:cut, _, _}), do: :cut
+  def ast_to_pattern({:cut, _, _}), do: %Goal.Cut{}
 
-  def ast_to_pattern({:fail, _, _}), do: :fail
+  def ast_to_pattern({:fail, _, _}), do: %Goal.Fail{}
 
   def ast_to_pattern({:set_class, _, [object, class]}),
-    do: {:set_class, ast_to_pattern(object), ast_to_pattern(class)}
+    do: %Goal.SetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
   def ast_to_pattern({:set_super, _, [object, super]}),
-    do: {:set_super, ast_to_pattern(object), ast_to_pattern(super)}
+    do: %Goal.SetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:set_method, _, [object, name, id]}),
-    do: {:set_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+    do: %Goal.SetMethod{
+      object: ast_to_pattern(object),
+      name: ast_to_pattern(name),
+      id: ast_to_pattern(id)
+    }
 
   def ast_to_pattern({:set_oapply, _, [object, head, body]}),
-    do: {:set_oapply, ast_to_pattern(object), :next, ast_to_pattern(head), ast_to_pattern(body)}
+    do: %Goal.SetOapply{
+      object: ast_to_pattern(object),
+      seq: :next,
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:set_oapply, _, [object, seq, head, body]}),
-    do:
-      {:set_oapply, ast_to_pattern(object), ast_to_pattern(seq), ast_to_pattern(head),
-       ast_to_pattern(body)}
+    do: %Goal.SetOapply{
+      object: ast_to_pattern(object),
+      seq: ast_to_pattern(seq),
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:set_slots, _, [object, slots]}),
-    do: {:set_slots, ast_to_pattern(object), ast_to_pattern(slots)}
+    do: %Goal.SetSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
   def ast_to_pattern({:get_slot, _, [object, key, value]}),
-    do: {:get_slot, ast_to_pattern(object), ast_to_pattern(key), ast_to_pattern(value)}
+    do: %Goal.GetSlots{
+      object: ast_to_pattern(object),
+      key: ast_to_pattern(key),
+      value: ast_to_pattern(value)
+    }
 
   def ast_to_pattern({:retract_class, _, [object, class]}),
-    do: {:retract_class, ast_to_pattern(object), ast_to_pattern(class)}
+    do: %Goal.RetractClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
   def ast_to_pattern({:retract_super, _, [object, super]}),
-    do: {:retract_super, ast_to_pattern(object), ast_to_pattern(super)}
+    do: %Goal.RetractSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:retract_method, _, [object, name, id]}),
-    do: {:retract_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+    do: %Goal.RetractMethod{
+      object: ast_to_pattern(object),
+      name: ast_to_pattern(name),
+      id: ast_to_pattern(id)
+    }
 
   def ast_to_pattern({:retract_oapply, _, [object, head]}),
-    do: {:retract_oapply, ast_to_pattern(object), ast_to_pattern(head)}
+    do: %Goal.RetractOapply{object: ast_to_pattern(object), head: ast_to_pattern(head)}
 
   def ast_to_pattern({:retract_slots, _, [object, slots]}),
-    do: {:retract_slots, ast_to_pattern(object), ast_to_pattern(slots)}
+    do: %Goal.RetractSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
-  def ast_to_pattern({:gensym, _, [var]}), do: {:gensym, ast_to_pattern(var)}
+  def ast_to_pattern({:gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 
-  def ast_to_pattern({:print, _, [pattern]}), do: {:print, ast_to_pattern(pattern)}
+  def ast_to_pattern({:print, _, [pattern]}), do: %Goal.Print{pattern: ast_to_pattern(pattern)}
 
-  def ast_to_pattern({:ground, _, [term]}), do: {:ground, ast_to_pattern(term)}
+  def ast_to_pattern({:ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
   def ast_to_pattern([]), do: []
 
   def ast_to_pattern(xs) when is_list(xs), do: Enum.map(xs, &ast_to_pattern/1)
 
   def ast_to_pattern({:forall, _, [condition, body]}),
-    do: {:forall, ast_to_pattern(condition), ast_to_pattern(body)}
+    do: %Goal.Forall{condition: ast_to_pattern(condition), body: ast_to_pattern(body)}
 
   def ast_to_pattern({:findall, _, [template, condition, result]}),
-    do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
+    do: %Goal.Findall{
+      template: ast_to_pattern(template),
+      condition: ast_to_pattern(condition),
+      result: ast_to_pattern(result)
+    }
 
   def ast_to_pattern({:not, _, [goals]}),
-    do: {:not, ast_to_pattern(goals)}
+    do: %Goal.Not{condition: ast_to_pattern(goals)}
 
   def ast_to_pattern({:unify, _, [a, b]}),
-    do: {:unify, ast_to_pattern(a), ast_to_pattern(b)}
+    do: %Goal.Unify{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   def ast_to_pattern({:==, _, [a, b]}),
-    do: {:equal, ast_to_pattern(a), ast_to_pattern(b)}
+    do: %Goal.Equal{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
-    do: {:compare, op, ast_to_pattern(a), ast_to_pattern(b)}
+    do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   def ast_to_pattern({:call, _, [head, body, args]}),
-    do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
+    do: %Goal.Call{
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body),
+      args: ast_to_pattern(args)
+    }
 
   def ast_to_pattern({:send, _, [receiver, method, args]}),
-    do: {:send, ast_to_pattern(receiver), ast_to_pattern(method), ast_to_pattern(args)}
+    do: %Goal.Send{
+      object: ast_to_pattern(receiver),
+      method: ast_to_pattern(method),
+      args: ast_to_pattern(args)
+    }
 
   def ast_to_pattern({:call_next_method, _, [self, args]}),
-    do: {:call_next_method, ast_to_pattern(self), ast_to_pattern(args)}
+    do: %Goal.CallNextMethod{self: ast_to_pattern(self), args: ast_to_pattern(args)}
 
   def ast_to_pattern({:send_async, _, [object, method, args]}),
-    do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
+    do: %Goal.SendAsync{
+      object: ast_to_pattern(object),
+      method: ast_to_pattern(method),
+      args: ast_to_pattern(args)
+    }
 
   def ast_to_pattern({:send_elixir, _, [pid, message]}),
-    do: {:send_elixir, ast_to_pattern(pid), ast_to_pattern(message)}
+    do: %Goal.SendElixir{pid: ast_to_pattern(pid), message: ast_to_pattern(message)}
 
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
-    {:oapply, :defmethod,
-     [
-       ast_to_pattern(class),
-       ast_to_pattern(method_name),
-       ast_to_pattern(head),
-       ast_to_pattern(body)
-     ]}
+    %Goal.OApply{
+      method_id: :defmethod,
+      args: [
+        ast_to_pattern(class),
+        ast_to_pattern(method_name),
+        ast_to_pattern(head),
+        ast_to_pattern(body)
+      ]
+    }
   end
 
   def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
-    do: {:oapply, op, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.OApply{method_id: op, args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({fun, _, args}) when fun in @oapply_primitives and is_list(args),
-    do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.OApply{method_id: fun, args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({method, _, [receiver | args]}) when is_atom(method) and is_list(args),
-    do: {:send, ast_to_pattern(receiver), method, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.Send{
+      object: ast_to_pattern(receiver),
+      method: method,
+      args: Enum.map(args, &ast_to_pattern/1)
+    }
 
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
-    do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.OApply{method_id: fun, args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
 
@@ -275,11 +292,15 @@ defmodule AL do
 
   def ast_to_pattern(x), do: x
 
-  # Lower the `->`-clause `implies do … end` into nested `{:implies, cond, then, else}`:
+  # Lower the `->`-clause `implies do … end` into nested `Goal.Implies` goals:
   # extra clauses nest as the else (else-if); a trailing `:else ->` is the final else,
   # its absence an empty (failing) else.
   defp build_implies([{:->, _, [[conds], body]} | rest]),
-    do: {:implies, clause_goals(conds), clause_goals(body), implies_else(rest)}
+    do: %Goal.Implies{
+      condition: clause_goals(conds),
+      then: clause_goals(body),
+      otherwise: implies_else(rest)
+    }
 
   defp implies_else([]), do: []
   defp implies_else([{:->, _, [[:else], body]}]), do: clause_goals(body)
@@ -314,7 +335,7 @@ defmodule AL do
     end
   end
 
-  @spec splice_goals(t(), [goal()]) :: [goal()]
+  @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
   def splice_goals(state, goals) do
     Enum.slice(state.active_choicepoint.goals, 0, state.active_choicepoint.goal_pointer) ++
       goals ++
@@ -326,9 +347,9 @@ defmodule AL do
   end
 
   @doc """
-  Top-level entry: run a program (a list of `goal()`s) in a Mnesia transaction,
-  returning `{:atomic, {output_vars, state}}` or `{:aborted, reason}`. The `goal()`
-  typespec and the `interp/2` clauses are the per-goal reference; two non-obvious
+  Top-level entry: run a program (a list of `AL.Goal.t()`s) in a Mnesia transaction,
+  returning `{:atomic, {output_vars, state}}` or `{:aborted, reason}`. The `AL.Goal`
+  structs and the `interp/2` clauses are the per-goal reference; two non-obvious
   points they rely on:
 
   - `oapply` expands a method head into its body *bidirectionally* — head vars bound
@@ -336,7 +357,7 @@ defmodule AL do
   - `cut` is a Prolog-style commit pruning choicepoints in the call scope, not a
     Mnesia transaction commit.
   """
-  @spec eval([goal()], AL.Var.bindings() | nil, AL.Branch.t()) ::
+  @spec eval([AL.Goal.t()], AL.Var.bindings() | nil, AL.Branch.t()) ::
           {:atomic, {AL.Var.bindings(), t()}} | {:aborted, term()}
   def eval(program, initial_bindings \\ nil, branch \\ AL.Branch.head()) do
     bindings = initial_bindings || AL.Var.empty_bindings()
@@ -511,50 +532,58 @@ defmodule AL do
     end
   end
 
-  @spec interp(goal(), t()) :: t() | nil
-  def interp({:get_class, object, class_pattern}, state) when is_map(object),
-    do: put_bindings(state, AL.Var.unify(Map.get(object, :class, :map), class_pattern, bindings(state)))
+  @spec interp(AL.Goal.t(), t()) :: t() | nil
+  def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_map(object),
+    do:
+      put_bindings(
+        state,
+        AL.Var.unify(Map.get(object, :class, :map), class_pattern, bindings(state))
+      )
 
-  def interp({:get_class, object, class_pattern}, state) when is_list(object),
+  def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_list(object),
     do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)))
 
-  def interp({:get_class, object, class_pattern}, state) do
+  def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
       AL.Var.unify(row, {:class, object, class_pattern}, bindings(state))
     end)
   end
 
-  def interp({:get_super, object, super_pattern}, state) do
+  def interp(%Goal.GetSuper{object: object, super: super_pattern}, state) do
     fan_out(state, AL.Object.scan_super(object, super_pattern, state.branch), fn row ->
       AL.Var.unify(row, {:super, object, super_pattern}, bindings(state))
     end)
   end
 
-  def interp({:get_method, object, name, id}, state) do
+  def interp(%Goal.GetMethod{object: object, name: name, id: id}, state) do
     fan_out(state, AL.Object.scan_method(object, name, id, state.branch), fn row ->
       AL.Var.unify(row, {:method, object, name, id}, bindings(state))
     end)
   end
 
-  def interp({:get_oapply, object, seq, head, body}, state) do
+  def interp(%Goal.GetOapply{object: object, seq: seq, head: head, body: body}, state) do
     clause = {:oapply, object, seq, head, body}
 
     # Standardize each scanned clause apart before unifying, so a stored clause's
     # own vars can't collide with the caller's query vars (e.g. reading `:defmethod`,
     # head `[self, method_name, head, body]`, with a query that also names
     # `head`/`body` would fail the occurs-check and match nothing).
-    fan_out(state, AL.Object.scan_oapply(object, seq, head, body, state.branch), fn row ->
+    fan_out(state, scan_clauses(object, seq, head, body, state.branch), fn row ->
       AL.Var.unify(standardize_apart(row), clause, bindings(state))
     end)
   end
 
-  def interp({:oapply, :fresh_id, [result]}, state),
-    do: put_bindings(state, AL.Var.unify(result, AL.Command.fresh_id(state.branch), bindings(state)))
+  def interp(%Goal.OApply{method_id: :fresh_id, args: [result]}, state),
+    do:
+      put_bindings(
+        state,
+        AL.Var.unify(result, AL.Command.fresh_id(state.branch), bindings(state))
+      )
 
-  def interp({:oapply, :current_tx, [result]}, state),
+  def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state),
     do: put_bindings(state, AL.Var.unify(result, state.tx_id, bindings(state)))
 
-  def interp({:oapply, :map_get, [m, k_pattern, v_pattern]}, state) do
+  def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
     matches =
       m
       |> Enum.map(&AL.Var.unify({k_pattern, v_pattern}, &1, bindings(state)))
@@ -563,20 +592,26 @@ defmodule AL do
     fan_out(state, matches, & &1)
   end
 
-  def interp({:oapply, :map_put, [m1, k_pattern, v_pattern, m2]}, state),
+  def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
     do: put_bindings(state, AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), bindings(state)))
 
-  def interp({:oapply, :is, [a, b]}, state) do
+  def interp(%Goal.OApply{method_id: :is, args: [a, b]}, state) do
     case interp_is(b, bindings(state)) do
-      :error -> backtrack(state)
-      expr -> put_bindings(state, AL.Var.unify(AL.Var.deref(bindings(state), a), expr, bindings(state)))
+      :error ->
+        backtrack(state)
+
+      expr ->
+        put_bindings(
+          state,
+          AL.Var.unify(AL.Var.deref(bindings(state), a), expr, bindings(state))
+        )
     end
   end
 
-  def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
+  def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case AL.Object.scan_oapply(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
+    case scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
       [] ->
         backtrack(state)
 
@@ -632,7 +667,7 @@ defmodule AL do
     end
   end
 
-  def interp(:cut, state) do
+  def interp(%Goal.Cut{}, state) do
     %AL{
       state
       | active_choicepoint: state.active_choicepoint,
@@ -649,8 +684,8 @@ defmodule AL do
     }
   end
 
-  def interp({:implies, condition, then, otherwise}, state) do
-    spliced_condition = splice_goals(state, condition ++ [{:then, then}])
+  def interp(%Goal.Implies{condition: condition, then: then, otherwise: otherwise}, state) do
+    spliced_condition = splice_goals(state, condition ++ [%Goal.Then{then: then}])
     spliced_otherwise = splice_goals(state, otherwise)
 
     %AL{
@@ -670,7 +705,7 @@ defmodule AL do
     }
   end
 
-  def interp({:or, left, right}, state) do
+  def interp(%Goal.Or{or: left, then: right}, state) do
     spliced_left = splice_goals(state, left)
     spliced_right = splice_goals(state, right)
 
@@ -691,7 +726,7 @@ defmodule AL do
     }
   end
 
-  def interp({:then, then}, state) do
+  def interp(%Goal.Then{then: then}, state) do
     spliced_goals = splice_goals(state, then)
 
     %AL{
@@ -712,25 +747,28 @@ defmodule AL do
     }
   end
 
-  def interp({:set_class, object, _class}, state) when is_map(object), do: state
+  def interp(%Goal.SetClass{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_class, object_pattern, class_pattern}, state) do
+  def interp(%Goal.SetClass{object: object_pattern, class: class_pattern}, state) do
     AL.Command.set_class(state.tx_id, object_pattern, class_pattern, state.branch)
     AL.Object.set_class(object_pattern, class_pattern, state.branch)
     state
   end
 
-  def interp({:set_super, object, _super}, state) when is_map(object), do: state
+  def interp(%Goal.SetSuper{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_super, object_pattern, super_pattern}, state) do
+  def interp(%Goal.SetSuper{object: object_pattern, super: super_pattern}, state) do
     AL.Command.set_super(state.tx_id, object_pattern, super_pattern, state.branch)
     AL.Object.set_super(object_pattern, super_pattern, state.branch)
     state
   end
 
-  def interp({:set_method, object, _name, _id}, state) when is_map(object), do: state
+  def interp(%Goal.SetMethod{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
+  def interp(
+        %Goal.SetMethod{object: object_pattern, name: method_name_pattern, id: method_id_pattern},
+        state
+      ) do
     AL.Command.set_method(
       state.tx_id,
       object_pattern,
@@ -743,29 +781,31 @@ defmodule AL do
     state
   end
 
-  def interp({:set_oapply, object, _seq, _head, _body}, state) when is_map(object), do: state
+  def interp(%Goal.SetOapply{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}, state) do
+  def interp(
+        %Goal.SetOapply{
+          object: object_pattern,
+          seq: seq_pattern,
+          head: head_pattern,
+          body: body_pattern
+        },
+        state
+      ) do
     seq =
       case seq_pattern do
         :next -> AL.Object.next_oapply_seq(object_pattern, state.branch)
         given -> given
       end
 
-    AL.Command.set_oapply(
-      state.tx_id,
-      object_pattern,
-      seq,
-      head_pattern,
-      body_pattern,
-      state.branch
-    )
+    body = store_body(body_pattern)
 
-    AL.Object.set_oapply(object_pattern, seq, head_pattern, body_pattern, state.branch)
+    AL.Command.set_oapply(state.tx_id, object_pattern, seq, head_pattern, body, state.branch)
+    AL.Object.set_oapply(object_pattern, seq, head_pattern, body, state.branch)
     state
   end
 
-  def interp({:get_slot, object, key, value}, state) do
+  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state) do
     entries =
       case AL.Object.read_slots(object, state.branch) do
         [{:slots, ^object, m}] when is_map(m) ->
@@ -785,76 +825,76 @@ defmodule AL do
     fan_out(state, entries, fn entry -> AL.Var.unify(entry, {key, value}, bindings(state)) end)
   end
 
-  def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
+  def interp(%Goal.SetSlots{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_slots, object_pattern, slots_pattern}, state) do
+  def interp(%Goal.SetSlots{object: object_pattern, slots: slots_pattern}, state) do
     AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern, state.branch)
     AL.Object.set_slots(object_pattern, slots_pattern, state.branch)
     state
   end
 
-  def interp({:retract_class, object, _class}, state) when is_map(object), do: state
+  def interp(%Goal.RetractClass{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_class, object, class}, state) do
+  def interp(%Goal.RetractClass{object: object, class: class}, state) do
     AL.Command.retract_class(state.tx_id, object, class, state.branch)
     AL.Object.retract_class(object, class, state.branch)
     state
   end
 
-  def interp({:retract_super, object, _super}, state) when is_map(object), do: state
+  def interp(%Goal.RetractSuper{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_super, object, super}, state) do
+  def interp(%Goal.RetractSuper{object: object, super: super}, state) do
     AL.Command.retract_super(state.tx_id, object, super, state.branch)
     AL.Object.retract_super(object, super, state.branch)
     state
   end
 
-  def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
+  def interp(%Goal.RetractMethod{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_method, object, name, id}, state) do
+  def interp(%Goal.RetractMethod{object: object, name: name, id: id}, state) do
     AL.Command.retract_method(state.tx_id, object, name, id, state.branch)
     AL.Object.retract_method(object, name, id, state.branch)
     state
   end
 
-  def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
+  def interp(%Goal.RetractOapply{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_oapply, object, head}, state) do
+  def interp(%Goal.RetractOapply{object: object, head: head}, state) do
     AL.Command.retract_oapply(state.tx_id, object, head, state.branch)
     AL.Object.retract_oapply(object, head, state.branch)
     state
   end
 
-  def interp({:retract_slots, object, _slots}, state) when is_map(object), do: state
+  def interp(%Goal.RetractSlots{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_slots, object, slots}, state) do
+  def interp(%Goal.RetractSlots{object: object, slots: slots}, state) do
     AL.Command.retract_slots(state.tx_id, object, slots, state.branch)
     AL.Object.retract_slots(object, slots, state.branch)
     state
   end
 
-  def interp({:send_async, object, method, args}, state) do
+  def interp(%Goal.SendAsync{object: object, method: method, args: args}, state) do
     AL.Command.send_async(state.tx_id, object, method, args, state.branch)
     state
   end
 
-  def interp({:send_elixir, pid, message}, state) do
+  def interp(%Goal.SendElixir{pid: pid, message: message}, state) do
     AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
     state
   end
 
-  def interp({:gensym, var}, state) do
+  def interp(%Goal.Gensym{var: var}, state) do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
     put_bindings(state, AL.Var.unify(var, sym, bindings(state)))
   end
 
-  def interp({:print, pattern}, state) do
+  def interp(%Goal.Print{pattern: pattern}, state) do
     IO.inspect(pattern)
 
     state
   end
 
-  def interp({:forall, condition, body}, state) do
+  def interp(%Goal.Forall{condition: condition, body: body}, state) do
     solutions =
       collect_all_solutions(
         condition,
@@ -876,7 +916,7 @@ defmodule AL do
     %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}}
   end
 
-  def interp({:findall, template, condition, result}, state) do
+  def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
     solutions =
       collect_all_solutions(
         condition,
@@ -890,16 +930,10 @@ defmodule AL do
         template |> AL.Var.subst(bindings) |> standardize_apart()
       end)
 
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | bindings: AL.Var.unify(result, collected, state.active_choicepoint.bindings)
-        }
-    }
+    put_bindings(state, AL.Var.unify(result, collected, bindings(state)))
   end
 
-  def interp({:call, head, body, args}, state) do
+  def interp(%Goal.Call{head: head, body: body, args: args}, state) do
     scope = fresh_scope()
     freshener = Integer.to_string(scope)
     fresh_head = AL.Var.freshen(head, freshener)
@@ -930,11 +964,11 @@ defmodule AL do
     end
   end
 
-  def interp({:unify, a, b}, state),
+  def interp(%Goal.Unify{a: a, b: b}, state),
     do: put_bindings(state, AL.Var.unify(a, b, bindings(state)))
 
   # Prolog `==`: structural equality; never binds, so an unbound side fails.
-  def interp({:equal, a, b}, state) do
+  def interp(%Goal.Equal{a: a, b: b}, state) do
     bindings = state.active_choicepoint.bindings
 
     if AL.Var.subst(a, bindings) == AL.Var.subst(b, bindings) do
@@ -946,7 +980,7 @@ defmodule AL do
 
   # Prolog `< > <= >=`: numeric compare via `interp_is/2`; unbound/non-numeric or a
   # false comparison fails (same contract as `is/2`).
-  def interp({:compare, op, a, b}, state) do
+  def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     bindings = state.active_choicepoint.bindings
 
     with x when is_number(x) <- interp_is(a, bindings),
@@ -958,7 +992,7 @@ defmodule AL do
     end
   end
 
-  def interp({:ground, term}, state) do
+  def interp(%Goal.Ground{term: term}, state) do
     if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.bindings))) == 0 do
       state
     else
@@ -966,7 +1000,7 @@ defmodule AL do
     end
   end
 
-  def interp({:not, condition}, state) do
+  def interp(%Goal.Not{condition: condition}, state) do
     case collect_all_solutions(
            condition,
            state.active_choicepoint.bindings,
@@ -978,21 +1012,21 @@ defmodule AL do
     end
   end
 
-  def interp(:fail, state) do
+  def interp(%Goal.Fail{}, state) do
     backtrack(state)
   end
 
-  def interp({:send, self, method, args}, state),
+  def interp(%Goal.Send{object: self, method: method, args: args}, state),
     do: dispatch(self, method, args, state, &dnu(self, method, args, &1))
 
   # Query re-dispatch: a miss is skipped, never escalated to `does_not_understand`
   # (which may have side effects).
-  def interp({:send_query, self, method, args}, state),
+  def interp(%Goal.SendQuery{object: self, method: method, args: args}, state),
     do: dispatch(self, method, args, state, &backtrack/1)
 
   # Run the next provider of the same selector, from this frame's cursor. No cursor
   # (called outside a resolved method) or none left → fail.
-  def interp({:call_next_method, self, args}, state) do
+  def interp(%Goal.CallNextMethod{self: self, args: args}, state) do
     case Map.get(state.call_cursors, state.active_choicepoint.scope_pointer) do
       {_self, selector, remaining} ->
         run_providers(remaining, self, selector, [self | args], state, &backtrack/1)
@@ -1011,8 +1045,8 @@ defmodule AL do
         class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
 
         splice_into(state, [
-          {:get_class, self, class_var},
-          {:send_query, self, method, args}
+          %Goal.GetClass{object: self, class: class_var},
+          %Goal.SendQuery{object: self, method: method, args: args}
         ])
 
       AL.Var.var?(method) and method != :"$_" ->
@@ -1041,7 +1075,8 @@ defmodule AL do
         backtrack(state)
 
       names ->
-        spliced = splice_goals(state, [{:send_query, self, method, args}])
+        spliced =
+          splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         candidate = fn name ->
           %AL.Choicepoint{
@@ -1071,7 +1106,15 @@ defmodule AL do
   end
 
   defp do_send(self, method, args, state, on_miss),
-    do: run_providers(providers(self, method, state.branch), self, method, [self | args], state, on_miss)
+    do:
+      run_providers(
+        providers(self, method, state.branch),
+        self,
+        method,
+        [self | args],
+        state,
+        on_miss
+      )
 
   # Run the first provider whose clause fits, stashing the rest as a cursor for
   # `call_next_method`. First match wins (a clause mismatch stays a miss). Primitives
@@ -1085,7 +1128,7 @@ defmodule AL do
           do: state,
           else: %AL{state | pending_cursor: {self, selector, rest}}
 
-      interp({:oapply, id, call_args}, state)
+      interp(%Goal.OApply{method_id: id, args: call_args}, state)
     else
       on_miss.(state)
     end
@@ -1108,7 +1151,7 @@ defmodule AL do
         do: record_dnu(state, self, method, args),
         else: state
 
-    interp({:send, self, :does_not_understand, [method, args]}, state)
+    interp(%Goal.Send{object: self, method: :does_not_understand, args: [method, args]}, state)
   end
 
   # True when the receiver has no `does_not_understand` of its own (a miss would hit
@@ -1185,28 +1228,39 @@ defmodule AL do
     end)
   end
 
+  defp from_stored_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.from_stored/1)
+  defp from_stored_body(body), do: body
+
+  defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
+  defp store_body(body), do: body
+
+  # Scan clauses with bodies lifted to structs, so stored form never enters the VM.
+  defp scan_clauses(object, seq, head, body, branch) do
+    AL.Object.scan_oapply(object, seq, head, body, branch)
+    |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
+  end
+
   # Vars a `run` reports. `findall`/`not`/`forall` are local scopes: only a
   # `findall`'s result var escapes.
   defp observable_vars(goals) when is_list(goals),
     do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
 
-  defp observable_vars({:findall, _template, _condition, result}),
-    do: AL.Var.find_vars(result)
+  defp observable_vars(%Goal.Findall{result: result}), do: AL.Var.find_vars(result)
 
-  defp observable_vars({:not, _condition}), do: MapSet.new()
+  defp observable_vars(%Goal.Not{}), do: MapSet.new()
 
-  defp observable_vars({:forall, _condition, _body}), do: MapSet.new()
+  defp observable_vars(%Goal.Forall{}), do: MapSet.new()
 
-  defp observable_vars({:or, left, right}),
+  defp observable_vars(%Goal.Or{or: left, then: right}),
     do: MapSet.union(observable_vars(left), observable_vars(right))
 
-  defp observable_vars({:implies, condition, then, otherwise}),
+  defp observable_vars(%Goal.Implies{condition: condition, then: then, otherwise: otherwise}),
     do:
       observable_vars(condition)
       |> MapSet.union(observable_vars(then))
       |> MapSet.union(observable_vars(otherwise))
 
-  defp observable_vars({:then, then}), do: observable_vars(then)
+  defp observable_vars(%Goal.Then{then: then}), do: observable_vars(then)
 
   defp observable_vars(goal), do: AL.Var.find_vars(goal)
 
@@ -1337,6 +1391,9 @@ defmodule AL do
   `:error` if any operand is unbound or non-numeric (so `is/2` can fail the goal
   cleanly instead of crashing the transaction). Division by zero is `:error`.
   """
+  def interp_is(%Goal.OApply{method_id: op, args: args}, bindings),
+    do: interp_is({:oapply, op, args}, bindings)
+
   def interp_is({:oapply, :/, [a, b]}, bindings) do
     with x when is_number(x) <- interp_is(a, bindings),
          y when is_number(y) and y != 0 <- interp_is(b, bindings) do

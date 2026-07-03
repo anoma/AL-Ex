@@ -70,6 +70,9 @@ defmodule AL.Trace do
   # crashing the formatter on a non-`[]` tail.
   def pretty([h | t]), do: [pretty(h) | pretty(t)]
 
+  def pretty(s) when is_struct(s),
+    do: struct(s.__struct__, Map.new(Map.from_struct(s), fn {k, v} -> {k, pretty(v)} end))
+
   def pretty(m) when is_map(m),
     do: Map.new(m, fn {k, v} -> {pretty(k), pretty(v)} end)
 
