@@ -8,7 +8,7 @@ defmodule AL.Continuation do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, [AL.goal()], enforce: true, default: [])
+    field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
   end
@@ -27,7 +27,7 @@ defmodule AL.Choicepoint do
   use TypedStruct
 
   typedstruct enforce: true do
-    field(:goals, [AL.goal()], enforce: true, default: [])
+    field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:bindings, AL.Var.bindings() | nil, enforce: true, default: %{})
     field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
@@ -48,49 +48,14 @@ defmodule AL do
 
   @type scope() :: non_neg_integer()
 
-  @type goal() ::
-          {:get_class, AL.Var.t(), AL.Var.t()}
-          | {:get_super, AL.Var.t(), AL.Var.t()}
-          | {:get_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:get_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:oapply, AL.Var.t(), AL.Var.t()}
-          | :cut
-          | {:implies, [goal()], [goal()], [goal()]}
-          | {:or, [goal()], [goal()]}
-          | {:then, [goal()]}
-          | {:forall, [goal()], [goal()]}
-          | {:findall, AL.Var.t(), [goal()], AL.Var.t()}
-          | {:set_class, AL.Var.t(), AL.Var.t()}
-          | {:set_super, AL.Var.t(), AL.Var.t()}
-          | {:set_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_oapply, AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:get_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:set_slots, AL.Var.t(), AL.Var.t()}
-          | {:retract_class, AL.Var.t(), AL.Var.t()}
-          | {:retract_super, AL.Var.t(), AL.Var.t()}
-          | {:retract_method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:retract_oapply, AL.Var.t(), AL.Var.t()}
-          | {:retract_slots, AL.Var.t(), AL.Var.t()}
-          | {:send_async, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:send_elixir, AL.Var.t(), AL.Var.t()}
-          | {:gensym, AL.Var.t()}
-          | {:print, AL.Var.t()}
-          | {:not, [goal()]}
-          | {:unify, AL.Var.t(), AL.Var.t()}
-          | {:equal, AL.Var.t(), AL.Var.t()}
-          | {:call, [AL.Var.t()], [goal()], [AL.Var.t()]}
-          | {:send, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | {:send_query, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-          | :fail
-
   @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
 
   typedstruct enforce: true do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
     field(:choicepoint_stack, [stack_entry()], default: [])
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
-    field(:trace, [goal()], enforce: true, default: [])
-    field(:program, [goal()], enforce: true, default: [])
+    field(:trace, [AL.Goal.t()], enforce: true, default: [])
+    field(:program, [AL.Goal.t()], enforce: true, default: [])
     field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
@@ -303,7 +268,7 @@ defmodule AL do
     end
   end
 
-  @spec splice_goals(t(), [goal()]) :: [goal()]
+  @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
   def splice_goals(state, goals) do
     Enum.slice(state.active_choicepoint.goals, 0, state.active_choicepoint.goal_pointer) ++
       goals ++
@@ -346,7 +311,7 @@ defmodule AL do
    __:or__
    __:print__
   """
-  @spec eval([goal()], AL.Var.bindings() | nil, AL.Branch.t()) ::
+  @spec eval([AL.Goal.t()], AL.Var.bindings() | nil, AL.Branch.t()) ::
           {:atomic, {AL.Var.bindings(), t()}} | {:aborted, term()}
   def eval(program, initial_bindings \\ nil, branch \\ AL.Branch.head()) do
     bindings = initial_bindings || AL.Var.empty_bindings()
@@ -495,7 +460,7 @@ defmodule AL do
     end
   end
 
-  @spec interp(goal(), t()) :: t() | nil
+  @spec interp(AL.Goal.t(), t()) :: t() | nil
   def interp({:get_class, object_pattern, class_pattern}, state) do
     if is_map(object_pattern) do
       case Map.get(object_pattern, :class) do
