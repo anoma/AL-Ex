@@ -65,6 +65,9 @@ defmodule AL.Trace do
 
   def pretty(l) when is_list(l), do: Enum.map(l, &pretty/1)
 
+  def pretty(s) when is_struct(s),
+    do: struct(s.__struct__, Map.new(Map.from_struct(s), fn {k, v} -> {k, pretty(v)} end))
+
   def pretty(m) when is_map(m),
     do: Map.new(m, fn {k, v} -> {pretty(k), pretty(v)} end)
 

@@ -45,6 +45,7 @@ defmodule AL do
   choicepoint_stack: Stack of most recent choicepoints discovered (thus reflecting DFS)
   """
   use TypedStruct
+  alias AL.Goal
 
   @type scope() :: non_neg_integer()
 
@@ -258,6 +259,7 @@ defmodule AL do
         list when is_list(list) -> list
         goal -> [goal]
       end
+      |> Enum.map(&AL.Goal.from_stored/1)
 
     escaped = Macro.escape(goals, unquote: true)
 
@@ -461,7 +463,7 @@ defmodule AL do
   end
 
   @spec interp(AL.Goal.t(), t()) :: t() | nil
-  def interp({:get_class, object_pattern, class_pattern}, state) do
+  def interp(%Goal.GetClass{object: object_pattern, class: class_pattern}, state) do
     if is_map(object_pattern) do
       case Map.get(object_pattern, :class) do
         nil ->
@@ -527,7 +529,7 @@ defmodule AL do
     end
   end
 
-  def interp({:get_super, object_pattern, super_pattern}, state) do
+  def interp(%Goal.GetSuper{object: object_pattern, super: super_pattern}, state) do
     case AL.Object.scan_super(object_pattern, super_pattern, state.branch) do
       [] ->
         backtrack(state)
@@ -560,7 +562,10 @@ defmodule AL do
     end
   end
 
-  def interp({:get_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
+  def interp(
+        %Goal.GetMethod{object: object_pattern, name: method_name_pattern, id: method_id_pattern},
+        state
+      ) do
     case AL.Object.scan_method(
            object_pattern,
            method_name_pattern,
@@ -598,7 +603,15 @@ defmodule AL do
     end
   end
 
-  def interp({:get_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}, state) do
+  def interp(
+        %Goal.GetOapply{
+          object: object_pattern,
+          seq: seq_pattern,
+          head: head_pattern,
+          body: body_pattern
+        },
+        state
+      ) do
     case AL.Object.scan_oapply(
            object_pattern,
            seq_pattern,
@@ -644,7 +657,7 @@ defmodule AL do
     end
   end
 
-  def interp({:oapply, :fresh_id, [result]}, state) do
+  def interp(%Goal.OApply{method_id: :fresh_id, args: [result]}, state) do
     %AL{
       state
       | active_choicepoint: %AL.Choicepoint{
@@ -659,7 +672,7 @@ defmodule AL do
     }
   end
 
-  def interp({:oapply, :current_tx, [result]}, state) do
+  def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state) do
     %AL{
       state
       | active_choicepoint: %AL.Choicepoint{
@@ -669,7 +682,7 @@ defmodule AL do
     }
   end
 
-  def interp({:oapply, :map_get, [m, k_pattern, v_pattern]}, state) do
+  def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
     case m
          |> Enum.map(fn pair ->
            AL.Var.unify({k_pattern, v_pattern}, pair, state.active_choicepoint.bindings)
@@ -696,7 +709,7 @@ defmodule AL do
     end
   end
 
-  def interp({:oapply, :map_put, [m1, k_pattern, v_pattern, m2]}, state) do
+  def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state) do
     case AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), state.active_choicepoint.bindings) do
       nil ->
         backtrack(state)
@@ -713,7 +726,7 @@ defmodule AL do
     end
   end
 
-  def interp({:oapply, :is, [a, b]}, state) do
+  def interp(%Goal.OApply{method_id: :is, args: [a, b]}, state) do
     a_deref = AL.Var.deref(state.active_choicepoint.bindings, a)
 
     case interp_is(b, state.active_choicepoint.bindings) do
@@ -732,7 +745,7 @@ defmodule AL do
     end
   end
 
-  def interp({:oapply, method_id_pattern, bind_head_pattern}, state) do
+  def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
     case AL.Object.scan_oapply(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
@@ -744,7 +757,7 @@ defmodule AL do
         freshener = Integer.to_string(scope)
 
         head_pattern = AL.Var.freshen(head, freshener)
-        body_pattern = AL.Var.freshen(body, freshener)
+        body_pattern = AL.Var.freshen(from_stored_body(body), freshener)
 
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
@@ -755,7 +768,7 @@ defmodule AL do
         alternative_choicepoints =
           Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
             %AL.Choicepoint{
-              goals: AL.Var.freshen(alt_body, freshener),
+              goals: AL.Var.freshen(from_stored_body(alt_body), freshener),
               bindings:
                 AL.Var.unify(
                   {AL.Var.freshen(alt_head, freshener), alt_id},
@@ -789,7 +802,7 @@ defmodule AL do
     end
   end
 
-  def interp(:cut, state) do
+  def interp(%Goal.Cut{}, state) do
     %AL{
       state
       | active_choicepoint: state.active_choicepoint,
@@ -806,8 +819,8 @@ defmodule AL do
     }
   end
 
-  def interp({:implies, condition, then, otherwise}, state) do
-    spliced_condition = splice_goals(state, condition ++ [{:then, then}])
+  def interp(%Goal.Implies{condition: condition, then: then, otherwise: otherwise}, state) do
+    spliced_condition = splice_goals(state, condition ++ [%Goal.Then{then: then}])
     spliced_otherwise = splice_goals(state, otherwise)
 
     %AL{
@@ -827,7 +840,7 @@ defmodule AL do
     }
   end
 
-  def interp({:or, left, right}, state) do
+  def interp(%Goal.Or{or: left, then: right}, state) do
     spliced_left = splice_goals(state, left)
     spliced_right = splice_goals(state, right)
 
@@ -848,7 +861,7 @@ defmodule AL do
     }
   end
 
-  def interp({:then, then}, state) do
+  def interp(%Goal.Then{then: then}, state) do
     spliced_goals = splice_goals(state, then)
 
     %AL{
@@ -869,25 +882,28 @@ defmodule AL do
     }
   end
 
-  def interp({:set_class, object, _class}, state) when is_map(object), do: state
+  def interp(%Goal.SetClass{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_class, object_pattern, class_pattern}, state) do
+  def interp(%Goal.SetClass{object: object_pattern, class: class_pattern}, state) do
     AL.Command.set_class(state.tx_id, object_pattern, class_pattern, state.branch)
     AL.Object.set_class(object_pattern, class_pattern, state.branch)
     state
   end
 
-  def interp({:set_super, object, _super}, state) when is_map(object), do: state
+  def interp(%Goal.SetSuper{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_super, object_pattern, super_pattern}, state) do
+  def interp(%Goal.SetSuper{object: object_pattern, super: super_pattern}, state) do
     AL.Command.set_super(state.tx_id, object_pattern, super_pattern, state.branch)
     AL.Object.set_super(object_pattern, super_pattern, state.branch)
     state
   end
 
-  def interp({:set_method, object, _name, _id}, state) when is_map(object), do: state
+  def interp(%Goal.SetMethod{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_method, object_pattern, method_name_pattern, method_id_pattern}, state) do
+  def interp(
+        %Goal.SetMethod{object: object_pattern, name: method_name_pattern, id: method_id_pattern},
+        state
+      ) do
     AL.Command.set_method(
       state.tx_id,
       object_pattern,
@@ -900,29 +916,31 @@ defmodule AL do
     state
   end
 
-  def interp({:set_oapply, object, _seq, _head, _body}, state) when is_map(object), do: state
+  def interp(%Goal.SetOapply{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_oapply, object_pattern, seq_pattern, head_pattern, body_pattern}, state) do
+  def interp(
+        %Goal.SetOapply{
+          object: object_pattern,
+          seq: seq_pattern,
+          head: head_pattern,
+          body: body_pattern
+        },
+        state
+      ) do
     seq =
       case seq_pattern do
         :next -> AL.Object.next_oapply_seq(object_pattern, state.branch)
         given -> given
       end
 
-    AL.Command.set_oapply(
-      state.tx_id,
-      object_pattern,
-      seq,
-      head_pattern,
-      body_pattern,
-      state.branch
-    )
+    body = store_body(body_pattern)
 
-    AL.Object.set_oapply(object_pattern, seq, head_pattern, body_pattern, state.branch)
+    AL.Command.set_oapply(state.tx_id, object_pattern, seq, head_pattern, body, state.branch)
+    AL.Object.set_oapply(object_pattern, seq, head_pattern, body, state.branch)
     state
   end
 
-  def interp({:get_slot, object, key, value}, state) do
+  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state) do
     entries =
       case AL.Object.read_slots(object, state.branch) do
         [{:slots, ^object, m}] when is_map(m) ->
@@ -962,65 +980,65 @@ defmodule AL do
     end
   end
 
-  def interp({:set_slots, object, _slots}, state) when is_map(object), do: state
+  def interp(%Goal.SetSlots{object: object}, state) when is_map(object), do: state
 
-  def interp({:set_slots, object_pattern, slots_pattern}, state) do
+  def interp(%Goal.SetSlots{object: object_pattern, slots: slots_pattern}, state) do
     AL.Command.set_slots(state.tx_id, object_pattern, slots_pattern, state.branch)
     AL.Object.set_slots(object_pattern, slots_pattern, state.branch)
     state
   end
 
-  def interp({:retract_class, object, _class}, state) when is_map(object), do: state
+  def interp(%Goal.RetractClass{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_class, object, class}, state) do
+  def interp(%Goal.RetractClass{object: object, class: class}, state) do
     AL.Command.retract_class(state.tx_id, object, class, state.branch)
     AL.Object.retract_class(object, class, state.branch)
     state
   end
 
-  def interp({:retract_super, object, _super}, state) when is_map(object), do: state
+  def interp(%Goal.RetractSuper{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_super, object, super}, state) do
+  def interp(%Goal.RetractSuper{object: object, super: super}, state) do
     AL.Command.retract_super(state.tx_id, object, super, state.branch)
     AL.Object.retract_super(object, super, state.branch)
     state
   end
 
-  def interp({:retract_method, object, _name, _id}, state) when is_map(object), do: state
+  def interp(%Goal.RetractMethod{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_method, object, name, id}, state) do
+  def interp(%Goal.RetractMethod{object: object, name: name, id: id}, state) do
     AL.Command.retract_method(state.tx_id, object, name, id, state.branch)
     AL.Object.retract_method(object, name, id, state.branch)
     state
   end
 
-  def interp({:retract_oapply, object, _head}, state) when is_map(object), do: state
+  def interp(%Goal.RetractOapply{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_oapply, object, head}, state) do
+  def interp(%Goal.RetractOapply{object: object, head: head}, state) do
     AL.Command.retract_oapply(state.tx_id, object, head, state.branch)
     AL.Object.retract_oapply(object, head, state.branch)
     state
   end
 
-  def interp({:retract_slots, object, _slots}, state) when is_map(object), do: state
+  def interp(%Goal.RetractSlots{object: object}, state) when is_map(object), do: state
 
-  def interp({:retract_slots, object, slots}, state) do
+  def interp(%Goal.RetractSlots{object: object, slots: slots}, state) do
     AL.Command.retract_slots(state.tx_id, object, slots, state.branch)
     AL.Object.retract_slots(object, slots, state.branch)
     state
   end
 
-  def interp({:send_async, object, method, args}, state) do
+  def interp(%Goal.SendAsync{object: object, method: method, args: args}, state) do
     AL.Command.send_async(state.tx_id, object, method, args, state.branch)
     state
   end
 
-  def interp({:send_elixir, pid, message}, state) do
+  def interp(%Goal.SendElixir{pid: pid, message: message}, state) do
     AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
     state
   end
 
-  def interp({:gensym, var}, state) do
+  def interp(%Goal.Gensym{var: var}, state) do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
 
     %AL{
@@ -1032,13 +1050,13 @@ defmodule AL do
     }
   end
 
-  def interp({:print, pattern}, state) do
+  def interp(%Goal.Print{pattern: pattern}, state) do
     IO.inspect(pattern)
 
     state
   end
 
-  def interp({:forall, condition, body}, state) do
+  def interp(%Goal.Forall{condition: condition, body: body}, state) do
     solutions =
       collect_all_solutions(
         condition,
@@ -1060,7 +1078,7 @@ defmodule AL do
     %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}}
   end
 
-  def interp({:findall, template, condition, result}, state) do
+  def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
     solutions =
       collect_all_solutions(
         condition,
@@ -1083,7 +1101,7 @@ defmodule AL do
     }
   end
 
-  def interp({:call, head, body, args}, state) do
+  def interp(%Goal.Call{head: head, body: body, args: args}, state) do
     scope = fresh_scope()
     freshener = Integer.to_string(scope)
     fresh_head = AL.Var.freshen(head, freshener)
@@ -1114,7 +1132,7 @@ defmodule AL do
     end
   end
 
-  def interp({:unify, a, b}, state) do
+  def interp(%Goal.Unify{a: a, b: b}, state) do
     case AL.Var.unify(a, b, state.active_choicepoint.bindings) do
       nil ->
         backtrack(state)
@@ -1130,7 +1148,7 @@ defmodule AL do
   # Structural equality (Prolog `==`): succeeds only if both sides are already
   # the same term. Unlike `unify`, it never binds, so an unbound side fails
   # rather than being silently made equal — what authorization checks need.
-  def interp({:equal, a, b}, state) do
+  def interp(%Goal.Equal{a: a, b: b}, state) do
     bindings = state.active_choicepoint.bindings
 
     if AL.Var.subst(a, bindings) == AL.Var.subst(b, bindings) do
@@ -1140,7 +1158,7 @@ defmodule AL do
     end
   end
 
-  def interp({:not, condition}, state) do
+  def interp(%Goal.Not{condition: condition}, state) do
     case collect_all_solutions(
            condition,
            state.active_choicepoint.bindings,
@@ -1152,17 +1170,17 @@ defmodule AL do
     end
   end
 
-  def interp(:fail, state) do
+  def interp(%Goal.Fail{}, state) do
     backtrack(state)
   end
 
-  def interp({:send, self, method, args}, state),
+  def interp(%Goal.Send{object: self, method: method, args: args}, state),
     do: dispatch(self, method, args, state, &dnu(self, method, args, &1))
 
   # Re-dispatch of a query send: a non-match is skipped, never escalated to
   # `does_not_understand` (a directed-send hook that may carry side effects we
   # must not fire against every candidate in the store).
-  def interp({:send_query, self, method, args}, state),
+  def interp(%Goal.SendQuery{object: self, method: method, args: args}, state),
     do: dispatch(self, method, args, state, &backtrack/1)
 
   # A var in the receiver or selector position turns a send into a query over
@@ -1176,8 +1194,8 @@ defmodule AL do
         class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
 
         splice_into(state, [
-          {:get_class, self, class_var},
-          {:send_query, self, method, args}
+          %Goal.GetClass{object: self, class: class_var},
+          %Goal.SendQuery{object: self, method: method, args: args}
         ])
 
       AL.Var.var?(method) and method != :"$_" ->
@@ -1207,7 +1225,7 @@ defmodule AL do
         backtrack(state)
 
       names ->
-        spliced = splice_goals(state, [{:send_query, self, method, args}])
+        spliced = splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         candidate = fn name ->
           %AL.Choicepoint{
@@ -1245,7 +1263,7 @@ defmodule AL do
 
       id ->
         if has_matching_clause?(id, call_args, state.active_choicepoint.bindings, state.branch) do
-          interp({:oapply, id, call_args}, state)
+          interp(%Goal.OApply{method_id: id, args: call_args}, state)
         else
           on_miss.(state)
         end
@@ -1255,7 +1273,8 @@ defmodule AL do
   defp dnu(_self, :does_not_understand, _args, state), do: backtrack(state)
 
   defp dnu(self, method, args, state),
-    do: interp({:send, self, :does_not_understand, [method, args]}, state)
+    do:
+      interp(%Goal.Send{object: self, method: :does_not_understand, args: [method, args]}, state)
 
   defp resolve_method_id(self, method, branch) do
     Enum.find_value(method_scopes(self, branch), fn scope ->
@@ -1316,29 +1335,33 @@ defmodule AL do
     end)
   end
 
+  defp from_stored_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.from_stored/1)
+  defp from_stored_body(body), do: body
+
+  defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
+  defp store_body(body), do: body
+
   # Variables a `run` reports. `findall`/`not`/`forall` are local scopes: only a
-  # `findall`'s result var escapes, so their template/condition vars don't
-  # surface as outer bindings (unless used elsewhere too).
+  # `findall`'s result var escapes.
   defp observable_vars(goals) when is_list(goals),
     do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
 
-  defp observable_vars({:findall, _template, _condition, result}),
-    do: AL.Var.find_vars(result)
+  defp observable_vars(%Goal.Findall{result: result}), do: AL.Var.find_vars(result)
 
-  defp observable_vars({:not, _condition}), do: MapSet.new()
+  defp observable_vars(%Goal.Not{}), do: MapSet.new()
 
-  defp observable_vars({:forall, _condition, _body}), do: MapSet.new()
+  defp observable_vars(%Goal.Forall{}), do: MapSet.new()
 
-  defp observable_vars({:or, left, right}),
+  defp observable_vars(%Goal.Or{or: left, then: right}),
     do: MapSet.union(observable_vars(left), observable_vars(right))
 
-  defp observable_vars({:implies, condition, then, otherwise}),
+  defp observable_vars(%Goal.Implies{condition: condition, then: then, otherwise: otherwise}),
     do:
       observable_vars(condition)
       |> MapSet.union(observable_vars(then))
       |> MapSet.union(observable_vars(otherwise))
 
-  defp observable_vars({:then, then}), do: observable_vars(then)
+  defp observable_vars(%Goal.Then{then: then}), do: observable_vars(then)
 
   defp observable_vars(goal), do: AL.Var.find_vars(goal)
 
