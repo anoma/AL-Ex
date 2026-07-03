@@ -93,128 +93,182 @@ defmodule AL do
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
   def ast_to_pattern({:class, _, [object, class]}),
-    do: {:get_class, ast_to_pattern(object), ast_to_pattern(class)}
+    do: %Goal.GetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
   def ast_to_pattern({:super, _, [object, super]}),
-    do: {:get_super, ast_to_pattern(object), ast_to_pattern(super)}
+    do: %Goal.GetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:method, _, [object, name, id]}),
-    do: {:get_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+    do: %Goal.GetMethod{
+      object: ast_to_pattern(object),
+      name: ast_to_pattern(name),
+      id: ast_to_pattern(id)
+    }
 
   def ast_to_pattern({:clause, _, [object, head, body]}),
-    do: {:get_oapply, ast_to_pattern(object), :"$_", ast_to_pattern(head), ast_to_pattern(body)}
+    do: %Goal.GetOapply{
+      object: ast_to_pattern(object),
+      seq: :"$_",
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:clause, _, [object, seq, head, body]}),
-    do:
-      {:get_oapply, ast_to_pattern(object), ast_to_pattern(seq), ast_to_pattern(head),
-       ast_to_pattern(body)}
+    do: %Goal.GetOapply{
+      object: ast_to_pattern(object),
+      seq: ast_to_pattern(seq),
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:oapply, _, [method_id, args]}),
-    do: {:oapply, ast_to_pattern(method_id), ast_to_pattern(args)}
+    do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
 
   def ast_to_pattern({:implies, _, [[do: clauses]]}), do: build_implies(clauses)
 
   def ast_to_pattern({:alternative, _, [left, right]}),
-    do: {:or, ast_to_pattern(left), ast_to_pattern(right)}
+    do: %Goal.Or{or: ast_to_pattern(left), then: ast_to_pattern(right)}
 
-  def ast_to_pattern({:cut, _, _}), do: :cut
+  def ast_to_pattern({:cut, _, _}), do: %Goal.Cut{}
 
-  def ast_to_pattern({:fail, _, _}), do: :fail
+  def ast_to_pattern({:fail, _, _}), do: %Goal.Fail{}
 
   def ast_to_pattern({:set_class, _, [object, class]}),
-    do: {:set_class, ast_to_pattern(object), ast_to_pattern(class)}
+    do: %Goal.SetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
   def ast_to_pattern({:set_super, _, [object, super]}),
-    do: {:set_super, ast_to_pattern(object), ast_to_pattern(super)}
+    do: %Goal.SetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:set_method, _, [object, name, id]}),
-    do: {:set_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+    do: %Goal.SetMethod{
+      object: ast_to_pattern(object),
+      name: ast_to_pattern(name),
+      id: ast_to_pattern(id)
+    }
 
   def ast_to_pattern({:set_oapply, _, [object, head, body]}),
-    do: {:set_oapply, ast_to_pattern(object), :next, ast_to_pattern(head), ast_to_pattern(body)}
+    do: %Goal.SetOapply{
+      object: ast_to_pattern(object),
+      seq: :next,
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:set_oapply, _, [object, seq, head, body]}),
-    do:
-      {:set_oapply, ast_to_pattern(object), ast_to_pattern(seq), ast_to_pattern(head),
-       ast_to_pattern(body)}
+    do: %Goal.SetOapply{
+      object: ast_to_pattern(object),
+      seq: ast_to_pattern(seq),
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body)
+    }
 
   def ast_to_pattern({:set_slots, _, [object, slots]}),
-    do: {:set_slots, ast_to_pattern(object), ast_to_pattern(slots)}
+    do: %Goal.SetSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
   def ast_to_pattern({:get_slot, _, [object, key, value]}),
-    do: {:get_slot, ast_to_pattern(object), ast_to_pattern(key), ast_to_pattern(value)}
+    do: %Goal.GetSlots{
+      object: ast_to_pattern(object),
+      key: ast_to_pattern(key),
+      value: ast_to_pattern(value)
+    }
 
   def ast_to_pattern({:retract_class, _, [object, class]}),
-    do: {:retract_class, ast_to_pattern(object), ast_to_pattern(class)}
+    do: %Goal.RetractClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
   def ast_to_pattern({:retract_super, _, [object, super]}),
-    do: {:retract_super, ast_to_pattern(object), ast_to_pattern(super)}
+    do: %Goal.RetractSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:retract_method, _, [object, name, id]}),
-    do: {:retract_method, ast_to_pattern(object), ast_to_pattern(name), ast_to_pattern(id)}
+    do: %Goal.RetractMethod{
+      object: ast_to_pattern(object),
+      name: ast_to_pattern(name),
+      id: ast_to_pattern(id)
+    }
 
   def ast_to_pattern({:retract_oapply, _, [object, head]}),
-    do: {:retract_oapply, ast_to_pattern(object), ast_to_pattern(head)}
+    do: %Goal.RetractOapply{object: ast_to_pattern(object), head: ast_to_pattern(head)}
 
   def ast_to_pattern({:retract_slots, _, [object, slots]}),
-    do: {:retract_slots, ast_to_pattern(object), ast_to_pattern(slots)}
+    do: %Goal.RetractSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
-  def ast_to_pattern({:gensym, _, [var]}), do: {:gensym, ast_to_pattern(var)}
+  def ast_to_pattern({:gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 
-  def ast_to_pattern({:print, _, [pattern]}), do: {:print, ast_to_pattern(pattern)}
+  def ast_to_pattern({:print, _, [pattern]}), do: %Goal.Print{pattern: ast_to_pattern(pattern)}
 
   def ast_to_pattern([]), do: []
 
   def ast_to_pattern(xs) when is_list(xs), do: Enum.map(xs, &ast_to_pattern/1)
 
   def ast_to_pattern({:forall, _, [condition, body]}),
-    do: {:forall, ast_to_pattern(condition), ast_to_pattern(body)}
+    do: %Goal.Forall{condition: ast_to_pattern(condition), body: ast_to_pattern(body)}
 
   def ast_to_pattern({:findall, _, [template, condition, result]}),
-    do: {:findall, ast_to_pattern(template), ast_to_pattern(condition), ast_to_pattern(result)}
+    do: %Goal.Findall{
+      template: ast_to_pattern(template),
+      condition: ast_to_pattern(condition),
+      result: ast_to_pattern(result)
+    }
 
   def ast_to_pattern({:not, _, [goals]}),
-    do: {:not, ast_to_pattern(goals)}
+    do: %Goal.Not{condition: ast_to_pattern(goals)}
 
   def ast_to_pattern({:unify, _, [a, b]}),
-    do: {:unify, ast_to_pattern(a), ast_to_pattern(b)}
+    do: %Goal.Unify{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   def ast_to_pattern({:==, _, [a, b]}),
-    do: {:equal, ast_to_pattern(a), ast_to_pattern(b)}
+    do: %Goal.Equal{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   def ast_to_pattern({:call, _, [head, body, args]}),
-    do: {:call, ast_to_pattern(head), ast_to_pattern(body), ast_to_pattern(args)}
+    do: %Goal.Call{
+      head: ast_to_pattern(head),
+      body: ast_to_pattern(body),
+      args: ast_to_pattern(args)
+    }
 
   def ast_to_pattern({:send, _, [receiver, method, args]}),
-    do: {:send, ast_to_pattern(receiver), ast_to_pattern(method), ast_to_pattern(args)}
+    do: %Goal.Send{
+      object: ast_to_pattern(receiver),
+      method: ast_to_pattern(method),
+      args: ast_to_pattern(args)
+    }
 
   def ast_to_pattern({:send_async, _, [object, method, args]}),
-    do: {:send_async, ast_to_pattern(object), ast_to_pattern(method), ast_to_pattern(args)}
+    do: %Goal.SendAsync{
+      object: ast_to_pattern(object),
+      method: ast_to_pattern(method),
+      args: ast_to_pattern(args)
+    }
 
   def ast_to_pattern({:send_elixir, _, [pid, message]}),
-    do: {:send_elixir, ast_to_pattern(pid), ast_to_pattern(message)}
+    do: %Goal.SendElixir{pid: ast_to_pattern(pid), message: ast_to_pattern(message)}
 
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
-    {:oapply, :defmethod,
-     [
-       ast_to_pattern(class),
-       ast_to_pattern(method_name),
-       ast_to_pattern(head),
-       ast_to_pattern(body)
-     ]}
+    %Goal.OApply{
+      method_id: :defmethod,
+      args: [
+        ast_to_pattern(class),
+        ast_to_pattern(method_name),
+        ast_to_pattern(head),
+        ast_to_pattern(body)
+      ]
+    }
   end
 
   def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
-    do: {:oapply, op, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.OApply{method_id: op, args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({fun, _, args}) when fun in @oapply_primitives and is_list(args),
-    do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.OApply{method_id: fun, args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({method, _, [receiver | args]}) when is_atom(method) and is_list(args),
-    do: {:send, ast_to_pattern(receiver), method, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.Send{
+      object: ast_to_pattern(receiver),
+      method: method,
+      args: Enum.map(args, &ast_to_pattern/1)
+    }
 
   def ast_to_pattern({fun, _, args}) when is_atom(fun) and is_list(args),
-    do: {:oapply, fun, Enum.map(args, &ast_to_pattern/1)}
+    do: %Goal.OApply{method_id: fun, args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
 
@@ -234,7 +288,11 @@ defmodule AL do
   # the chain (so extra clauses read as `else if`); a trailing `:else ->` is the
   # final else, and its absence means an empty (failing) else.
   defp build_implies([{:->, _, [[conds], body]} | rest]),
-    do: {:implies, clause_goals(conds), clause_goals(body), implies_else(rest)}
+    do: %Goal.Implies{
+      condition: clause_goals(conds),
+      then: clause_goals(body),
+      otherwise: implies_else(rest)
+    }
 
   defp implies_else([]), do: []
   defp implies_else([{:->, _, [[:else], body]}]), do: clause_goals(body)
@@ -259,7 +317,6 @@ defmodule AL do
         list when is_list(list) -> list
         goal -> [goal]
       end
-      |> Enum.map(&AL.Goal.from_stored/1)
 
     escaped = Macro.escape(goals, unquote: true)
 
@@ -1455,6 +1512,9 @@ defmodule AL do
   `:error` if any operand is unbound or non-numeric (so `is/2` can fail the goal
   cleanly instead of crashing the transaction). Division by zero is `:error`.
   """
+  def interp_is(%Goal.OApply{method_id: op, args: args}, bindings),
+    do: interp_is({:oapply, op, args}, bindings)
+
   def interp_is({:oapply, :/, [a, b]}, bindings) do
     with x when is_number(x) <- interp_is(a, bindings),
          y when is_number(y) and y != 0 <- interp_is(b, bindings) do

@@ -301,9 +301,10 @@ defmodule AL.Goal do
     end
   end
 
+  def to_stored(list) when is_list(list), do: Enum.map(list, &to_stored/1)
   def to_stored(other), do: other
 
-  defp store(:term, v), do: v
+  defp store(:term, v), do: to_stored(v)
   defp store(:goals, gs) when is_list(gs), do: Enum.map(gs, &to_stored/1)
   defp store(:goals, other), do: other
 
