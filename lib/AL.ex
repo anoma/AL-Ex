@@ -612,13 +612,7 @@ defmodule AL do
         },
         state
       ) do
-    case AL.Object.scan_oapply(
-           object_pattern,
-           seq_pattern,
-           head_pattern,
-           body_pattern,
-           state.branch
-         ) do
+    case scan_clauses(object_pattern, seq_pattern, head_pattern, body_pattern, state.branch) do
       [] ->
         backtrack(state)
 
@@ -748,7 +742,7 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case AL.Object.scan_oapply(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
+    case scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
       [] ->
         backtrack(state)
 
@@ -757,7 +751,7 @@ defmodule AL do
         freshener = Integer.to_string(scope)
 
         head_pattern = AL.Var.freshen(head, freshener)
-        body_pattern = AL.Var.freshen(from_stored_body(body), freshener)
+        body_pattern = AL.Var.freshen(body, freshener)
 
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
@@ -768,7 +762,7 @@ defmodule AL do
         alternative_choicepoints =
           Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
             %AL.Choicepoint{
-              goals: AL.Var.freshen(from_stored_body(alt_body), freshener),
+              goals: AL.Var.freshen(alt_body, freshener),
               bindings:
                 AL.Var.unify(
                   {AL.Var.freshen(alt_head, freshener), alt_id},
@@ -1340,6 +1334,12 @@ defmodule AL do
 
   defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
   defp store_body(body), do: body
+
+  # Scan clauses with bodies lifted to structs, so stored form never enters the VM.
+  defp scan_clauses(object, seq, head, body, branch) do
+    AL.Object.scan_oapply(object, seq, head, body, branch)
+    |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
+  end
 
   # Variables a `run` reports. `findall`/`not`/`forall` are local scopes: only a
   # `findall`'s result var escapes.

@@ -15,6 +15,19 @@ defmodule Examples.ALClauses do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
   end
 
+  @doc "A clause body read via `clause/n` must be executable structs: reflect reverse's recursive clause and run its body through `call`."
+  example reflected_clause_body_executes() do
+    {:atomic, {b, _}} =
+      run branch: :examples do
+        method(:list, :reverse, m)
+        clause(m, [[h | t], out], body)
+        call([[h | t], out], body, [[1, 2, 3], result])
+      end
+
+    assert Map.get(b, :"$result") == [3, 2, 1]
+    b
+  end
+
   # Two clauses that both match the same call, so `findall` reveals their order.
   example clauses_are_tried_in_definition_order() do
     c = fresh_class()
