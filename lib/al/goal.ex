@@ -301,11 +301,12 @@ defmodule AL.Goal do
     end
   end
 
+  def to_stored(list) when is_list(list), do: Enum.map(list, &to_stored/1)
   def to_stored(other), do: other
 
-  defp store(:term, v), do: v
-  # A `:goals` slot can also hold a var (e.g. `set_oapply(o, h, body_var)`); only a
-  # literal list is a goal list to recurse.
+  # `:term` slots may still nest goal structs (e.g. arithmetic in an `is`/`oapply`
+  # arg list); recurse so nothing struct-shaped reaches storage.
+  defp store(:term, v), do: to_stored(v)
   defp store(:goals, gs) when is_list(gs), do: Enum.map(gs, &to_stored/1)
   defp store(:goals, other), do: other
 
