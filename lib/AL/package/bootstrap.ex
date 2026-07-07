@@ -59,6 +59,15 @@ defmodule AL.Package.Bootstrap do
       forall([member(right, [head, body])], [set_oapply(method_object, head, body)])
     end
 
+    defmethod(:object, :slots, [self, [], %{}]) do
+    end
+    
+    defmethod(:object, :slots, [self, [slot_name | slot_names], m]) do
+      slots(self, slot_names, m1)
+      get_slot(self, slot_name, slot_val)
+      map_put(m1, slot_name, slot_val, m)
+    end
+
     set_class(:map, :class)
     set_super(:map, :ephemeral)
 

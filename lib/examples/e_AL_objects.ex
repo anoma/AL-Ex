@@ -347,4 +347,17 @@ defmodule Examples.ALObjects do
 
     :ok
   end
+
+  example multiple_slots() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:class, %{name: :multislots, slots: [], super: :object}, :multislots)
+        set_slots(:multislots, %{x: 1, y: 2, z: 3})
+        slots(:multislots, [:x, :z], m)
+    end
+
+    assert Map.get(bindings, :"$m") == %{x: 1, z: 3}
+    
+    bindings
+  end
 end
