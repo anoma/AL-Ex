@@ -74,10 +74,9 @@ defmodule Examples.ALMeta do
         vm_set_super(:forall_test, :class)
         vm_set_super(:forall_test, :behaviour)
 
-        forall(
-          [vm_super(forall_test, s)],
-          [vm_set_slots(s, %{forall_visited: true})]
-        )
+        forall([vm_super(forall_test, s)]) do
+          vm_set_slots(s, %{forall_visited: true})
+        end
       end
 
     {:atomic, [{:slots, :class, class_slots}]} =

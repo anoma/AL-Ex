@@ -208,10 +208,12 @@ function takes a trailing `branch \\ :main`.
 - Test capabilities, not sugar: e.g. async tests build their receiver from
   bootstrap primitives (`defmethod`) rather than a convenience package.
 - **DSL gotcha — `do…end` bodies vs `[…]` goal lists.** A method/`run` body is a
-  `do…end` block (goals newline- *or* comma-separated). But the branches of
-  `forall(cond, body)`, `findall(t, cond, r)`, `not`, and `call` are **list
-  literals** — goals must be **comma-separated**, else a confusing
-  `syntax error before: <goal>` (Elixir list syntax, not a parser bug).
+  `do…end` block (goals newline- *or* comma-separated). `forall` takes its
+  condition as a `[…]` list literal (comma-separated) but its body as a
+  `do…end` block: `forall([cond_goals]) do body_goals end`. `findall(t, cond,
+  r)`, `not`, and `call` still take **list literals** throughout — goals must
+  be **comma-separated**, else a confusing `syntax error before: <goal>`
+  (Elixir list syntax, not a parser bug).
 - **`implies` uses a `cond`-style `->` block** (the only form):
   ```elixir
   implies do

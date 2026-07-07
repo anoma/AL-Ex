@@ -218,8 +218,8 @@ defmodule AL do
 
   def ast_to_pattern(xs) when is_list(xs), do: Enum.map(xs, &ast_to_pattern/1)
 
-  def ast_to_pattern({:forall, _, [condition, body]}),
-    do: %Goal.Forall{condition: ast_to_pattern(condition), body: ast_to_pattern(body)}
+  def ast_to_pattern({:forall, _, [condition, [do: body]]}),
+    do: %Goal.Forall{condition: ast_to_pattern(condition), body: clause_goals(body)}
 
   def ast_to_pattern({:findall, _, [template, condition, result]}),
     do: %Goal.Findall{

@@ -14,10 +14,9 @@ defmodule AL.Package.Constraints do
       get_slot(self, :value, :absent)
       set_slot(self, :value, value)
 
-      forall(
-        [get_slot(self, :subscribers, subscribers), member(subscribers, subscriber)],
-        [send_async(subscriber, :cell_updated, [self, value])]
-      )
+      forall([get_slot(self, :subscribers, subscribers), member(subscribers, subscriber)]) do
+        send_async(subscriber, :cell_updated, [self, value])
+      end
 
       cut
     end
@@ -65,10 +64,9 @@ defmodule AL.Package.Constraints do
 
       set_slots(self, %{input_cells: input_cells, output_cell: output_cell, name: self})
 
-      forall(
-        [member(input_cells, input_cell)],
-        [subscribe(input_cell, self)]
-      )
+      forall([member(input_cells, input_cell)]) do
+        subscribe(input_cell, self)
+      end
 
       send_async(self, :cell_updated, [:none, :none])
     end
@@ -83,10 +81,9 @@ defmodule AL.Package.Constraints do
         input_cell_values
       )
 
-      forall(
-        [member(input_cell_values, input_cell_value)],
-        [not [unify(input_cell_value, :absent)]]
-      )
+      forall([member(input_cell_values, input_cell_value)]) do
+        not [unify(input_cell_value, :absent)]
+      end
 
       constrain(self, input_cell_values, output_value)
       send_async(output_cell, :constrain, [output_value])

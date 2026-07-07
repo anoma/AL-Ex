@@ -55,8 +55,13 @@ defmodule AL.Package.Bootstrap do
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
       vm_method(self, method_name, method_object)
       findall([head, body], [vm_clause(method_object, head, body)], left)
-      forall([member(left, [head, _])], [vm_retract_oapply(method_object, head)])
-      forall([member(right, [head, body])], [vm_set_oapply(method_object, head, body)])
+      forall([member(left, [head, _])]) do
+        vm_retract_oapply(method_object, head)
+      end
+
+      forall([member(right, [head, body])]) do
+        vm_set_oapply(method_object, head, body)
+      end
     end
 
     defmethod(:object, :get_slot, [self, key, value]) do
@@ -69,7 +74,10 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:object, :set_slots, [self, slots]) do
       findall([key, value], [vm_map_get(slots, key, value)], pairs)
-      forall([member(pairs, [key, value])], [set_slot(self, key, value)])
+
+      forall([member(pairs, [key, value])]) do
+        set_slot(self, key, value)
+      end
     end
 
     defmethod(:object, :slots, [self, [], %{}]) do
