@@ -16,7 +16,7 @@ defmodule Examples.AL do
   example get_class_command() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
-        class(a, b)
+        vm_class(a, b)
       end
 
     assert bindings != nil
@@ -33,9 +33,9 @@ defmodule Examples.AL do
   example metaclass() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
-        method(:object, :init, init_method)
-        class(init_method, b)
-        class(b, :class)
+        vm_method(:object, :init, init_method)
+        vm_class(init_method, b)
+        vm_class(b, :class)
       end
 
     assert Map.get(bindings, :"$b") == :behaviour
@@ -89,7 +89,7 @@ defmodule Examples.AL do
 
   example get_oapply_command() do
     run branch: :examples do
-      method(:object, :init, init_method)
+      vm_method(:object, :init, init_method)
       get_oapply(init_method, [:"$self" | :"$args"], :"$body")
     end
   end
@@ -97,7 +97,7 @@ defmodule Examples.AL do
   example execute_metaclass_method() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
-        method(:object, :init, init_method)
+        vm_method(:object, :init, init_method)
         meta(init_method, :"$class", :"$metaclass")
       end
 
@@ -109,7 +109,7 @@ defmodule Examples.AL do
   example cut() do
     {:atomic, {_bindings, result}} =
       run branch: :examples do
-        class(object, class)
+        vm_class(object, class)
         cut
       end
 
@@ -121,7 +121,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, result}} =
       run branch: :examples do
         implies do
-          [class(object, class)] -> class(class, metaclass)
+          [vm_class(object, class)] -> vm_class(class, metaclass)
         end
       end
 
@@ -134,8 +134,8 @@ defmodule Examples.AL do
     {:atomic, {_bindings, result}} =
       run branch: :examples do
         implies do
-          [class(:blah, class)] -> class(class, metaclass)
-          :else -> class(metaclass, class)
+          [vm_class(:blah, class)] -> vm_class(class, metaclass)
+          :else -> vm_class(metaclass, class)
         end
       end
 
@@ -145,36 +145,36 @@ defmodule Examples.AL do
   example retractall_class() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:retract_test, :foo)
-        set_class(:retract_test, :bar)
+        vm_set_class(:retract_test, :foo)
+        vm_set_class(:retract_test, :bar)
       end
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall(c, [class(:retract_test, c)], before_retract)
+        findall(c, [vm_class(:retract_test, c)], before_retract)
       end
 
     assert Enum.sort(Map.get(bindings, :"$before_retract")) == [:bar, :foo]
 
     {:atomic, _} =
       run branch: :examples do
-        retract_class(:retract_test, c)
+        vm_retract_class(:retract_test, c)
       end
 
     {:atomic, {bindings2, _}} =
       run branch: :examples do
-        findall(c, [class(:retract_test, c)], after_retract)
+        findall(c, [vm_class(:retract_test, c)], after_retract)
       end
 
     assert Map.get(bindings2, :"$after_retract") == []
     :ok
   end
 
-  example get_slot() do
+  example vm_get_slot() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        set_slots(:slot_get_test, %{name: :alice, age: 42})
-        get_slot(:slot_get_test, :name, name)
+        vm_set_slots(:slot_get_test, %{name: :alice, age: 42})
+        vm_get_slot(:slot_get_test, :name, name)
       end
 
     assert Map.get(bindings, :"$name") == :alice
@@ -190,9 +190,9 @@ defmodule Examples.AL do
   example slot_merge_semantics() do
     {:atomic, _} =
       run branch: :examples do
-        set_slots(:slot_test, %{a: 1})
-        set_slots(:slot_test, %{b: 2})
-        set_slots(:slot_test, %{a: 99})
+        vm_set_slots(:slot_test, %{a: 1})
+        vm_set_slots(:slot_test, %{b: 2})
+        vm_set_slots(:slot_test, %{a: 99})
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
@@ -202,7 +202,7 @@ defmodule Examples.AL do
     slots
   end
 
-  example map_get() do
+  example vm_map_get() do
     {:atomic, {bindings, program_state}} =
       run branch: :examples do
         get(%{a: 3, b: 4, c: 3}, k, 3)
@@ -217,7 +217,7 @@ defmodule Examples.AL do
     program_state
   end
 
-  example map_put() do
+  example vm_map_put() do
     {:atomic, {bindings, program_state}} =
       run branch: :examples do
         put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
@@ -228,11 +228,11 @@ defmodule Examples.AL do
     program_state
   end
 
-  example gensym() do
+  example vm_gensym() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        gensym(a)
-        gensym(b)
+        vm_gensym(a)
+        vm_gensym(b)
       end
 
     assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")
@@ -278,9 +278,9 @@ defmodule Examples.AL do
   example next_solution_substitutes_compound_bindings() do
     {:atomic, {b1, state}} =
       run branch: :examples do
-        set_super(:next_sol_test, :alpha)
-        set_super(:next_sol_test, :beta)
-        super(:next_sol_test, s)
+        vm_set_super(:next_sol_test, :alpha)
+        vm_set_super(:next_sol_test, :beta)
+        vm_super(:next_sol_test, s)
         unify(pair, [s, s])
       end
 
@@ -305,23 +305,23 @@ defmodule Examples.AL do
 
     {:atomic, _} =
       run branch: :examples do
-        set_method(^chooser_cut, :pick, ^cut_impl)
-        set_class(^cut_impl, :behaviour)
+        vm_set_method(^chooser_cut, :pick, ^cut_impl)
+        vm_set_class(^cut_impl, :behaviour)
 
-        set_oapply(^cut_impl, [self, :a]) do
+        vm_set_oapply(^cut_impl, [self, :a]) do
           cut
         end
 
-        set_oapply(^cut_impl, [self, :b]) do
+        vm_set_oapply(^cut_impl, [self, :b]) do
         end
 
-        set_method(^chooser_plain, :pick, ^plain_impl)
-        set_class(^plain_impl, :behaviour)
+        vm_set_method(^chooser_plain, :pick, ^plain_impl)
+        vm_set_class(^plain_impl, :behaviour)
 
-        set_oapply(^plain_impl, [self, :a]) do
+        vm_set_oapply(^plain_impl, [self, :a]) do
         end
 
-        set_oapply(^plain_impl, [self, :b]) do
+        vm_set_oapply(^plain_impl, [self, :b]) do
         end
       end
 
@@ -346,14 +346,14 @@ defmodule Examples.AL do
   example if_then_else_commits_to_first_condition_solution() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        set_super(:ite_test, :s1)
-        set_super(:ite_test, :s2)
+        vm_set_super(:ite_test, :s1)
+        vm_set_super(:ite_test, :s2)
 
         findall(
           r,
           [
             implies do
-              [super(:ite_test, x)] -> unify(r, x)
+              [vm_super(:ite_test, x)] -> unify(r, x)
               :else -> unify(r, :none)
             end
           ],
@@ -383,7 +383,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         implies do
-          [class(:object, c)] -> unify(out, :then_ran)
+          [vm_class(:object, c)] -> unify(out, :then_ran)
           :else -> unify(out, :else_ran)
         end
       end
@@ -396,7 +396,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         implies do
-          [class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
+          [vm_class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
           :else -> unify(out, :else_ran)
         end
       end
@@ -408,11 +408,11 @@ defmodule Examples.AL do
   example implies_block_multiway() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        set_class(:branch_pick, :widget)
+        vm_set_class(:branch_pick, :widget)
 
         implies do
-          [class(:branch_pick, :gadget)] -> unify(out, :first)
-          [class(:branch_pick, :widget)] -> unify(out, :second)
+          [vm_class(:branch_pick, :gadget)] -> unify(out, :first)
+          [vm_class(:branch_pick, :widget)] -> unify(out, :second)
           :else -> unify(out, :none)
         end
       end
@@ -431,12 +431,12 @@ defmodule Examples.AL do
 
     {:atomic, _} =
       run branch: :examples do
-        set_class(^a, :object)
+        vm_set_class(^a, :object)
       end
 
     {:atomic, _} =
       run branch: :examples do
-        set_class(^b, :object)
+        vm_set_class(^b, :object)
       end
 
     {:atomic, commands} =

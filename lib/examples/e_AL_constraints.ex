@@ -22,7 +22,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        get_slot(:x, :value, value)
+        vm_get_slot(:x, :value, value)
       end
 
     assert Map.get(bindings, :"$value") == 2
@@ -39,7 +39,7 @@ defmodule Examples.ALConstraints do
         new(:propagator, %{input_cells: [:x], output_cell: y, name: :x_y}, propagator)
 
         defmethod(propagator, :constrain, [_self, [x_val], y_val]) do
-          is(y_val, 1 + x_val)
+          vm_is(y_val, 1 + x_val)
         end
       end
 
@@ -47,7 +47,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        get_slot(:y, :value, value)
+        vm_get_slot(:y, :value, value)
       end
 
     assert Map.get(bindings, :"$value") == 3
@@ -82,15 +82,15 @@ defmodule Examples.ALConstraints do
         new(:propagator, %{input_cells: [b, c], output_cell: a, name: :bc_a}, propagator_bc)
 
         defmethod(propagator_ab, :constrain, [_self, [a_val, b_val], c_val]) do
-          is(c_val, a_val + b_val)
+          vm_is(c_val, a_val + b_val)
         end
 
         defmethod(propagator_ac, :constrain, [_self, [a_val, c_val], b_val]) do
-          is(b_val, c_val - a_val)
+          vm_is(b_val, c_val - a_val)
         end
 
         defmethod(propagator_bc, :constrain, [_self, [b_val, c_val], a_val]) do
-          is(a_val, c_val - b_val)
+          vm_is(a_val, c_val - b_val)
         end
 
         send_async(b, :constrain, [3])
@@ -101,7 +101,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        get_slot(:a, :value, value)
+        vm_get_slot(:a, :value, value)
       end
 
     assert Map.get(bindings, :"$value") == 2

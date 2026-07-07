@@ -82,7 +82,15 @@ defmodule AL do
 
   @arithmetic_ops [:+, :-, :*, :/, :**]
   @comparison_ops [:<, :>, :<=, :>=]
-  @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id, :current_tx]
+  @oapply_primitives %{
+    vm_is: :is,
+    vm_map_get: :map_get,
+    vm_map_put: :map_put,
+    vm_lookup: :lookup,
+    vm_fresh_id: :fresh_id,
+    vm_current_tx: :current_tx
+  }
+  @oapply_primitive_names Map.keys(@oapply_primitives)
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
   def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
@@ -100,20 +108,20 @@ defmodule AL do
 
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
-  def ast_to_pattern({:class, _, [object, class]}),
+  def ast_to_pattern({:vm_class, _, [object, class]}),
     do: %Goal.GetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
-  def ast_to_pattern({:super, _, [object, super]}),
+  def ast_to_pattern({:vm_super, _, [object, super]}),
     do: %Goal.GetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
-  def ast_to_pattern({:method, _, [object, name, id]}),
+  def ast_to_pattern({:vm_method, _, [object, name, id]}),
     do: %Goal.GetMethod{
       object: ast_to_pattern(object),
       name: ast_to_pattern(name),
       id: ast_to_pattern(id)
     }
 
-  def ast_to_pattern({:clause, _, [object, head, body]}),
+  def ast_to_pattern({:vm_clause, _, [object, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
       seq: :"$_",
@@ -121,7 +129,7 @@ defmodule AL do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:clause, _, [object, seq, head, body]}),
+  def ast_to_pattern({:vm_clause, _, [object, seq, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
       seq: ast_to_pattern(seq),
@@ -129,7 +137,7 @@ defmodule AL do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:oapply, _, [method_id, args]}),
+  def ast_to_pattern({:vm_oapply, _, [method_id, args]}),
     do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
 
   def ast_to_pattern({:implies, _, [[do: clauses]]}), do: build_implies(clauses)
@@ -141,20 +149,20 @@ defmodule AL do
 
   def ast_to_pattern({:fail, _, _}), do: %Goal.Fail{}
 
-  def ast_to_pattern({:set_class, _, [object, class]}),
+  def ast_to_pattern({:vm_set_class, _, [object, class]}),
     do: %Goal.SetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
-  def ast_to_pattern({:set_super, _, [object, super]}),
+  def ast_to_pattern({:vm_set_super, _, [object, super]}),
     do: %Goal.SetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
-  def ast_to_pattern({:set_method, _, [object, name, id]}),
+  def ast_to_pattern({:vm_set_method, _, [object, name, id]}),
     do: %Goal.SetMethod{
       object: ast_to_pattern(object),
       name: ast_to_pattern(name),
       id: ast_to_pattern(id)
     }
 
-  def ast_to_pattern({:set_oapply, _, [object, head, body]}),
+  def ast_to_pattern({:vm_set_oapply, _, [object, head, body]}),
     do: %Goal.SetOapply{
       object: ast_to_pattern(object),
       seq: :next,
@@ -162,7 +170,7 @@ defmodule AL do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:set_oapply, _, [object, seq, head, body]}),
+  def ast_to_pattern({:vm_set_oapply, _, [object, seq, head, body]}),
     do: %Goal.SetOapply{
       object: ast_to_pattern(object),
       seq: ast_to_pattern(seq),
@@ -170,40 +178,41 @@ defmodule AL do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:set_slots, _, [object, slots]}),
+  def ast_to_pattern({:vm_set_slots, _, [object, slots]}),
     do: %Goal.SetSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
-  def ast_to_pattern({:get_slot, _, [object, key, value]}),
+  def ast_to_pattern({:vm_get_slot, _, [object, key, value]}),
     do: %Goal.GetSlots{
       object: ast_to_pattern(object),
       key: ast_to_pattern(key),
       value: ast_to_pattern(value)
     }
 
-  def ast_to_pattern({:retract_class, _, [object, class]}),
+  def ast_to_pattern({:vm_retract_class, _, [object, class]}),
     do: %Goal.RetractClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
-  def ast_to_pattern({:retract_super, _, [object, super]}),
+  def ast_to_pattern({:vm_retract_super, _, [object, super]}),
     do: %Goal.RetractSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
-  def ast_to_pattern({:retract_method, _, [object, name, id]}),
+  def ast_to_pattern({:vm_retract_method, _, [object, name, id]}),
     do: %Goal.RetractMethod{
       object: ast_to_pattern(object),
       name: ast_to_pattern(name),
       id: ast_to_pattern(id)
     }
 
-  def ast_to_pattern({:retract_oapply, _, [object, head]}),
+  def ast_to_pattern({:vm_retract_oapply, _, [object, head]}),
     do: %Goal.RetractOapply{object: ast_to_pattern(object), head: ast_to_pattern(head)}
 
-  def ast_to_pattern({:retract_slots, _, [object, slots]}),
+  def ast_to_pattern({:vm_retract_slots, _, [object, slots]}),
     do: %Goal.RetractSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
-  def ast_to_pattern({:gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
+  def ast_to_pattern({:vm_gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 
-  def ast_to_pattern({:print, _, [pattern]}), do: %Goal.Print{pattern: ast_to_pattern(pattern)}
+  def ast_to_pattern({:vm_print, _, [pattern]}),
+    do: %Goal.Print{pattern: ast_to_pattern(pattern)}
 
-  def ast_to_pattern({:ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
+  def ast_to_pattern({:vm_ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
   def ast_to_pattern([]), do: []
 
@@ -273,8 +282,11 @@ defmodule AL do
   def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
     do: %Goal.OApply{method_id: op, args: Enum.map(args, &ast_to_pattern/1)}
 
-  def ast_to_pattern({fun, _, args}) when fun in @oapply_primitives and is_list(args),
-    do: %Goal.OApply{method_id: fun, args: Enum.map(args, &ast_to_pattern/1)}
+  def ast_to_pattern({fun, _, args}) when fun in @oapply_primitive_names and is_list(args),
+    do: %Goal.OApply{
+      method_id: Map.fetch!(@oapply_primitives, fun),
+      args: Enum.map(args, &ast_to_pattern/1)
+    }
 
   def ast_to_pattern({method, _, [receiver | args]}) when is_atom(method) and is_list(args),
     do: %Goal.Send{
@@ -583,6 +595,9 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state),
     do: put_bindings(state, AL.Var.unify(result, state.tx_id, bindings(state)))
 
+  def interp(%Goal.OApply{method_id: :map_get, args: [m, _k, _v]}, state) when not is_map(m),
+    do: backtrack(state)
+
   def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
     matches =
       m
@@ -591,6 +606,10 @@ defmodule AL do
 
     fan_out(state, matches, & &1)
   end
+
+  def interp(%Goal.OApply{method_id: :map_put, args: [m1, _k, _v, _m2]}, state)
+      when not is_map(m1),
+      do: backtrack(state)
 
   def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
     do: put_bindings(state, AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), bindings(state)))

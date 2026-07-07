@@ -11,17 +11,17 @@ defmodule Examples.ALArithmetic do
   example arithmetic() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
-        is(a, 123 + 5 - 3)
-        is(f, 10000 - 3)
-        is(a, 122 + 3)
-        is(1_000_122, 122 + 1_000_000)
-        is(b, a + 12)
-        is(c, b ** 2 + 1)
-        is(d, c / 3)
-        is(e, c * 3 + 2)
-        is(e, 5 - e + 2 * e - 5)
-        is(g, -7)
-        is(h, +7)
+        vm_is(a, 123 + 5 - 3)
+        vm_is(f, 10000 - 3)
+        vm_is(a, 122 + 3)
+        vm_is(1_000_122, 122 + 1_000_000)
+        vm_is(b, a + 12)
+        vm_is(c, b ** 2 + 1)
+        vm_is(d, c / 3)
+        vm_is(e, c * 3 + 2)
+        vm_is(e, 5 - e + 2 * e - 5)
+        vm_is(g, -7)
+        vm_is(h, +7)
       end
 
     assert Map.get(bindings, :"$a") == 125
@@ -40,7 +40,7 @@ defmodule Examples.ALArithmetic do
     # crashing the transaction
     {:aborted, _} =
       run branch: :examples do
-        is(x, y + 1)
+        vm_is(x, y + 1)
       end
 
     :ok
@@ -49,7 +49,7 @@ defmodule Examples.ALArithmetic do
   example is_fails_on_division_by_zero() do
     {:aborted, _} =
       run branch: :examples do
-        is(x, 1 / 0)
+        vm_is(x, 1 / 0)
       end
 
     :ok
@@ -58,7 +58,7 @@ defmodule Examples.ALArithmetic do
   example is_still_computes() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        is(x, 2 ** 3 + 1)
+        vm_is(x, 2 ** 3 + 1)
       end
 
     assert Map.get(bindings, :"$x") == 9
@@ -68,7 +68,7 @@ defmodule Examples.ALArithmetic do
   example comparison_succeeds_when_true() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        is(x, 5)
+        vm_is(x, 5)
         x > 3
         x >= 5
         x < 10

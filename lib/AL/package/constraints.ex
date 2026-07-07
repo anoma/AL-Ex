@@ -12,7 +12,7 @@ defmodule AL.Package.Constraints do
 
     defmethod(:cell, :constrain, [self, value]) do
       get_slot(self, :value, :absent)
-      set_slots(self, %{value: value})
+      set_slot(self, :value, value)
 
       forall(
         [get_slot(self, :subscribers, subscribers), member(subscribers, subscriber)],
@@ -24,7 +24,7 @@ defmodule AL.Package.Constraints do
 
     defmethod(:cell, :subscribe, [self, subscriber]) do
       get_slot(self, :subscribers, subscribers)
-      set_slots(self, %{subscribers: [subscriber | subscribers]})
+      set_slot(self, :subscribers, [subscriber | subscribers])
     end
 
     defmethod(:cell, :dependents, [self, dependents]) do
@@ -33,12 +33,12 @@ defmodule AL.Package.Constraints do
 
     defmethod(:cell, :dependents, [self, acc, dependents]) do
       implies do
-        [map_get(acc, self, seen)] ->
+        [vm_map_get(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
           get_slot(self, :subscribers, subscribers)
-          map_put(acc, self, subscribers, new_acc)
+          vm_map_put(acc, self, subscribers, new_acc)
           dependents(self, new_acc, subscribers, dependents)
       end
     end
@@ -60,8 +60,8 @@ defmodule AL.Package.Constraints do
     )
 
     defmethod(:propagator, :init, [self, args, self]) do
-      map_get(args, :input_cells, input_cells)
-      map_get(args, :output_cell, output_cell)
+      vm_map_get(args, :input_cells, input_cells)
+      vm_map_get(args, :output_cell, output_cell)
 
       set_slots(self, %{input_cells: input_cells, output_cell: output_cell, name: self})
 
@@ -98,12 +98,12 @@ defmodule AL.Package.Constraints do
 
     defmethod(:propagator, :dependents, [self, acc, dependents]) do
       implies do
-        [map_get(acc, self, seen)] ->
+        [vm_map_get(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
           get_slot(self, :output_cell, output_cell)
-          map_put(acc, self, [output_cell], new_acc)
+          vm_map_put(acc, self, [output_cell], new_acc)
           dependents(output_cell, new_acc, dependents)
       end
     end

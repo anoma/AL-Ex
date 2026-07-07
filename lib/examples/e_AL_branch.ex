@@ -16,7 +16,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run do
-        set_class(^sym, :object)
+        vm_set_class(^sym, :object)
       end
 
     past = AL.Branch.fork(before - 1)
@@ -25,18 +25,18 @@ defmodule Examples.ALBranch do
     # the tip fork sees :tt_thing; the past fork does not
     {:atomic, _} =
       run branch: tip.id do
-        class(^sym, :object)
+        vm_class(^sym, :object)
       end
 
     {:aborted, _} =
       run branch: past.id do
-        class(^sym, :object)
+        vm_class(^sym, :object)
       end
 
     # both forks still carry the bootstrap
     {:atomic, _} =
       run branch: past.id do
-        class(:object, :class)
+        vm_class(:object, :class)
       end
 
     AL.Branch.discard(past)
@@ -50,8 +50,8 @@ defmodule Examples.ALBranch do
     # write only into the fork, then read it back from the fork's projection
     {:atomic, {bindings, _}} =
       run branch: tip.id do
-        set_slots(:widget, %{x: 3})
-        get_slot(:widget, :x, x)
+        vm_set_slots(:widget, %{x: 3})
+        vm_get_slot(:widget, :x, x)
       end
 
     assert Map.get(bindings, :"$x") == 3
@@ -59,7 +59,7 @@ defmodule Examples.ALBranch do
     # main never saw :widget — the write stayed in the fork's log
     {:aborted, _} =
       run do
-        get_slot(:widget, :x, x)
+        vm_get_slot(:widget, :x, x)
       end
 
     AL.Branch.discard(tip)
@@ -88,12 +88,12 @@ defmodule Examples.ALBranch do
     # with the branch checked out, plain `run` acts against it
     {:atomic, _} =
       run do
-        set_class(:on_branch, :object)
+        vm_set_class(:on_branch, :object)
       end
 
     {:atomic, _} =
       run do
-        class(:on_branch, :object)
+        vm_class(:on_branch, :object)
       end
 
     # back on main, the branch's write is invisible
@@ -101,7 +101,7 @@ defmodule Examples.ALBranch do
 
     {:aborted, _} =
       run do
-        class(:on_branch, :object)
+        vm_class(:on_branch, :object)
       end
 
     AL.Branch.discard(branch)
@@ -114,7 +114,7 @@ defmodule Examples.ALBranch do
     # a write that lives only on the parent fork
     {:atomic, _} =
       run branch: parent.id do
-        set_class(:on_parent, :object)
+        vm_set_class(:on_parent, :object)
       end
 
     # forking the parent (not main) carries the parent's divergent history
@@ -122,24 +122,24 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run branch: child.id do
-        class(:on_parent, :object)
+        vm_class(:on_parent, :object)
       end
 
     # writes to the parent after the child forked don't reach the child
     {:atomic, _} =
       run branch: parent.id do
-        set_class(:later_on_parent, :object)
+        vm_set_class(:later_on_parent, :object)
       end
 
     {:aborted, _} =
       run branch: child.id do
-        class(:later_on_parent, :object)
+        vm_class(:later_on_parent, :object)
       end
 
     # main never saw any of it
     {:aborted, _} =
       run do
-        class(:on_parent, :object)
+        vm_class(:on_parent, :object)
       end
 
     AL.Branch.discard(child)
@@ -153,7 +153,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run do
-        set_class(:on_head, :object)
+        vm_set_class(:on_head, :object)
       end
 
     # fork() with no args forks the checked-out branch, not main
@@ -161,7 +161,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run branch: child.id do
-        class(:on_head, :object)
+        vm_class(:on_head, :object)
       end
 
     # main, which was never checked out, has no such object to fork
@@ -170,7 +170,7 @@ defmodule Examples.ALBranch do
 
     {:aborted, _} =
       run branch: fresh.id do
-        class(:on_head, :object)
+        vm_class(:on_head, :object)
       end
 
     AL.Branch.discard(fresh)
@@ -185,10 +185,10 @@ defmodule Examples.ALBranch do
     # a worker object that lives only on the fork, built from bootstrap primitives
     {:atomic, _} =
       run branch: branch.id do
-        set_class(:fork_worker, :object)
+        vm_set_class(:fork_worker, :object)
 
         defmethod(:fork_worker, :handle, [self, object]) do
-          set_slots(object, %{processed: true})
+          vm_set_slots(object, %{processed: true})
         end
       end
 
@@ -202,7 +202,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, {fork_bindings, _}} =
       run branch: branch.id do
-        get_slot(:fork_obj, :processed, v)
+        vm_get_slot(:fork_obj, :processed, v)
       end
 
     assert Map.get(fork_bindings, :"$v") == true
@@ -210,7 +210,7 @@ defmodule Examples.ALBranch do
     # main never saw the worker or the effect
     {:aborted, _} =
       run do
-        get_slot(:fork_obj, :processed, v)
+        vm_get_slot(:fork_obj, :processed, v)
       end
 
     AL.Branch.discard(branch)
@@ -233,12 +233,12 @@ defmodule Examples.ALBranch do
     # the child's log is independent, so it still works after its parent is gone
     {:atomic, _} =
       run branch: child.id do
-        set_class(:survivor, :object)
+        vm_set_class(:survivor, :object)
       end
 
     {:atomic, _} =
       run branch: child.id do
-        class(:survivor, :object)
+        vm_class(:survivor, :object)
       end
 
     AL.Branch.discard(child)

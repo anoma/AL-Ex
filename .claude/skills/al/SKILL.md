@@ -18,10 +18,10 @@ transactions, durable + replayable state, Git-like branching.
   atomic. Distribution comes from nodes *interacting*, not sharing a log — each
   node owns its history.
 - **Objects are relational, not primary.** An object *emerges* from relations
-  (`class(a, …)`, `super(…)`, `slot value …`); the object tables are a
+  (`vm_class(a, …)`, `vm_super(…)`, `slot value …`); the object tables are a
   materialised view of the log — which is what makes replay, forks, and (planned)
   bitemporal queries fall out for free.
-- **Inheritance is just a relation** (`super`), so the class graph and its search
+- **Inheritance is just a relation** (`vm_super`), so the class graph and its search
   order are ordinary data — multiple inheritance is free.
 - **Backtracking is a feature.** WAM semantics give full backtracking +
   bidirectional execution: a var in receiver position turns a `send` into a query
@@ -154,10 +154,10 @@ Projection (`AL.Object`):
   `object` is a `method_id`, `head` the arg pattern (`[self | …]`), `body` the goal
   list. `seq` is an explicit non-neg integer ordering key — `scan_oapply` sorts by
   it, so clause try-order is first-class data, stable across replay/fork. Surface:
-  `set_oapply(o, h, b)` appends (interp resolves the `:next` sentinel via
-  `next_oapply_seq`); `set_oapply(o, seq, h, b)` places at an explicit seq;
-  `clause(o, h, b)` / `clause(o, seq, h, b)` read clauses (the 4-arg form exposes
-  `seq`). Rearrange = retract then re-`set` at chosen seqs.
+  `vm_set_oapply(o, h, b)` appends (interp resolves the `:next` sentinel via
+  `next_oapply_seq`); `vm_set_oapply(o, seq, h, b)` places at an explicit seq;
+  `vm_clause(o, h, b)` / `vm_clause(o, seq, h, b)` read clauses (the 4-arg form
+  exposes `seq`). Rearrange = retract then re-`set` at chosen seqs.
 
 Log + metadata (`AL.Command`, durable):
 - `command {t, tx_id, command}` · `:ordered_set` — the append-only log. `t` is the

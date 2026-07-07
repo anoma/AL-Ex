@@ -2,49 +2,49 @@ defmodule AL.Package.Bootstrap do
   use AL.Package
 
   defpackage :bootstrap, version: 1, deps: [] do
-    set_class(:class, :class)
-    set_class(:object, :class)
-    set_class(:behaviour, :class)
+    vm_set_class(:class, :class)
+    vm_set_class(:object, :class)
+    vm_set_class(:behaviour, :class)
 
-    set_super(:class, :object)
-    set_super(:behaviour, :object)
+    vm_set_super(:class, :object)
+    vm_set_super(:behaviour, :object)
 
-    set_method(:object, :lookup, :lookup)
-    set_method(:object, :meta, :metaclass)
-    set_method(:object, :defmethod, :defmethod)
+    vm_set_method(:object, :lookup, :lookup)
+    vm_set_method(:object, :meta, :metaclass)
+    vm_set_method(:object, :defmethod, :defmethod)
 
-    set_class(:metaclass, :behaviour)
+    vm_set_class(:metaclass, :behaviour)
 
-    set_oapply(:metaclass, [self, class, meta]) do
-      class(self, class)
-      class(class, meta)
+    vm_set_oapply(:metaclass, [self, class, meta]) do
+      vm_class(self, class)
+      vm_class(class, meta)
     end
 
-    set_class(:lookup, :behaviour)
+    vm_set_class(:lookup, :behaviour)
 
-    set_oapply(:lookup, [self, name, id]) do
+    vm_set_oapply(:lookup, [self, name, id]) do
       alternative(
-        [method(self, name, id)],
-        [super(self, super), lookup(super, name, id)]
+        [vm_method(self, name, id)],
+        [vm_super(self, super), vm_lookup(super, name, id)]
       )
     end
 
-    set_class(:defmethod, :behaviour)
+    vm_set_class(:defmethod, :behaviour)
 
-    set_oapply(:defmethod, [self, method_name, head, body]) do
+    vm_set_oapply(:defmethod, [self, method_name, head, body]) do
       # Reuse the existing method id if this (object, name) is already defined,
       # otherwise mint a fresh behaviour. Either way append `head :- body` as a
       # clause, so repeated `defmethod`s on one name accrete clauses (Prolog-style)
       # rather than creating separate, unreachable method ids.
       implies do
-        [method(self, method_name, impl)] ->
-          set_oapply(impl, head, body)
+        [vm_method(self, method_name, impl)] ->
+          vm_set_oapply(impl, head, body)
 
         :else ->
-          fresh_id(impl)
-          set_method(self, method_name, impl)
-          set_class(impl, :behaviour)
-          set_oapply(impl, head, body)
+          vm_fresh_id(impl)
+          vm_set_method(self, method_name, impl)
+          vm_set_class(impl, :behaviour)
+          vm_set_oapply(impl, head, body)
       end
     end
 
@@ -53,59 +53,72 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
-      method(self, method_name, method_object)
-      findall([head, body], [clause(method_object, head, body)], left)
-      forall([member(left, [head, _])], [retract_oapply(method_object, head)])
-      forall([member(right, [head, body])], [set_oapply(method_object, head, body)])
+      vm_method(self, method_name, method_object)
+      findall([head, body], [vm_clause(method_object, head, body)], left)
+      forall([member(left, [head, _])], [vm_retract_oapply(method_object, head)])
+      forall([member(right, [head, body])], [vm_set_oapply(method_object, head, body)])
+    end
+
+    defmethod(:object, :get_slot, [self, key, value]) do
+      vm_get_slot(self, key, value)
+    end
+
+    defmethod(:object, :set_slot, [self, key, value]) do
+      vm_set_slots(self, %{key => value})
+    end
+
+    defmethod(:object, :set_slots, [self, slots]) do
+      findall([key, value], [vm_map_get(slots, key, value)], pairs)
+      forall([member(pairs, [key, value])], [set_slot(self, key, value)])
     end
 
     defmethod(:object, :slots, [self, [], %{}]) do
     end
-    
+
     defmethod(:object, :slots, [self, [slot_name | slot_names], m]) do
       slots(self, slot_names, m1)
       get_slot(self, slot_name, slot_val)
-      map_put(m1, slot_name, slot_val, m)
+      vm_map_put(m1, slot_name, slot_val, m)
     end
 
-    set_class(:map, :class)
-    set_super(:map, :ephemeral)
+    vm_set_class(:map, :class)
+    vm_set_super(:map, :ephemeral)
 
-    set_class(:map_get, :behaviour)
-    set_method(:map, :get, :map_get)
+    vm_set_class(:map_get, :behaviour)
+    vm_set_method(:map, :get, :map_get)
 
-    set_class(:map_put, :behaviour)
-    set_method(:map, :put, :map_put)
+    vm_set_class(:map_put, :behaviour)
+    vm_set_method(:map, :put, :map_put)
 
     defmethod(:class, :construct, [self, %{class: self}]) do
     end
 
-    set_method(:class, :allocate, :allocate_class)
-    set_class(:allocate_class, :behaviour)
+    vm_set_method(:class, :allocate, :allocate_class)
+    vm_set_class(:allocate_class, :behaviour)
 
-    set_oapply(:allocate_class, [self, args, name]) do
-      map_get(args, :name, name)
-      map_get(args, :super, super)
-      alternative([map_get(args, :slots, slots)], [unify(slots, [])])
+    vm_set_oapply(:allocate_class, [self, args, name]) do
+      vm_map_get(args, :name, name)
+      vm_map_get(args, :super, super)
+      alternative([vm_map_get(args, :slots, slots)], [unify(slots, [])])
 
-      class(self, meta)
+      vm_class(self, meta)
 
-      set_class(name, meta)
-      set_super(name, super)
+      vm_set_class(name, meta)
+      vm_set_super(name, super)
       # The declared instance-var names are reflective metadata about the class,
       # held under `:ivars` in the class object's own slot map — so they sit
       # alongside any class-side slot values rather than overwriting them.
-      set_slots(name, %{ivars: slots})
+      vm_set_slots(name, %{ivars: slots})
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
-      class(self, meta)
-      alternative([map_get(args, :name, name)], [gensym(name)])
-      set_class(name, meta)
+      vm_class(self, meta)
+      alternative([vm_map_get(args, :name, name)], [vm_gensym(name)])
+      vm_set_class(name, meta)
     end
 
     defmethod(:object, :init, [self, _, self]) do
-      # print(["initialise", self])
+      # vm_print(["initialise", self])
     end
 
     defmethod(:class, :new, [self, args, new]) do
@@ -117,7 +130,7 @@ defmodule AL.Package.Bootstrap do
     new(:class, %{name: :ephemeral, super: :object}, _)
 
     defmethod(:ephemeral, :allocate, [self, _, self]) do
-      # print(["allocate", self])
+      # vm_print(["allocate", self])
     end
 
     defmethod(:object, :examine, [
@@ -134,23 +147,23 @@ defmodule AL.Package.Bootstrap do
         slots: slots
       }
     ]) do
-      findall(c, [class(self, c)], classes)
-      findall(c, [class(c, self)], objects)
-      findall(s, [super(self, s)], supers)
-      findall(sub, [super(sub, self)], subs)
-      findall([n, id], [method(self, n, id)], methods)
-      findall([provider, n], [method(provider, n, self)], providers)
-      findall([head, body], [clause(self, head, body)], clauses)
+      findall(c, [vm_class(self, c)], classes)
+      findall(c, [vm_class(c, self)], objects)
+      findall(s, [vm_super(self, s)], supers)
+      findall(sub, [vm_super(sub, self)], subs)
+      findall([n, id], [vm_method(self, n, id)], methods)
+      findall([provider, n], [vm_method(provider, n, self)], providers)
+      findall([head, body], [vm_clause(self, head, body)], clauses)
       findall([slot_name, slot_value], [get_slot(self, slot_name, slot_value)], slots)
     end
 
     new(:class, %{name: :package, super: :object, slots: [:name, :version, :deps, :tx]}, _)
 
     defmethod(:package, :init, [self, args, self]) do
-      map_get(args, :name, name)
-      map_get(args, :version, version)
-      map_get(args, :deps, deps)
-      current_tx(tx)
+      vm_map_get(args, :name, name)
+      vm_map_get(args, :version, version)
+      vm_map_get(args, :deps, deps)
+      vm_current_tx(tx)
       set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
     end
 
@@ -170,7 +183,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:list, :at, [[h | t], n, i, v]) do
-      is(i1, i + 1)
+      vm_is(i1, i + 1)
       at(t, n, i1, v)
     end
 
@@ -183,13 +196,13 @@ defmodule AL.Package.Bootstrap do
 
     # member keeps a stable behaviour id (`:list_member`) so the trace example can
     # trace it: its receiver is a raw list, so it can only be traced by id.
-    set_method(:list, :member, :list_member)
-    set_class(:list_member, :behaviour)
+    vm_set_method(:list, :member, :list_member)
+    vm_set_class(:list_member, :behaviour)
 
-    set_oapply(:list_member, [[x | _t], x]) do
+    vm_set_oapply(:list_member, [[x | _t], x]) do
     end
 
-    set_oapply(:list_member, [[_h | t], x]) do
+    vm_set_oapply(:list_member, [[_h | t], x]) do
       member(t, x)
     end
 
@@ -229,7 +242,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:list, :fold_left, [[h | t], head, body, acc, result]) do
-      print(acc)
+      vm_print(acc)
       call(head, body, [acc, h, next_acc])
       fold_left(t, head, body, next_acc, result)
     end

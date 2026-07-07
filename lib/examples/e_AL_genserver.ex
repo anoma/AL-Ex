@@ -23,7 +23,7 @@ defmodule Examples.ALGenserver do
         new(:elixir_process, %{name: ^object_id, pid: ^pid}, _)
 
         defmethod(^object_id, :increment, [self, amount]) do
-          get_slot(self, :pid, p)
+          vm_get_slot(self, :pid, p)
           send_elixir(p, {:increment, amount})
         end
       end
@@ -47,8 +47,8 @@ defmodule Examples.ALGenserver do
       object_id = state.object_id
 
       run branch: :examples do
-        retract_class(^object_id, c)
-        retract_super(^object_id, s)
+        vm_retract_class(^object_id, c)
+        vm_retract_super(^object_id, s)
       end
     end
 

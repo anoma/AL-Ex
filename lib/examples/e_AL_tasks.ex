@@ -14,10 +14,10 @@ defmodule Examples.ALTasks do
   example worker() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:worker, :object)
+        vm_set_class(:worker, :object)
 
         defmethod(:worker, :handle, [self, object]) do
-          set_slots(object, %{processed: true})
+          vm_set_slots(object, %{processed: true})
         end
       end
 

@@ -322,7 +322,8 @@ defmodule AL.Goal do
     end
   end
 
-  def to_stored(list) when is_list(list), do: Enum.map(list, &to_stored/1)
+  def to_stored([]), do: []
+  def to_stored([head | tail]), do: [to_stored(head) | to_stored(tail)]
   def to_stored(other), do: other
 
   # `:term` slots may still nest goal structs (e.g. arithmetic in an `is`/`oapply`

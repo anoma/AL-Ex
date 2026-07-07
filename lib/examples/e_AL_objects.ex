@@ -43,17 +43,17 @@ defmodule Examples.ALObjects do
         new(:class, %{name: :durable_meta, super: :object}, _)
 
         defmethod(:durable_meta, :allocate, [self, args, name]) do
-          map_get(args, :name, name)
+          vm_map_get(args, :name, name)
 
-          class(self, meta)
+          vm_class(self, meta)
 
-          set_class(name, meta)
-          set_super(name, :object)
+          vm_set_class(name, meta)
+          vm_set_super(name, :object)
         end
 
         new(:durable_meta, %{name: :alloc_overriden}, obj)
 
-        class(obj, obj_class)
+        vm_class(obj, obj_class)
       end
 
     assert is_atom(Map.get(b, :"$obj"))
@@ -65,7 +65,7 @@ defmodule Examples.ALObjects do
   example defmethod_accretes_clauses() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:multi, :object)
+        vm_set_class(:multi, :object)
 
         defmethod(:multi, :pick, [self, :a, :first]) do
         end
@@ -91,7 +91,7 @@ defmodule Examples.ALObjects do
     # the two defmethods accreted clauses onto one id, not two separate methods
     {:atomic, {b3, _}} =
       run branch: :examples do
-        findall(id, [method(:multi, :pick, id)], ids)
+        findall(id, [vm_method(:multi, :pick, id)], ids)
       end
 
     assert length(Enum.uniq(Map.get(b3, :"$ids"))) == 1
@@ -102,9 +102,9 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, program_state}} =
       run branch: :examples do
         examine(:class, info)
-        map_get(info, :methods, methods)
-        map_get(info, :classes, classes)
-        map_get(info, :supers, supers)
+        vm_map_get(info, :methods, methods)
+        vm_map_get(info, :classes, classes)
+        vm_map_get(info, :supers, supers)
       end
 
     assert Map.get(bindings, :"$classes") == [:class]
@@ -119,15 +119,15 @@ defmodule Examples.ALObjects do
   example anonymous_send_grounds_receiver() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:ping_class, :object)
+        vm_set_class(:ping_class, :object)
 
         defmethod(:ping_class, :ping, [self, :pong]) do
         end
 
-        set_class(:ping_a, :ping_class)
-        set_class(:ping_b, :ping_class)
+        vm_set_class(:ping_a, :ping_class)
+        vm_set_class(:ping_b, :ping_class)
 
-        set_class(:ping_proxy, :object)
+        vm_set_class(:ping_proxy, :object)
 
         defmethod(:ping_proxy, :does_not_understand, [self, _m, _a]) do
         end
@@ -171,7 +171,7 @@ defmodule Examples.ALObjects do
   example send_with_unbound_selector_queries_methods() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:queryable, :object)
+        vm_set_class(:queryable, :object)
 
         defmethod(:queryable, :alpha, [self, :a]) do
         end
@@ -214,20 +214,20 @@ defmodule Examples.ALObjects do
   example send_resolves_up_super_chain_with_override() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:animal, :object)
+        vm_set_class(:animal, :object)
 
         defmethod(:animal, :speak, [self, :generic_sound]) do
         end
 
-        set_super(:dog, :animal)
-        set_class(:rex, :dog)
+        vm_set_super(:dog, :animal)
+        vm_set_class(:rex, :dog)
 
-        set_super(:cat, :animal)
+        vm_set_super(:cat, :animal)
 
         defmethod(:cat, :speak, [self, :meow]) do
         end
 
-        set_class(:felix, :cat)
+        vm_set_class(:felix, :cat)
       end
 
     # rex has no speak of its own; it's inherited dog -> animal
@@ -254,18 +254,18 @@ defmodule Examples.ALObjects do
   example query_send_does_not_trigger_dnu_side_effects() do
     {:atomic, _} =
       run branch: :examples do
-        set_class(:real_pinger_class, :object)
+        vm_set_class(:real_pinger_class, :object)
 
         defmethod(:real_pinger_class, :probe, [self, :hit]) do
         end
 
-        set_class(:real_pinger, :real_pinger_class)
+        vm_set_class(:real_pinger, :real_pinger_class)
 
-        set_class(:tripwire, :object)
-        set_slots(:tripwire, %{tripped: :no})
+        vm_set_class(:tripwire, :object)
+        vm_set_slots(:tripwire, %{tripped: :no})
 
         defmethod(:tripwire, :does_not_understand, [self, _m, _a]) do
-          set_slots(self, %{tripped: :yes})
+          vm_set_slots(self, %{tripped: :yes})
         end
       end
 
@@ -282,7 +282,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        get_slot(:tripwire, :tripped, t)
+        vm_get_slot(:tripwire, :tripped, t)
       end
 
     assert Map.get(b2, :"$t") == :no
@@ -295,7 +295,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b3, _}} =
       run branch: :examples do
-        get_slot(:tripwire, :tripped, t)
+        vm_get_slot(:tripwire, :tripped, t)
       end
 
     assert Map.get(b3, :"$t") == :yes
@@ -308,19 +308,19 @@ defmodule Examples.ALObjects do
   example call_next_method_extends_super() do
     {:atomic, {b, _}} =
       run branch: :examples do
-        set_class(:cnm_animal, :object)
+        vm_set_class(:cnm_animal, :object)
 
         defmethod(:cnm_animal, :describe, [self, :i_am_animal]) do
         end
 
-        set_super(:cnm_pet, :cnm_animal)
+        vm_set_super(:cnm_pet, :cnm_animal)
 
         defmethod(:cnm_pet, :describe, [self, d]) do
           call_next_method(self, [parent])
           unify(d, [:i_am_pet, parent])
         end
 
-        set_class(:cnm_rex, :cnm_pet)
+        vm_set_class(:cnm_rex, :cnm_pet)
 
         describe(:cnm_rex, result)
       end
@@ -334,13 +334,13 @@ defmodule Examples.ALObjects do
   example call_next_method_with_no_super_fails() do
     {:aborted, _} =
       run branch: :examples do
-        set_class(:cnm_solo, :object)
+        vm_set_class(:cnm_solo, :object)
 
         defmethod(:cnm_solo, :only, [self, x]) do
           call_next_method(self, [x])
         end
 
-        set_class(:cnm_solo_i, :cnm_solo)
+        vm_set_class(:cnm_solo_i, :cnm_solo)
 
         only(:cnm_solo_i, :v)
       end
@@ -352,7 +352,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:class, %{name: :multislots, slots: [], super: :object}, :multislots)
-        set_slots(:multislots, %{x: 1, y: 2, z: 3})
+        vm_set_slots(:multislots, %{x: 1, y: 2, z: 3})
         slots(:multislots, [:x, :z], m)
     end
 
