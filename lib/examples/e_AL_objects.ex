@@ -360,4 +360,40 @@ defmodule Examples.ALObjects do
     
     bindings
   end
+
+  example inheritance_chain() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+
+      vm_set_class(:super_chain_class_1, :object)
+      vm_set_class(:super_chain_class_2, :object)
+      vm_set_class(:super_chain_class_3, :object)
+      vm_set_class(:super_chain_class_4, :object)
+
+      vm_set_super(:super_chain_class_4, :object)
+      vm_set_super(:super_chain_class_4, :object)
+      vm_set_super(:super_chain_class_4, :object)
+      vm_set_super(:super_chain_class_4, :object)
+      
+      vm_set_class(:super_chain_obj, :super_chain_class_1)
+      vm_set_class(:super_chain_obj, :super_chain_class_2)
+      vm_set_super(:super_chain_class_1, :super_chain_class_2)
+      vm_set_super(:super_chain_class_1, :super_chain_class_3)
+      vm_set_super(:super_chain_class_2, :super_chain_class_3)
+      vm_set_super(:super_chain_class_2, :super_chain_class_4)
+
+      inheritance_chain(:super_chain_obj, inheritance_chain)
+    end
+
+    assert Map.get(bindings, :"$inheritance_chain") == [
+      :super_chain_obj,
+      :super_chain_class_1,
+      :super_chain_class_3,
+      :object,
+      :super_chain_class_4,
+      :super_chain_class_2
+    ]
+    
+    bindings
+  end
 end

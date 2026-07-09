@@ -16,8 +16,8 @@ defmodule AL.Package.Bootstrap do
     vm_set_class(:metaclass, :behaviour)
 
     vm_set_oapply(:metaclass, [self, class, meta]) do
-      vm_class(self, class)
-      vm_class(class, meta)
+      class(self, class)
+      class(class, meta)
     end
 
     vm_set_class(:lookup, :behaviour)
@@ -25,7 +25,7 @@ defmodule AL.Package.Bootstrap do
     vm_set_oapply(:lookup, [self, name, id]) do
       alternative(
         [vm_method(self, name, id)],
-        [vm_super(self, super), vm_lookup(super, name, id)]
+        [super(self, super), vm_lookup(super, name, id)]
       )
     end
 
@@ -62,6 +62,14 @@ defmodule AL.Package.Bootstrap do
       forall([member(right, [head, body])]) do
         vm_set_oapply(method_object, head, body)
       end
+    end
+
+    defmethod(:object, :class, [self, class]) do
+      vm_class(self, class)
+    end
+
+    defmethod(:object, :super, [self, super]) do
+      vm_super(self, super)
     end
 
     defmethod(:object, :get_slot, [self, key, value]) do
@@ -109,7 +117,7 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(args, :super, super)
       alternative([vm_map_get(args, :slots, slots)], [unify(slots, [])])
 
-      vm_class(self, meta)
+      class(self, meta)
 
       vm_set_class(name, meta)
       vm_set_super(name, super)
@@ -120,7 +128,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
-      vm_class(self, meta)
+      class(self, meta)
       alternative([vm_map_get(args, :name, name)], [vm_gensym(name)])
       vm_set_class(name, meta)
     end
@@ -155,10 +163,10 @@ defmodule AL.Package.Bootstrap do
         slots: slots
       }
     ]) do
-      findall(c, [vm_class(self, c)], classes)
-      findall(c, [vm_class(c, self)], objects)
-      findall(s, [vm_super(self, s)], supers)
-      findall(sub, [vm_super(sub, self)], subs)
+      findall(c, [class(self, c)], classes)
+      findall(c, [class(c, self)], objects)
+      findall(s, [super(self, s)], supers)
+      findall(sub, [super(sub, self)], subs)
       findall([n, id], [vm_method(self, n, id)], methods)
       findall([provider, n], [vm_method(provider, n, self)], providers)
       findall([head, body], [vm_clause(self, head, body)], clauses)
@@ -280,6 +288,25 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:list, :same_length, [[_fh | ft], [_sh | st]]) do
       same_length(ft, st)
+    end
+
+    defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
+      findall(class, [class(self, class)], immediate_classes)
+      super_chain(immediate_classes, [], chain)
+    end
+
+    defmethod(:list, :super_chain, [[], seen, seen]) do
+    end
+
+    defmethod(:list, :super_chain, [[c | cs], seen, chain]) do
+      implies do
+        [member(seen, c)] -> super_chain(cs, seen, chain)
+
+        :else ->
+          findall(super, [super(c, super)], immediate_supers)
+          concat([c | immediate_supers], cs, cs2)
+          super_chain(cs2, [c | seen], chain)
+      end
     end
   end
 end
