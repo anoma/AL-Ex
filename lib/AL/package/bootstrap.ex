@@ -308,5 +308,10 @@ defmodule AL.Package.Bootstrap do
           super_chain(cs2, [c | seen], chain)
       end
     end
+
+    defmethod(:object, :is_a, [self, class]) do
+      inheritance_chain(self, [self | chain])
+      member(chain, class)
+    end
   end
 end

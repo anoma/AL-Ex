@@ -393,7 +393,27 @@ defmodule Examples.ALObjects do
       :super_chain_class_4,
       :super_chain_class_2
     ]
-    
+
     bindings
+  end
+
+  example is_a_holds_for_direct_and_transitive_classes() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:is_a_class_1, :object)
+        vm_set_class(:is_a_class_2, :object)
+        vm_set_super(:is_a_class_1, :object)
+        vm_set_super(:is_a_class_2, :object)
+        
+        vm_set_super(:is_a_class_1, :is_a_class_2)
+
+        vm_set_class(:is_a_obj, :is_a_class_1)
+
+        is_a(:is_a_obj, :is_a_class_1)
+        is_a(:is_a_obj, :is_a_class_2)
+        is_a(:is_a_obj, :object)
+      end
+
+    :ok
   end
 end
