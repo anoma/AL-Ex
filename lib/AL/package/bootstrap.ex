@@ -9,7 +9,6 @@ defmodule AL.Package.Bootstrap do
     vm_set_super(:class, :object)
     vm_set_super(:behaviour, :object)
 
-    vm_set_method(:object, :lookup, :lookup)
     vm_set_method(:object, :meta, :metaclass)
     vm_set_method(:object, :defmethod, :defmethod)
 
@@ -18,15 +17,6 @@ defmodule AL.Package.Bootstrap do
     vm_set_oapply(:metaclass, [self, class, meta]) do
       class(self, class)
       class(class, meta)
-    end
-
-    vm_set_class(:lookup, :behaviour)
-
-    vm_set_oapply(:lookup, [self, name, id]) do
-      alternative(
-        [vm_method(self, name, id)],
-        [super(self, super), vm_lookup(super, name, id)]
-      )
     end
 
     vm_set_class(:defmethod, :behaviour)

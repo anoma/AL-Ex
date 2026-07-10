@@ -86,7 +86,6 @@ defmodule AL do
     vm_is: :is,
     vm_map_get: :map_get,
     vm_map_put: :map_put,
-    vm_lookup: :lookup,
     vm_fresh_id: :fresh_id,
     vm_current_tx: :current_tx
   }
