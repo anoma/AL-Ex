@@ -4,7 +4,7 @@ defmodule AL.Package.Constraints do
   defpackage :constraints, version: 1, deps: [:bootstrap] do
     ### Cell
 
-    new(:class, %{name: :cell, super: :object, slots: [:subscribers, :value, :name]}, _)
+    new(:class, %{name: :cell, super: :object, ivars: [:subscribers, :value, :name]}, _)
 
     defmethod(:cell, :init, [self, args, self]) do
       set_slots(self, %{name: self, subscribers: [], value: :absent})
@@ -54,7 +54,7 @@ defmodule AL.Package.Constraints do
 
     new(
       :class,
-      %{name: :propagator, super: :object, slots: [:input_cells, :output_cell, :name]},
+      %{name: :propagator, super: :object, ivars: [:input_cells, :output_cell, :name]},
       _
     )
 

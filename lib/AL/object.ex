@@ -12,15 +12,15 @@ defmodule AL.Object do
   use TypedStruct
   require AL
 
-  @type class_record() :: {:class, AL.Var.t(), AL.Var.t()}
-  @type super_record() :: {:super, AL.Var.t(), AL.Var.t()}
+  @type class_record() :: {:class, AL.Var.t(), non_neg_integer(), AL.Var.t()}
+  @type super_record() :: {:super, AL.Var.t(), non_neg_integer(), AL.Var.t()}
   @type slots_record() :: {:slots, AL.Var.t(), AL.Var.t()}
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
   @type oapply_record() :: {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()]}
 
   @relations %{
-    class: [:object, :class],
-    super: [:object, :super],
+    class: [:object, :seq, :class],
+    super: [:object, :seq, :super],
     slots: [:object, :slots],
     method: [:object, :method_name, :method_id],
     oapply: [:object, :seq, :head, :body]
@@ -65,15 +65,17 @@ defmodule AL.Object do
   @spec scan_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [class_record()]
   def scan_class(self_pattern, class_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:class, branch), [
-      {AL.Var.to_mnesia_pattern({:class, self_pattern, class_pattern}), [], [:"$_"]}
+      {AL.Var.to_mnesia_pattern({:class, self_pattern, :"$seq", class_pattern}), [], [:"$_"]}
     ])
+    |> Enum.sort_by(fn {:class, _object, seq, _class} -> seq end)
   end
 
   @spec scan_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [super_record()]
   def scan_super(self_pattern, super_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:super, branch), [
-      {AL.Var.to_mnesia_pattern({:super, self_pattern, super_pattern}), [], [:"$_"]}
+      {AL.Var.to_mnesia_pattern({:super, self_pattern, :"$seq", super_pattern}), [], [:"$_"]}
     ])
+    |> Enum.sort_by(fn {:super, _object, seq, _super} -> seq end)
   end
 
   @spec scan_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [slots_record()]
@@ -178,12 +180,14 @@ defmodule AL.Object do
 
   @spec set_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_class(object, class, branch \\ AL.Branch.head()) do
-    :mnesia.write(table(:class, branch), {:class, object, class}, :write)
+    seq = next_class_seq(object, branch)
+    :mnesia.write(table(:class, branch), {:class, object, seq, class}, :write)
   end
 
   @spec set_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_super(object, super, branch \\ AL.Branch.head()) do
-    :mnesia.write(table(:super, branch), {:super, object, super}, :write)
+    seq = next_super_seq(object, branch)
+    :mnesia.write(table(:super, branch), {:super, object, seq, super}, :write)
   end
 
   @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
@@ -205,6 +209,24 @@ defmodule AL.Object do
 
       rows ->
         rows |> Enum.map(fn {:oapply, _o, seq, _h, _b} -> seq end) |> Enum.max() |> Kernel.+(1)
+    end
+  end
+
+  @doc "The next `class` seq for `object` — one past its current maximum, 0 if none."
+  @spec next_class_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  def next_class_seq(object, branch \\ AL.Branch.head()) do
+    case :mnesia.read(table(:class, branch), object) do
+      [] -> 0
+      rows -> rows |> Enum.map(fn {:class, _o, seq, _c} -> seq end) |> Enum.max() |> Kernel.+(1)
+    end
+  end
+
+  @doc "The next `super` seq for `object` — one past its current maximum, 0 if none."
+  @spec next_super_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  def next_super_seq(object, branch \\ AL.Branch.head()) do
+    case :mnesia.read(table(:super, branch), object) do
+      [] -> 0
+      rows -> rows |> Enum.map(fn {:super, _o, seq, _s} -> seq end) |> Enum.max() |> Kernel.+(1)
     end
   end
 

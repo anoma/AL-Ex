@@ -18,7 +18,7 @@ defmodule Examples.ALConstraints do
         cut
       end
 
-    Process.sleep(50)
+    Process.sleep(200)
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
@@ -43,7 +43,7 @@ defmodule Examples.ALConstraints do
         end
       end
 
-    Process.sleep(50)
+    Process.sleep(200)
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
@@ -97,7 +97,7 @@ defmodule Examples.ALConstraints do
         send_async(c, :constrain, [5])
       end
 
-    Process.sleep(100)
+    Process.sleep(200)
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do

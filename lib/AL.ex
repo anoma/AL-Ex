@@ -556,13 +556,13 @@ defmodule AL do
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
-      AL.Var.unify(row, {:class, object, class_pattern}, bindings(state))
+      AL.Var.unify(row, {:class, object, :"$seq", class_pattern}, bindings(state))
     end)
   end
 
   def interp(%Goal.GetSuper{object: object, super: super_pattern}, state) do
     fan_out(state, AL.Object.scan_super(object, super_pattern, state.branch), fn row ->
-      AL.Var.unify(row, {:super, object, super_pattern}, bindings(state))
+      AL.Var.unify(row, {:super, object, :"$seq", super_pattern}, bindings(state))
     end)
   end
 
@@ -1210,7 +1210,7 @@ defmodule AL do
     do: [
       self
       | super_chain(
-          for({:class, _o, c} <- AL.Object.scan_class(self, :"$class", branch), do: c),
+          for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c),
           branch
         )
     ]
@@ -1223,7 +1223,7 @@ defmodule AL do
     if MapSet.member?(seen, class) do
       super_chain(rest, branch, seen, acc)
     else
-      supers = for {:super, _o, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
+      supers = for {:super, _o, _seq, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
       super_chain(supers ++ rest, branch, MapSet.put(seen, class), [class | acc])
     end
   end

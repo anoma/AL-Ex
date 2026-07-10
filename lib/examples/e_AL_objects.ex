@@ -110,6 +110,23 @@ defmodule Examples.ALObjects do
     assert Map.get(bindings, :"$classes") == [:class]
     assert Map.get(bindings, :"$supers") == [:object]
 
+    {:atomic, {slot_bindings, _}} =
+      run branch: :examples do
+        new(:class, %{name: :examine_slot_class, super: :object, ivars: [:legs]}, _)
+        vm_set_slots(:examine_slot_class, %{legs: 4})
+
+        new(:examine_slot_class, _, obj)
+        vm_set_slots(obj, %{name: :rex})
+
+        examine(obj, obj_info)
+
+        vm_map_get(obj_info, :direct_slots, direct_slots)
+        vm_map_get(obj_info, :indirect_slots, indirect_slots)
+      end
+
+    assert Map.get(slot_bindings, :"$direct_slots") == [[:name, :rex]]
+    assert Map.get(slot_bindings, :"$indirect_slots") == [[:ivars, [:legs]], [:legs, 4]]
+
     program_state
   end
 
@@ -351,7 +368,7 @@ defmodule Examples.ALObjects do
   example multiple_slots() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :multislots, slots: [], super: :object}, :multislots)
+        new(:class, %{name: :multislots, ivars: [], super: :object}, :multislots)
         vm_set_slots(:multislots, %{x: 1, y: 2, z: 3})
         slots(:multislots, [:x, :z], m)
     end
@@ -365,22 +382,15 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
 
-      vm_set_class(:super_chain_class_1, :object)
-      vm_set_class(:super_chain_class_2, :object)
-      vm_set_class(:super_chain_class_3, :object)
-      vm_set_class(:super_chain_class_4, :object)
+      new(:class, %{name: :super_chain_class_1, super: :super_chain_class_3, ivars: []}, _)
+      new(:class, %{name: :super_chain_class_2, super: :super_chain_class_4, ivars: []}, _)
+      new(:class, %{name: :super_chain_class_3, super: :super_chain_class_4, ivars: []}, _)
+      new(:class, %{name: :super_chain_class_4, super: :object, ivars: []}, _)
 
-      vm_set_super(:super_chain_class_4, :object)
-      vm_set_super(:super_chain_class_4, :object)
-      vm_set_super(:super_chain_class_4, :object)
-      vm_set_super(:super_chain_class_4, :object)
-      
-      vm_set_class(:super_chain_obj, :super_chain_class_1)
-      vm_set_class(:super_chain_obj, :super_chain_class_2)
       vm_set_super(:super_chain_class_1, :super_chain_class_2)
-      vm_set_super(:super_chain_class_1, :super_chain_class_3)
       vm_set_super(:super_chain_class_2, :super_chain_class_3)
-      vm_set_super(:super_chain_class_2, :super_chain_class_4)
+
+      new(:super_chain_class_1, %{name: :super_chain_obj}, _)
 
       inheritance_chain(:super_chain_obj, inheritance_chain)
     end
@@ -389,8 +399,8 @@ defmodule Examples.ALObjects do
       :super_chain_obj,
       :super_chain_class_1,
       :super_chain_class_3,
-      :object,
       :super_chain_class_4,
+      :object,
       :super_chain_class_2
     ]
 
@@ -416,4 +426,54 @@ defmodule Examples.ALObjects do
 
     :ok
   end
+
+  example get_slot_inherits_from_class() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:class, %{name: :slot_inherit_class, super: :object, ivars: [:legs]}, _)
+        vm_set_slots(:slot_inherit_class, %{legs: 4})
+
+        new(:slot_inherit_class, _, obj)
+
+        get_slot(obj, :legs, legs)
+      end
+
+    assert Map.get(bindings, :"$legs") == 4
+    bindings
+  end
+
+  # example bfs_super_override() do
+  #   {:atomic, {bindings, _}} =
+  #     run branch: :examples do
+
+  #     # new(:class, %{name: :bfs_object, super: :class, ivars: []}, _)
+
+  #     # defmethod(:bfs_class, :super, [self, super]) do
+  #     #   findall(sup, [vm_get_super(self, sup)], supers)
+  #     # end
+
+  #     # vm_set_super(:bfs_supr, :bfs_super_1)
+  #     # vm_set_super(:bfs_supr, :bfs_super_2)
+  #     # vm_set_super(:bfs_supr, :bfs_super_3)
+      
+  #     # new(:class, %{name: :bfs_super_1, super: :bfs_super_3, ivars: []}, _)
+  #     # new(:class, %{name: :bfs_super_2, super: :bfs_super_3, ivars: []}, _)
+      
+  #     # new(:class, %{name: :bfs_class, super: :bfs_, ivars: []}, _)
+  #     # vm_set_super(:bfs_class, :bfs_super_2)
+      
+  #     # new(:bfs_class, %{name: :bfs_object}, _)
+      
+  #     # inheritance_chain(:bfs_object, bfs_chain)
+  #   end
+        
+  #   assert Map.get(bindings, :"$bfs_chain") == [
+  #     :bfs_object,
+  #     :bfs_class_1,
+  #     :bfs_class_2,
+  #     :bfs_super_3,
+  #     :object,
+  #   ]
+  #   bindings
+  # end
 end

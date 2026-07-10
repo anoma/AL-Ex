@@ -71,7 +71,7 @@ defmodule Examples.ALGenserver do
         AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples})
       end)
 
-    assert Enum.any?(results, fn {:class, _, c} -> c == :elixir_process end)
+    assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :elixir_process end)
 
     {:atomic, _} =
       run branch: :examples do

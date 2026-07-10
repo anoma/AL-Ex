@@ -53,7 +53,7 @@ defmodule AL.Package do
   @spec installed?(atom()) :: boolean()
   def installed?(name) do
     case :mnesia.transaction(fn ->
-           Enum.any?(AL.Object.scan_class(:"$p", :package), fn {:class, p, :package} ->
+           Enum.any?(AL.Object.scan_class(:"$p", :package), fn {:class, p, _seq, :package} ->
              match?([{:slots, ^p, %{name: ^name}}], :mnesia.read(:slots, p))
            end)
          end) do
@@ -114,7 +114,7 @@ defmodule AL.Package do
   defp dependents(name) do
     {:atomic, names} =
       :mnesia.transaction(fn ->
-        for {:class, p, :package} <- AL.Object.scan_class(:"$p", :package),
+        for {:class, p, _seq, :package} <- AL.Object.scan_class(:"$p", :package),
             {:slots, ^p, %{name: dependent, deps: deps}} <- :mnesia.read(:slots, p),
             name in deps,
             do: dependent
@@ -124,7 +124,7 @@ defmodule AL.Package do
   end
 
   defp find_package(name) do
-    Enum.find_value(AL.Object.scan_class(:"$p", :package), fn {:class, p, :package} ->
+    Enum.find_value(AL.Object.scan_class(:"$p", :package), fn {:class, p, _seq, :package} ->
       case :mnesia.read(:slots, p) do
         [{:slots, ^p, %{name: ^name} = slots}] -> {p, slots}
         _ -> nil

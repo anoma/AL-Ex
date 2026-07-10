@@ -66,6 +66,12 @@ defmodule AL.Package.Bootstrap do
       vm_get_slot(self, key, value)
     end
 
+    defmethod(:object, :get_slot, [self, key, value]) do
+      inheritance_chain(self, [self | chain])
+      member(chain, ancestor)
+      vm_get_slot(ancestor, key, value)
+    end
+
     defmethod(:object, :set_slot, [self, key, value]) do
       vm_set_slots(self, %{key => value})
     end
@@ -105,7 +111,7 @@ defmodule AL.Package.Bootstrap do
     vm_set_oapply(:allocate_class, [self, args, name]) do
       vm_map_get(args, :name, name)
       vm_map_get(args, :super, super)
-      alternative([vm_map_get(args, :slots, slots)], [unify(slots, [])])
+      alternative([vm_map_get(args, :ivars, ivars)], [unify(ivars, [])])
 
       class(self, meta)
 
@@ -114,7 +120,7 @@ defmodule AL.Package.Bootstrap do
       # The declared instance-var names are reflective metadata about the class,
       # held under `:ivars` in the class object's own slot map — so they sit
       # alongside any class-side slot values rather than overwriting them.
-      vm_set_slots(name, %{ivars: slots})
+      vm_set_slots(name, %{ivars: ivars})
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
@@ -150,7 +156,8 @@ defmodule AL.Package.Bootstrap do
         methods: methods,
         providers: providers,
         clauses: clauses,
-        slots: slots
+        direct_slots: direct_slots,
+        indirect_slots: indirect_slots
       }
     ]) do
       findall(c, [class(self, c)], classes)
@@ -160,10 +167,21 @@ defmodule AL.Package.Bootstrap do
       findall([n, id], [vm_method(self, n, id)], methods)
       findall([provider, n], [vm_method(provider, n, self)], providers)
       findall([head, body], [vm_clause(self, head, body)], clauses)
-      findall([slot_name, slot_value], [get_slot(self, slot_name, slot_value)], slots)
+
+      findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
+      findall(direct_key, [member(direct_slots, [direct_key, _])], direct_keys)
+      inheritance_chain(self, [self | chain])
+
+      findall(
+        [slot_name, slot_value],
+        [member(chain, ancestor), vm_get_slot(ancestor, slot_name, slot_value)],
+        ancestor_slots
+      )
+
+      distinct_slots(ancestor_slots, direct_keys, indirect_slots)
     end
 
-    new(:class, %{name: :package, super: :object, slots: [:name, :version, :deps, :tx]}, _)
+    new(:class, %{name: :package, super: :object, ivars: [:name, :version, :deps, :tx]}, _)
 
     defmethod(:package, :init, [self, args, self]) do
       vm_map_get(args, :name, name)
@@ -295,7 +313,22 @@ defmodule AL.Package.Bootstrap do
         :else ->
           findall(super, [super(c, super)], immediate_supers)
           concat([c | immediate_supers], cs, cs2)
-          super_chain(cs2, [c | seen], chain)
+          concat(seen, [c], seen_2)
+          super_chain(cs2, seen_2, chain)
+      end
+    end
+
+    defmethod(:list, :distinct_slots, [[], _exclude_keys, []]) do
+    end
+
+    defmethod(:list, :distinct_slots, [[[key, value] | rest], exclude_keys, result]) do
+      implies do
+        [member(exclude_keys, key)] ->
+          distinct_slots(rest, exclude_keys, result)
+
+        :else ->
+          distinct_slots(rest, [key | exclude_keys], result1)
+          unify(result, [[key, value] | result1])
       end
     end
 

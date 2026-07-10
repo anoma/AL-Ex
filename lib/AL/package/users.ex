@@ -2,8 +2,8 @@ defmodule AL.Package.Users do
   use AL.Package
 
   defpackage :users, version: 1, deps: [:bootstrap] do
-    new(:class, %{name: :user, super: :object, slots: [:name]}, _)
-    new(:class, %{name: :owned, super: :object, slots: [:name, :owner]}, _)
+    new(:class, %{name: :user, super: :object, ivars: [:name]}, _)
+    new(:class, %{name: :owned, super: :object, ivars: [:name, :owner]}, _)
 
     defmethod(:owned, :init, [self, args, self]) do
       set_slots(self, args)
