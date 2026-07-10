@@ -442,38 +442,53 @@ defmodule Examples.ALObjects do
     bindings
   end
 
-  # example bfs_super_override() do
-  #   {:atomic, {bindings, _}} =
-  #     run branch: :examples do
+  # A class can opt into breadth-first method resolution via a
+  # `dispatch_strategy: :bfs` slot; without it, resolution stays depth-first
+  # (today's default, unchanged for every class that doesn't opt in). The
+  # switch is live: flipping the slot on an already-live class immediately
+  # changes how its instances resolve, no restart needed.
+  example dispatch_strategy_flag_selects_bfs_or_dfs() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:dsp_deep, :object)
 
-  #     # new(:class, %{name: :bfs_object, super: :class, ivars: []}, _)
+        defmethod(:dsp_deep, :trait, [self, :deep_trait]) do
+        end
 
-  #     # defmethod(:bfs_class, :super, [self, super]) do
-  #     #   findall(sup, [vm_get_super(self, sup)], supers)
-  #     # end
+        vm_set_super(:dsp_branch_a, :dsp_deep)
 
-  #     # vm_set_super(:bfs_supr, :bfs_super_1)
-  #     # vm_set_super(:bfs_supr, :bfs_super_2)
-  #     # vm_set_super(:bfs_supr, :bfs_super_3)
-      
-  #     # new(:class, %{name: :bfs_super_1, super: :bfs_super_3, ivars: []}, _)
-  #     # new(:class, %{name: :bfs_super_2, super: :bfs_super_3, ivars: []}, _)
-      
-  #     # new(:class, %{name: :bfs_class, super: :bfs_, ivars: []}, _)
-  #     # vm_set_super(:bfs_class, :bfs_super_2)
-      
-  #     # new(:bfs_class, %{name: :bfs_object}, _)
-      
-  #     # inheritance_chain(:bfs_object, bfs_chain)
-  #   end
-        
-  #   assert Map.get(bindings, :"$bfs_chain") == [
-  #     :bfs_object,
-  #     :bfs_class_1,
-  #     :bfs_class_2,
-  #     :bfs_super_3,
-  #     :object,
-  #   ]
-  #   bindings
-  # end
+        defmethod(:dsp_branch_b, :trait, [self, :branch_b_trait]) do
+        end
+
+        vm_set_super(:dsp_leaf, :dsp_branch_a)
+        vm_set_super(:dsp_leaf, :dsp_branch_b)
+
+        vm_set_class(:dsp_instance, :dsp_leaf)
+      end
+
+    # default: depth-first — dives into branch_a's ancestor before ever
+    # trying branch_b
+    {:atomic, {b1, _}} =
+      run branch: :examples do
+        trait(:dsp_instance, t)
+      end
+
+    assert Map.get(b1, :"$t") == :deep_trait
+
+    # opt in to breadth-first on the leaf class — live, no restart — and the
+    # same instance now resolves via its direct sibling before its deeper
+    # ancestor
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_slots(:dsp_leaf, %{dispatch_strategy: :bfs})
+      end
+
+    {:atomic, {b2, _}} =
+      run branch: :examples do
+        trait(:dsp_instance, t)
+      end
+
+    assert Map.get(b2, :"$t") == :branch_b_trait
+    :ok
+  end
 end

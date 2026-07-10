@@ -1200,31 +1200,48 @@ defmodule AL do
   end
 
   # Ordered lookup scopes: the receiver (if an atom), then its classes and their
-  # supers, depth-first and deduped. Map/list receivers start from `:map`/`:list`.
+  # supers, depth-first (or breadth-first, if the receiver's class opts in via a
+  # `dispatch_strategy: :bfs` slot) and deduped. Map/list receivers start from
+  # `:map`/`:list` and always walk depth-first.
   defp method_scopes(self, branch) when is_map(self),
-    do: super_chain([Map.get(self, :class, :map)], branch)
+    do: super_chain([Map.get(self, :class, :map)], branch, :dfs)
 
-  defp method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch)
+  defp method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch, :dfs)
 
-  defp method_scopes(self, branch),
-    do: [
-      self
-      | super_chain(
-          for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c),
-          branch
-        )
-    ]
+  defp method_scopes(self, branch) do
+    classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
+    [self | super_chain(classes, branch, dispatch_strategy(classes, branch))]
+  end
 
-  defp super_chain(seeds, branch), do: super_chain(seeds, branch, MapSet.new(), [])
+  # The strategy is decided once, from the receiver's own immediate classes — a
+  # direct slot read, never a search up the hierarchy — and then applied to the
+  # whole traversal below. Defaults to `:dfs` if unset or there's no class.
+  defp dispatch_strategy([], _branch), do: :dfs
 
-  defp super_chain([], _branch, _seen, acc), do: Enum.reverse(acc)
+  defp dispatch_strategy([class | _rest], branch) do
+    case AL.Object.read_slots(class, branch) do
+      [{:slots, ^class, %{dispatch_strategy: strategy}}] -> strategy
+      _ -> :dfs
+    end
+  end
 
-  defp super_chain([class | rest], branch, seen, acc) do
+  defp super_chain(seeds, branch, strategy), do: super_chain(seeds, branch, strategy, MapSet.new(), [])
+
+  defp super_chain([], _branch, _strategy, _seen, acc), do: Enum.reverse(acc)
+
+  defp super_chain([class | rest], branch, strategy, seen, acc) do
     if MapSet.member?(seen, class) do
-      super_chain(rest, branch, seen, acc)
+      super_chain(rest, branch, strategy, seen, acc)
     else
       supers = for {:super, _o, _seq, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
-      super_chain(supers ++ rest, branch, MapSet.put(seen, class), [class | acc])
+
+      queue =
+        case strategy do
+          :bfs -> rest ++ supers
+          :dfs -> supers ++ rest
+        end
+
+      super_chain(queue, branch, strategy, MapSet.put(seen, class), [class | acc])
     end
   end
 
