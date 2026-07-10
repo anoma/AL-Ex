@@ -293,6 +293,20 @@ defmodule Examples.AL do
     :ok
   end
 
+  # Regression: when a query var (`y`) unifies with an internal freshened clause
+  # var (e.g. `concat`'s `fh`), the user never typed the internal name and must
+  # never see it — not directly, and not nested inside another output var's value.
+  example output_vars_use_consistent_names_for_aliased_vars() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        concat([3, y], [1, 2], x)
+      end
+
+    assert Map.get(bindings, :"$y") == :"$y"
+    assert Map.get(bindings, :"$x") == [3, :"$y", 1, 2]
+    :ok
+  end
+
   # `cut` commits the choices made inside its own call scope: a cut in the first
   # clause of a method prunes that method's remaining clauses.
   example cut_commits_clauses_in_scope() do

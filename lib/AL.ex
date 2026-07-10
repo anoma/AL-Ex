@@ -397,20 +397,7 @@ defmodule AL do
       if result.active_choicepoint.bindings == nil do
         :mnesia.abort(format_failure(result))
       else
-        output_vars =
-          input_vars
-          |> Enum.map(fn variable ->
-            val = AL.Var.subst(variable, result.active_choicepoint.bindings)
-
-            if AL.Var.var?(val) do
-              {variable, variable}
-            else
-              {variable, val}
-            end
-          end)
-          |> Map.new()
-
-        {output_vars, result}
+        {format_output_vars(input_vars, result.active_choicepoint.bindings), result}
       end
     end)
   end
@@ -425,23 +412,46 @@ defmodule AL do
       if result.active_choicepoint.bindings == nil do
         :mnesia.abort(format_failure(result))
       else
-        output_vars =
-          input_vars
-          |> Enum.map(fn variable ->
-            val = AL.Var.subst(variable, result.active_choicepoint.bindings)
-
-            if AL.Var.var?(val) do
-              {variable, variable}
-            else
-              {variable, val}
-            end
-          end)
-          |> Map.new()
-
-        {output_vars, result}
+        {format_output_vars(input_vars, result.active_choicepoint.bindings), result}
       end
     end)
   end
+
+  # A query var (`y`) can end up unified with an internal freshened clause var
+  # (e.g. `concat`'s `fh_N`) — the user never typed the internal name, so it must
+  # never surface, not directly and not nested inside another output var's value.
+  # `canonical_names` maps each such internal representative back to whichever
+  # observable var it's aliased to, so every output var displays it the same way.
+  defp format_output_vars(input_vars, bindings) do
+    canonical_names =
+      input_vars
+      |> Enum.sort()
+      |> Enum.reduce(%{}, fn variable, acc ->
+        case AL.Var.deref(bindings, variable) do
+          resolved when is_atom(resolved) ->
+            if AL.Var.var?(resolved), do: Map.put_new(acc, resolved, variable), else: acc
+
+          _compound ->
+            acc
+        end
+      end)
+
+    input_vars
+    |> Enum.map(fn variable -> {variable, display_subst(variable, bindings, canonical_names)} end)
+    |> Map.new()
+  end
+
+  defp display_subst(term, bindings, canonical_names),
+    do: AL.Goal.map(term, &display_subst_leaf(&1, bindings, canonical_names))
+
+  defp display_subst_leaf(leaf, bindings, canonical_names) when is_atom(leaf) do
+    case AL.Var.deref(bindings, leaf) do
+      resolved when is_atom(resolved) -> Map.get(canonical_names, resolved, resolved)
+      resolved -> display_subst(resolved, bindings, canonical_names)
+    end
+  end
+
+  defp display_subst_leaf(leaf, _bindings, _canonical_names), do: leaf
 
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
@@ -553,7 +563,7 @@ defmodule AL do
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_list(object),
     do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)))
-
+  
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
       AL.Var.unify(row, {:class, object, :"$seq", class_pattern}, bindings(state))
@@ -1062,10 +1072,13 @@ defmodule AL do
       AL.Var.var?(self) and self != :"$_" ->
         class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
 
-        splice_into(state, [
+        state
+        |> splice_into([
           %Goal.GetClass{object: self, class: class_var},
           %Goal.SendQuery{object: self, method: method, args: args}
         ])
+        |> push_choicepoint(structural_list_candidate(self, method, args, state))
+        |> push_choicepoint(empty_list_candidate(self, method, args, state))
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -1074,6 +1087,33 @@ defmodule AL do
         do_send(self, method, args, state, on_miss)
     end
   end
+
+  # An unbound receiver is normally grounded only against durable objects (via
+  # `GetClass`), which lists never are (recognised structurally, no `class` row).
+  # Offer `self` as a fresh cons cell too, so list methods bind it through ordinary
+  # head unification in `oapply` — the same way Prolog's `member([X|_], X).` clause
+  # generates open lists on backtracking, rather than a special-cased search
+  defp empty_list_candidate(self, method, args, state) do
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}]),
+        bindings: AL.Var.unify(self, [], state.active_choicepoint.bindings)
+    }
+  end
+  
+  defp structural_list_candidate(self, method, args, state) do
+    scope = fresh_scope()
+    cons = [AL.Var.var("list_head_#{scope}") | AL.Var.var("list_tail_#{scope}")]
+
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}]),
+        bindings: AL.Var.unify(self, cons, state.active_choicepoint.bindings)
+    }
+  end
+
+  defp push_choicepoint(state, choicepoint),
+    do: %AL{state | choicepoint_stack: [choicepoint | state.choicepoint_stack]}
 
   defp splice_into(state, goals) do
     %AL{
