@@ -555,7 +555,10 @@ defmodule AL do
   end
 
   defp record_resource_limit(state),
-    do: %AL{state | diagnostics: [{:resource_limit_exceeded, @max_reductions} | state.diagnostics]}
+    do: %AL{
+      state
+      | diagnostics: [{:resource_limit_exceeded, @max_reductions} | state.diagnostics]
+    }
 
   defp bindings(state), do: state.active_choicepoint.bindings
 
@@ -593,7 +596,7 @@ defmodule AL do
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_list(object),
     do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)))
-  
+
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
       AL.Var.unify(row, {:class, object, :"$seq", class_pattern}, bindings(state))
@@ -1291,7 +1294,8 @@ defmodule AL do
     end
   end
 
-  defp super_chain(seeds, branch, strategy), do: super_chain(seeds, branch, strategy, MapSet.new(), [])
+  defp super_chain(seeds, branch, strategy),
+    do: super_chain(seeds, branch, strategy, MapSet.new(), [])
 
   defp super_chain([], _branch, _strategy, _seen, acc), do: Enum.reverse(acc)
 

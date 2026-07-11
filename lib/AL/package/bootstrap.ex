@@ -45,6 +45,7 @@ defmodule AL.Package.Bootstrap do
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
       vm_method(self, method_name, method_object)
       findall([head, body], [vm_clause(method_object, head, body)], left)
+
       forall([member(left, [head, _])]) do
         vm_retract_oapply(method_object, head)
       end
@@ -308,7 +309,8 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:list, :super_chain, [[c | cs], seen, chain]) do
       implies do
-        [member(seen, c)] -> super_chain(cs, seen, chain)
+        [member(seen, c)] ->
+          super_chain(cs, seen, chain)
 
         :else ->
           findall(super, [super(c, super)], immediate_supers)

@@ -8,7 +8,6 @@ defmodule AL.Object do
   """
 
   use GtBridge.View
-  alias GtBridge.Phlow.ColumnedList
   use TypedStruct
   require AL
 

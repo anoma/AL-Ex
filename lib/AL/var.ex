@@ -208,8 +208,11 @@ defmodule AL.Var do
   # A bound var derefs to its term, which is itself substituted
   defp subst_leaf(leaf, bindings, rewrite_unbound) when is_atom(leaf) do
     case deref(bindings, leaf) do
-      ^leaf -> if var?(leaf), do: rewrite_unbound.(leaf), else: leaf
-      other -> if var?(other), do: rewrite_unbound.(other), else: subst(other, bindings, rewrite_unbound)
+      ^leaf ->
+        if var?(leaf), do: rewrite_unbound.(leaf), else: leaf
+
+      other ->
+        if var?(other), do: rewrite_unbound.(other), else: subst(other, bindings, rewrite_unbound)
     end
   end
 

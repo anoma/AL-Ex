@@ -371,38 +371,37 @@ defmodule Examples.ALObjects do
         new(:class, %{name: :multislots, ivars: [], super: :object}, :multislots)
         vm_set_slots(:multislots, %{x: 1, y: 2, z: 3})
         slots(:multislots, [:x, :z], m)
-    end
+      end
 
     assert Map.get(bindings, :"$m") == %{x: 1, z: 3}
-    
+
     bindings
   end
 
   example inheritance_chain() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
+        new(:class, %{name: :super_chain_class_1, super: :super_chain_class_3, ivars: []}, _)
+        new(:class, %{name: :super_chain_class_2, super: :super_chain_class_4, ivars: []}, _)
+        new(:class, %{name: :super_chain_class_3, super: :super_chain_class_4, ivars: []}, _)
+        new(:class, %{name: :super_chain_class_4, super: :object, ivars: []}, _)
 
-      new(:class, %{name: :super_chain_class_1, super: :super_chain_class_3, ivars: []}, _)
-      new(:class, %{name: :super_chain_class_2, super: :super_chain_class_4, ivars: []}, _)
-      new(:class, %{name: :super_chain_class_3, super: :super_chain_class_4, ivars: []}, _)
-      new(:class, %{name: :super_chain_class_4, super: :object, ivars: []}, _)
+        vm_set_super(:super_chain_class_1, :super_chain_class_2)
+        vm_set_super(:super_chain_class_2, :super_chain_class_3)
 
-      vm_set_super(:super_chain_class_1, :super_chain_class_2)
-      vm_set_super(:super_chain_class_2, :super_chain_class_3)
+        new(:super_chain_class_1, %{name: :super_chain_obj}, _)
 
-      new(:super_chain_class_1, %{name: :super_chain_obj}, _)
-
-      inheritance_chain(:super_chain_obj, inheritance_chain)
-    end
+        inheritance_chain(:super_chain_obj, inheritance_chain)
+      end
 
     assert Map.get(bindings, :"$inheritance_chain") == [
-      :super_chain_obj,
-      :super_chain_class_1,
-      :super_chain_class_3,
-      :super_chain_class_4,
-      :object,
-      :super_chain_class_2
-    ]
+             :super_chain_obj,
+             :super_chain_class_1,
+             :super_chain_class_3,
+             :super_chain_class_4,
+             :object,
+             :super_chain_class_2
+           ]
 
     bindings
   end
@@ -414,7 +413,7 @@ defmodule Examples.ALObjects do
         vm_set_class(:is_a_class_2, :object)
         vm_set_super(:is_a_class_1, :object)
         vm_set_super(:is_a_class_2, :object)
-        
+
         vm_set_super(:is_a_class_1, :is_a_class_2)
 
         vm_set_class(:is_a_obj, :is_a_class_1)
