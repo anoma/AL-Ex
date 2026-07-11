@@ -195,17 +195,25 @@ defmodule AL.Var do
   end
 
   @spec subst(t(), bindings()) :: t()
-  def subst(term, bindings), do: AL.Goal.map(term, &subst_leaf(&1, bindings))
+  def subst(term, bindings), do: subst(term, bindings, & &1)
+
+  # `rewrite_unbound` lets a caller rename a var that's still unbound after
+  # dereferencing (e.g. AL.eval's display layer, which maps an internal freshened
+  # var back to whichever observable query var it's aliased to) instead of
+  # showing it as-is.
+  @spec subst(t(), bindings(), (variable() -> t())) :: t()
+  def subst(term, bindings, rewrite_unbound),
+    do: AL.Goal.map(term, &subst_leaf(&1, bindings, rewrite_unbound))
 
   # A bound var derefs to its term, which is itself substituted
-  defp subst_leaf(leaf, bindings) when is_atom(leaf) do
+  defp subst_leaf(leaf, bindings, rewrite_unbound) when is_atom(leaf) do
     case deref(bindings, leaf) do
-      ^leaf -> leaf
-      other -> subst(other, bindings)
+      ^leaf -> if var?(leaf), do: rewrite_unbound.(leaf), else: leaf
+      other -> if var?(other), do: rewrite_unbound.(other), else: subst(other, bindings, rewrite_unbound)
     end
   end
 
-  defp subst_leaf(leaf, _bindings), do: leaf
+  defp subst_leaf(leaf, _bindings, _rewrite_unbound), do: leaf
 
   @spec find_vars(t()) :: MapSet.t(variable())
   @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())

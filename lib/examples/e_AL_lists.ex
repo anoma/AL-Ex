@@ -56,26 +56,4 @@ defmodule Examples.ALLists do
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
     :ok
   end
-
-  # `member(x, 1)` with `x` unbound: like Prolog's `member(1, L)`, backtracking
-  # should generate open lists containing `1`, not just search existing objects.
-  example member_is_bidirectional() do
-    {:atomic, {b1, state}} =
-      run branch: :examples do
-        member(x, 1)
-      end
-
-    [h1 | t1] = Map.get(b1, :"$x")
-    assert h1 == 1
-    assert AL.Var.var?(t1)
-
-    {:atomic, {b2, _}} = next_solution(state)
-
-    [h2, h3 | t2] = Map.get(b2, :"$x")
-    assert AL.Var.var?(h2)
-    assert h3 == 1
-    assert AL.Var.var?(t2)
-
-    state
-  end
 end

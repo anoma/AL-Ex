@@ -67,7 +67,16 @@ defmodule AL do
     field(:pending_cursor, cursor() | nil, default: nil)
     field(:diagnostics, [term()], default: [])
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
+    field(:reductions, non_neg_integer(), default: 0)
   end
+
+  # A generative send (an unbound receiver/selector hypothesising candidates, see
+  # `dispatch/5`) has no termination guarantee — the DFS choicepoint search can
+  # grow forever with no signal. Cap total goal steps per `run`/`next_solution` so
+  # that instead of hanging silently, it aborts with a legible reason. Mirrors
+  # SWI-Prolog's `call_with_inference_limit/3` and the implicit stack-limit
+  # backstop real Prolog systems already rely on for the same class of hazard.
+  @max_reductions 5_000
 
   defmacro __using__(_opts) do
     quote do
@@ -436,22 +445,12 @@ defmodule AL do
         end
       end)
 
+    rewrite_unbound = fn resolved -> Map.get(canonical_names, resolved, resolved) end
+
     input_vars
-    |> Enum.map(fn variable -> {variable, display_subst(variable, bindings, canonical_names)} end)
+    |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, bindings, rewrite_unbound)} end)
     |> Map.new()
   end
-
-  defp display_subst(term, bindings, canonical_names),
-    do: AL.Goal.map(term, &display_subst_leaf(&1, bindings, canonical_names))
-
-  defp display_subst_leaf(leaf, bindings, canonical_names) when is_atom(leaf) do
-    case AL.Var.deref(bindings, leaf) do
-      resolved when is_atom(resolved) -> Map.get(canonical_names, resolved, resolved)
-      resolved -> display_subst(resolved, bindings, canonical_names)
-    end
-  end
-
-  defp display_subst_leaf(leaf, _bindings, _canonical_names), do: leaf
 
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
@@ -486,6 +485,12 @@ defmodule AL do
 
   def continue(state) do
     cond do
+      state.reductions > @max_reductions ->
+        %AL{
+          record_resource_limit(state)
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: nil}
+        }
+
       state.active_choicepoint.bindings == nil ->
         backtrack(state)
 
@@ -519,13 +524,17 @@ defmodule AL do
               state.active_choicepoint
               | goal_pointer: state.active_choicepoint.goal_pointer + 1
             },
-            trace: [goal | state.trace]
+            trace: [goal | state.trace],
+            reductions: state.reductions + 1
         }
 
         result = interp(goal, next_frame)
         continue(result)
     end
   end
+
+  defp record_resource_limit(state),
+    do: %AL{state | diagnostics: [{:resource_limit_exceeded, @max_reductions} | state.diagnostics]}
 
   defp bindings(state), do: state.active_choicepoint.bindings
 
@@ -1071,14 +1080,15 @@ defmodule AL do
     cond do
       AL.Var.var?(self) and self != :"$_" ->
         class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
+        requery = splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         state
         |> splice_into([
           %Goal.GetClass{object: self, class: class_var},
           %Goal.SendQuery{object: self, method: method, args: args}
         ])
-        |> push_choicepoint(structural_list_candidate(self, method, args, state))
-        |> push_choicepoint(empty_list_candidate(self, method, args, state))
+        |> push_choicepoint(structural_candidate(state, requery, self, fresh_cons_cell()))
+        |> push_choicepoint(structural_candidate(state, requery, self, []))
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -1090,26 +1100,21 @@ defmodule AL do
 
   # An unbound receiver is normally grounded only against durable objects (via
   # `GetClass`), which lists never are (recognised structurally, no `class` row).
-  # Offer `self` as a fresh cons cell too, so list methods bind it through ordinary
-  # head unification in `oapply` — the same way Prolog's `member([X|_], X).` clause
-  # generates open lists on backtracking, rather than a special-cased search
-  defp empty_list_candidate(self, method, args, state) do
+  # Offer `self` as `[]` and as a fresh cons cell too, so list methods bind it
+  # through ordinary head unification in `oapply` — the same way Prolog's
+  # `member([X|_], X).`/`reverse([], []).` clauses generate (and terminate) open
+  # lists on backtracking, rather than a special-cased search.
+  defp structural_candidate(state, requery_goals, self, shape) do
     %AL.Choicepoint{
       state.active_choicepoint
-      | goals: splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}]),
-        bindings: AL.Var.unify(self, [], state.active_choicepoint.bindings)
+      | goals: requery_goals,
+        bindings: AL.Var.unify(self, shape, state.active_choicepoint.bindings)
     }
   end
-  
-  defp structural_list_candidate(self, method, args, state) do
-    scope = fresh_scope()
-    cons = [AL.Var.var("list_head_#{scope}") | AL.Var.var("list_tail_#{scope}")]
 
-    %AL.Choicepoint{
-      state.active_choicepoint
-      | goals: splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}]),
-        bindings: AL.Var.unify(self, cons, state.active_choicepoint.bindings)
-    }
+  defp fresh_cons_cell() do
+    scope = fresh_scope()
+    [AL.Var.var("list_head_#{scope}") | AL.Var.var("list_tail_#{scope}")]
   end
 
   defp push_choicepoint(state, choicepoint),
@@ -1393,6 +1398,16 @@ defmodule AL do
       |> Enum.map(&AL.Trace.pretty/1)
 
     case Enum.uniq(state.diagnostics) do
+      [{:resource_limit_exceeded, limit} | _] ->
+        %{
+          message:
+            "Resource limit exceeded after #{limit} reduction steps — likely infinite " <>
+              "backtracking (a generative send with no termination guarantee).",
+          reason: {:resource_limit_exceeded, limit},
+          failed_on: List.last(steps),
+          trace: Enum.take(steps, -20)
+        }
+
       [{receiver, selector, arity, suggestions} | _] ->
         receiver = AL.Trace.pretty(receiver)
 

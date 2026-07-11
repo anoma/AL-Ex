@@ -22,6 +22,10 @@ defmodule ALListsTest do
   use ExExample.ExUnit, for: Examples.ALLists
 end
 
+defmodule ALGenerativeTest do
+  use ExExample.ExUnit, for: Examples.ALGenerative
+end
+
 defmodule ALBranchTest do
   use ExExample.ExUnit, for: Examples.ALBranch
 end
