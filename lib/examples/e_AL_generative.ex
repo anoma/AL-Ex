@@ -78,4 +78,22 @@ defmodule Examples.ALGenerative do
 
     state
   end
+
+  # `send([], y, z)` with the selector *and* args unbound surfaces each list
+  # method's base-case law for `[]` (concat's identity element, fold's
+  # accumulator identity, ...). The unconstrained positions in `z` are purely
+  # internal — freshened clause-parameter names the caller never typed — and
+  # must show as generic anonymous vars, not leak the clause's source name
+  # (e.g. `concat`'s own `second` parameter).
+  example unbound_positions_show_as_anonymous_not_internal_names() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        send([], :concat, z)
+      end
+
+    [a, b] = Map.get(bindings, :"$z")
+    assert a == b
+    assert AL.Var.var?(a)
+    refute Atom.to_string(a) =~ "second"
+  end
 end

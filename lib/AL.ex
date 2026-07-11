@@ -432,10 +432,10 @@ defmodule AL do
   # `canonical_names` maps each such internal representative back to whichever
   # observable var it's aliased to, so every output var displays it the same way.
   defp format_output_vars(input_vars, bindings) do
+    sorted_vars = Enum.sort(input_vars)
+
     canonical_names =
-      input_vars
-      |> Enum.sort()
-      |> Enum.reduce(%{}, fn variable, acc ->
+      Enum.reduce(sorted_vars, %{}, fn variable, acc ->
         case AL.Var.deref(bindings, variable) do
           resolved when is_atom(resolved) ->
             if AL.Var.var?(resolved), do: Map.put_new(acc, resolved, variable), else: acc
@@ -445,9 +445,30 @@ defmodule AL do
         end
       end)
 
-    rewrite_unbound = fn resolved -> Map.get(canonical_names, resolved, resolved) end
+    # A var with no observable-var alias is purely internal (e.g. a stored
+    # clause's own parameter name, freshened) — the caller never typed it and it
+    # means nothing to them. Prolog shows these as anonymous, opaque vars
+    # (`_G123`); give each a stable `_N` label instead of leaking the clause's
+    # source-level name, reusing the same label everywhere it recurs in this
+    # result so aliasing between two such vars stays visible.
+    {display_names, _n} =
+      Enum.reduce(sorted_vars, {canonical_names, 0}, fn variable, {names, n} ->
+        variable
+        |> AL.Var.subst(bindings)
+        |> AL.Var.find_vars()
+        |> Enum.sort()
+        |> Enum.reduce({names, n}, fn leaf, {names, n} ->
+          if Map.has_key?(names, leaf) do
+            {names, n}
+          else
+            {Map.put(names, leaf, AL.Var.var("_#{n + 1}")), n + 1}
+          end
+        end)
+      end)
 
-    input_vars
+    rewrite_unbound = fn resolved -> Map.get(display_names, resolved, resolved) end
+
+    sorted_vars
     |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, bindings, rewrite_unbound)} end)
     |> Map.new()
   end
