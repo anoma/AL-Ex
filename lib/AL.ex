@@ -1294,25 +1294,62 @@ defmodule AL do
     end
   end
 
-  defp super_chain(seeds, branch, strategy),
-    do: super_chain(seeds, branch, strategy, MapSet.new(), [])
+  defp super_chain(seeds, branch, strategy) do
+    edges = collect_edges(seeds, branch, MapSet.new(), %{})
+    in_degree = in_degrees(edges)
 
-  defp super_chain([], _branch, _strategy, _seen, acc), do: Enum.reverse(acc)
+    ready = Enum.filter(seeds, &(Map.get(in_degree, &1, 0) == 0))
 
-  defp super_chain([class | rest], branch, strategy, seen, acc) do
+    kahn(ready, edges, in_degree, strategy, [])
+  end
+
+  # Walks every class reachable from `seeds`, recording each one's direct
+  # supers. Just edge collection — the ordering happens in `kahn/5` below.
+  defp collect_edges([], _branch, _seen, edges), do: edges
+
+  defp collect_edges([class | rest], branch, seen, edges) do
     if MapSet.member?(seen, class) do
-      super_chain(rest, branch, strategy, seen, acc)
+      collect_edges(rest, branch, seen, edges)
     else
       supers = for {:super, _o, _seq, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
-
-      queue =
-        case strategy do
-          :bfs -> rest ++ supers
-          :dfs -> supers ++ rest
-        end
-
-      super_chain(queue, branch, strategy, MapSet.put(seen, class), [class | acc])
+      collect_edges(supers ++ rest, branch, MapSet.put(seen, class), Map.put(edges, class, supers))
     end
+  end
+
+  # A class's in-degree is how many other reachable classes name it as a
+  # super — how many subclasses still need to be placed before it's eligible.
+  defp in_degrees(edges) do
+    base = Map.new(edges, fn {class, _supers} -> {class, 0} end)
+
+    Enum.reduce(edges, base, fn {_class, supers}, acc ->
+      Enum.reduce(supers, acc, fn s, acc2 -> Map.update(acc2, s, 1, &(&1 + 1)) end)
+    end)
+  end
+
+  # Kahn's algorithm: a class only becomes eligible once every reachable
+  # subclass of it has already been placed, so a shared ancestor (`object`,
+  # or any common mixin base) always sinks to the end of the chain instead of
+  # landing wherever traversal happens to first reach it. `strategy` only
+  # breaks ties among classes that become eligible at the same time — it
+  # never overrides the forced "subclass before super" ordering.
+  defp kahn([], _edges, _in_degree, _strategy, acc), do: Enum.reverse(acc)
+
+  defp kahn([class | rest], edges, in_degree, strategy, acc) do
+    supers = Map.get(edges, class, [])
+
+    {newly_ready, in_degree} =
+      Enum.reduce(supers, {[], in_degree}, fn s, {ready, deg} ->
+        deg = Map.update!(deg, s, &(&1 - 1))
+        if deg[s] == 0, do: {ready ++ [s], deg}, else: {ready, deg}
+      end)
+
+    queue =
+      case strategy do
+        :bfs -> rest ++ newly_ready
+        :dfs -> newly_ready ++ rest
+      end
+
+    kahn(queue, edges, in_degree, strategy, [class | acc])
   end
 
   defp method_ids(obj, method, branch) do

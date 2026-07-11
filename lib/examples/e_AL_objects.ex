@@ -121,11 +121,9 @@ defmodule Examples.ALObjects do
         examine(obj, obj_info)
 
         vm_map_get(obj_info, :direct_slots, direct_slots)
-        vm_map_get(obj_info, :indirect_slots, indirect_slots)
       end
 
     assert Map.get(slot_bindings, :"$direct_slots") == [[:name, :rex]]
-    assert Map.get(slot_bindings, :"$indirect_slots") == [[:ivars, [:legs]], [:legs, 4]]
 
     program_state
   end
@@ -378,69 +376,6 @@ defmodule Examples.ALObjects do
     bindings
   end
 
-  example inheritance_chain() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        new(:class, %{name: :super_chain_class_1, super: :super_chain_class_3, ivars: []}, _)
-        new(:class, %{name: :super_chain_class_2, super: :super_chain_class_4, ivars: []}, _)
-        new(:class, %{name: :super_chain_class_3, super: :super_chain_class_4, ivars: []}, _)
-        new(:class, %{name: :super_chain_class_4, super: :object, ivars: []}, _)
-
-        vm_set_super(:super_chain_class_1, :super_chain_class_2)
-        vm_set_super(:super_chain_class_2, :super_chain_class_3)
-
-        new(:super_chain_class_1, %{name: :super_chain_obj}, _)
-
-        inheritance_chain(:super_chain_obj, inheritance_chain)
-      end
-
-    assert Map.get(bindings, :"$inheritance_chain") == [
-             :super_chain_obj,
-             :super_chain_class_1,
-             :super_chain_class_3,
-             :super_chain_class_4,
-             :object,
-             :super_chain_class_2
-           ]
-
-    bindings
-  end
-
-  example is_a_holds_for_direct_and_transitive_classes() do
-    {:atomic, _} =
-      run branch: :examples do
-        vm_set_class(:is_a_class_1, :object)
-        vm_set_class(:is_a_class_2, :object)
-        vm_set_super(:is_a_class_1, :object)
-        vm_set_super(:is_a_class_2, :object)
-
-        vm_set_super(:is_a_class_1, :is_a_class_2)
-
-        vm_set_class(:is_a_obj, :is_a_class_1)
-
-        is_a(:is_a_obj, :is_a_class_1)
-        is_a(:is_a_obj, :is_a_class_2)
-        is_a(:is_a_obj, :object)
-      end
-
-    :ok
-  end
-
-  example get_slot_inherits_from_class() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        new(:class, %{name: :slot_inherit_class, super: :object, ivars: [:legs]}, _)
-        vm_set_slots(:slot_inherit_class, %{legs: 4})
-
-        new(:slot_inherit_class, _, obj)
-
-        get_slot(obj, :legs, legs)
-      end
-
-    assert Map.get(bindings, :"$legs") == 4
-    bindings
-  end
-
   # A class can opt into breadth-first method resolution via a
   # `dispatch_strategy: :bfs` slot; without it, resolution stays depth-first
   # (today's default, unchanged for every class that doesn't opt in). The
@@ -490,4 +425,28 @@ defmodule Examples.ALObjects do
     assert Map.get(b2, :"$t") == :branch_b_trait
     :ok
   end
+
+  example shared_ancestor_kahns() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:class, %{name: :mix_super_1, super: :mix_super_3, ivars: []}, _)
+        new(:class, %{name: :mix_super_2, super: :mix_super_3, ivars: []}, _)
+
+        new(:class, %{name: :mix_super_3, super: :object, ivars: []}, _)
+
+        defmethod(:mix_super_3, :flavour, [self, :lavender]) do end
+        defmethod(:mix_super_2, :flavour, [self, :chocolate]) do end
+        
+        new(:class, %{name: :mix_class, super: :mix_super_1, ivars: []}, _)
+        vm_set_super(:mix_class, :mix_super_2)
+        
+        new(:mix_class, %{name: :mix_obj}, _)
+
+        flavour(:mix_obj, flavour)
+    end
+
+    assert Map.get(bindings, :"$flavour") == :chocolate
+    
+    bindings
+  end    
 end

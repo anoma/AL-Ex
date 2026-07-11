@@ -67,12 +67,6 @@ defmodule AL.Package.Bootstrap do
       vm_get_slot(self, key, value)
     end
 
-    defmethod(:object, :get_slot, [self, key, value]) do
-      inheritance_chain(self, [self | chain])
-      member(chain, ancestor)
-      vm_get_slot(ancestor, key, value)
-    end
-
     defmethod(:object, :set_slot, [self, key, value]) do
       vm_set_slots(self, %{key => value})
     end
@@ -157,8 +151,7 @@ defmodule AL.Package.Bootstrap do
         methods: methods,
         providers: providers,
         clauses: clauses,
-        direct_slots: direct_slots,
-        indirect_slots: indirect_slots
+        direct_slots: direct_slots
       }
     ]) do
       findall(c, [class(self, c)], classes)
@@ -170,16 +163,6 @@ defmodule AL.Package.Bootstrap do
       findall([head, body], [vm_clause(self, head, body)], clauses)
 
       findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
-      findall(direct_key, [member(direct_slots, [direct_key, _])], direct_keys)
-      inheritance_chain(self, [self | chain])
-
-      findall(
-        [slot_name, slot_value],
-        [member(chain, ancestor), vm_get_slot(ancestor, slot_name, slot_value)],
-        ancestor_slots
-      )
-
-      distinct_slots(ancestor_slots, direct_keys, indirect_slots)
     end
 
     new(:class, %{name: :package, super: :object, ivars: [:name, :version, :deps, :tx]}, _)
@@ -299,44 +282,5 @@ defmodule AL.Package.Bootstrap do
       same_length(ft, st)
     end
 
-    defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
-      findall(class, [class(self, class)], immediate_classes)
-      super_chain(immediate_classes, [], chain)
-    end
-
-    defmethod(:list, :super_chain, [[], seen, seen]) do
-    end
-
-    defmethod(:list, :super_chain, [[c | cs], seen, chain]) do
-      implies do
-        [member(seen, c)] ->
-          super_chain(cs, seen, chain)
-
-        :else ->
-          findall(super, [super(c, super)], immediate_supers)
-          concat([c | immediate_supers], cs, cs2)
-          concat(seen, [c], seen_2)
-          super_chain(cs2, seen_2, chain)
-      end
-    end
-
-    defmethod(:list, :distinct_slots, [[], _exclude_keys, []]) do
-    end
-
-    defmethod(:list, :distinct_slots, [[[key, value] | rest], exclude_keys, result]) do
-      implies do
-        [member(exclude_keys, key)] ->
-          distinct_slots(rest, exclude_keys, result)
-
-        :else ->
-          distinct_slots(rest, [key | exclude_keys], result1)
-          unify(result, [[key, value] | result1])
-      end
-    end
-
-    defmethod(:object, :is_a, [self, class]) do
-      inheritance_chain(self, [self | chain])
-      member(chain, class)
-    end
   end
 end
