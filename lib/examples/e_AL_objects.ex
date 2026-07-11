@@ -376,6 +376,21 @@ defmodule Examples.ALObjects do
     bindings
   end
 
+  example get_slot_inherits_from_class() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:class, %{name: :slot_inherit_class, super: :object, ivars: [:legs]}, _)
+        vm_set_slots(:slot_inherit_class, %{legs: 4})
+
+        new(:slot_inherit_class, _, obj)
+
+        get_slot(obj, :legs, legs)
+      end
+
+    assert Map.get(bindings, :"$legs") == 4
+    bindings
+  end
+
   # A class can opt into breadth-first method resolution via a
   # `dispatch_strategy: :bfs` slot; without it, resolution stays depth-first
   # (today's default, unchanged for every class that doesn't opt in). The
@@ -448,5 +463,23 @@ defmodule Examples.ALObjects do
     assert Map.get(bindings, :"$flavour") == :chocolate
     
     bindings
-  end    
+  end
+
+  example inheritance_chain_topological_sorting() do
+    shared_ancestor_kahns()
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+      inheritance_chain(:mix_obj, chain)
+    end
+
+    assert Map.get(bindings, :"$chain") == [
+      :mix_obj,
+      :mix_class,
+      :mix_super_1,
+      :mix_super_2,
+      :mix_super_3,
+      :object
+    ]
+  end
 end

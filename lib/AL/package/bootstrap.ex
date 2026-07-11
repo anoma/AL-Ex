@@ -67,6 +67,13 @@ defmodule AL.Package.Bootstrap do
       vm_get_slot(self, key, value)
     end
 
+    defmethod(:object, :get_slot, [self, key, value]) do
+      not([vm_get_slot(self, key, value)])
+      inheritance_chain(self, [self | chain])
+      member(chain, ancestor)
+      vm_get_slot(ancestor, key, value)
+    end
+
     defmethod(:object, :set_slot, [self, key, value]) do
       vm_set_slots(self, %{key => value})
     end
@@ -280,6 +287,104 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:list, :same_length, [[_fh | ft], [_sh | st]]) do
       same_length(ft, st)
+    end
+
+    defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
+      findall(class, [class(self, class)], immediate_classes)
+      reachable_classes(immediate_classes, [], classes)
+      in_degrees(classes, degrees)
+      filter_zero_degree(immediate_classes, degrees, ready)
+      kahn(ready, degrees, chain)
+    end
+
+    defmethod(:list, :reachable_classes, [[], seen, seen]) do
+    end
+
+    defmethod(:list, :reachable_classes, [[c | cs], seen, result]) do
+      implies do
+        [member(seen, c)] ->
+          reachable_classes(cs, seen, result)
+
+        :else ->
+          findall(s, [super(c, s)], supers)
+          concat(supers, cs, cs2)
+          concat(seen, [c], seen_2)
+          reachable_classes(cs2, seen_2, result)
+      end
+    end
+
+    defmethod(:list, :in_degrees, [classes, degrees]) do
+      base_degrees(classes, %{}, base)
+      accumulate_degrees(classes, base, degrees)
+    end
+
+    defmethod(:list, :base_degrees, [[], degrees, degrees]) do
+    end
+
+    defmethod(:list, :base_degrees, [[c | cs], acc, degrees]) do
+      vm_map_put(acc, c, 0, acc2)
+      base_degrees(cs, acc2, degrees)
+    end
+
+    defmethod(:list, :accumulate_degrees, [[], degrees, degrees]) do
+    end
+
+    defmethod(:list, :accumulate_degrees, [[c | cs], acc, degrees]) do
+      findall(s, [super(c, s)], supers)
+      increment_degrees(supers, acc, acc2)
+      accumulate_degrees(cs, acc2, degrees)
+    end
+
+    defmethod(:list, :increment_degrees, [[], degrees, degrees]) do
+    end
+
+    defmethod(:list, :increment_degrees, [[s | ss], acc, degrees]) do
+      vm_map_get(acc, s, old)
+      vm_is(new, old + 1)
+      vm_map_put(acc, s, new, acc2)
+      increment_degrees(ss, acc2, degrees)
+    end
+
+    defmethod(:list, :filter_zero_degree, [[], _degrees, []]) do
+    end
+
+    defmethod(:list, :filter_zero_degree, [[c | cs], degrees, ready]) do
+      vm_map_get(degrees, c, degree)
+      implies do
+        [unify(degree, 0)] ->
+          filter_zero_degree(cs, degrees, ready_rest)
+          unify(ready, [c | ready_rest])
+
+        :else ->
+          filter_zero_degree(cs, degrees, ready)
+      end
+    end
+
+    defmethod(:list, :kahn, [[], _degrees, []]) do
+    end
+
+    defmethod(:list, :kahn, [[c | rest], degrees, [c | chain]]) do
+      findall(s, [super(c, s)], supers)
+      decrement_ready(supers, degrees, degrees2, newly_ready)
+      concat(newly_ready, rest, queue)
+      kahn(queue, degrees2, chain)
+    end
+
+    defmethod(:list, :decrement_ready, [[], degrees, degrees, []]) do
+    end
+
+    defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, ready]) do
+      vm_map_get(degrees, s, old)
+      vm_is(new, old - 1)
+      vm_map_put(degrees, s, new, degrees2)
+      implies do
+        [unify(new, 0)] ->
+          decrement_ready(ss, degrees2, degrees_out, ready_rest)
+          unify(ready, [s | ready_rest])
+
+        :else ->
+          decrement_ready(ss, degrees2, degrees_out, ready)
+      end
     end
 
   end
