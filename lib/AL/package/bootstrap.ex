@@ -147,6 +147,10 @@ defmodule AL.Package.Bootstrap do
       # vm_print(["allocate", self])
     end
 
+    defmethod(:ephemeral, :get_slot, [self, k, v]) do
+      vm_map_get(self, k, v)
+    end
+
     defmethod(:object, :examine, [
       self,
       %{

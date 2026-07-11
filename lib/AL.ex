@@ -1106,6 +1106,16 @@ defmodule AL do
         class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
         requery = splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
+        ephemeral_generator_ids =
+          for {:method, _class, :generate_ephemeral, id} <-
+                AL.Object.scan_method(
+                  AL.Var.var("scan_generator_class_#{fresh_scope()}"),
+                  :generate_ephemeral,
+                  AL.Var.var("scan_generator_id_#{fresh_scope()}"),
+                  state.branch
+                ),
+              do: id
+
         state
         |> splice_into([
           %Goal.GetClass{object: self, class: class_var},
@@ -1113,6 +1123,7 @@ defmodule AL do
         ])
         |> push_choicepoint(structural_candidate(state, requery, self, fresh_cons_cell()))
         |> push_choicepoint(structural_candidate(state, requery, self, []))
+        |> push_ephemeral_candidates(state, self, method, args, ephemeral_generator_ids)
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -1134,6 +1145,33 @@ defmodule AL do
       | goals: requery_goals,
         bindings: AL.Var.unify(self, shape, state.active_choicepoint.bindings)
     }
+  end
+
+  # Ephemeral classes (map-tagged, never durable) have no `class` row for `GetClass`
+  # to find, and no fixed structural shape like a list's cons cell — so instead of
+  # hardcoding their shapes here (which would couple the core interpreter to
+  # package-defined classes), a class opts in by defining an ordinary
+  # `:generate_ephemeral` method whose head *is* its shape (e.g. `[%{class: :single,
+  # elem: e}]`). We just scan `method` for who's registered one — a flat lookup, no
+  # inheritance/ordering question — and run each hit for a freshened candidate the
+  # same way `structural_candidate` offers `[]`/cons-cell: ground `self`, re-dispatch.
+  defp push_ephemeral_candidates(state, orig_state, self, method, args, generator_ids) do
+    Enum.reduce(generator_ids, state, fn id, acc ->
+      push_choicepoint(acc, ephemeral_candidate(orig_state, self, method, args, id))
+    end)
+  end
+
+  defp ephemeral_candidate(state, self, method, args, generator_id) do
+    shape = AL.Var.var("ephemeral_shape_#{fresh_scope()}")
+
+    goals =
+      splice_goals(state, [
+        %Goal.OApply{method_id: generator_id, args: [shape]},
+        %Goal.Unify{a: self, b: shape},
+        %Goal.SendQuery{object: self, method: method, args: args}
+      ])
+
+    %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
 
   defp fresh_cons_cell() do
