@@ -15,7 +15,8 @@ defmodule Examples.ALFailures do
   example unknown_selector_reports_does_not_understand() do
     {:aborted, reason} =
       run branch: :examples do
-        new(:class, %{name: :failgreeter, super: :ephemeral}, _)
+        new(:class, %{name: :failgreeter, super: :object}, _)
+        import(:failgreeter, :ephemeral)
 
         defmethod(:failgreeter, :greet, [self, _name]) do
         end
@@ -53,7 +54,8 @@ defmodule Examples.ALFailures do
   example custom_dnu_is_not_reported_as_failure() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :failquiet, super: :ephemeral}, _)
+        new(:class, %{name: :failquiet, super: :object}, _)
+        import(:failquiet, :ephemeral)
 
         defmethod(:failquiet, :does_not_understand, [self, _m, _a]) do
         end

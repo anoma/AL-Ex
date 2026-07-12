@@ -74,4 +74,35 @@ defmodule Examples.ALCategories do
     assert Map.get(bindings, :"$kind") == :category
     :ok
   end
+
+  # Regression: a category is a durable `:object`-classed thing (like a class
+  # atom is), so an unbound-receiver query used to offer it as a candidate for
+  # any selector defined directly on it — even though `import` only ever meant
+  # that method to be *copied* onto importers, not answered by the category
+  # itself. `method_scopes`'s self-prefix guard excluded `:class` atoms from
+  # this for the same reason but missed `:category` (and `:behaviour`) until
+  # `default_set_behaviour` got its first real method (`:members`) and this
+  # showed up live: `members(s, elems)` with `s` unbound ground to
+  # `:default_set_behaviour` itself as a spurious "solution".
+  example category_is_not_offered_as_an_unbound_receiver_candidate() do
+    {:atomic, {b1, _}} =
+      run branch: :examples do
+        new(:category, %{name: :counts_behaviour}, _)
+
+        defmethod(:counts_behaviour, :count, [self, 0]) do
+        end
+
+        new(:class, %{name: :countable, super: :object, ivars: []}, _)
+        import(:countable, :counts_behaviour)
+
+        new(:countable, _, instance)
+
+        findall(s, [count(s, 0)], candidates)
+      end
+
+    candidates = Map.get(b1, :"$candidates")
+    refute :counts_behaviour in candidates
+    assert Map.get(b1, :"$instance") in candidates
+    :ok
+  end
 end

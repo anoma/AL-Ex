@@ -46,7 +46,8 @@ defmodule Examples.AL do
   example does_not_understand_dispatch() do
     {:atomic, {b, _}} =
       run branch: :examples do
-        new(:class, %{name: :gadget, super: :ephemeral}, _)
+        new(:class, %{name: :gadget, super: :object}, _)
+        import(:gadget, :ephemeral)
 
         defmethod(:gadget, :poke, [self, x]) do
           unify(x, :ok)

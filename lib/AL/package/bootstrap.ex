@@ -96,7 +96,6 @@ defmodule AL.Package.Bootstrap do
     end
 
     vm_set_class(:map, :class)
-    vm_set_super(:map, :ephemeral)
 
     vm_set_class(:map_get, :behaviour)
     vm_set_method(:map, :get, :map_get)
@@ -141,7 +140,26 @@ defmodule AL.Package.Bootstrap do
       init(alloc, args, new)
     end
 
-    new(:class, %{name: :ephemeral, super: :object}, _)
+    new(:class, %{name: :category, super: :object, ivars: []}, _)
+
+    # Copies a category's methods onto `self` by shared `method_id` — no
+    # ancestry edge, so this works regardless of `self`'s own `super` chain.
+    # Also records, per category, a monotonic ordinal for *when* `self`
+    # imported it (reusing `vm_fresh_id`, not a new mechanism) — this is what
+    # lets `:ephemeral` be discovered and ordered later purely from `:slots`,
+    # with no separate bookkeeping relation.
+    defmethod(:object, :import, [self, category]) do
+      findall([name, id], [vm_method(category, name, id)], pairs)
+
+      forall([member(pairs, [name, id])]) do
+        vm_set_method(self, name, id)
+      end
+
+      vm_fresh_id(seq)
+      set_slot(self, category, seq)
+    end
+
+    new(:category, %{name: :ephemeral}, _)
 
     defmethod(:ephemeral, :allocate, [self, _, self]) do
       # vm_print(["allocate", self])
@@ -149,6 +167,33 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:ephemeral, :get_slot, [self, k, v]) do
       vm_map_get(self, k, v)
+    end
+
+    vm_set_super(:map, :object)
+    import(:map, :ephemeral)
+
+    # `defclass name, metaclass: :class, super: ..., ivars: [...],
+    # categories: [...] do ... end` — bundles the `new(metaclass, ...)` +
+    # per-category `import` + per-method `defmethod` sequence a class
+    # declaration otherwise requires by hand. `methods` is a list of
+    # `[method_name, head, body]` triples; re-sending each through the
+    # ordinary `defmethod` behaviour keeps clause-accretion identical to
+    # writing `defmethod(name, method_name, head) do body end` directly.
+    # Registered directly under the literal id `:defclass` (like `:defmethod`
+    # itself), since `ast_to_pattern` targets that method id straight from
+    # the surface syntax, bypassing ordinary send dispatch.
+    vm_set_class(:defclass, :behaviour)
+
+    vm_set_oapply(:defclass, [name, metaclass, super, ivars, categories, methods]) do
+      new(metaclass, %{name: name, super: super, ivars: ivars}, _)
+
+      forall([member(categories, category)]) do
+        import(name, category)
+      end
+
+      forall([member(methods, [method_name, head, body])]) do
+        defmethod(name, method_name, head, body)
+      end
     end
 
     defmethod(:object, :examine, [
@@ -186,7 +231,8 @@ defmodule AL.Package.Bootstrap do
       set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
     end
 
-    new(:class, %{name: :list, super: :ephemeral}, _)
+    new(:class, %{name: :list, super: :object}, _)
+    import(:list, :ephemeral)
 
     defmethod(:list, :hd, [[h | _t], h]) do
     end
@@ -390,16 +436,6 @@ defmodule AL.Package.Bootstrap do
 
         :else ->
           decrement_ready(ss, degrees2, degrees_out, ready)
-      end
-    end
-
-    new(:class, %{name: :category, super: :object, ivars: []}, _)
-
-    defmethod(:object, :import, [self, category]) do
-      findall([name, id], [vm_method(category, name, id)], pairs)
-
-      forall([member(pairs, [name, id])]) do
-        vm_set_method(self, name, id)
       end
     end
   end

@@ -287,6 +287,35 @@ defmodule AL do
     }
   end
 
+  # `defclass name, super: ..., ivars: [...], categories: [...] do ... end` — a
+  # class declaration bundling what's otherwise a hand-sequenced `new(:class, …)`
+  # + one `import` per category + one `defmethod` per method (see `sets.ex`'s
+  # `single`/`union` before this existed). Lowers to a single `:defclass` OApply,
+  # the same shape `defmethod` itself already uses — the actual sequencing lives
+  # in AL, as an ordinary accreted behaviour (bootstrap.ex), not here. Methods
+  # inside the block use `defmethod(name, head) do body end` — no class prefix,
+  # since `defclass` already knows which class it's declaring.
+  def ast_to_pattern({:defclass, _, [name, opts, do_block]}) do
+    methods =
+      do_block
+      |> unwrap_do_block()
+      |> Enum.map(fn {:defmethod, _, [method_name, head, method_body]} ->
+        [ast_to_pattern(method_name), ast_to_pattern(head), ast_to_pattern(method_body)]
+      end)
+
+    %Goal.OApply{
+      method_id: :defclass,
+      args: [
+        ast_to_pattern(name),
+        ast_to_pattern(Keyword.get(opts, :metaclass, :class)),
+        ast_to_pattern(Keyword.fetch!(opts, :super)),
+        ast_to_pattern(Keyword.get(opts, :ivars, [])),
+        ast_to_pattern(Keyword.get(opts, :categories, [])),
+        methods
+      ]
+    }
+  end
+
   def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
     do: %Goal.OApply{method_id: op, args: Enum.map(args, &ast_to_pattern/1)}
 
@@ -334,6 +363,13 @@ defmodule AL do
       goal -> [goal]
     end
   end
+
+  # Raw statement ASTs of a `do…end` block, unwrapped but *not* lowered to
+  # goals — `defclass`'s own body holds `defmethod/3` shorthand statements that
+  # need pattern-matching before conversion, not ordinary goals.
+  defp unwrap_do_block([{:do, nil}]), do: []
+  defp unwrap_do_block([{:do, {:__block__, _, stmts}}]), do: stmts
+  defp unwrap_do_block([{:do, stmt}]), do: [stmt]
 
   @doc """
   I provide the DSL for the AL interpreter. I run against the live branch by
@@ -1106,15 +1142,10 @@ defmodule AL do
         class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
         requery = splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
-        ephemeral_generator_ids =
-          for {:method, _class, :generate_ephemeral, id} <-
-                AL.Object.scan_method(
-                  AL.Var.var("scan_generator_class_#{fresh_scope()}"),
-                  :generate_ephemeral,
-                  AL.Var.var("scan_generator_id_#{fresh_scope()}"),
-                  state.branch
-                ),
-              do: id
+        ephemeral_classes =
+          state.branch
+          |> ephemeral_descendants()
+          |> filter_by_selector(method, state.branch)
 
         state
         |> splice_into([
@@ -1123,7 +1154,7 @@ defmodule AL do
         ])
         |> push_choicepoint(structural_candidate(state, requery, self, fresh_cons_cell()))
         |> push_choicepoint(structural_candidate(state, requery, self, []))
-        |> push_ephemeral_candidates(state, self, method, args, ephemeral_generator_ids)
+        |> push_ephemeral_candidates(state, self, method, args, ephemeral_classes)
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -1149,30 +1180,99 @@ defmodule AL do
 
   # Ephemeral classes (map-tagged, never durable) have no `class` row for `GetClass`
   # to find, and no fixed structural shape like a list's cons cell — so instead of
-  # hardcoding their shapes here (which would couple the core interpreter to
-  # package-defined classes), a class opts in by defining an ordinary
-  # `:generate_ephemeral` method whose head *is* its shape (e.g. `[%{class: :single,
-  # elem: e}]`). We just scan `method` for who's registered one — a flat lookup, no
-  # inheritance/ordering question — and run each hit for a freshened candidate the
-  # same way `structural_candidate` offers `[]`/cons-cell: ground `self`, re-dispatch.
-  defp push_ephemeral_candidates(state, orig_state, self, method, args, generator_ids) do
-    Enum.reduce(generator_ids, state, fn id, acc ->
-      push_choicepoint(acc, ephemeral_candidate(orig_state, self, method, args, id))
+  # asking each class to hand-declare its own shape (which risks drifting from
+  # what `init` actually builds, see the `union` disjointness saga), every class
+  # that has `import`ed `:ephemeral` is offered a candidate by literally calling
+  # its own `new` with a fresh var for each declared ivar — the same construction
+  # path a real caller would use, just with the slots left open for unification
+  # to fill in, the same way `structural_candidate` offers `[]`/cons.
+  #
+  # `ephemeral_descendants/1` returns classes ordered earliest-imported-first
+  # (see the `:ephemeral` ordinal recorded by `import` in bootstrap.ex) — that's
+  # a real declaration-order signal, not a proxy. Reversed here because the
+  # choicepoint stack is LIFO: the last one pushed is the first one tried, so
+  # the earliest-declared class needs to be pushed last to be tried first.
+  # This is what keeps e.g. `single` (declared before `union`) tried before
+  # `union` — trying `union` first would recurse into generating `left`/`right`
+  # before ever reaching the trivial `single` case.
+  defp push_ephemeral_candidates(state, orig_state, self, method, args, classes) do
+    Enum.reduce(Enum.reverse(classes), state, fn class, acc ->
+      push_choicepoint(acc, ephemeral_candidate(orig_state, self, method, args, class))
     end)
   end
 
-  defp ephemeral_candidate(state, self, method, args, generator_id) do
-    shape = AL.Var.var("ephemeral_shape_#{fresh_scope()}")
+  defp ephemeral_candidate(state, self, method, args, class) do
+    scope = fresh_scope()
+    shape = AL.Var.var("ephemeral_shape_#{scope}")
+
+    fresh_args =
+      Map.new(class_ivars(class, state.branch), fn ivar ->
+        {ivar, AL.Var.var("ephemeral_ivar_#{ivar}_#{scope}")}
+      end)
 
     goals =
       splice_goals(state, [
-        %Goal.OApply{method_id: generator_id, args: [shape]},
+        %Goal.Send{object: class, method: :new, args: [fresh_args, shape]},
         %Goal.Unify{a: self, b: shape},
         %Goal.SendQuery{object: self, method: method, args: args}
       ])
 
     %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
+
+  # A ground selector prunes candidates that couldn't possibly answer it before
+  # they're even constructed — cheap (reuses ordinary method lookup), and it's
+  # what keeps this from paying for every `:ephemeral` descendant that has ever
+  # existed in the branch (test/demo classes included) on every open dispatch.
+  # An unbound selector (a fully-open `send(x,y,z)`) can't be checked this way,
+  # so every class stays a candidate, same as before.
+  defp filter_by_selector(classes, method, branch) do
+    if AL.Var.var?(method) do
+      classes
+    else
+      Enum.filter(classes, &answers_selector?(&1, method, branch))
+    end
+  end
+
+  defp answers_selector?(class, method, branch) do
+    Enum.any?(super_chain([class], branch, :dfs), &(method_ids(&1, method, branch) != []))
+  end
+
+  # Every class's declared `ivars`, defaulting to `[]` for classes that never
+  # recorded any (e.g. `allocate_class` is the only `:allocate` that writes this
+  # slot at all — see the `empty_set` finding below).
+  defp class_ivars(class, branch) do
+    case AL.Object.read_slots(class, branch) do
+      [{:slots, ^class, %{ivars: ivars}}] -> ivars
+      _ -> []
+    end
+  end
+
+  # Every class that has `import`ed `:ephemeral` — a flat `:slots` scan, no
+  # `super`-graph traversal at all. `import` (bootstrap.ex) stamps a `:ephemeral`
+  # slot on any importer, valued with a fresh id minted at import time — a real
+  # monotonic ordinal, so sorting by it recovers genuine declaration order
+  # rather than relying on undefined bag-scan order across different classes.
+  defp ephemeral_descendants(branch) do
+    scope = fresh_scope()
+
+    AL.Object.scan_slots(
+      AL.Var.var("ephemeral_scan_class_#{scope}"),
+      AL.Var.var("ephemeral_scan_slots_#{scope}"),
+      branch
+    )
+    |> Enum.flat_map(fn {:slots, class, slots} ->
+      case is_map(slots) and Map.fetch(slots, :ephemeral) do
+        {:ok, id} -> [{class, ephemeral_ordinal(id)}]
+        _ -> []
+      end
+    end)
+    |> Enum.sort_by(fn {_class, ordinal} -> ordinal end)
+    |> Enum.map(fn {class, _ordinal} -> class end)
+  end
+
+  defp ephemeral_ordinal(id),
+    do: id |> Atom.to_string() |> String.trim_leading("#") |> String.to_integer()
 
   defp fresh_cons_cell() do
     scope = fresh_scope()
@@ -1323,12 +1423,18 @@ defmodule AL do
     # `SomeClass` — the same rows an *instance* of `SomeClass` finds via
     # `chain` below (already reached there, since `super_chain` includes its
     # own seeds — no separate prefix needed for that). Prefixing `self` only
-    # when `self` isn't itself a `new(:class, ...)`-made class keeps ordinary
-    # instances (including singletons, with their own directly-defined
-    # methods) working exactly as before, while stopping a class atom used
-    # directly as a receiver from resolving methods that were only ever
-    # meant for its instances, not for itself.
-    if :class in classes do
+    # when `self` isn't itself a meta-level object (a `:class`, `:category`,
+    # or `:behaviour`) keeps ordinary instances (including singletons, with
+    # their own directly-defined methods) working exactly as before, while
+    # stopping a meta-level atom used directly as a receiver from resolving
+    # methods that were only ever meant for its instances/importers, not for
+    # itself. `:category` matters here for the same reason `:class` already
+    # did: a category's methods are meant to be *copied* onto importers by
+    # `import`, not answered by the category object itself — without this,
+    # an unbound-receiver query (e.g. `members(s, elems)` with `s` unbound)
+    # finds the category as a spurious candidate, since it's a durable
+    # object with its own `class` row like any other.
+    if Enum.any?(classes, &(&1 in [:class, :category, :behaviour])) do
       chain
     else
       [self | chain]

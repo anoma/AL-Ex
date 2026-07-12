@@ -3,81 +3,82 @@ defmodule AL.Package.Sets do
 
   defpackage :sets, version: 1, deps: [:bootstrap] do
     # Set
-    new(:class, %{name: :set, super: :ephemeral, ivars: []}, _)
+    new(:class, %{name: :set, super: :object, ivars: []}, _)
 
     new(:category, %{name: :default_set_behaviour}, _)
 
+    defmethod(:default_set_behaviour, :members, [self, elems]) do
+      findall(e, [elem(self, e)], elems)
+    end
+
     # Empty Set
-    new(:object, %{name: :empty_set, super: :set, ivars: []}, _)
-    import(:empty_set, :default_set_behaviour)
+    defclass :empty_set,
+      metaclass: :object,
+      super: :set,
+      categories: [:default_set_behaviour] do
+      defmethod(:insert, [self, x, self]) do
+        elem(self, x)
+      end
 
-    defmethod(:empty_set, :generate_ephemeral, [%{class: :empty_set}]) do
-    end
-
-    defmethod(:empty_set, :insert, [self, x, self]) do
-      elem(self, x)
-    end
-
-    defmethod(:empty_set, :insert, [self, x, new]) do
-      not [elem(self, x)]
-      new(:single, %{elem: x}, new)
+      defmethod(:insert, [self, x, new]) do
+        not [elem(self, x)]
+        new(:single, %{elem: x}, new)
+      end
     end
 
     # Single
-    new(:class, %{name: :single, super: :set, ivars: [:elem]}, _)
-    import(:single, :default_set_behaviour)
+    defclass :single,
+      super: :set,
+      ivars: [:elem],
+      categories: [:default_set_behaviour, :ephemeral] do
+      defmethod(:init, [self, args, new]) do
+        vm_map_get(args, :elem, e)
+        unify(new, %{class: :single, elem: e})
+      end
 
-    defmethod(:single, :init, [self, args, new]) do
-      vm_map_get(args, :elem, e)
-      unify(new, %{class: :single, elem: e})
-    end
+      defmethod(:elem, [self, e]) do
+        vm_map_get(self, :elem, e)
+      end
 
-    defmethod(:single, :generate_ephemeral, [%{class: :single, elem: e}]) do
-    end
+      defmethod(:insert, [self, x, self]) do
+        elem(self, x)
+      end
 
-    defmethod(:single, :elem, [self, e]) do
-      vm_map_get(self, :elem, e)
-    end
-
-    defmethod(:single, :insert, [self, x, self]) do
-      elem(self, x)
-    end
-
-    defmethod(:single, :insert, [self, x, new]) do
-      not [elem(self, x)]
-      new(:single, %{elem: x}, s2)
-      new(:union, %{left: self, right: s2}, new)
+      defmethod(:insert, [self, x, new]) do
+        not [elem(self, x)]
+        new(:single, %{elem: x}, s2)
+        new(:union, %{left: self, right: s2}, new)
+      end
     end
 
     # Union
-    new(:class, %{name: :union, super: :set, ivars: [:left, :right]}, _)
-    import(:union, :default_set_behaviour)
+    defclass :union,
+      super: :set,
+      ivars: [:left, :right],
+      categories: [:default_set_behaviour, :ephemeral] do
+      defmethod(:init, [self, args, new]) do
+        vm_map_get(args, :left, left)
+        vm_map_get(args, :right, right)
 
-    defmethod(:union, :init, [self, args, new]) do
-      vm_map_get(args, :left, left)
-      vm_map_get(args, :right, right)
+        unify(new, %{class: :union, left: left, right: right})
+      end
 
-      unify(new, %{class: :union, left: left, right: right})
-    end
+      defmethod(:elem, [self, e]) do
+        vm_map_get(self, :left, left)
+        vm_map_get(self, :right, right)
 
-    defmethod(:union, :generate_ephemeral, [%{class: :union, left: left, right: right}]) do
-    end
+        alternative([elem(left, e)], [elem(right, e)])
+      end
 
-    defmethod(:union, :elem, [self, e]) do
-      vm_map_get(self, :left, left)
-      vm_map_get(self, :right, right)
+      defmethod(:insert, [self, x, self]) do
+        elem(self, x)
+      end
 
-      alternative([elem(left, e)], [elem(right, e)])
-    end
-
-    defmethod(:union, :insert, [self, x, self]) do
-      elem(self, x)
-    end
-
-    defmethod(:union, :insert, [self, x, new]) do
-      not [elem(self, x)]
-      new(:single, %{elem: x}, s2)
-      new(:union, %{left: self, right: s2}, new)
+      defmethod(:insert, [self, x, new]) do
+        not [elem(self, x)]
+        new(:single, %{elem: x}, s2)
+        new(:union, %{left: self, right: s2}, new)
+      end
     end
   end
 end

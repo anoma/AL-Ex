@@ -65,3 +65,7 @@ end
 defmodule ALCategoriesTest do
   use ExExample.ExUnit, for: Examples.ALCategories
 end
+
+defmodule ALDefclassTest do
+  use ExExample.ExUnit, for: Examples.ALDefclass
+end
