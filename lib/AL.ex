@@ -70,13 +70,8 @@ defmodule AL do
     field(:reductions, non_neg_integer(), default: 0)
   end
 
-  # A generative send (an unbound receiver/selector hypothesising candidates, see
-  # `dispatch/5`) has no termination guarantee — the DFS choicepoint search can
-  # grow forever with no signal. Cap total goal steps per `run`/`next_solution` so
-  # that instead of hanging silently, it aborts with a legible reason. Mirrors
-  # SWI-Prolog's `call_with_inference_limit/3` and the implicit stack-limit
-  # backstop real Prolog systems already rely on for the same class of hazard.
-  @max_reductions 10_000
+  # Stack Limit
+  @max_reductions 5_000
 
   defmacro __using__(_opts) do
     quote do

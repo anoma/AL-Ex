@@ -5,7 +5,20 @@ defmodule AL.Package.Sets do
     # Set
     new(:class, %{name: :set, super: :object, ivars: []}, _)
 
+    # Default set behaviour
     new(:category, %{name: :default_set_behaviour}, _)
+
+    defmethod(:default_set_behaviour, :union, [self, s, u]) do
+      new(:union, %{left: self, right: s}, u)
+    end
+
+    defmethod(:default_set_behaviour, :intersection, [self, s, i]) do
+      findall(e, [elem(self, e), elem(s, e)], elems)
+      fold_left(elems, :insert, :empty_set, i)
+    end
+
+    # defmethod(:default_set_behaviour, :product, [self, s, p]) do      
+    # end
 
     # Empty Set
     defclass :empty_set,
@@ -21,7 +34,8 @@ defmodule AL.Package.Sets do
         new(:single, %{elem: x}, new)
       end
 
-      defmethod(:members, [self, []]) do end
+      defmethod(:members, [self, []]) do
+      end
     end
 
     # Single
@@ -43,7 +57,8 @@ defmodule AL.Package.Sets do
       end
 
       defmethod(:insert, [self, x, new]) do
-        not [elem(self, x)]
+        not([elem(self, x)])
+        
         new(:single, %{elem: x}, s2)
         new(:union, %{left: self, right: s2}, new)
       end
@@ -62,8 +77,23 @@ defmodule AL.Package.Sets do
         vm_map_get(args, :left, left)
         vm_map_get(args, :right, right)
 
-        unify(new, %{class: :union, left: left, right: right})
+        # canonise(%{class: :union, left: left, right: right}, new)
+        
+        # new(:single, %{elem: rightmost}, r)
+        
+        unify(new, %{class: :union, right: right, left: left})
+        
       end
+
+      # defmethod(:canonise, [self, new]) do
+      #   vm_map_get(args, :left, left)
+      #   vm_map_get(args, :right, right)
+
+      #   members(left, leftmems)
+      #   members(right, rightmems)
+      #   concat(leftmems, rightmems, mems)
+                
+      # end
 
       defmethod(:elem, [self, e]) do
         vm_map_get(self, :left, left)
@@ -77,18 +107,21 @@ defmodule AL.Package.Sets do
       end
 
       defmethod(:insert, [self, x, new]) do
-        not [elem(self, x)]
+        not([elem(self, x)])
+        
         new(:single, %{elem: x}, s2)
         new(:union, %{left: self, right: s2}, new)
       end
 
-      defmethod(:members, [self, elems]) do
+      defmethod(:members, [self, es]) do
         vm_map_get(self, :left, left)
         vm_map_get(self, :right, right)
 
-        members(left, left_elems)
-        members(right, right_elems)
-        concat(left_elems, right_elems, elems)
+        # members(self, )
+
+        members(left, es_left)
+        members(right, es_right)
+        concat(es_left, es_right, es)
       end
     end
   end

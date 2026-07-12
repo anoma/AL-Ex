@@ -84,6 +84,27 @@ defmodule Examples.ALSets do
     :ok
   end
 
+  # # `insert`'s grow clause resolves `self` bidirectionally: given `x` and the
+  # # already-known result, what could `self` have been? This works because the
+  # # construction goals run *before* the `not [elem(self, x)]` guard — unifying
+  # # the freshly-built `%{class: :union, left: self, right: s2}` against the
+  # # known result pins `self` down via ordinary head unification, so the guard
+  # # runs against an already-concrete `self` instead of a bare unbound var
+  # # (which is what made it unsound before: `elem` on a bare receiver always
+  # # succeeds via generation, so `not[...]` always failed).
+  # example insert_resolves_self_from_a_known_result() do
+  #   {:atomic, {bindings, _}} =
+  #     run branch: :examples do
+  #       new(:single, %{elem: 4}, s1)
+  #       new(:single, %{elem: 7}, s2)
+  #       new(:union, %{left: s1, right: s2}, grown)
+  #       insert(self, 7, grown)
+  #     end
+
+  #   assert Map.get(bindings, :"$self") == %{class: :single, elem: 4}
+  #   :ok
+  # end
+
   # `union` no longer rejects overlapping operands at construction time — the
   # check couldn't tell "genuinely overlapping" apart from "operand isn't
   # grounded yet" (see `elem`'s membership check being a generator itself),
@@ -164,6 +185,105 @@ defmodule Examples.ALSets do
     {:atomic, {b2, _}} = next_solution(state)
     assert Map.get(b2, :"$e").class == :union
 
+    :ok
+  end
+
+  example members_of_empty_set_is_empty_list() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        members(:empty_set, elems)
+      end
+
+    assert Map.get(bindings, :"$elems") == []
+    :ok
+  end
+
+  example members_of_single_is_one_element_list() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:single, %{elem: 4}, s)
+        members(s, elems)
+      end
+
+    assert Map.get(bindings, :"$elems") == [4]
+    :ok
+  end
+
+  # `members` is deliberately a one-direction `findall` over `elem`, not a
+  # structural walk — `elem`'s own recursion (`alternative` over left/right)
+  # already correctly reaches every leaf at any depth, so `findall` collecting
+  # over it is correct at any nesting, with no risk of dropping an element the
+  # way a hand-rolled structural recursion could get wrong (see the nested
+  # example below, which is exactly the case an earlier structural-recursion
+  # attempt got wrong).
+  example members_of_union_is_both_sides_concatenated() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:single, %{elem: 4}, s1)
+        new(:single, %{elem: 7}, s2)
+        new(:union, %{left: s1, right: s2}, u)
+        members(u, elems)
+      end
+
+    assert Map.get(bindings, :"$elems") == [4, 7]
+    :ok
+  end
+
+  example members_of_a_union_with_a_nested_multi_element_side() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:single, %{elem: 1}, s1)
+        new(:single, %{elem: 2}, s2)
+        new(:union, %{left: s1, right: s2}, nested)
+        new(:single, %{elem: 3}, s3)
+        new(:union, %{left: nested, right: s3}, u)
+        members(u, elems)
+      end
+
+    assert Enum.sort(Map.get(bindings, :"$elems")) == [1, 2, 3]
+    :ok
+  end
+
+  # `members` only supports the direction its `findall` was built for: given a
+  # concrete set, list its elements. Given a *target* member list instead (an
+  # unbound receiver, asking `members` to construct a matching set), it isn't
+  # supported — `self` still has to be hypothesised through the same ephemeral
+  # generation `elem` uses, and nothing in `members`'s `findall` bounds that
+  # search by the list it was handed, so it degrades into the same open-ended
+  # generation `findall` was already unsafe over. Documented as an expected,
+  # legible abort rather than left to fail silently or hang.
+  example members_does_not_support_constructing_a_set_from_a_member_list() do
+    {:aborted, reason} =
+      run branch: :examples do
+        members(_s, [1, 2, 3])
+      end
+
+    assert reason.reason == {:resource_limit_exceeded, 5_000}
+    :ok
+  end
+
+  example intersection_of_overlapping_sets_produces_a_set() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        insert(:empty_set, 3, s)
+        insert(s, 4, s1)
+        insert(s, 5, s2)
+        intersection(s1, s2, i)
+      end
+
+    assert Map.get(bindings, :"$i") == %{class: :single, elem: 3}
+    :ok
+  end
+
+  example intersection_of_disjoint_sets_is_empty_set() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:single, %{elem: 4}, s1)
+        new(:single, %{elem: 7}, s2)
+        intersection(s1, s2, i)
+      end
+
+    assert Map.get(bindings, :"$i") == :empty_set
     :ok
   end
 end
