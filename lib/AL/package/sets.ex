@@ -2,124 +2,67 @@ defmodule AL.Package.Sets do
   use AL.Package
 
   defpackage :sets, version: 1, deps: [:bootstrap] do
-    # Set
-    new(:class, %{name: :set, super: :object, ivars: []}, _)
+    new(:class, %{name: :set, super: :object, ivars: [:elems]}, _)
+    import(:set, :ephemeral)
 
-    # Default set behaviour
-    new(:category, %{name: :default_set_behaviour}, _)
+    defmethod(:set, :init, [self, args, new]) do
+      vm_map_get(args, :elems, es)
 
-    defmethod(:default_set_behaviour, :union, [self, s, u]) do
-      new(:union, %{left: self, right: s}, u)
-    end
+      implies do
+        [vm_ground(es)] ->
+          sort(es, sorted)
+          dedupe(sorted, deduped)
+          unify(new, %{class: :set, elems: deduped})
 
-    defmethod(:default_set_behaviour, :intersection, [self, s, i]) do
-      findall(e, [elem(self, e), elem(s, e)], elems)
-      fold_left(elems, :insert, :empty_set, i)
-    end
-
-    # defmethod(:default_set_behaviour, :product, [self, s, p]) do      
-    # end
-
-    # Empty Set
-    defclass :empty_set,
-      metaclass: :object,
-      super: :set,
-      categories: [:default_set_behaviour] do
-      defmethod(:insert, [self, x, self]) do
-        elem(self, x)
-      end
-
-      defmethod(:insert, [self, x, new]) do
-        not [elem(self, x)]
-        new(:single, %{elem: x}, new)
-      end
-
-      defmethod(:members, [self, []]) do
+        :else ->
+          unify(new, %{class: :set, elems: es})
       end
     end
 
-    # Single
-    defclass :single,
-      super: :set,
-      ivars: [:elem],
-      categories: [:default_set_behaviour, :ephemeral] do
-      defmethod(:init, [self, args, new]) do
-        vm_map_get(args, :elem, e)
-        unify(new, %{class: :single, elem: e})
-      end
-
-      defmethod(:elem, [self, e]) do
-        vm_map_get(self, :elem, e)
-      end
-
-      defmethod(:insert, [self, x, self]) do
-        elem(self, x)
-      end
-
-      defmethod(:insert, [self, x, new]) do
-        not [elem(self, x)]
-
-        new(:single, %{elem: x}, s2)
-        new(:union, %{left: self, right: s2}, new)
-      end
-
-      defmethod(:members, [self, [e]]) do
-        elem(self, e)
-      end
+    defmethod(:set, :elem, [self, e]) do
+      vm_ground(self)
+      vm_map_get(self, :elems, es)
+      member(es, e)
     end
 
-    # Union
-    defclass :union,
-      super: :set,
-      ivars: [:left, :right],
-      categories: [:default_set_behaviour, :ephemeral] do
-      defmethod(:init, [self, args, new]) do
-        vm_map_get(args, :left, left)
-        vm_map_get(args, :right, right)
+    defmethod(:set, :elem, [self, e]) do
+      not [vm_ground(self)]
+      unify(self, %{class: :set, elems: [e]})
+    end
 
-        # canonise(%{class: :union, left: left, right: right}, new)
+    defmethod(:set, :members, [self, list]) do
+      vm_ground(self)
+      vm_map_get(self, :elems, list)
+    end
 
-        unify(new, %{class: :union, right: right, left: left})
-      end
+    defmethod(:set, :members, [self, list]) do
+      not [vm_ground(self)]
+      sort(list, sorted)
+      dedupe(sorted, deduped)
+      unify(self, %{class: :set, elems: deduped})
+    end
 
-      # defmethod(:canonise, [self, new]) do
-      #   vm_map_get(args, :left, left)
-      #   vm_map_get(args, :right, right)
+    defmethod(:set, :insert, [self, x, new]) do
+      vm_map_get(self, :elems, es)
+      sort([x | es], sorted)
+      dedupe(sorted, deduped)
+      unify(new, %{class: :set, elems: deduped})
+    end
 
-      #   members(left, leftmems)
-      #   members(right, rightmems)
-      #   concat(leftmems, rightmems, mems)
+    defmethod(:set, :union, [self, s, new]) do
+      vm_map_get(self, :elems, es1)
+      vm_map_get(s, :elems, es2)
+      concat(es1, es2, raw)
+      sort(raw, sorted)
+      dedupe(sorted, deduped)
+      unify(new, %{class: :set, elems: deduped})
+    end
 
-      # end
-
-      defmethod(:elem, [self, e]) do
-        vm_map_get(self, :left, left)
-        vm_map_get(self, :right, right)
-
-        alternative([elem(left, e)], [elem(right, e)])
-      end
-
-      defmethod(:insert, [self, x, self]) do
-        elem(self, x)
-      end
-
-      defmethod(:insert, [self, x, new]) do
-        not [elem(self, x)]
-
-        new(:single, %{elem: x}, s2)
-        new(:union, %{left: self, right: s2}, new)
-      end
-
-      defmethod(:members, [self, es]) do
-        vm_map_get(self, :left, left)
-        vm_map_get(self, :right, right)
-
-        # members(self, )
-
-        members(left, es_left)
-        members(right, es_right)
-        concat(es_left, es_right, es)
-      end
+    defmethod(:set, :intersection, [self, s, new]) do
+      vm_map_get(self, :elems, es1)
+      vm_map_get(s, :elems, es2)
+      findall(e, [member(es1, e), member(es2, e)], common)
+      unify(new, %{class: :set, elems: common})
     end
   end
 end
