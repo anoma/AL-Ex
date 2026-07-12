@@ -57,6 +57,27 @@ defmodule Examples.ALLists do
     :ok
   end
 
+  example dedupe_removes_adjacent_duplicates() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        dedupe([1, 1, 2, 3, 3, 3, 4], deduped)
+      end
+
+    assert Map.get(bindings, :"$deduped") == [1, 2, 3, 4]
+    :ok
+  end
+
+  example sort_then_dedupe_removes_all_duplicates() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        sort([3, 1, 4, 1, 5, 9, 2, 6], sorted)
+        dedupe(sorted, deduped)
+      end
+
+    assert Map.get(bindings, :"$deduped") == [1, 2, 3, 4, 5, 6, 9]
+    :ok
+  end
+
   example call_lambda_map() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

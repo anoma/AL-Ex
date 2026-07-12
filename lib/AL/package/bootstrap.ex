@@ -363,6 +363,21 @@ defmodule AL.Package.Bootstrap do
       fold_left(list, :sorted_insert, [], sorted)
     end
 
+    defmethod(:list, :dedupe, [[], []]) do
+    end
+
+    defmethod(:list, :dedupe, [[x], [x]]) do
+    end
+
+    defmethod(:list, :dedupe, [[x | [x | rest]], result]) do
+      dedupe([x | rest], result)
+    end
+
+    defmethod(:list, :dedupe, [[x | [y | rest]], [x | result]]) do
+      not [x == y]
+      dedupe([y | rest], result)
+    end
+
     defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
       findall(class, [class(self, class)], immediate_classes)
       reachable_classes(immediate_classes, [], classes)
