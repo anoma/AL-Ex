@@ -1317,7 +1317,22 @@ defmodule AL do
 
   defp method_scopes(self, branch) do
     classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
-    [self | super_chain(classes, branch, dispatch_strategy(classes, branch))]
+    chain = super_chain(classes, branch, dispatch_strategy(classes, branch))
+
+    # `defmethod(SomeClass, sel, ...)` attaches rows keyed on the atom
+    # `SomeClass` — the same rows an *instance* of `SomeClass` finds via
+    # `chain` below (already reached there, since `super_chain` includes its
+    # own seeds — no separate prefix needed for that). Prefixing `self` only
+    # when `self` isn't itself a `new(:class, ...)`-made class keeps ordinary
+    # instances (including singletons, with their own directly-defined
+    # methods) working exactly as before, while stopping a class atom used
+    # directly as a receiver from resolving methods that were only ever
+    # meant for its instances, not for itself.
+    if :class in classes do
+      chain
+    else
+      [self | chain]
+    end
   end
 
   # The strategy is decided once, from the receiver's own immediate classes — a
@@ -1350,7 +1365,13 @@ defmodule AL do
       collect_edges(rest, branch, seen, edges)
     else
       supers = for {:super, _o, _seq, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
-      collect_edges(supers ++ rest, branch, MapSet.put(seen, class), Map.put(edges, class, supers))
+
+      collect_edges(
+        supers ++ rest,
+        branch,
+        MapSet.put(seen, class),
+        Map.put(edges, class, supers)
+      )
     end
   end
 

@@ -57,3 +57,11 @@ end
 defmodule ALFailuresTest do
   use ExExample.ExUnit, for: Examples.ALFailures
 end
+
+defmodule ALSetsTest do
+  use ExExample.ExUnit, for: Examples.ALSets
+end
+
+defmodule ALCategoriesTest do
+  use ExExample.ExUnit, for: Examples.ALCategories
+end

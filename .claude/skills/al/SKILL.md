@@ -187,6 +187,20 @@ function takes a trailing `branch \\ :main`.
 
 ## Conventions
 
+- **Weigh what a design change forecloses, not just what it enables.** Every
+  mechanism in AL sits at a real tradeoff point, not a strictly-better move — ask
+  what capability is being traded away before adopting a change, not just what it
+  unlocks. Concrete instance: durability-by-default is AL's actual differentiator
+  over Logtalk, but it's *why* ephemeral construction has to exist as a separate,
+  deliberately non-durable path — removing that distinction wouldn't be a
+  simplification, it would silently foreclose either cheap backtracking-driven
+  generation or durability-by-default, not both. Same reasoning applies to
+  `super` vs. flat `import`: `super` is *already* a live, transitive form of
+  import (dispatch re-derives it fresh every call, per
+  [[al-commitment-machine]]) — collapsing to "just import" doesn't eliminate a
+  redundant mechanism, it silently forecloses automatic propagation to classes
+  and methods defined later. When a change looks like a pure win, look for the
+  capability it's quietly giving up.
 - **Examples are the tests.** They live in `lib/examples/e_AL_*.ex` as ExExample
   `example` blocks, wired into `test/al_test.exs` via
   `use ExExample.ExUnit, for: Examples.X`. Run with `mix test`. Examples are

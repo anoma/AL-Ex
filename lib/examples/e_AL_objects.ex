@@ -449,19 +449,22 @@ defmodule Examples.ALObjects do
 
         new(:class, %{name: :mix_super_3, super: :object, ivars: []}, _)
 
-        defmethod(:mix_super_3, :flavour, [self, :lavender]) do end
-        defmethod(:mix_super_2, :flavour, [self, :chocolate]) do end
-        
+        defmethod(:mix_super_3, :flavour, [self, :lavender]) do
+        end
+
+        defmethod(:mix_super_2, :flavour, [self, :chocolate]) do
+        end
+
         new(:class, %{name: :mix_class, super: :mix_super_1, ivars: []}, _)
         vm_set_super(:mix_class, :mix_super_2)
-        
+
         new(:mix_class, %{name: :mix_obj}, _)
 
         flavour(:mix_obj, flavour)
-    end
+      end
 
     assert Map.get(bindings, :"$flavour") == :chocolate
-    
+
     bindings
   end
 
@@ -470,16 +473,47 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-      inheritance_chain(:mix_obj, chain)
-    end
+        inheritance_chain(:mix_obj, chain)
+      end
 
     assert Map.get(bindings, :"$chain") == [
-      :mix_obj,
-      :mix_class,
-      :mix_super_1,
-      :mix_super_2,
-      :mix_super_3,
-      :object
-    ]
+             :mix_obj,
+             :mix_class,
+             :mix_super_1,
+             :mix_super_2,
+             :mix_super_3,
+             :object
+           ]
+  end
+
+  # Regression: `defmethod(SomeClass, sel, ...)` attaches methods meant for
+  # instances of `SomeClass` — sending directly to the class atom itself must
+  # not also resolve them. Otherwise a class atom offered as a receiver (e.g.
+  # via an unbound-receiver query enumerating durable objects, which doesn't
+  # distinguish classes from instances) could be mistaken for a valid instance
+  # of itself.
+  example class_atom_does_not_resolve_its_own_instance_methods() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:class, %{name: :class_scope_probe, super: :object, ivars: []}, _)
+
+        defmethod(:class_scope_probe, :probe, [self, :hit]) do
+        end
+
+        new(:class_scope_probe, _, instance)
+        probe(instance, :hit)
+
+        unify(worked, true)
+      end
+
+    assert Map.get(bindings, :"$worked") == true
+
+    {status, _} =
+      run branch: :examples do
+        probe(:class_scope_probe, :hit)
+      end
+
+    assert status == :aborted
+    :ok
   end
 end

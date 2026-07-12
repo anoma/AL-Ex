@@ -68,7 +68,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:object, :get_slot, [self, key, value]) do
-      not([vm_get_slot(self, key, value)])
+      not [vm_get_slot(self, key, value)]
       inheritance_chain(self, [self | chain])
       member(chain, ancestor)
       vm_get_slot(ancestor, key, value)
@@ -354,6 +354,7 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, ready]) do
       vm_map_get(degrees, c, degree)
+
       implies do
         [unify(degree, 0)] ->
           filter_zero_degree(cs, degrees, ready_rest)
@@ -381,6 +382,7 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(degrees, s, old)
       vm_is(new, old - 1)
       vm_map_put(degrees, s, new, degrees2)
+
       implies do
         [unify(new, 0)] ->
           decrement_ready(ss, degrees2, degrees_out, ready_rest)
@@ -391,5 +393,14 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
+    new(:class, %{name: :category, super: :object, ivars: []}, _)
+
+    defmethod(:object, :import, [self, category]) do
+      findall([name, id], [vm_method(category, name, id)], pairs)
+
+      forall([member(pairs, [name, id])]) do
+        vm_set_method(self, name, id)
+      end
+    end
   end
 end
