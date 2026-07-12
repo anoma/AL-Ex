@@ -47,6 +47,16 @@ defmodule Examples.ALLists do
     state
   end
 
+  example sort_sorts_numbers() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        sort([3, 1, 4, 1, 5, 9, 2, 6], sorted)
+      end
+
+    assert Map.get(bindings, :"$sorted") == [1, 1, 2, 3, 4, 5, 6, 9]
+    :ok
+  end
+
   example call_lambda_map() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

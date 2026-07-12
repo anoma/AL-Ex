@@ -57,8 +57,8 @@ defmodule AL.Package.Sets do
       end
 
       defmethod(:insert, [self, x, new]) do
-        not([elem(self, x)])
-        
+        not [elem(self, x)]
+
         new(:single, %{elem: x}, s2)
         new(:union, %{left: self, right: s2}, new)
       end
@@ -78,11 +78,8 @@ defmodule AL.Package.Sets do
         vm_map_get(args, :right, right)
 
         # canonise(%{class: :union, left: left, right: right}, new)
-        
-        # new(:single, %{elem: rightmost}, r)
-        
+
         unify(new, %{class: :union, right: right, left: left})
-        
       end
 
       # defmethod(:canonise, [self, new]) do
@@ -92,7 +89,7 @@ defmodule AL.Package.Sets do
       #   members(left, leftmems)
       #   members(right, rightmems)
       #   concat(leftmems, rightmems, mems)
-                
+
       # end
 
       defmethod(:elem, [self, e]) do
@@ -107,8 +104,8 @@ defmodule AL.Package.Sets do
       end
 
       defmethod(:insert, [self, x, new]) do
-        not([elem(self, x)])
-        
+        not [elem(self, x)]
+
         new(:single, %{elem: x}, s2)
         new(:union, %{left: self, right: s2}, new)
       end

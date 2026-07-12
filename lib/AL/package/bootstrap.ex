@@ -347,6 +347,22 @@ defmodule AL.Package.Bootstrap do
       same_length(ft, st)
     end
 
+    defmethod(:list, :sorted_insert, [[], x, [x]]) do
+    end
+
+    defmethod(:list, :sorted_insert, [[h | t], x, [x | [h | t]]]) do
+      x <= h
+    end
+
+    defmethod(:list, :sorted_insert, [[h | t], x, [h | rest]]) do
+      x > h
+      sorted_insert(t, x, rest)
+    end
+
+    defmethod(:list, :sort, [list, sorted]) do
+      fold_left(list, :sorted_insert, [], sorted)
+    end
+
     defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
       findall(class, [class(self, class)], immediate_classes)
       reachable_classes(immediate_classes, [], classes)
