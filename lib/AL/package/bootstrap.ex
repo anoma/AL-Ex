@@ -240,6 +240,13 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :tl, [[_h | t], t]) do
     end
 
+    defmethod(:list, :length, [[], 0]) do end
+    
+    defmethod(:list, :length, [[_h | t], n]) do
+      length(t, n1)
+      vm_is(n, n1 + 1)
+    end
+    
     defmethod(:list, :at, [xs, n, x]) do
       at(xs, n, 0, x)
     end

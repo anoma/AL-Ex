@@ -76,7 +76,7 @@ defmodule AL do
   # that instead of hanging silently, it aborts with a legible reason. Mirrors
   # SWI-Prolog's `call_with_inference_limit/3` and the implicit stack-limit
   # backstop real Prolog systems already rely on for the same class of hazard.
-  @max_reductions 5_000
+  @max_reductions 10_000
 
   defmacro __using__(_opts) do
     quote do
@@ -992,42 +992,52 @@ defmodule AL do
   end
 
   def interp(%Goal.Forall{condition: condition, body: body}, state) do
-    solutions =
-      collect_all_solutions(
-        condition,
-        state.active_choicepoint.bindings,
-        state.tx_id,
-        state.branch
-      )
+    case collect_all_solutions(
+           condition,
+           state.active_choicepoint.bindings,
+           state.tx_id,
+           state.branch
+         ) do
+      {:ok, solutions} ->
+        body_goals =
+          Enum.flat_map(solutions, fn bindings ->
+            freshener = Integer.to_string(fresh_scope())
 
-    body_goals =
-      Enum.flat_map(solutions, fn bindings ->
-        freshener = Integer.to_string(fresh_scope())
+            Enum.map(body, fn goal ->
+              goal |> AL.Var.subst(bindings) |> AL.Var.freshen(freshener)
+            end)
+          end)
 
-        Enum.map(body, fn goal ->
-          goal |> AL.Var.subst(bindings) |> AL.Var.freshen(freshener)
-        end)
-      end)
+        spliced = splice_goals(state, body_goals)
 
-    spliced = splice_goals(state, body_goals)
-    %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}}
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}
+        }
+
+      :resource_limit_exceeded ->
+        resource_limit_abort(state)
+    end
   end
 
   def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
-    solutions =
-      collect_all_solutions(
-        condition,
-        state.active_choicepoint.bindings,
-        state.tx_id,
-        state.branch
-      )
+    case collect_all_solutions(
+           condition,
+           state.active_choicepoint.bindings,
+           state.tx_id,
+           state.branch
+         ) do
+      {:ok, solutions} ->
+        collected =
+          Enum.map(solutions, fn bindings ->
+            template |> AL.Var.subst(bindings) |> standardize_apart()
+          end)
 
-    collected =
-      Enum.map(solutions, fn bindings ->
-        template |> AL.Var.subst(bindings) |> standardize_apart()
-      end)
+        put_bindings(state, AL.Var.unify(result, collected, bindings(state)))
 
-    put_bindings(state, AL.Var.unify(result, collected, bindings(state)))
+      :resource_limit_exceeded ->
+        resource_limit_abort(state)
+    end
   end
 
   def interp(%Goal.Call{head: head, body: body, args: args}, state) do
@@ -1104,8 +1114,9 @@ defmodule AL do
            state.tx_id,
            state.branch
          ) do
-      [] -> state
-      _ -> backtrack(state)
+      {:ok, []} -> state
+      {:ok, _} -> backtrack(state)
+      :resource_limit_exceeded -> resource_limit_abort(state)
     end
   end
 
@@ -1602,17 +1613,49 @@ defmodule AL do
     do_collect(continue(initial), [])
   end
 
+  # `bindings == nil` means "no more solutions from here" for two genuinely
+  # different reasons that used to be indistinguishable: the search space is
+  # truly exhausted, or this sub-search's own (independent) reduction budget
+  # ran out mid-search — e.g. an open-ended generative goal (`elem(x, e)` with
+  # `x` unbound) inside a `findall`/`not`, which can legitimately have no
+  # natural end. Silently treating the latter as the former made `findall`
+  # return a partial list indistinguishable from a complete one — arbitrary
+  # (however many solutions fit in the reduction budget before it was cut off,
+  # not a real count) and unsignalled. `resource_limited?/1` reads the same
+  # diagnostic `record_resource_limit` stamps on the ceiling hit, which is
+  # guaranteed to be the freshest entry (that ceiling check is the first thing
+  # `continue/1` does, before any other diagnostic could be added).
   defp do_collect(state, acc) do
-    if state.active_choicepoint.bindings == nil do
-      Enum.reverse(acc)
-    else
-      new_acc = [state.active_choicepoint.bindings | acc]
+    cond do
+      state.active_choicepoint.bindings != nil ->
+        new_acc = [state.active_choicepoint.bindings | acc]
 
-      case state.choicepoint_stack do
-        [] -> Enum.reverse(new_acc)
-        _ -> do_collect(backtrack(state), new_acc)
-      end
+        case state.choicepoint_stack do
+          [] -> {:ok, Enum.reverse(new_acc)}
+          _ -> do_collect(backtrack(state), new_acc)
+        end
+
+      resource_limited?(state) ->
+        :resource_limit_exceeded
+
+      true ->
+        {:ok, Enum.reverse(acc)}
     end
+  end
+
+  defp resource_limited?(state),
+    do: match?([{:resource_limit_exceeded, _} | _], state.diagnostics)
+
+  # Mirrors the top-level ceiling hit in `continue/1`: stamp the diagnostic on
+  # the *outer* state and mark its active choicepoint exhausted, so ordinary
+  # backtracking takes over — other outer alternatives still get a chance, but
+  # if none exist, `eval` aborts with the same legible resource-limit reason
+  # the top-level ceiling produces, instead of a silent partial result.
+  defp resource_limit_abort(state) do
+    %AL{
+      record_resource_limit(state)
+      | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: nil}
+    }
   end
 
   # A legible failure reason: an unhandled `does_not_understand` wins, else the last

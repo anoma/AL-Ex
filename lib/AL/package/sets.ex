@@ -7,10 +7,6 @@ defmodule AL.Package.Sets do
 
     new(:category, %{name: :default_set_behaviour}, _)
 
-    defmethod(:default_set_behaviour, :members, [self, elems]) do
-      findall(e, [elem(self, e)], elems)
-    end
-
     # Empty Set
     defclass :empty_set,
       metaclass: :object,
@@ -24,6 +20,8 @@ defmodule AL.Package.Sets do
         not [elem(self, x)]
         new(:single, %{elem: x}, new)
       end
+
+      defmethod(:members, [self, []]) do end
     end
 
     # Single
@@ -48,6 +46,10 @@ defmodule AL.Package.Sets do
         not [elem(self, x)]
         new(:single, %{elem: x}, s2)
         new(:union, %{left: self, right: s2}, new)
+      end
+
+      defmethod(:members, [self, [e]]) do
+        elem(self, e)
       end
     end
 
@@ -78,6 +80,15 @@ defmodule AL.Package.Sets do
         not [elem(self, x)]
         new(:single, %{elem: x}, s2)
         new(:union, %{left: self, right: s2}, new)
+      end
+
+      defmethod(:members, [self, elems]) do
+        vm_map_get(self, :left, left)
+        vm_map_get(self, :right, right)
+
+        members(left, left_elems)
+        members(right, right_elems)
+        concat(left_elems, right_elems, elems)
       end
     end
   end
