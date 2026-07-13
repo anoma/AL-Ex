@@ -43,6 +43,7 @@ defmodule AL.Branch do
 
     for branch <- [main() | list()] do
       AL.Object.create_tables(branch)
+      AL.ResolutionCache.create_tables(branch)
       AL.Object.hydrate_since(0, branch)
     end
 
@@ -76,6 +77,7 @@ defmodule AL.Branch do
     AL.Command.create_tables(branch)
     AL.Command.copy_prefix(from, branch, at_time(from, at))
     AL.Object.create_tables(branch)
+    AL.ResolutionCache.create_tables(branch)
     AL.Object.hydrate_since(0, branch)
     register(branch, from)
     AL.Scheduler.start(branch)
@@ -89,6 +91,7 @@ defmodule AL.Branch do
     if stored_head() == branch, do: set_head(main())
     AL.Scheduler.stop(branch)
     AL.Object.drop_tables(branch)
+    AL.ResolutionCache.drop_tables(branch)
     AL.Command.drop_tables(branch)
     :ok
   end

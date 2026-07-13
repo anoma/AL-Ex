@@ -5,7 +5,6 @@ defmodule Examples.ALNinetyNine do
 
   use ExExample
   use AL
-  import ExUnit.Assertions
 
   example problem_01() do
     {:atomic, {_bindings, result}} =

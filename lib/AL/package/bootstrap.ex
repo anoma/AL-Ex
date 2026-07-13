@@ -170,7 +170,6 @@ defmodule AL.Package.Bootstrap do
     end
 
     vm_set_super(:map, :object)
-    import(:map, :ephemeral)
 
     # `defclass name, metaclass: :class, super: ..., ivars: [...],
     # categories: [...] do ... end` — bundles the `new(metaclass, ...)` +
@@ -231,8 +230,7 @@ defmodule AL.Package.Bootstrap do
       set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
     end
 
-    new(:class, %{name: :list, super: :object}, _)
-    import(:list, :ephemeral)
+    new(:class, %{name: :list, super: :object, ivars: []}, _)
 
     defmethod(:list, :hd, [[h | _t], h]) do
     end
@@ -240,11 +238,27 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :tl, [[_h | t], t]) do
     end
 
-    defmethod(:list, :length, [[], 0]) do
+    defmethod(:list, :length, [self, n]) do
+      implies do
+        [vm_ground(n)] -> length_of_size(self, n)
+        :else -> length_count(self, n)
+      end
     end
 
-    defmethod(:list, :length, [[_h | t], n]) do
-      length(t, n1)
+    defmethod(:list, :length_of_size, [[], 0]) do
+    end
+
+    defmethod(:list, :length_of_size, [[_h | t], n]) do
+      n > 0
+      vm_is(n1, n - 1)
+      length_of_size(t, n1)
+    end
+
+    defmethod(:list, :length_count, [[], 0]) do
+    end
+
+    defmethod(:list, :length_count, [[_h | t], n]) do
+      length_count(t, n1)
       vm_is(n, n1 + 1)
     end
 
@@ -291,6 +305,8 @@ defmodule AL.Package.Bootstrap do
       reverse(xs, sx)
       hd(sx, last)
     end
+
+    import(:map, :ephemeral)
 
     defmethod(:list, :map, [[], _func, []]) do
     end

@@ -8,7 +8,7 @@ AL is a live, ACID, (eventually) bitemporal, relational-object operating system 
 
 - Git
 
-- PROLOG
+- PROLOG/Logtalk
 
 - LISP
 
@@ -22,8 +22,7 @@ This runtime is the first version of AL, written in Elixir. The irony of the fir
 
 ## Features
 
-- Live Smalltalk-style objects, defined relationally. No more faux-ADTs. Define protocols and their implementations. Mix and match at your leisure.
-- Bidirectional Execution thanks to WAM semantics.
+- Live Smalltalk-style objects, defined relationally. No more faux-ADTs. Define protocols and their implementations. Mix and match at your leisure. With bidirectional method resolution informed by WAM semantics.
 - Shutdown your system, continue later. All transactions are backed up by an on-disk database, hydrated at startup.
 - ACID transactions ensure your work is safe and easy to reason about.
 - Constraint Processing
@@ -46,7 +45,7 @@ From IEx, you can run `require AL`.
 
 Tips:
 
-- Use `examine(:my_object_id_here, info)` in order to get quick information about an object via its ID, such as its class(es!), superclass(es!), methods, and in the case of method objects, relevant clauses.
+- Use `examine(:my_object_id_here, info)` in order to get quick information about an object via its ID, such as its class(es!), superclass(es!), methods, and in the case of methods, relevant clauses.
 
 ## Installing into Glamorous Toolkit
 

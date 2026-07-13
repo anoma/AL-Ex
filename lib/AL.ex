@@ -71,7 +71,7 @@ defmodule AL do
   end
 
   # Stack Limit
-  @max_reductions 5_000
+  @max_reductions 200_000
 
   defmacro __using__(_opts) do
     quote do
@@ -706,7 +706,7 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
+    case cached_scan_clauses(method_id_pattern, state.branch) do
       [] ->
         backtrack(state)
 
@@ -1172,7 +1172,6 @@ defmodule AL do
   defp dispatch(self, method, args, state, on_miss) do
     cond do
       AL.Var.var?(self) and self != :"$_" ->
-        class_var = AL.Var.var("send_receiver_class_#{fresh_scope()}")
         requery = splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         ephemeral_classes =
@@ -1180,14 +1179,14 @@ defmodule AL do
           |> ephemeral_descendants()
           |> filter_by_selector(method, state.branch)
 
+        durable_objects = durable_candidates(state.branch, method)
+
         state
-        |> splice_into([
-          %Goal.GetClass{object: self, class: class_var},
-          %Goal.SendQuery{object: self, method: method, args: args}
-        ])
+        |> splice_into([%Goal.Fail{}])
         |> push_choicepoint(structural_candidate(state, requery, self, fresh_cons_cell()))
         |> push_choicepoint(structural_candidate(state, requery, self, []))
         |> push_ephemeral_candidates(state, self, method, args, ephemeral_classes)
+        |> push_durable_candidates(state, requery, self, durable_objects)
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -1253,6 +1252,43 @@ defmodule AL do
     %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
 
+  # Durable objects as candidates, selector-filtered like ephemeral candidates —
+  # replaces the old unconditional `GetClass` enumeration (every object, rejected
+  # one dispatch attempt at a time).
+  defp push_durable_candidates(state, orig_state, requery, self, objects) do
+    Enum.reduce(objects, state, fn object, acc ->
+      push_choicepoint(acc, structural_candidate(orig_state, requery, self, object))
+    end)
+  end
+
+  defp durable_candidates(branch, method) do
+    branch
+    |> durable_classes()
+    |> Enum.filter(fn {_object, classes} ->
+      AL.Var.var?(method) or Enum.any?(classes, &answers_selector?(&1, method, branch))
+    end)
+    |> Enum.map(fn {object, _classes} -> object end)
+  end
+
+  # Every {object, classes} pair with a durable class row. Unbound self/class scan
+  # (no key to bind), so cached per branch rather than rescanned per dispatch.
+  defp durable_classes(branch) do
+    AL.ResolutionCache.fetch_durable_classes(branch, fn ->
+      scope = fresh_scope()
+
+      AL.Object.scan_class(
+        AL.Var.var("durable_scan_object_#{scope}"),
+        AL.Var.var("durable_scan_class_#{scope}"),
+        branch
+      )
+      |> Enum.group_by(
+        fn {:class, object, _seq, _class} -> object end,
+        fn {:class, _o, _seq, class} -> class end
+      )
+      |> Map.to_list()
+    end)
+  end
+
   # A ground selector prunes candidates that couldn't possibly answer it before
   # they're even constructed — cheap (reuses ordinary method lookup), and it's
   # what keeps this from paying for every `:ephemeral` descendant that has ever
@@ -1268,7 +1304,9 @@ defmodule AL do
   end
 
   defp answers_selector?(class, method, branch) do
-    Enum.any?(super_chain([class], branch, :dfs), &(method_ids(&1, method, branch) != []))
+    AL.ResolutionCache.fetch_providers(branch, {:answers, class, method}, fn ->
+      Enum.any?(super_chain([class], branch, :dfs), &(method_ids(&1, method, branch) != []))
+    end)
   end
 
   # Every class's declared `ivars`, defaulting to `[]` for classes that never
@@ -1287,21 +1325,23 @@ defmodule AL do
   # monotonic ordinal, so sorting by it recovers genuine declaration order
   # rather than relying on undefined bag-scan order across different classes.
   defp ephemeral_descendants(branch) do
-    scope = fresh_scope()
+    AL.ResolutionCache.fetch_ephemeral_descendants(branch, fn ->
+      scope = fresh_scope()
 
-    AL.Object.scan_slots(
-      AL.Var.var("ephemeral_scan_class_#{scope}"),
-      AL.Var.var("ephemeral_scan_slots_#{scope}"),
-      branch
-    )
-    |> Enum.flat_map(fn {:slots, class, slots} ->
-      case is_map(slots) and Map.fetch(slots, :ephemeral) do
-        {:ok, id} -> [{class, ephemeral_ordinal(id)}]
-        _ -> []
-      end
+      AL.Object.scan_slots(
+        AL.Var.var("ephemeral_scan_class_#{scope}"),
+        AL.Var.var("ephemeral_scan_slots_#{scope}"),
+        branch
+      )
+      |> Enum.flat_map(fn {:slots, class, slots} ->
+        case is_map(slots) and Map.fetch(slots, :ephemeral) do
+          {:ok, id} -> [{class, ephemeral_ordinal(id)}]
+          _ -> []
+        end
+      end)
+      |> Enum.sort_by(fn {_class, ordinal} -> ordinal end)
+      |> Enum.map(fn {class, _ordinal} -> class end)
     end)
-    |> Enum.sort_by(fn {_class, ordinal} -> ordinal end)
-    |> Enum.map(fn {class, _ordinal} -> class end)
   end
 
   defp ephemeral_ordinal(id),
@@ -1393,13 +1433,22 @@ defmodule AL do
   end
 
   # Ordered resolution view: every `{scope, id}` answering `selector` across `self`'s
-  # scopes. `send` takes the head, `call_next_method` walks the tail. The one seam all
-  # resolution reads through — where a cached view would slot in.
+  # scopes. `send` takes the head, `call_next_method` the tail. Cache key uses
+  # `resolution_key`, not raw `self` — `method_scopes` only depends on self's class
+  # (or `:list`), not the rest of a map/object's content.
   defp providers(self, selector, branch) do
-    for scope <- method_scopes(self, branch),
-        id <- method_ids(scope, selector, branch),
-        do: {scope, id}
+    key = {resolution_key(self), selector}
+
+    AL.ResolutionCache.fetch_providers(branch, key, fn ->
+      for scope <- method_scopes(self, branch),
+          id <- method_ids(scope, selector, branch),
+          do: {scope, id}
+    end)
   end
+
+  defp resolution_key(self) when is_list(self), do: :list
+  defp resolution_key(self) when is_map(self), do: Map.get(self, :class, :map)
+  defp resolution_key(self), do: self
 
   defp dnu(_self, :does_not_understand, _args, state), do: backtrack(state)
 
@@ -1452,21 +1501,6 @@ defmodule AL do
     classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
     chain = super_chain(classes, branch, dispatch_strategy(classes, branch))
 
-    # `defmethod(SomeClass, sel, ...)` attaches rows keyed on the atom
-    # `SomeClass` — the same rows an *instance* of `SomeClass` finds via
-    # `chain` below (already reached there, since `super_chain` includes its
-    # own seeds — no separate prefix needed for that). Prefixing `self` only
-    # when `self` isn't itself a meta-level object (a `:class`, `:category`,
-    # or `:behaviour`) keeps ordinary instances (including singletons, with
-    # their own directly-defined methods) working exactly as before, while
-    # stopping a meta-level atom used directly as a receiver from resolving
-    # methods that were only ever meant for its instances/importers, not for
-    # itself. `:category` matters here for the same reason `:class` already
-    # did: a category's methods are meant to be *copied* onto importers by
-    # `import`, not answered by the category object itself — without this,
-    # an unbound-receiver query (e.g. `members(s, elems)` with `s` unbound)
-    # finds the category as a spurious candidate, since it's a durable
-    # object with its own `class` row like any other.
     if Enum.any?(classes, &(&1 in [:class, :category, :behaviour])) do
       chain
     else
@@ -1578,6 +1612,20 @@ defmodule AL do
   defp scan_clauses(object, seq, head, body, branch) do
     AL.Object.scan_oapply(object, seq, head, body, branch)
     |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
+  end
+
+  # `oapply`'s own dispatch always asks the same question — every clause for a
+  # ground method_id — so it's cacheable the same way providers/3 is. A var
+  # method_id (an open query over clauses) isn't a stable cache key, so that
+  # case skips the cache entirely.
+  defp cached_scan_clauses(method_id_pattern, branch) do
+    if AL.Var.var?(method_id_pattern) do
+      scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", branch)
+    else
+      AL.ResolutionCache.fetch_oapply_clauses(branch, method_id_pattern, fn ->
+        scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", branch)
+      end)
+    end
   end
 
   # Vars a `run` reports. `findall`/`not`/`forall` are local scopes: only a

@@ -42,6 +42,12 @@ defmodule Bench.LengthGenerate do
   end
 end
 
+# `mix run` starts `GtBridge.Xref`'s background `.beam`-indexing task fresh
+# every invocation; if it's still running, it contends for scheduler time and
+# pollutes both wall-clock and eprof numbers with unrelated xref/beam_lib
+# activity. Wait it out before timing anything.
+GtBridge.Xref.wait_until_ready()
+
 case System.argv() do
   ["--profile", n] ->
     n = String.to_integer(n)
@@ -59,7 +65,7 @@ case System.argv() do
     :eprof.stop()
 
   _ ->
-    for n <- [5, 15, 30, 45, 60] do
+    for n <- [4000, 8000, 12000, 16000, 20000] do
       {time_us, result} = Bench.LengthGenerate.run_one(n)
 
       status =
@@ -69,5 +75,7 @@ case System.argv() do
         end
 
       IO.puts("n=#{n}\t#{Float.round(time_us / 1000, 2)}ms\t#{status}")
+
+      
     end
 end

@@ -20,9 +20,10 @@ defmodule AL.Var do
 
   @spec var?(term()) :: boolean()
   def var?(x) when is_atom(x) do
-    x
-    |> Atom.to_string()
-    |> String.starts_with?("$")
+    case Atom.to_string(x) do
+      <<"$", _::binary>> -> true
+      _ -> false
+    end
   end
 
   def var?(_x) do

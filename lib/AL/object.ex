@@ -122,11 +122,14 @@ defmodule AL.Object do
   @spec retract_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_class(object_pattern, class_pattern, branch \\ AL.Branch.head()) do
     delete_all(:class, scan_class(object_pattern, class_pattern, branch), branch)
+    AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
   @spec retract_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_super(object_pattern, super_pattern, branch \\ AL.Branch.head()) do
     delete_all(:super, scan_super(object_pattern, super_pattern, branch), branch)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
@@ -141,15 +144,18 @@ defmodule AL.Object do
       scan_method(object_pattern, method_name_pattern, method_id_pattern, branch),
       branch
     )
+
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   @spec retract_oapply(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_oapply(object_pattern, head_pattern, branch \\ AL.Branch.head()) do
-    delete_all(
-      :oapply,
-      scan_oapply(object_pattern, :"$seq", head_pattern, :"$body", branch),
-      branch
-    )
+    rows = scan_oapply(object_pattern, :"$seq", head_pattern, :"$body", branch)
+    delete_all(:oapply, rows, branch)
+
+    for {:oapply, object, _seq, _head, _body} <- Enum.uniq_by(rows, &elem(&1, 1)) do
+      AL.ResolutionCache.invalidate_oapply_clauses(branch, object)
+    end
   end
 
   defp delete_all(relation, records, branch) do
@@ -171,32 +177,42 @@ defmodule AL.Object do
       _ ->
         :mnesia.delete(table(:slots, branch), object, :write)
     end
+
+    AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   def retract_slots(object, _slots, branch) do
     :mnesia.delete(table(:slots, branch), object, :write)
+    AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   @spec set_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_class(object, class, branch \\ AL.Branch.head()) do
     seq = next_class_seq(object, branch)
     :mnesia.write(table(:class, branch), {:class, object, seq, class}, :write)
+    AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
   @spec set_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_super(object, super, branch \\ AL.Branch.head()) do
     seq = next_super_seq(object, branch)
     :mnesia.write(table(:super, branch), {:super, object, seq, super}, :write)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_method(object, method_name, method_id, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:method, branch), {:method, object, method_name, method_id}, :write)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) :: :ok
   def set_oapply(object, seq, head, body, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:oapply, branch), {:oapply, object, seq, head, body}, :write)
+    AL.ResolutionCache.invalidate_oapply_clauses(branch, object)
   end
 
   @doc "The next clause `seq` for `object` — one past its current maximum, 0 if none."
@@ -240,10 +256,14 @@ defmodule AL.Object do
       end
 
     :mnesia.write(table(:slots, branch), {:slots, object, Map.merge(existing, new_slots)}, :write)
+    AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   def set_slots(object, slots, branch) do
     :mnesia.write(table(:slots, branch), {:slots, object, slots}, :write)
+    AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_providers(branch)
   end
 
   @spec hydrate_event(AL.Command.command_op(), tuple(), AL.Branch.t()) :: any()

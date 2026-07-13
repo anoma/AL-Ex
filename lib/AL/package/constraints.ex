@@ -10,6 +10,8 @@ defmodule AL.Package.Constraints do
       set_slots(self, %{name: self, subscribers: [], value: :absent})
     end
 
+    # If no value set yet, can set value
+    # TODO make a type of cell and propagator that can support sets. Suggesion: Take input cells combinations and determine all possible output cell combinations from this using the propagator constraint fn. Initialise cell with domain.
     defmethod(:cell, :constrain, [self, value]) do
       get_slot(self, :value, :absent)
       set_slot(self, :value, value)

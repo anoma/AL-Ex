@@ -106,10 +106,18 @@ how far to reach:
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
 3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
    `on_miss = backtrack`):
-   - **var receiver** (not `:"$_"`) → query over objects: splice
-     `[{:get_class, self, _}, {:send_query, …}]`; `get_class` enumerates every
-     object with a class row (choicepoints), each grounded receiver re-dispatched
-     as a query.
+   - **var receiver** (not `:"$_"`) → generative dispatch over four candidate
+     kinds, each pushed as a choicepoint (current frame `Fail`s to force entry,
+     LIFO try order): durable objects (`durable_candidates`, filtered by
+     `answers_selector?` — not an unconditional class-table scan) → ephemeral
+     classes (`ephemeral_descendants`, also selector-filtered; `new`-based
+     construction for classes with declared ivars, e.g. `single`/`union`/`set`)
+     → structural cons cell → structural `[]` (lists only — direct `unify`, no
+     dispatch round-trip, cheaper than the generic ephemeral path; `:list`
+     itself is *not* an ephemeral descendant). `AL.ResolutionCache` (per-branch,
+     flush-on-write ETS tables) memoizes `providers/3`, `ephemeral_descendants/1`,
+     `durable_classes/1`, and `answers_selector?` — all pure functions of durable
+     state otherwise re-derived on every open dispatch.
    - **var selector** (not `:"$_"`) → query over the receiver's methods:
      `understood_method_names` walks `self` then its class/super chain (deduped); a
      choicepoint per name binds `sel`, then re-dispatches. Arg shape decides which
@@ -117,13 +125,18 @@ how far to reach:
    - **both ground** → `do_send`. (Both var: receiver query grounds the object
      first, then the spliced `send_query` re-enters dispatch for the selector.)
 4. **`do_send`** with `call_args = [self | args]`:
-   - `resolve_method_id`: map receiver → `:class` key (default `:map`) chain; list
-     → `:list`; atom → methods on it, else up its classes and their supers. **First
-     match wins** — no backtracking over candidates here (the query modes add that).
-   - no id → `on_miss`.
-   - id → `has_matching_clause?`: primitives `is/map_get/map_put/gensym/fresh_id`
+   - `providers/3`: ordered `{scope, id}` pairs from `method_scopes` (map receiver
+     → its `:class` key chain, default `:map`; list → `:list`; atom → itself then
+     its classes/supers) crossed with `method_ids` per scope, cached per
+     `(self's resolution key, selector, branch)`. `run_providers` tries them in
+     order — **first clause match wins**, stashing the rest as a
+     `call_next_method` cursor (no backtracking over candidates here — the query
+     modes add that).
+   - no candidates → `on_miss`.
+   - candidate → `has_matching_clause?`: primitives `is/map_get/map_put/gensym/fresh_id`
      are allowlisted (no stored clauses — e.g. `map`'s `:get` → `:map_get`); else a
-     freshened clause head must unify with `call_args`. No clause fits → `on_miss`.
+     freshened clause head must unify with `call_args`. No clause fits → next
+     candidate, or `on_miss` if none left.
    - match → `{:oapply, id, call_args}` (bidirectional; a method's other clauses
      become alternative choicepoints).
 5. **`on_miss`:** directed (`dnu`) re-sends as `does_not_understand(self, [sel,
@@ -134,7 +147,8 @@ how far to reach:
 Edge cases: a query with no candidates fails, never DNUs; only fully-ground sends
 DNU; `:"$_"` in receiver/selector is the match-anything wildcard, not a slot to
 ground (falls to `do_send`, takes the first method — use a real var for a query);
-the receiver query only sees objects with a class row.
+of the four var-receiver candidate kinds, only durable objects require a class
+row — ephemeral/structural candidates are offered regardless.
 
 ## Tables
 
@@ -174,7 +188,11 @@ Lineage (`AL.Branch`, `:main` only):
 `:main` uses base table names; fork `f` uses `@f`-suffixed tables (`class@f`,
 `command@f`, …) created with `record_name:` the base relation, so record tags and
 scan patterns are identical across stores. Almost every `AL.Object`/`AL.Command`
-function takes a trailing `branch \\ :main`.
+function takes a trailing `branch \\ :main`. `AL.ResolutionCache` follows the same
+per-branch naming (`al_providers_cache@f`, …) for its flush-on-write ETS caches
+(`providers/3`, `ephemeral_descendants/1`, `durable_classes/1`,
+`answers_selector?`'s memo) — created/dropped alongside a branch's other tables in
+`AL.Branch.setup/create_fork/discard`, so a fork's cache never leaks into `:main`'s.
 
 ## Adding a goal
 
