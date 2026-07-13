@@ -374,7 +374,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:list, :dedupe, [[x | [y | rest]], [x | result]]) do
-      not [x == y]
+      dif(x, y)
       dedupe([y | rest], result)
     end
 

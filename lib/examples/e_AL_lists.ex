@@ -78,6 +78,25 @@ defmodule Examples.ALLists do
     :ok
   end
 
+  # `dedupe`'s "keep, they differ" clause used to rule out a match with `not
+  # [x == y]`. `==` never binds (an unbound side just fails it), so with two
+  # still-open elements that commits to "distinct" for good, on no evidence.
+  # Forcing `result` to keep both elements (rather than collapsing them via
+  # the adjacent-duplicate clause's own head reuse) routes through exactly
+  # that clause while `x`/`y` are still open; unifying them equal *afterwards*
+  # should still be caught, and only `dif/2` catches it.
+  example dedupe_rejects_elements_that_turn_out_equal() do
+    {:aborted, _} =
+      run branch: :examples do
+        dedupe([x, y], result)
+        unify(result, [x, y])
+        unify(x, 1)
+        unify(y, 1)
+      end
+
+    :ok
+  end
+
   example call_lambda_map() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

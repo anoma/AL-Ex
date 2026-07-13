@@ -240,6 +240,9 @@ defmodule AL do
   def ast_to_pattern({:==, _, [a, b]}),
     do: %Goal.Equal{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
+  def ast_to_pattern({:dif, _, [a, b]}),
+    do: %Goal.Dif{a: ast_to_pattern(a), b: ast_to_pattern(b)}
+
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
     do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
@@ -1077,6 +1080,30 @@ defmodule AL do
       state
     else
       backtrack(state)
+    end
+  end
+
+  # Prolog `dif/2`: disequality that's never satisfied by binding a var (unlike
+  # `\+`/`Not`, which would just commit to whatever's true right now). Already
+  # provably equal/unequal → resolve immediately, no state kept. Otherwise still
+  # undetermined (either side has vars) → park it on every var either side
+  # mentions; `AL.Var.bind/3` rechecks it each time one of those vars is bound,
+  # so this constraint survives exactly as long as its choicepoint does, backtracked
+  # away the same way an ordinary binding is.
+  def interp(%Goal.Dif{a: a, b: b}, state) do
+    bindings = bindings(state)
+    a1 = AL.Var.subst(a, bindings)
+    b1 = AL.Var.subst(b, bindings)
+
+    cond do
+      a1 == b1 ->
+        backtrack(state)
+
+      MapSet.size(AL.Var.find_vars(a1)) == 0 and MapSet.size(AL.Var.find_vars(b1)) == 0 ->
+        state
+
+      true ->
+        put_bindings(state, AL.Var.add_dif(bindings, a1, b1))
     end
   end
 

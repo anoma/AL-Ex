@@ -245,21 +245,20 @@ function takes a trailing `branch \\ :main`.
   carry meaning. Comment only a non-obvious *why*. Keep docstrings terse.
 - Mnesia artifacts (`.mnesiastore/`, root `MnesiaCore.*`) are gitignored — never
   commit them.
-- **Don't `rm -rf .mnesiastore` to pick up a changed definition** — the log is
-  authoritative append-only history. When a source change to a package/method
-  isn't reflected (old definition already installed), test in a **throwaway fork**
-  (`AL.Branch.fork` … `discard`) and patch at runtime. Caveat: `defmethod`
-  *accretes* a clause rather than replacing, so to swap a buggy clause you must
-  retract the old oapply or `uninstall` + reinstall — doing it in a fork you then
-  discard keeps `:main` untouched.
-- **Exception — a VM-level change to the goal encoding justifies a hard wipe.**
-  Changing how a `goal()` is *represented* (tuple shape/arity, a new sentinel like
-  `:next`, a reordered field) leaves goals in method bodies and the log in the
-  **old shape**, which `interp/2` can no longer replay — the store can't rehydrate
-  at all. Rather than carry permanent legacy `interp` clauses, `rm -rf
-  .mnesiastore/` and let boot reinstall packages under the new encoding. (Tell:
-  boot/replay crashes with a `function_clause` on an `interp({:set_oapply, …})`-style
-  goal of the wrong arity.)
+- **`rm -rf .mnesiastore` to pick up a changed definition is fine.** Package
+  install is idempotent by name only, so editing an already-installed package's
+  source (e.g. `bootstrap.ex`) has no effect until it's reinstalled — and
+  `defmethod` *accretes* a clause rather than replacing, so a buggy clause needs
+  an explicit retract or `uninstall` + reinstall otherwise. Wiping the store is
+  the simplest way to force that: it's gitignored/disposable, and boot
+  reinstalls every package fresh from current source. A **VM-level change to
+  the goal encoding** (tuple shape/arity, a new sentinel like `:next`, a
+  reordered field) makes a wipe *necessary* rather than just convenient —
+  old-shape goals already in the log can no longer replay (`interp/2` crashes
+  with a `function_clause` on an `interp({:set_oapply, …})`-style goal of the
+  wrong arity).
+- Prefer a **throwaway fork** (`AL.Branch.fork` … `discard`) instead when you
+  want to verify a fix without disturbing other branches'/forks' state.
 
 ## Roadmap context
 

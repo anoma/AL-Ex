@@ -129,10 +129,61 @@ defmodule AL.Var do
 
   # Bind `var` to `term`, refusing (returning nil, i.e. unification failure) if
   # `var` occurs in `term` — the occurs check, which keeps cyclic terms out of
-  # the bindings so `subst`/`deref` can't loop forever.
+  # the bindings so `subst`/`deref` can't loop forever — or if the binding would
+  # satisfy a `dif/2` parked on `var` (see `add_dif/3`).
   @spec bind(bindings(), variable(), t()) :: bindings() | nil
   defp bind(bindings, var, term) do
-    if occurs?(var, term, bindings), do: nil, else: Map.put(bindings, var, term)
+    if occurs?(var, term, bindings) do
+      nil
+    else
+      new_bindings =
+        bindings
+        |> Map.put(var, term)
+        |> migrate_dif(var, term)
+
+      if dif_violated?(new_bindings, var), do: nil, else: new_bindings
+    end
+  end
+
+  # `extend/3` picks which of two still-open vars becomes the alias and which
+  # stays live by argument position, not by which one carries a `dif`
+  # constraint — so a constrained var can end up retired in favour of a fresh
+  # one that has never heard of the constraint. Carry it forward onto
+  # whichever var is still live, or a later bind of the survivor alone would
+  # never see it.
+  defp migrate_dif(bindings, var, term) do
+    if var?(term) do
+      case Map.get(bindings, {:dif, var}) do
+        nil -> bindings
+        pairs -> Map.update(bindings, {:dif, term}, pairs, &(pairs ++ &1))
+      end
+    else
+      bindings
+    end
+  end
+
+  # `dif/2` constraints live as extra entries in the same `bindings` map, keyed
+  # by `{:dif, var}` for every var either side mentions — a tuple key, so it
+  # can never collide with an actual var (vars are always `$`-prefixed atoms,
+  # see `var?/1`) and is invisible to `deref`/`subst`'s normal atom-keyed
+  # lookups. That means it needs no dedicated field on `AL.Choicepoint`: it
+  # rides along on every backtrack for free, the same way an ordinary binding
+  # does, since a choicepoint already carries its own full snapshot of
+  # `bindings` rather than a WAM-style trail.
+  @spec add_dif(bindings(), t(), t()) :: bindings()
+  def add_dif(bindings, a, b) do
+    a
+    |> find_vars(find_vars(b))
+    |> Enum.reduce(bindings, fn v, acc ->
+      Map.update(acc, {:dif, v}, [{a, b}], &[{a, b} | &1])
+    end)
+  end
+
+  @spec dif_violated?(bindings(), variable()) :: boolean()
+  defp dif_violated?(bindings, var) do
+    bindings
+    |> Map.get({:dif, var}, [])
+    |> Enum.any?(fn {a, b} -> subst(a, bindings) == subst(b, bindings) end)
   end
 
   @spec occurs?(variable(), t(), bindings()) :: boolean()

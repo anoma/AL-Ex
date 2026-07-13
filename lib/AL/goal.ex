@@ -33,6 +33,7 @@ defmodule AL.Goal do
           | Not.t()
           | Unify.t()
           | Equal.t()
+          | Dif.t()
           | Compare.t()
           | Ground.t()
           | Call.t()
@@ -192,6 +193,11 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Equal do
+    field(:a, AL.Var.t())
+    field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Dif do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
   end

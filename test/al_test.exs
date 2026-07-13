@@ -69,3 +69,7 @@ end
 defmodule ALDefclassTest do
   use ExExample.ExUnit, for: Examples.ALDefclass
 end
+
+defmodule ALDifTest do
+  use ExExample.ExUnit, for: Examples.ALDif
+end

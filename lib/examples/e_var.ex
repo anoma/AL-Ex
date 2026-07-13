@@ -80,4 +80,21 @@ defmodule Examples.AL.Var do
     assert MapSet.member?(AL.Var.find_vars(%{:"$k" => :v}), :"$k")
     :ok
   end
+
+  example dif_survives_var_to_var_aliasing() do
+    bindings = AL.Var.add_dif(%{}, :"$x", 1)
+
+    # `$x` is still open, so unifying it with another open var aliases one to
+    # the other rather than binding either to a concrete term — and which one
+    # survives as the live representative is an internal choice, not
+    # something calling code should have to predict.
+    aliased = AL.Var.unify(:"$x", :"$y", bindings)
+
+    # whichever name is now live still owes `$x`'s dif constraint: binding
+    # either name to the forbidden value has to fail.
+    assert AL.Var.unify(:"$y", 1, aliased) == nil
+    assert AL.Var.unify(:"$x", 1, aliased) == nil
+    assert AL.Var.unify(:"$y", 2, aliased) != nil
+    :ok
+  end
 end
