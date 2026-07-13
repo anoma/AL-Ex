@@ -287,6 +287,11 @@ defmodule AL.Package.Bootstrap do
       concat(reversed_tl, [h], reversed)
     end
 
+    defmethod(:list, :last, [xs, last]) do
+      reverse(xs, sx)
+      hd(sx, last)
+    end
+
     defmethod(:list, :map, [[], _func, []]) do
     end
 
