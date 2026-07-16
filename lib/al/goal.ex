@@ -240,6 +240,7 @@ defmodule AL.Goal do
 
   @doc "Transform every leaf of a goal term with `fun`."
   @spec map(term(), (term() -> term())) :: term()
+  def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
   def map([], _fun), do: []
   def map([head | tail], fun), do: [map(head, fun) | map(tail, fun)]
 
@@ -256,6 +257,7 @@ defmodule AL.Goal do
 
   @doc "Fold `fun` over every leaf of a goal term, in the same order as map/2."
   @spec reduce(term(), acc, (term(), acc -> acc)) :: acc when acc: var
+  def reduce({:"$fresh", _base, _scope} = leaf, acc, fun), do: fun.(leaf, acc)
   def reduce([], acc, _fun), do: acc
   def reduce([head | tail], acc, fun), do: reduce(tail, reduce(head, acc, fun), fun)
 

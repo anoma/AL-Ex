@@ -6,10 +6,11 @@ defmodule AL.Var do
 
   Bindings is a forest of variable references where the leaves are ground terms and act as roots of the reference chain
 
-  Vars look like :"$<string>"
+  Vars look like :"$<string>"; a freshened var wraps its original as
+  {:"$fresh", base, scope}, so resolution mints no atoms.
   """
 
-  @type variable() :: atom()
+  @type variable() :: atom() | {:"$fresh", variable(), String.t()}
   @type t() :: atom() | number() | binary() | [t()] | tuple() | map()
   @type bindings() :: %{optional(variable()) => t()}
 
@@ -19,6 +20,8 @@ defmodule AL.Var do
   end
 
   @spec var?(term()) :: boolean()
+  def var?({:"$fresh", _base, _scope}), do: true
+
   def var?(x) when is_atom(x) do
     x
     |> Atom.to_string()
@@ -35,10 +38,15 @@ defmodule AL.Var do
   end
 
   @spec name(variable()) :: String.t()
+  def name({:"$fresh", base, scope}), do: name(base) <> "_" <> scope
+
   def name(x) do
     "$" <> name = Atom.to_string(x)
     name
   end
+
+  @spec fresh(variable(), String.t()) :: variable()
+  def fresh(base, scope), do: {:"$fresh", base, scope}
 
   @typep mnesia_acc() :: {pos_integer(), %{optional(variable()) => pos_integer()}}
 
@@ -47,6 +55,13 @@ defmodule AL.Var do
   def to_mnesia_pattern(p) do
     {p, _acc} = to_mnesia_pattern(p, {1, %{}})
     p
+  end
+
+  def to_mnesia_pattern({:"$fresh", _base, _scope} = v, {n, seen}) do
+    case Map.get(seen, v) do
+      nil -> {:"$#{n}", {n + 1, Map.put(seen, v, n)}}
+      existing -> {:"$#{existing}", {n, seen}}
+    end
   end
 
   def to_mnesia_pattern(v, {n, seen}) when is_atom(v) do
@@ -137,7 +152,7 @@ defmodule AL.Var do
 
   @spec occurs?(variable(), t(), bindings()) :: boolean()
   def occurs?(var, term, bindings) do
-    term = if is_atom(term), do: deref(bindings, term), else: term
+    term = if is_atom(term) or var?(term), do: deref(bindings, term), else: term
 
     cond do
       var?(term) -> term == var
@@ -198,6 +213,13 @@ defmodule AL.Var do
   def subst(term, bindings), do: AL.Goal.map(term, &subst_leaf(&1, bindings))
 
   # A bound var derefs to its term, which is itself substituted
+  defp subst_leaf({:"$fresh", _base, _scope} = leaf, bindings) do
+    case deref(bindings, leaf) do
+      ^leaf -> leaf
+      other -> subst(other, bindings)
+    end
+  end
+
   defp subst_leaf(leaf, bindings) when is_atom(leaf) do
     case deref(bindings, leaf) do
       ^leaf -> leaf
@@ -215,10 +237,14 @@ defmodule AL.Var do
     AL.Goal.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
   end
 
+  # Wrapping rather than minting keeps the atom table flat; a
+  # re-freshened var nests, so distinct scopes stay distinct.
   @spec freshen(t(), String.t()) :: t()
   def freshen(term, f) do
-    AL.Goal.map(term, fn leaf ->
-      if var?(leaf) and leaf != :"$_", do: var(name(leaf) <> "_" <> f), else: leaf
+    AL.Goal.map(term, fn
+      :"$_" -> :"$_"
+      {:"$fresh", _base, _scope} = leaf -> fresh(leaf, f)
+      leaf -> if var?(leaf), do: fresh(leaf, f), else: leaf
     end)
   end
 end
