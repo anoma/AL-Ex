@@ -67,7 +67,7 @@ defmodule AL.Source do
   # Vars in first-appearance order (with dups; caller dedups).
   @spec collect(any()) :: [AL.Var.t()]
   defp collect(term) do
-    AL.Goal.reduce(term, [], fn leaf, acc -> if var?(leaf), do: [leaf | acc], else: acc end)
+    AL.Goal.reduce(term, [], fn leaf, acc -> if AL.Var.var?(leaf), do: [leaf | acc], else: acc end)
     |> Enum.reverse()
   end
 
@@ -131,7 +131,7 @@ defmodule AL.Source do
 
   # A var in method position can't use the `method`, emit explicit send.
   defp goal({:send, r, m, args}) do
-    if var?(m),
+    if AL.Var.var?(m),
       do: {:send, [], [pat(r), pat(m), Enum.map(args, &pat/1)]},
       else: {m, [], [pat(r) | Enum.map(args, &pat/1)]}
   end
@@ -158,11 +158,4 @@ defmodule AL.Source do
   defp pat({:oapply, op, args}), do: {op, [], Enum.map(args, &pat/1)}
   defp pat({a, b}), do: {pat(a), pat(b)}
   defp pat(x), do: x
-
-  @spec var?(atom()) :: boolean()
-  defp var?(a) do
-    a
-    |> Atom.to_string()
-    |> String.starts_with?("$")
-  end
 end

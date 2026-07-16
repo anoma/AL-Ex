@@ -53,3 +53,7 @@ end
 defmodule ALFailuresTest do
   use ExExample.ExUnit, for: Examples.ALFailures
 end
+
+defmodule ALSourceTest do
+  use ExExample.ExUnit, for: Examples.ALSource
+end
