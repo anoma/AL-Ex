@@ -65,6 +65,27 @@ defmodule Examples.ALArithmetic do
     :ok
   end
 
+  example remainder() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        is(a, rem(7, 2))
+        is(b, rem(10, 5))
+      end
+
+    assert Map.get(bindings, :"$a") == 1
+    assert Map.get(bindings, :"$b") == 0
+    :ok
+  end
+
+  example rem_by_zero_fails_gracefully() do
+    {:aborted, _} =
+      run branch: :examples do
+        is(x, rem(1, 0))
+      end
+
+    :ok
+  end
+
   example comparison_succeeds_when_true() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

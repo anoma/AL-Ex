@@ -80,7 +80,7 @@ defmodule AL do
   defdelegate notrace(), to: AL.Trace
   defdelegate tracepoints(), to: AL.Trace
 
-  @arithmetic_ops [:+, :-, :*, :/, :**]
+  @arithmetic_ops [:+, :-, :*, :/, :**, :rem]
   @comparison_ops [:<, :>, :<=, :>=]
   @oapply_primitives [:is, :map_get, :map_put, :lookup, :fresh_id, :current_tx]
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
@@ -1398,6 +1398,15 @@ defmodule AL do
     with x when is_number(x) <- interp_is(a, bindings),
          y when is_number(y) and y != 0 <- interp_is(b, bindings) do
       div(x, y)
+    else
+      _ -> :error
+    end
+  end
+
+  def interp_is({:oapply, :rem, [a, b]}, bindings) do
+    with x when is_number(x) <- interp_is(a, bindings),
+         y when is_number(y) and y != 0 <- interp_is(b, bindings) do
+      rem(x, y)
     else
       _ -> :error
     end
