@@ -206,6 +206,8 @@ defmodule AL do
 
   def ast_to_pattern({:ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
+  def ast_to_pattern({:var, _, [term]}), do: %Goal.IsVar{term: ast_to_pattern(term)}
+
   def ast_to_pattern({:freeze, _, [var, goals]}),
     do: %Goal.Freeze{var: ast_to_pattern(var), goals: clause_goals(goals)}
 
@@ -1062,6 +1064,15 @@ defmodule AL do
 
   def interp(%Goal.Ground{term: term}, state) do
     if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.bindings))) == 0 do
+      state
+    else
+      backtrack(state)
+    end
+  end
+
+  # Ground's dual on leaves: succeeds only on an unbound variable.
+  def interp(%Goal.IsVar{term: term}, state) do
+    if AL.Var.var?(AL.Var.deref(state.active_choicepoint.bindings, term)) do
       state
     else
       backtrack(state)

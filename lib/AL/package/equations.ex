@@ -65,20 +65,14 @@ defmodule AL.Package.Equations do
     defmethod(:equations, :val, [_self, x, x]) do
     end
 
-    ### A variable is what unifies with a probe, tested without binding.
-
-    defmethod(:equations, :unbound, [_self, x]) do
-      not [not [unify(x, :eq_probe)]]
-    end
-
     ### Algebra walks to the unknown: addition subtracts away, and
-    ### multiplication divides exactly or fails. The unbound gate runs
+    ### multiplication divides exactly or fails. The var gate runs
     ### first, else a variable would unify with the patterns below and
     ### the solver would generate terms instead of matching them.
 
     defmethod(:equations, :solve, [self, x, acc]) do
       implies do
-        [unbound(self, x)] -> unify(x, acc)
+        [var(x)] -> unify(x, acc)
         :else -> descend(self, x, acc)
       end
     end
@@ -120,7 +114,7 @@ defmodule AL.Package.Equations do
 
     defmethod(:equations, :var, [self, x, v]) do
       implies do
-        [unbound(self, x)] -> unify(v, x)
+        [var(x)] -> unify(v, x)
         :else -> var_in(self, x, v)
       end
     end
