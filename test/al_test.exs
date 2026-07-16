@@ -66,6 +66,10 @@ defmodule ALEquationsTest do
   use ExExample.ExUnit, for: Examples.ALEquations
 end
 
+defmodule ALEquationsCompileTest do
+  use ExExample.ExUnit, for: Examples.ALEquationsCompile
+end
+
 defmodule ALFresheningTest do
   use ExExample.ExUnit, for: Examples.ALFreshening
 end
