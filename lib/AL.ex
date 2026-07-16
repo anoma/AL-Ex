@@ -1270,7 +1270,7 @@ defmodule AL do
     rename =
       term
       |> AL.Var.find_vars()
-      |> Map.new(fn v -> {v, AL.Var.var("_G#{fresh_scope()}")} end)
+      |> Map.new(fn v -> {v, AL.Var.fresh(:"$_G", "#{fresh_scope()}")} end)
 
     AL.Var.subst(term, rename)
   end
