@@ -35,6 +35,7 @@ defmodule AL.Goal do
           | Equal.t()
           | Compare.t()
           | Ground.t()
+          | Freeze.t()
           | Call.t()
           | Send.t()
           | SendQuery.t()
@@ -206,6 +207,11 @@ defmodule AL.Goal do
     field(:term, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Freeze do
+    field(:var, AL.Var.t())
+    field(:goals, [AL.Goal.t()])
+  end
+
   typedstruct enforce: true, module: Call do
     field(:head, [AL.Var.t()])
     field(:body, [AL.Goal.t()])
@@ -296,6 +302,7 @@ defmodule AL.Goal do
     {Equal, :equal, [a: :term, b: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {Ground, :ground, [term: :term]},
+    {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
     {SendQuery, :send_query, [object: :term, method: :term, args: :term]},

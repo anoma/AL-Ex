@@ -183,7 +183,10 @@ defmodule Examples.AL do
 
   example total_failure_aborts_transaction() do
     {:aborted, _trace} = AL.eval([%AL.Goal.Fail{}])
-    {:aborted, _trace} = AL.eval([%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: :"$x"}])
+
+    {:aborted, _trace} =
+      AL.eval([%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: :"$x"}])
+
     :ok
   end
 

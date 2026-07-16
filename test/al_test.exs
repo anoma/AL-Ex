@@ -57,3 +57,7 @@ end
 defmodule ALSourceTest do
   use ExExample.ExUnit, for: Examples.ALSource
 end
+
+defmodule ALFreezeTest do
+  use ExExample.ExUnit, for: Examples.ALFreeze
+end
