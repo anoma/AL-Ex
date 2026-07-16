@@ -61,3 +61,7 @@ end
 defmodule ALFreezeTest do
   use ExExample.ExUnit, for: Examples.ALFreeze
 end
+
+defmodule ALEquationsTest do
+  use ExExample.ExUnit, for: Examples.ALEquations
+end
