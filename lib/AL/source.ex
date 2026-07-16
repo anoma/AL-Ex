@@ -85,6 +85,7 @@ defmodule AL.Source do
   defp goal(:fail), do: {:fail, [], []}
   defp goal({:print, p}), do: call(:print, [p])
   defp goal({:not, cond}), do: {:not, [], [Enum.map(cond, &goal/1)]}
+  defp goal({:freeze, v, gs}), do: {:freeze, [], [pat(v), Enum.map(gs, &goal/1)]}
   defp goal({:gensym, v}), do: call(:gensym, [v])
   defp goal({:unify, a, b}), do: call(:unify, [a, b])
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}

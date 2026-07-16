@@ -32,6 +32,7 @@ defmodule AL.Choicepoint do
     field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
     field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
+    field(:suspensions, %{optional(AL.Var.t()) => [AL.Goal.t()]}, default: %{})
   end
 end
 
@@ -204,6 +205,9 @@ defmodule AL do
   def ast_to_pattern({:print, _, [pattern]}), do: %Goal.Print{pattern: ast_to_pattern(pattern)}
 
   def ast_to_pattern({:ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
+
+  def ast_to_pattern({:freeze, _, [var, goals]}),
+    do: %Goal.Freeze{var: ast_to_pattern(var), goals: clause_goals(goals)}
 
   def ast_to_pattern([]), do: []
 
@@ -470,7 +474,12 @@ defmodule AL do
 
       length(state.active_choicepoint.goals) == state.active_choicepoint.goal_pointer ->
         if state.active_choicepoint.continuations == [] do
-          state
+          # Floundering: a solution may not leave goals parked.
+          if state.active_choicepoint.suspensions == %{} do
+            state
+          else
+            backtrack(%AL{state | trace: [:flounder | state.trace]})
+          end
         else
           [continuation | rest_continuations] = state.active_choicepoint.continuations
 
@@ -481,7 +490,8 @@ defmodule AL do
                 bindings: state.active_choicepoint.bindings,
                 continuations: rest_continuations,
                 goal_pointer: continuation.goal_pointer,
-                scope_pointer: continuation.scope_pointer
+                scope_pointer: continuation.scope_pointer,
+                suspensions: state.active_choicepoint.suspensions
               }
           })
         end
@@ -511,13 +521,43 @@ defmodule AL do
   defp put_bindings(state, nil), do: backtrack(state)
 
   defp put_bindings(state, new),
-    do: %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: new}}
+    do: %AL{
+      state
+      | active_choicepoint: wake(%AL.Choicepoint{state.active_choicepoint | bindings: new})
+    }
+
+  # Bindings arrived: goals whose variable now resolves run in place.
+  defp wake(%AL.Choicepoint{bindings: nil} = choice), do: choice
+  defp wake(%AL.Choicepoint{suspensions: s} = choice) when s == %{}, do: choice
+
+  defp wake(choice) do
+    {ready, waiting} =
+      Enum.split_with(choice.suspensions, fn {var, _goals} ->
+        not AL.Var.var?(AL.Var.subst(var, choice.bindings))
+      end)
+
+    case ready do
+      [] ->
+        choice
+
+      ready ->
+        woken = Enum.flat_map(ready, fn {_var, goals} -> goals end)
+        seen = Enum.take(choice.goals, choice.goal_pointer)
+        ahead = Enum.drop(choice.goals, choice.goal_pointer)
+
+        %AL.Choicepoint{
+          choice
+          | goals: seen ++ woken ++ ahead,
+            suspensions: Map.new(waiting)
+        }
+    end
+  end
 
   # Branch over `alts`, each mapped to a bindings map by `to_bindings`: the first is
   # the current path, the rest wait on the stack for backtracking; empty => fail.
   defp fan_out(state, alts, to_bindings) do
     base = state.active_choicepoint
-    build = fn alt -> %AL.Choicepoint{base | bindings: to_bindings.(alt)} end
+    build = fn alt -> wake(%AL.Choicepoint{base | bindings: to_bindings.(alt)}) end
 
     case alts do
       [] ->
@@ -630,7 +670,7 @@ defmodule AL do
 
         alternative_choicepoints =
           Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
-            %AL.Choicepoint{
+            wake(%AL.Choicepoint{
               goals: AL.Var.freshen(alt_body, freshener),
               bindings:
                 AL.Var.unify(
@@ -640,24 +680,27 @@ defmodule AL do
                 ),
               continuations: [continuation | state.active_choicepoint.continuations],
               goal_pointer: 0,
-              scope_pointer: scope
-            }
+              scope_pointer: scope,
+              suspensions: state.active_choicepoint.suspensions
+            })
           end)
 
         %AL{
           state
-          | active_choicepoint: %AL.Choicepoint{
-              goals: body_pattern,
-              bindings:
-                AL.Var.unify(
-                  {head_pattern, id},
-                  {bind_head_pattern, method_id_pattern},
-                  state.active_choicepoint.bindings
-                ),
-              continuations: [continuation | state.active_choicepoint.continuations],
-              goal_pointer: 0,
-              scope_pointer: scope
-            },
+          | active_choicepoint:
+              wake(%AL.Choicepoint{
+                goals: body_pattern,
+                bindings:
+                  AL.Var.unify(
+                    {head_pattern, id},
+                    {bind_head_pattern, method_id_pattern},
+                    state.active_choicepoint.bindings
+                  ),
+                continuations: [continuation | state.active_choicepoint.continuations],
+                goal_pointer: 0,
+                scope_pointer: scope,
+                suspensions: state.active_choicepoint.suspensions
+              }),
             traced_calls: record_traced_call(state.traced_calls, scope, trace_info),
             call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
             pending_cursor: nil,
@@ -952,13 +995,15 @@ defmodule AL do
 
       %AL{
         state
-        | active_choicepoint: %AL.Choicepoint{
-            goals: fresh_body,
-            bindings: bindings,
-            continuations: [continuation | state.active_choicepoint.continuations],
-            goal_pointer: 0,
-            scope_pointer: scope
-          },
+        | active_choicepoint:
+            wake(%AL.Choicepoint{
+              goals: fresh_body,
+              bindings: bindings,
+              continuations: [continuation | state.active_choicepoint.continuations],
+              goal_pointer: 0,
+              scope_pointer: scope,
+              suspensions: state.active_choicepoint.suspensions
+            }),
           choicepoint_stack: [{:mark, scope} | state.choicepoint_stack]
       }
     end
@@ -989,6 +1034,20 @@ defmodule AL do
       state
     else
       _ -> backtrack(state)
+    end
+  end
+
+  # freeze/2: the goals run now if the variable is bound, and park on
+  # it otherwise; whoever binds it wakes them in place.
+  def interp(%Goal.Freeze{var: var, goals: goals}, state) do
+    choice = state.active_choicepoint
+
+    if AL.Var.var?(var) do
+      suspensions = Map.update(choice.suspensions, var, goals, &(&1 ++ goals))
+
+      %AL{state | active_choicepoint: %AL.Choicepoint{choice | suspensions: suspensions}}
+    else
+      %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, goals)}}
     end
   end
 
@@ -1079,11 +1138,11 @@ defmodule AL do
           splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         candidate = fn name ->
-          %AL.Choicepoint{
+          wake(%AL.Choicepoint{
             state.active_choicepoint
             | goals: spliced,
               bindings: AL.Var.unify(method, name, state.active_choicepoint.bindings)
-          }
+          })
         end
 
         [first | rest] = names
