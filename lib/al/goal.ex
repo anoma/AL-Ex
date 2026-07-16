@@ -322,7 +322,8 @@ defmodule AL.Goal do
     end
   end
 
-  def to_stored(list) when is_list(list), do: Enum.map(list, &to_stored/1)
+  # Cons by hand: patterns like [row | tail] are improper lists.
+  def to_stored([h | t]), do: [to_stored(h) | to_stored(t)]
   def to_stored(other), do: other
 
   # `:term` slots may still nest goal structs (e.g. arithmetic in an `is`/`oapply`
