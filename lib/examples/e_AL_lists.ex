@@ -8,6 +8,17 @@ defmodule Examples.ALLists do
   use AL
   import ExUnit.Assertions
 
+  example deep_cons_patterns_bind() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        unify([first, second | rest], [:a, :b, :c, :d])
+      end
+
+    assert AL.Var.deref(bindings, :"$second") == :b
+    assert bindings |> AL.Var.deref(:"$rest") |> AL.Var.subst(bindings) == [:c, :d]
+    :ok
+  end
+
   example between_enumerates() do
     {:atomic, {bindings, _state}} =
       run branch: :examples do

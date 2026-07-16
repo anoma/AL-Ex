@@ -207,7 +207,16 @@ defmodule AL do
 
   def ast_to_pattern([]), do: []
 
-  def ast_to_pattern(xs) when is_list(xs), do: Enum.map(xs, &ast_to_pattern/1)
+  # [a, b | t] arrives as a list whose last element is the cons.
+  def ast_to_pattern(xs) when is_list(xs) do
+    case Enum.split(xs, -1) do
+      {init, [{:|, _, [h, t]}]} ->
+        Enum.map(init, &ast_to_pattern/1) ++ [ast_to_pattern(h) | ast_to_pattern(t)]
+
+      _plain ->
+        Enum.map(xs, &ast_to_pattern/1)
+    end
+  end
 
   def ast_to_pattern({:forall, _, [condition, body]}),
     do: %Goal.Forall{condition: ast_to_pattern(condition), body: ast_to_pattern(body)}
