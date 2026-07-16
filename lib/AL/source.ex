@@ -14,8 +14,13 @@ defmodule AL.Source do
   the stored clauses. The store-facing convenience over the pure printers above;
   this is what the GT method-coder view calls over the bridge.
   """
-  @spec method_sources(atom(), AL.Branch.t()) :: [[String.t()]]
-  def method_sources(class, branch \\ AL.Branch.head()) do
+  @spec method_sources(atom(), AL.Branch.t() | atom()) :: [[String.t()]]
+  def method_sources(class, branch \\ AL.Branch.head())
+
+  def method_sources(class, id) when is_atom(id),
+    do: method_sources(class, %AL.Branch{id: id})
+
+  def method_sources(class, branch) do
     {:atomic, rows} =
       :mnesia.transaction(fn ->
         for {:method, _o, name, id} <- AL.Object.scan_method(class, :"$n", :"$id", branch) do
