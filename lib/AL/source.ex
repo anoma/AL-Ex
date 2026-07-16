@@ -107,6 +107,8 @@ defmodule AL.Source do
   defp goal({:get_oapply, o, _seq, h, b}), do: call(:clause, [o, h, b])
   defp goal({:set_oapply, o, _seq, h, b}), do: call(:set_oapply, [o, h, b])
 
+  defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
+
   defp goal({:oapply, op, args}) when op in @arith, do: {op, [], Enum.map(args, &pat/1)}
   defp goal({:oapply, fun, args}), do: {fun, [], Enum.map(args, &pat/1)}
 

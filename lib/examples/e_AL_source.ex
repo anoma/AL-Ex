@@ -29,6 +29,12 @@ defmodule Examples.ALSource do
     source
   end
 
+  example compare_to_source() do
+    source = AL.Source.body_source([{:compare, :>, :"$x", 1}])
+    assert source == "a > 1"
+    source
+  end
+
   example empty_clause_to_source() do
     source = AL.Source.defmethod_source(:list, :reverse, [[], []], [])
     assert source == "defmethod(:list, :reverse, [[], []]) do\nend"
