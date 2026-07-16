@@ -8,6 +8,16 @@ defmodule Examples.ALLists do
   use AL
   import ExUnit.Assertions
 
+  example between_enumerates() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        findall([v], [between(:object, 2, 5, v)], values)
+      end
+
+    assert AL.Var.subst(Map.get(bindings, :"$values"), bindings) == [[2], [3], [4], [5]]
+    :ok
+  end
+
   example list_tests() do
     {:atomic, {bindings, state}} =
       run branch: :examples do

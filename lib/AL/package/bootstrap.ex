@@ -52,6 +52,16 @@ defmodule AL.Package.Bootstrap do
       :fail
     end
 
+    defmethod(:object, :between, [_self, low, high, low]) do
+      low <= high
+    end
+
+    defmethod(:object, :between, [self, low, high, value]) do
+      low < high
+      is(next, low + 1)
+      between(self, next, high, value)
+    end
+
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
       method(self, method_name, method_object)
       findall([head, body], [clause(method_object, head, body)], left)
