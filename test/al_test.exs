@@ -65,3 +65,7 @@ end
 defmodule ALEquationsTest do
   use ExExample.ExUnit, for: Examples.ALEquations
 end
+
+defmodule ALFresheningTest do
+  use ExExample.ExUnit, for: Examples.ALFreshening
+end
