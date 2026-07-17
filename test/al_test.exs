@@ -70,6 +70,10 @@ defmodule ALEquationsCompileTest do
   use ExExample.ExUnit, for: Examples.ALEquationsCompile
 end
 
+defmodule ALVarTest do
+  use ExExample.ExUnit, for: Examples.ALVar
+end
+
 defmodule ALFresheningTest do
   use ExExample.ExUnit, for: Examples.ALFreshening
 end
