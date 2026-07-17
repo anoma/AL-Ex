@@ -93,6 +93,26 @@ defmodule AL.Branch do
     :ok
   end
 
+  @doc """
+  Run `fun` on a branch: a given id is used and kept, `nil` forks a
+  fresh branch and discards it after.
+
+      AL.Branch.on(nil, fn branch -> AL.eval(goals, nil, branch) end)
+      AL.Branch.on(:fork_7, fn branch -> AL.eval(goals, nil, branch) end)
+  """
+  @spec on(term() | nil, (t() -> result)) :: result when result: term()
+  def on(nil, fun) do
+    branch = fork()
+
+    try do
+      fun.(branch)
+    after
+      discard(branch)
+    end
+  end
+
+  def on(id, fun), do: fun.(%__MODULE__{id: id})
+
   @doc "Check out a branch (Git HEAD-style): `run do ... end` now acts against it."
   @spec checkout(AL.Branch.t()) :: :ok
   def checkout(branch), do: set_head(branch)
