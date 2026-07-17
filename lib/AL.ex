@@ -371,6 +371,7 @@ defmodule AL do
     input_vars = observable_vars(program)
 
     :mnesia.transaction(fn ->
+      AL.ClauseCache.begin_transaction()
       tx_id = AL.Command.system_time(branch)
 
       result =
@@ -415,6 +416,7 @@ defmodule AL do
     input_vars = observable_vars(state.program)
 
     :mnesia.transaction(fn ->
+      AL.ClauseCache.begin_transaction()
       tx_id = AL.Command.system_time(state.branch)
       result = backtrack(%AL{state | tx_id: tx_id})
 
@@ -690,7 +692,7 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
 
-    case scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", state.branch) do
+    case clauses_for(method_id_pattern, state.branch) do
       [] ->
         backtrack(state)
 
@@ -1300,7 +1302,15 @@ defmodule AL do
 
   defp method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch)
 
-  defp method_scopes(self, branch),
+  defp method_scopes(self, branch) do
+    if AL.Var.var?(self) do
+      scoped_scan(self, branch)
+    else
+      AL.ClauseCache.get({branch.id, :scopes, self}, fn -> scoped_scan(self, branch) end)
+    end
+  end
+
+  defp scoped_scan(self, branch),
     do: [
       self
       | super_chain(
@@ -1323,7 +1333,13 @@ defmodule AL do
   end
 
   defp method_ids(obj, method, branch) do
-    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
+    if AL.Var.var?(obj) or AL.Var.var?(method) do
+      for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
+    else
+      AL.ClauseCache.get({branch.id, :methods, obj, method}, fn ->
+        for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
+      end)
+    end
   end
 
   defp has_matching_clause?(id, call_args, bindings, branch) do
@@ -1333,9 +1349,7 @@ defmodule AL do
   defp any_clause_matches?(id, call_args, bindings, branch) do
     scope = Integer.to_string(fresh_scope())
 
-    Enum.any?(AL.Object.scan_oapply(id, :"$seq", :"$head", :"$body", branch), fn {:oapply, _id,
-                                                                                  _seq, head,
-                                                                                  _body} ->
+    Enum.any?(clauses_for(id, branch), fn {:oapply, _id, _seq, head, _body} ->
       AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings) != nil
     end)
   end
@@ -1345,6 +1359,18 @@ defmodule AL do
 
   defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
   defp store_body(body), do: body
+
+  # Dispatch reads, memoized: scopes, method ids and clause lists only
+  # change when someone writes, and every such write drops the cache.
+  defp clauses_for(method, branch) do
+    if AL.Var.var?(method) do
+      scan_clauses(method, :"$seq", :"$head", :"$body", branch)
+    else
+      AL.ClauseCache.get({branch.id, :clauses, method}, fn ->
+        scan_clauses(method, :"$seq", :"$head", :"$body", branch)
+      end)
+    end
+  end
 
   # Scan clauses with bodies lifted to structs, so stored form never enters the VM.
   defp scan_clauses(object, seq, head, body, branch) do

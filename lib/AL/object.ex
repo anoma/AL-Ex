@@ -126,11 +126,13 @@ defmodule AL.Object do
 
   @spec retract_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_class(object_pattern, class_pattern, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
     delete_all(:class, scan_class(object_pattern, class_pattern, branch), branch)
   end
 
   @spec retract_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_super(object_pattern, super_pattern, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
     delete_all(:super, scan_super(object_pattern, super_pattern, branch), branch)
   end
 
@@ -141,6 +143,8 @@ defmodule AL.Object do
         method_id_pattern,
         branch \\ AL.Branch.head()
       ) do
+    AL.ClauseCache.drop()
+
     delete_all(
       :method,
       scan_method(object_pattern, method_name_pattern, method_id_pattern, branch),
@@ -150,6 +154,8 @@ defmodule AL.Object do
 
   @spec retract_oapply(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_oapply(object_pattern, head_pattern, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
+
     delete_all(
       :oapply,
       scan_oapply(object_pattern, :"$seq", head_pattern, :"$body", branch),
@@ -184,21 +190,25 @@ defmodule AL.Object do
 
   @spec set_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_class(object, class, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
     :mnesia.write(table(:class, branch), {:class, object, class}, :write)
   end
 
   @spec set_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_super(object, super, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
     :mnesia.write(table(:super, branch), {:super, object, super}, :write)
   end
 
   @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_method(object, method_name, method_id, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
     :mnesia.write(table(:method, branch), {:method, object, method_name, method_id}, :write)
   end
 
   @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) :: :ok
   def set_oapply(object, seq, head, body, branch \\ AL.Branch.head()) do
+    AL.ClauseCache.drop()
     :mnesia.write(table(:oapply, branch), {:oapply, object, seq, head, body}, :write)
   end
 

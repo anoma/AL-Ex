@@ -73,3 +73,7 @@ end
 defmodule ALFresheningTest do
   use ExExample.ExUnit, for: Examples.ALFreshening
 end
+
+defmodule ALClauseCacheTest do
+  use ExExample.ExUnit, for: Examples.ALClauseCache
+end

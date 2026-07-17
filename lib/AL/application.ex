@@ -8,6 +8,7 @@ defmodule AL.Application do
 
   @impl true
   def start(_type, _args) do
+    AL.ClauseCache.setup()
     AL.Command.setup()
     AL.Branch.setup()
 
