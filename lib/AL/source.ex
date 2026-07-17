@@ -14,8 +14,13 @@ defmodule AL.Source do
   the stored clauses. The store-facing convenience over the pure printers above;
   this is what the GT method-coder view calls over the bridge.
   """
-  @spec method_sources(atom(), AL.Branch.t()) :: [[String.t()]]
-  def method_sources(class, branch \\ AL.Branch.head()) do
+  @spec method_sources(atom(), AL.Branch.t() | atom()) :: [[String.t()]]
+  def method_sources(class, branch \\ AL.Branch.head())
+
+  def method_sources(class, id) when is_atom(id),
+    do: method_sources(class, %AL.Branch{id: id})
+
+  def method_sources(class, branch) do
     {:atomic, rows} =
       :mnesia.transaction(fn ->
         for {:method, _o, name, id} <- AL.Object.scan_method(class, :"$n", :"$id", branch) do
@@ -67,7 +72,7 @@ defmodule AL.Source do
   # Vars in first-appearance order (with dups; caller dedups).
   @spec collect(any()) :: [AL.Var.t()]
   defp collect(term) do
-    AL.Goal.reduce(term, [], fn leaf, acc -> if var?(leaf), do: [leaf | acc], else: acc end)
+    AL.Goal.reduce(term, [], fn leaf, acc -> if AL.Var.var?(leaf), do: [leaf | acc], else: acc end)
     |> Enum.reverse()
   end
 
@@ -85,7 +90,10 @@ defmodule AL.Source do
   defp goal(:fail), do: {:fail, [], []}
   defp goal({:print, p}), do: call(:print, [p])
   defp goal({:not, cond}), do: {:not, [], [Enum.map(cond, &goal/1)]}
+  defp goal({:freeze, v, gs}), do: {:freeze, [], [pat(v), Enum.map(gs, &goal/1)]}
   defp goal({:gensym, v}), do: call(:gensym, [v])
+  defp goal({:ground, t}), do: call(:ground, [t])
+  defp goal({:var, x}), do: call(:var, [x])
   defp goal({:unify, a, b}), do: call(:unify, [a, b])
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
   defp goal({:get_class, o, c}), do: call(:class, [o, c])
@@ -106,6 +114,8 @@ defmodule AL.Source do
   defp goal({:retract_method, o, n, i}), do: call(:retract_method, [o, n, i])
   defp goal({:get_oapply, o, _seq, h, b}), do: call(:clause, [o, h, b])
   defp goal({:set_oapply, o, _seq, h, b}), do: call(:set_oapply, [o, h, b])
+
+  defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
 
   defp goal({:oapply, op, args}) when op in @arith, do: {op, [], Enum.map(args, &pat/1)}
   defp goal({:oapply, fun, args}), do: {fun, [], Enum.map(args, &pat/1)}
@@ -131,7 +141,7 @@ defmodule AL.Source do
 
   # A var in method position can't use the `method`, emit explicit send.
   defp goal({:send, r, m, args}) do
-    if var?(m),
+    if AL.Var.var?(m),
       do: {:send, [], [pat(r), pat(m), Enum.map(args, &pat/1)]},
       else: {m, [], [pat(r) | Enum.map(args, &pat/1)]}
   end
@@ -158,11 +168,4 @@ defmodule AL.Source do
   defp pat({:oapply, op, args}), do: {op, [], Enum.map(args, &pat/1)}
   defp pat({a, b}), do: {pat(a), pat(b)}
   defp pat(x), do: x
-
-  @spec var?(atom()) :: boolean()
-  defp var?(a) do
-    a
-    |> Atom.to_string()
-    |> String.starts_with?("$")
-  end
 end
