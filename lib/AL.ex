@@ -518,38 +518,65 @@ defmodule AL do
 
   defp bindings(state), do: state.active_choicepoint.bindings
 
-  defp put_bindings(state, nil), do: backtrack(state)
+  defp put_bindings(state, nil, _terms), do: backtrack(state)
 
-  defp put_bindings(state, new),
+  defp put_bindings(state, new, terms),
     do: %AL{
       state
-      | active_choicepoint: wake(%AL.Choicepoint{state.active_choicepoint | bindings: new})
+      | active_choicepoint: wake(%AL.Choicepoint{state.active_choicepoint | bindings: new}, terms)
     }
 
-  # Bindings arrived: goals whose variable now resolves run in place.
-  defp wake(%AL.Choicepoint{bindings: nil} = choice), do: choice
-  defp wake(%AL.Choicepoint{suspensions: s} = choice) when s == %{}, do: choice
+  # Bindings arrived: only suspensions keyed on a variable the change
+  # touched can resolve, so wake follows the changed terms' variables
+  # down their alias chains instead of scanning everything parked.
+  defp wake(%AL.Choicepoint{bindings: nil} = choice, _terms), do: choice
+  defp wake(%AL.Choicepoint{suspensions: s} = choice, _terms) when s == %{}, do: choice
 
-  defp wake(choice) do
-    {ready, waiting} =
-      Enum.split_with(choice.suspensions, fn {var, _goals} ->
-        not AL.Var.var?(AL.Var.subst(var, choice.bindings))
-      end)
+  defp wake(choice, terms) do
+    terms
+    |> Enum.reduce(MapSet.new(), fn t, acc -> MapSet.union(acc, AL.Var.find_vars(t)) end)
+    |> Enum.reduce(choice, fn v, ch -> wake_chain(ch, v) end)
+  end
 
-    case ready do
-      [] ->
+  defp wake_chain(choice, v) do
+    choice = wake_key(choice, v)
+
+    case Map.get(choice.bindings, v) do
+      ^v -> choice
+      w -> if AL.Var.var?(w), do: wake_chain(choice, w), else: choice
+    end
+  end
+
+  # A resolved suspension runs in place; one aliased onward re-parks
+  # on the still-free end of its chain.
+  defp wake_key(choice, v) do
+    case Map.fetch(choice.suspensions, v) do
+      :error ->
         choice
 
-      ready ->
-        woken = Enum.flat_map(ready, fn {_var, goals} -> goals end)
-        seen = Enum.take(choice.goals, choice.goal_pointer)
-        ahead = Enum.drop(choice.goals, choice.goal_pointer)
+      {:ok, goals} ->
+        target = AL.Var.deref(choice.bindings, v)
 
-        %AL.Choicepoint{
-          choice
-          | goals: seen ++ woken ++ ahead,
-            suspensions: Map.new(waiting)
-        }
+        cond do
+          target == v ->
+            choice
+
+          AL.Var.var?(target) ->
+            suspensions =
+              choice.suspensions |> Map.delete(v) |> Map.update(target, goals, &(&1 ++ goals))
+
+            %AL.Choicepoint{choice | suspensions: suspensions}
+
+          true ->
+            seen = Enum.take(choice.goals, choice.goal_pointer)
+            ahead = Enum.drop(choice.goals, choice.goal_pointer)
+
+            %AL.Choicepoint{
+              choice
+              | goals: seen ++ goals ++ ahead,
+                suspensions: Map.delete(choice.suspensions, v)
+            }
+        end
     end
   end
 
@@ -557,7 +584,11 @@ defmodule AL do
   # the current path, the rest wait on the stack for backtracking; empty => fail.
   defp fan_out(state, alts, to_bindings) do
     base = state.active_choicepoint
-    build = fn alt -> wake(%AL.Choicepoint{base | bindings: to_bindings.(alt)}) end
+
+    build = fn alt ->
+      {bindings, terms} = to_bindings.(alt)
+      wake(%AL.Choicepoint{base | bindings: bindings}, terms)
+    end
 
     case alts do
       [] ->
@@ -577,27 +608,31 @@ defmodule AL do
     do:
       put_bindings(
         state,
-        AL.Var.unify(Map.get(object, :class, :map), class_pattern, bindings(state))
+        AL.Var.unify(Map.get(object, :class, :map), class_pattern, bindings(state)),
+        [class_pattern]
       )
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_list(object),
-    do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)))
+    do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)), [class_pattern])
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
-      AL.Var.unify(row, {:class, object, class_pattern}, bindings(state))
+      {AL.Var.unify(row, {:class, object, class_pattern}, bindings(state)),
+       [{:class, object, class_pattern}]}
     end)
   end
 
   def interp(%Goal.GetSuper{object: object, super: super_pattern}, state) do
     fan_out(state, AL.Object.scan_super(object, super_pattern, state.branch), fn row ->
-      AL.Var.unify(row, {:super, object, super_pattern}, bindings(state))
+      {AL.Var.unify(row, {:super, object, super_pattern}, bindings(state)),
+       [{:super, object, super_pattern}]}
     end)
   end
 
   def interp(%Goal.GetMethod{object: object, name: name, id: id}, state) do
     fan_out(state, AL.Object.scan_method(object, name, id, state.branch), fn row ->
-      AL.Var.unify(row, {:method, object, name, id}, bindings(state))
+      {AL.Var.unify(row, {:method, object, name, id}, bindings(state)),
+       [{:method, object, name, id}]}
     end)
   end
 
@@ -609,7 +644,7 @@ defmodule AL do
     # head `[self, method_name, head, body]`, with a query that also names
     # `head`/`body` would fail the occurs-check and match nothing).
     fan_out(state, scan_clauses(object, seq, head, body, state.branch), fn row ->
-      AL.Var.unify(standardize_apart(row), clause, bindings(state))
+      {AL.Var.unify(standardize_apart(row), clause, bindings(state)), [clause]}
     end)
   end
 
@@ -617,11 +652,12 @@ defmodule AL do
     do:
       put_bindings(
         state,
-        AL.Var.unify(result, AL.Command.fresh_id(state.branch), bindings(state))
+        AL.Var.unify(result, AL.Command.fresh_id(state.branch), bindings(state)),
+        [result]
       )
 
   def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state),
-    do: put_bindings(state, AL.Var.unify(result, state.tx_id, bindings(state)))
+    do: put_bindings(state, AL.Var.unify(result, state.tx_id, bindings(state)), [result])
 
   def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
     matches =
@@ -629,11 +665,14 @@ defmodule AL do
       |> Enum.map(&AL.Var.unify({k_pattern, v_pattern}, &1, bindings(state)))
       |> Enum.filter(& &1)
 
-    fan_out(state, matches, & &1)
+    fan_out(state, matches, &{&1, [{k_pattern, v_pattern}]})
   end
 
   def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
-    do: put_bindings(state, AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), bindings(state)))
+    do:
+      put_bindings(state, AL.Var.unify(m2, Map.put(m1, k_pattern, v_pattern), bindings(state)), [
+        m2
+      ])
 
   def interp(%Goal.OApply{method_id: :is, args: [a, b]}, state) do
     case interp_is(b, bindings(state)) do
@@ -643,7 +682,8 @@ defmodule AL do
       expr ->
         put_bindings(
           state,
-          AL.Var.unify(AL.Var.deref(bindings(state), a), expr, bindings(state))
+          AL.Var.unify(AL.Var.deref(bindings(state), a), expr, bindings(state)),
+          [a]
         )
     end
   end
@@ -670,29 +710,12 @@ defmodule AL do
 
         alternative_choicepoints =
           Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
-            wake(%AL.Choicepoint{
-              goals: AL.Var.freshen(alt_body, freshener),
-              bindings:
-                AL.Var.unify(
-                  {AL.Var.freshen(alt_head, freshener), alt_id},
-                  {bind_head_pattern, method_id_pattern},
-                  state.active_choicepoint.bindings
-                ),
-              continuations: [continuation | state.active_choicepoint.continuations],
-              goal_pointer: 0,
-              scope_pointer: scope,
-              suspensions: state.active_choicepoint.suspensions
-            })
-          end)
-
-        %AL{
-          state
-          | active_choicepoint:
-              wake(%AL.Choicepoint{
-                goals: body_pattern,
+            wake(
+              %AL.Choicepoint{
+                goals: AL.Var.freshen(alt_body, freshener),
                 bindings:
                   AL.Var.unify(
-                    {head_pattern, id},
+                    {AL.Var.freshen(alt_head, freshener), alt_id},
                     {bind_head_pattern, method_id_pattern},
                     state.active_choicepoint.bindings
                   ),
@@ -700,7 +723,30 @@ defmodule AL do
                 goal_pointer: 0,
                 scope_pointer: scope,
                 suspensions: state.active_choicepoint.suspensions
-              }),
+              },
+              [{bind_head_pattern, method_id_pattern}]
+            )
+          end)
+
+        %AL{
+          state
+          | active_choicepoint:
+              wake(
+                %AL.Choicepoint{
+                  goals: body_pattern,
+                  bindings:
+                    AL.Var.unify(
+                      {head_pattern, id},
+                      {bind_head_pattern, method_id_pattern},
+                      state.active_choicepoint.bindings
+                    ),
+                  continuations: [continuation | state.active_choicepoint.continuations],
+                  goal_pointer: 0,
+                  scope_pointer: scope,
+                  suspensions: state.active_choicepoint.suspensions
+                },
+                [{bind_head_pattern, method_id_pattern}]
+              ),
             traced_calls: record_traced_call(state.traced_calls, scope, trace_info),
             call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
             pending_cursor: nil,
@@ -865,7 +911,9 @@ defmodule AL do
           []
       end
 
-    fan_out(state, entries, fn entry -> AL.Var.unify(entry, {key, value}, bindings(state)) end)
+    fan_out(state, entries, fn entry ->
+      {AL.Var.unify(entry, {key, value}, bindings(state)), [{key, value}]}
+    end)
   end
 
   def interp(%Goal.SetSlots{object: object}, state) when is_map(object), do: state
@@ -928,7 +976,7 @@ defmodule AL do
 
   def interp(%Goal.Gensym{var: var}, state) do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
-    put_bindings(state, AL.Var.unify(var, sym, bindings(state)))
+    put_bindings(state, AL.Var.unify(var, sym, bindings(state)), [var])
   end
 
   def interp(%Goal.Print{pattern: pattern}, state) do
@@ -973,7 +1021,7 @@ defmodule AL do
         template |> AL.Var.subst(bindings) |> standardize_apart()
       end)
 
-    put_bindings(state, AL.Var.unify(result, collected, bindings(state)))
+    put_bindings(state, AL.Var.unify(result, collected, bindings(state)), [result])
   end
 
   def interp(%Goal.Call{head: head, body: body, args: args}, state) do
@@ -996,21 +1044,24 @@ defmodule AL do
       %AL{
         state
         | active_choicepoint:
-            wake(%AL.Choicepoint{
-              goals: fresh_body,
-              bindings: bindings,
-              continuations: [continuation | state.active_choicepoint.continuations],
-              goal_pointer: 0,
-              scope_pointer: scope,
-              suspensions: state.active_choicepoint.suspensions
-            }),
+            wake(
+              %AL.Choicepoint{
+                goals: fresh_body,
+                bindings: bindings,
+                continuations: [continuation | state.active_choicepoint.continuations],
+                goal_pointer: 0,
+                scope_pointer: scope,
+                suspensions: state.active_choicepoint.suspensions
+              },
+              [args]
+            ),
           choicepoint_stack: [{:mark, scope} | state.choicepoint_stack]
       }
     end
   end
 
   def interp(%Goal.Unify{a: a, b: b}, state),
-    do: put_bindings(state, AL.Var.unify(a, b, bindings(state)))
+    do: put_bindings(state, AL.Var.unify(a, b, bindings(state)), [a, b])
 
   # Prolog `==`: structural equality; never binds, so an unbound side fails.
   def interp(%Goal.Equal{a: a, b: b}, state) do
@@ -1138,11 +1189,14 @@ defmodule AL do
           splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         candidate = fn name ->
-          wake(%AL.Choicepoint{
-            state.active_choicepoint
-            | goals: spliced,
-              bindings: AL.Var.unify(method, name, state.active_choicepoint.bindings)
-          })
+          wake(
+            %AL.Choicepoint{
+              state.active_choicepoint
+              | goals: spliced,
+                bindings: AL.Var.unify(method, name, state.active_choicepoint.bindings)
+            },
+            [method]
+          )
         end
 
         [first | rest] = names
