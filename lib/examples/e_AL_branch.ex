@@ -244,4 +244,26 @@ defmodule Examples.ALBranch do
     AL.Branch.discard(child)
     :ok
   end
+
+  # A nil branch is scoped: forked for the fun, discarded after.
+  example on_nil_forks_and_discards() do
+    seen =
+      AL.Branch.on(nil, fn branch ->
+        assert Enum.any?(AL.Branch.list(), &(&1.id == branch.id))
+        branch
+      end)
+
+    refute Enum.any?(AL.Branch.list(), &(&1.id == seen.id))
+    seen
+  end
+
+  example on_id_keeps_the_branch() do
+    branch = AL.Branch.fork()
+    result = AL.Branch.on(branch.id, fn b -> b.id end)
+
+    assert result == branch.id
+    assert Enum.any?(AL.Branch.list(), &(&1.id == branch.id))
+    AL.Branch.discard(branch)
+    branch
+  end
 end

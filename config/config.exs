@@ -12,7 +12,8 @@ config :al,
     AL.Package.Users,
     AL.Package.ElixirProcess,
     AL.Package.Constraints,
-    AL.Package.Sets
+    AL.Package.Sets,
+    AL.Package.Equations
   ]
 
 # Import environment specific config. This must remain at the bottom

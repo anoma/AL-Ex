@@ -77,3 +77,31 @@ end
 defmodule ALNinetyNineTest do
   use ExExample.ExUnit, for: Examples.ALNinetyNine
 end
+
+defmodule ALSourceTest do
+  use ExExample.ExUnit, for: Examples.ALSource
+end
+
+defmodule ALFreezeTest do
+  use ExExample.ExUnit, for: Examples.ALFreeze
+end
+
+defmodule ALEquationsTest do
+  use ExExample.ExUnit, for: Examples.ALEquations
+end
+
+defmodule ALEquationsCompileTest do
+  use ExExample.ExUnit, for: Examples.ALEquationsCompile
+end
+
+defmodule ALVarTest do
+  use ExExample.ExUnit, for: Examples.ALVar
+end
+
+defmodule ALFresheningTest do
+  use ExExample.ExUnit, for: Examples.ALFreshening
+end
+
+defmodule ALGuardedTest do
+  use ExExample.ExUnit, for: Examples.ALGuarded
+end

@@ -28,7 +28,13 @@ defmodule AL.Object do
 
   typedstruct enforce: true do
     field(:id, any(), enforce: true)
+    field(:branch, atom() | nil, default: nil)
   end
+
+  @doc "The branch the object is viewed on, the head when unset."
+  @spec branch_id(t()) :: atom()
+  def branch_id(%__MODULE__{branch: nil}), do: AL.Branch.head().id
+  def branch_id(%__MODULE__{branch: id}), do: id
 
   @spec table(atom(), AL.Branch.t()) :: atom()
   def table(relation, branch \\ AL.Branch.head()), do: AL.Command.table(relation, branch)

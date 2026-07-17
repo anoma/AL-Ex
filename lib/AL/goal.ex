@@ -36,6 +36,8 @@ defmodule AL.Goal do
           | Dif.t()
           | Compare.t()
           | Ground.t()
+          | IsVar.t()
+          | Freeze.t()
           | Call.t()
           | Send.t()
           | SendQuery.t()
@@ -212,6 +214,15 @@ defmodule AL.Goal do
     field(:term, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: IsVar do
+    field(:term, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Freeze do
+    field(:var, AL.Var.t())
+    field(:goals, [AL.Goal.t()])
+  end
+
   typedstruct enforce: true, module: Call do
     field(:head, [AL.Var.t()])
     field(:body, [AL.Goal.t()])
@@ -240,6 +251,7 @@ defmodule AL.Goal do
 
   @doc "Transform every leaf of a goal term with `fun`."
   @spec map(term(), (term() -> term())) :: term()
+  def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
   def map([], _fun), do: []
   def map([head | tail], fun), do: [map(head, fun) | map(tail, fun)]
 
@@ -256,6 +268,7 @@ defmodule AL.Goal do
 
   @doc "Fold `fun` over every leaf of a goal term, in the same order as map/2."
   @spec reduce(term(), acc, (term(), acc -> acc)) :: acc when acc: var
+  def reduce({:"$fresh", _base, _scope} = leaf, acc, fun), do: fun.(leaf, acc)
   def reduce([], acc, _fun), do: acc
   def reduce([head | tail], acc, fun), do: reduce(tail, reduce(head, acc, fun), fun)
 
@@ -302,6 +315,8 @@ defmodule AL.Goal do
     {Equal, :equal, [a: :term, b: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {Ground, :ground, [term: :term]},
+    {IsVar, :var, [term: :term]},
+    {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
     {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
@@ -328,8 +343,8 @@ defmodule AL.Goal do
     end
   end
 
-  def to_stored([]), do: []
-  def to_stored([head | tail]), do: [to_stored(head) | to_stored(tail)]
+  # Cons by hand: patterns like [row | tail] are improper lists.
+  def to_stored([h | t]), do: [to_stored(h) | to_stored(t)]
   def to_stored(other), do: other
 
   # `:term` slots may still nest goal structs (e.g. arithmetic in an `is`/`oapply`

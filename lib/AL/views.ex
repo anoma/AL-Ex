@@ -10,7 +10,7 @@ defmodule AL.Views do
 
   defview object_examine_view(self = %AL.Object{}, builder) do
     {:atomic, {bindings, _program_state}} =
-      AL.run do
+      AL.run branch: AL.Object.branch_id(self) do
         examine(^self.id, info)
       end
 
@@ -20,7 +20,7 @@ defmodule AL.Views do
 
   defview constraint_view(self = %AL.Object{}, builder) do
     result =
-      AL.run do
+      AL.run branch: AL.Object.branch_id(self) do
         dependents(^self.id, dependents)
       end
 
