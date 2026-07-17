@@ -85,4 +85,17 @@ defmodule Examples.ALFreeze do
 
     :ok
   end
+
+  # Aliasing moves the wait to the chain's end; binding there fires it.
+  example aliased_variable_still_wakes() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        freeze(x, [unify(fired, :yes)])
+        unify(x, y)
+        unify(y, 5)
+      end
+
+    assert AL.Var.deref(bindings, :"$fired") == :yes
+    :ok
+  end
 end
