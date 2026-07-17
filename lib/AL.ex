@@ -356,10 +356,34 @@ defmodule AL do
     while the body runs flow back to the caller (a continuation resumes it).
   - `cut` is a Prolog-style commit pruning choicepoints in the call scope, not a
     Mnesia transaction commit.
+
+  With `heap: words` the derivation runs in its own capped process and
+  only the bindings return, never my state: state shares structure in
+  the heap, and copying it out as a message flattens the sharing.
+
+      AL.eval(goals, nil, branch, heap: 256_000_000)
   """
-  @spec eval([AL.Goal.t()], AL.Var.bindings() | nil, AL.Branch.t()) ::
-          {:atomic, {AL.Var.bindings(), t()}} | {:aborted, term()}
-  def eval(program, initial_bindings \\ nil, branch \\ AL.Branch.head()) do
+  @spec eval([AL.Goal.t()], AL.Var.bindings() | nil, AL.Branch.t(), keyword()) ::
+          {:atomic, {AL.Var.bindings(), t() | nil}} | {:aborted, term()} | {:error, String.t()}
+  def eval(program, initial_bindings \\ nil, branch \\ AL.Branch.head(), opts \\ [])
+
+  def eval(program, initial_bindings, branch, heap: heap) do
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Process.flag(:max_heap_size, %{size: heap, kill: true, error_logger: false})
+        exit({:derived, shed(eval(program, initial_bindings, branch))})
+      end)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, {:derived, result}} ->
+        result
+
+      {:DOWN, ^ref, :process, ^pid, _killed} ->
+        {:error, "the derivation exceeded #{heap} heap words"}
+    end
+  end
+
+  def eval(program, initial_bindings, branch, _opts) do
     bindings = initial_bindings || AL.Var.empty_bindings()
     input_vars = observable_vars(program)
 
@@ -1239,6 +1263,15 @@ defmodule AL do
     AL.Object.scan_oapply(object, seq, head, body, branch)
     |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
   end
+
+  # Only bindings may leave the capped process, and a refusal's goal
+  # crosses as bounded text.
+  defp shed({:atomic, {bindings, _state}}), do: {:atomic, {bindings, nil}}
+
+  defp shed({:aborted, %{failed_on: goal} = reason}),
+    do: {:aborted, %{reason | failed_on: goal |> inspect(limit: 8) |> String.slice(0, 200)}}
+
+  defp shed(other), do: other
 
   # Vars a `run` reports. `findall`/`not`/`forall` are local scopes: only a
   # `findall`'s result var escapes.
