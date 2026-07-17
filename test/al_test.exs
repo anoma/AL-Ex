@@ -77,3 +77,7 @@ end
 defmodule ALClauseCacheTest do
   use ExExample.ExUnit, for: Examples.ALClauseCache
 end
+
+defmodule ALGuardedTest do
+  use ExExample.ExUnit, for: Examples.ALGuarded
+end
