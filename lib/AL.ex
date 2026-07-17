@@ -1,15 +1,15 @@
 defmodule AL.Continuation do
   @moduledoc """
   I define the information an AL continuation carries
-  goals: List of goals for the continuation
-  goal_pointer: Pointer to the goal in the continuation we are on
+  goals: Goals still ahead of the continuation
+  done: Goals it already ran, newest first
   """
 
   use TypedStruct
 
   typedstruct enforce: true do
     field(:goals, [AL.Goal.t()], enforce: true, default: [])
-    field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
+    field(:done, [AL.Goal.t()], enforce: true, default: [])
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
   end
 end
@@ -18,19 +18,19 @@ defmodule AL.Choicepoint do
   @moduledoc """
   I define the information an AL choicepoint carries
 
-  goals: List of goals this choicepoint needs to succeed
+  goals: Goals still ahead of this choicepoint
+  done: Goals it already ran, newest first
   bindings: Map of variable bindings this choicepoint provides
   continuations: Stack of call continuations
-  goal_pointer: Pointer to the goal this choicepoint applies to
   scope_pointer: Pointer to the call-depth (for cut markers)
   """
   use TypedStruct
 
   typedstruct enforce: true do
     field(:goals, [AL.Goal.t()], enforce: true, default: [])
+    field(:done, [AL.Goal.t()], enforce: true, default: [])
     field(:bindings, AL.Var.bindings() | nil, enforce: true, default: %{})
     field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
-    field(:goal_pointer, non_neg_integer(), enforce: true, default: 0)
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
     field(:suspensions, %{optional(AL.Var.t()) => [AL.Goal.t()]}, default: %{})
   end
@@ -341,13 +341,7 @@ defmodule AL do
 
   @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
   def splice_goals(state, goals) do
-    Enum.slice(state.active_choicepoint.goals, 0, state.active_choicepoint.goal_pointer) ++
-      goals ++
-      Enum.slice(
-        state.active_choicepoint.goals,
-        state.active_choicepoint.goal_pointer,
-        length(state.active_choicepoint.goals)
-      )
+    goals ++ state.active_choicepoint.goals
   end
 
   @doc """
@@ -376,7 +370,7 @@ defmodule AL do
             goals: program,
             bindings: bindings,
             continuations: [],
-            goal_pointer: 0,
+            done: [],
             scope_pointer: 0
           },
           choicepoint_stack: [{:mark, 0}],
@@ -472,7 +466,7 @@ defmodule AL do
       state.active_choicepoint.bindings == nil ->
         backtrack(state)
 
-      length(state.active_choicepoint.goals) == state.active_choicepoint.goal_pointer ->
+      state.active_choicepoint.goals == [] ->
         if state.active_choicepoint.continuations == [] do
           # Floundering: a solution may not leave goals parked.
           if state.active_choicepoint.suspensions == %{} do
@@ -487,9 +481,9 @@ defmodule AL do
             state
             | active_choicepoint: %AL.Choicepoint{
                 goals: continuation.goals,
+                done: continuation.done,
                 bindings: state.active_choicepoint.bindings,
                 continuations: rest_continuations,
-                goal_pointer: continuation.goal_pointer,
                 scope_pointer: continuation.scope_pointer,
                 suspensions: state.active_choicepoint.suspensions
               }
@@ -497,16 +491,15 @@ defmodule AL do
         end
 
       true ->
-        goal =
-          state.active_choicepoint.goals
-          |> Enum.at(state.active_choicepoint.goal_pointer)
-          |> AL.Var.subst(state.active_choicepoint.bindings)
+        [raw | ahead] = state.active_choicepoint.goals
+        goal = AL.Var.subst(raw, state.active_choicepoint.bindings)
 
         next_frame = %AL{
           state
           | active_choicepoint: %AL.Choicepoint{
               state.active_choicepoint
-              | goal_pointer: state.active_choicepoint.goal_pointer + 1
+              | goals: ahead,
+                done: [raw | state.active_choicepoint.done]
             },
             trace: [goal | state.trace]
         }
@@ -568,12 +561,9 @@ defmodule AL do
             %AL.Choicepoint{choice | suspensions: suspensions}
 
           true ->
-            seen = Enum.take(choice.goals, choice.goal_pointer)
-            ahead = Enum.drop(choice.goals, choice.goal_pointer)
-
             %AL.Choicepoint{
               choice
-              | goals: seen ++ goals ++ ahead,
+              | goals: goals ++ choice.goals,
                 suspensions: Map.delete(choice.suspensions, v)
             }
         end
@@ -704,7 +694,7 @@ defmodule AL do
 
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
-          goal_pointer: state.active_choicepoint.goal_pointer,
+          done: state.active_choicepoint.done,
           scope_pointer: state.active_choicepoint.scope_pointer
         }
 
@@ -720,7 +710,7 @@ defmodule AL do
                     state.active_choicepoint.bindings
                   ),
                 continuations: [continuation | state.active_choicepoint.continuations],
-                goal_pointer: 0,
+                done: [],
                 scope_pointer: scope,
                 suspensions: state.active_choicepoint.suspensions
               },
@@ -741,7 +731,7 @@ defmodule AL do
                       state.active_choicepoint.bindings
                     ),
                   continuations: [continuation | state.active_choicepoint.continuations],
-                  goal_pointer: 0,
+                  done: [],
                   scope_pointer: scope,
                   suspensions: state.active_choicepoint.suspensions
                 },
@@ -1037,7 +1027,7 @@ defmodule AL do
     else
       continuation = %AL.Continuation{
         goals: state.active_choicepoint.goals,
-        goal_pointer: state.active_choicepoint.goal_pointer,
+        done: state.active_choicepoint.done,
         scope_pointer: state.active_choicepoint.scope_pointer
       }
 
@@ -1049,7 +1039,7 @@ defmodule AL do
                 goals: fresh_body,
                 bindings: bindings,
                 continuations: [continuation | state.active_choicepoint.continuations],
-                goal_pointer: 0,
+                done: [],
                 scope_pointer: scope,
                 suspensions: state.active_choicepoint.suspensions
               },
@@ -1394,7 +1384,7 @@ defmodule AL do
         goals: condition,
         bindings: bindings,
         continuations: [],
-        goal_pointer: 0,
+        done: [],
         scope_pointer: 0
       },
       choicepoint_stack: [],
