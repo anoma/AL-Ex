@@ -320,7 +320,7 @@ defmodule AL do
       ]
     }
   end
-  
+
   # `defclass name, super: ..., ivars: [...], categories: [...] do ... end` — a
   # class declaration bundling what's otherwise a hand-sequenced `new(:class, …)`
   # + one `import` per category + one `defmethod` per method (see `sets.ex`'s
@@ -1314,27 +1314,6 @@ defmodule AL do
     end
   end
 
-  # A term constructed from a functor `name` and its `args` — the tuple
-  # `{name, arg1, ...}`, or bare `name` when there are no args (matching
-  # `decompose_term`'s inverse: an atomic term has `args = []`).
-  defp compose_term(name, []), do: name
-  defp compose_term(name, args), do: List.to_tuple([name | args])
-
-  # A term's functor `name` and `args` — a tuple's first element and the rest
-  # as a list, or the term itself with `args = []` if it's atomic (not a
-  # tuple). Prolog's `functor/3` crossed with `=..`. `t`'s own top-level shape
-  # must be resolved (see `resolved?/1`), but elements within it (an arg, a
-  # nested var) are free to stay unbound — they just ride along.
-  defp decompose_term(t) when is_tuple(t), do: {elem(t, 0), t |> Tuple.to_list() |> tl()}
-  defp decompose_term(atomic), do: {atomic, []}
-
-  defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
-
-  # Enough to decompose: not a bare unbound var. Weaker than `ground?/1` on
-  # purpose — `{:foo, x}` with `x` still open is a perfectly good term to pull
-  # a functor/args out of, only a dangling var itself has nothing to offer.
-  defp resolved?(term), do: not AL.Var.var?(term)
-
   # Prolog's `call/1`: `term`'s top-level shape must be resolved (see
   # `resolved?/1`) — its first arg is treated as the receiver and its functor
   # as the selector. `call_term({foo, self, x})` re-dispatches as
@@ -1419,6 +1398,15 @@ defmodule AL do
     end
   end
 
+  defp compose_term(name, []), do: name
+  defp compose_term(name, args), do: List.to_tuple([name | args])
+
+  defp decompose_term(t) when is_tuple(t), do: {elem(t, 0), t |> Tuple.to_list() |> tl()}
+  defp decompose_term(atomic), do: {atomic, []}
+
+  defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
+  defp resolved?(term), do: not AL.Var.var?(term)
+
   # A var receiver or selector makes the send a query: enumerate candidates, ground
   # the hole, re-dispatch as a query (misses backtrack, not DNU). Only a fully ground
   # send is directed and uses `on_miss`. `:"$_"` is the wildcard, not a hole.
@@ -1472,7 +1460,9 @@ defmodule AL do
   # declaration (mirroring `:ephemeral`'s `import`) is follow-up work.
   defp value_candidate(state, self, method, args, class) do
     goals =
-      splice_goals(state, [%Goal.SendAsValue{class: class, object: self, method: method, args: args}])
+      splice_goals(state, [
+        %Goal.SendAsValue{class: class, object: self, method: method, args: args}
+      ])
 
     %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
@@ -1688,7 +1678,9 @@ defmodule AL do
   # than derived from `self`'s own term shape — `providers/3`'s `is_number`/`is_map`/
   # `is_list` guards need a concrete term to guard on, which an unbound `self` isn't.
   defp do_send_as(class, self, method, args, state, on_miss) do
-    candidates = providers_for(class, super_chain([class], state.branch, :dfs), method, state.branch)
+    candidates =
+      providers_for(class, super_chain([class], state.branch, :dfs), method, state.branch)
+
     run_providers(candidates, self, method, [self | args], state, on_miss)
   end
 
