@@ -18,6 +18,10 @@ defmodule ALArithmeticTest do
   use ExExample.ExUnit, for: Examples.ALArithmetic
 end
 
+defmodule ALNumbersTest do
+  use ExExample.ExUnit, for: Examples.ALNumbers
+end
+
 defmodule ALListsTest do
   use ExExample.ExUnit, for: Examples.ALLists
 end

@@ -300,6 +300,18 @@ defmodule AL do
     }
   end
 
+  def ast_to_pattern({:defmethod, _, [class, method_name, head]}) do
+    %Goal.OApply{
+      method_id: :defmethod,
+      args: [
+        ast_to_pattern(class),
+        ast_to_pattern(method_name),
+        ast_to_pattern(head),
+        []
+      ]
+    }
+  end
+  
   # `defclass name, super: ..., ivars: [...], categories: [...] do ... end` — a
   # class declaration bundling what's otherwise a hand-sequenced `new(:class, …)`
   # + one `import` per category + one `defmethod` per method (see `sets.ex`'s
@@ -722,6 +734,13 @@ defmodule AL do
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_list(object),
     do: put_bindings(state, AL.Var.unify(:list, class_pattern, bindings(state)), [class_pattern])
+
+  def interp(%Goal.GetClass{object: object, class: class_pattern}, state)
+      when is_number(object),
+      do:
+        put_bindings(state, AL.Var.unify(:number, class_pattern, bindings(state)), [
+          class_pattern
+        ])
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     fan_out(state, AL.Object.scan_class(object, class_pattern, state.branch), fn row ->
@@ -1293,6 +1312,14 @@ defmodule AL do
   def interp(%Goal.SendQuery{object: self, method: method, args: args}, state),
     do: dispatch(self, method, args, state, &backtrack/1)
 
+  # The "value" dispatch leg: try `class`'s own clauses directly against `self`
+  # (possibly still unbound) via ordinary unification, no construction/retrieval.
+  # Only sound for classes whose clause heads are the complete, authoritative spec
+  # of a valid instance (see al-bidirectional-structural-dispatch memory) — not for
+  # ephemeral/durable classes.
+  def interp(%Goal.SendAsValue{class: class, object: self, method: method, args: args}, state),
+    do: do_send_as(class, self, method, args, state, &backtrack/1)
+
   # Run the next provider of the same selector, from this frame's cursor. No cursor
   # (called outside a resolved method) or none left → fail.
   def interp(%Goal.CallNextMethod{self: self, args: args}, state) do
@@ -1326,6 +1353,7 @@ defmodule AL do
         |> push_choicepoint(structural_candidate(state, requery, self, []))
         |> push_ephemeral_candidates(state, self, method, args, ephemeral_classes)
         |> push_durable_candidates(state, requery, self, durable_objects)
+        |> push_choicepoint(value_candidate(state, self, method, args, :number))
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -1347,6 +1375,19 @@ defmodule AL do
       | goals: requery_goals,
         bindings: AL.Var.unify(self, shape, state.active_choicepoint.bindings)
     }
+  end
+
+  # The "value" dispatch leg: no construction, no retrieval — just offer `class`'s own
+  # clauses to unify against `self` directly, still possibly unbound. Only sound for
+  # classes whose clause heads are the complete, authoritative spec of an instance (see
+  # al-bidirectional-structural-dispatch memory for why ephemeral classes can't use
+  # this). Hardcoded to `:number` for now — generalizing to an opt-in class
+  # declaration (mirroring `:ephemeral`'s `import`) is follow-up work.
+  defp value_candidate(state, self, method, args, class) do
+    goals =
+      splice_goals(state, [%Goal.SendAsValue{class: class, object: self, method: method, args: args}])
+
+    %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
 
   # Ephemeral classes (map-tagged, never durable) have no `class` row for `GetClass`
@@ -1556,6 +1597,14 @@ defmodule AL do
         on_miss
       )
 
+  # Like `do_send`, but the scope chain is seeded from an explicit `class` rather
+  # than derived from `self`'s own term shape — `providers/3`'s `is_number`/`is_map`/
+  # `is_list` guards need a concrete term to guard on, which an unbound `self` isn't.
+  defp do_send_as(class, self, method, args, state, on_miss) do
+    candidates = providers_for(class, super_chain([class], state.branch, :dfs), method, state.branch)
+    run_providers(candidates, self, method, [self | args], state, on_miss)
+  end
+
   # Run the first provider whose clause fits, stashing the rest as a cursor for
   # `call_next_method`. First match wins (a clause mismatch stays a miss). Primitives
   # make no frame, so carry no cursor.
@@ -1578,18 +1627,18 @@ defmodule AL do
   # scopes. `send` takes the head, `call_next_method` the tail. Cache key uses
   # `resolution_key`, not raw `self` — `method_scopes` only depends on self's class
   # (or `:list`), not the rest of a map/object's content.
-  defp providers(self, selector, branch) do
-    key = {resolution_key(self), selector}
+  defp providers(self, selector, branch),
+    do: providers_for(resolution_key(self), method_scopes(self, branch), selector, branch)
 
-    AL.ResolutionCache.fetch_providers(branch, key, fn ->
-      for scope <- method_scopes(self, branch),
-          id <- method_ids(scope, selector, branch),
-          do: {scope, id}
+  defp providers_for(key, scopes, selector, branch) do
+    AL.ResolutionCache.fetch_providers(branch, {key, selector}, fn ->
+      for scope <- scopes, id <- method_ids(scope, selector, branch), do: {scope, id}
     end)
   end
 
   defp resolution_key(self) when is_list(self), do: :list
   defp resolution_key(self) when is_map(self), do: Map.get(self, :class, :map)
+  defp resolution_key(self) when is_number(self), do: :number
   defp resolution_key(self), do: self
 
   defp dnu(_self, :does_not_understand, _args, state), do: backtrack(state)
@@ -1632,12 +1681,14 @@ defmodule AL do
 
   # Ordered lookup scopes: the receiver (if an atom), then its classes and their
   # supers, depth-first (or breadth-first, if the receiver's class opts in via a
-  # `dispatch_strategy: :bfs` slot) and deduped. Map/list receivers start from
-  # `:map`/`:list` and always walk depth-first.
+  # `dispatch_strategy: :bfs` slot) and deduped. Map/list/number receivers start
+  # from `:map`/`:list`/`:number` and always walk depth-first.
   defp method_scopes(self, branch) when is_map(self),
     do: super_chain([Map.get(self, :class, :map)], branch, :dfs)
 
   defp method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch, :dfs)
+
+  defp method_scopes(self, branch) when is_number(self), do: super_chain([:number], branch, :dfs)
 
   defp method_scopes(self, branch) do
     classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)

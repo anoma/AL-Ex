@@ -41,6 +41,7 @@ defmodule AL.Goal do
           | Call.t()
           | Send.t()
           | SendQuery.t()
+          | SendAsValue.t()
           | CallNextMethod.t()
           | Fail.t()
 
@@ -236,6 +237,15 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: SendQuery do
+    field(:object, AL.Var.t())
+    field(:method, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  # Internal, dispatch-only: try `class`'s own clauses against a possibly-unbound
+  # `object`, no construction/retrieval — see the "value" dispatch leg in dispatch/5.
+  typedstruct enforce: true, module: SendAsValue do
+    field(:class, AL.Var.t())
     field(:object, AL.Var.t())
     field(:method, AL.Var.t())
     field(:args, AL.Var.t())

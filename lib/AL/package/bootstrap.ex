@@ -240,6 +240,24 @@ defmodule AL.Package.Bootstrap do
       set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
     end
 
+    new(:class, %{name: :number, super: :object, ivars: []}, _)
+
+    defmethod(:number, :factorial, [1, 1])
+    defmethod(:number, :factorial, [n, factorial]) do
+      vm_ground(n)
+      n > 1
+      
+      vm_is(n1, n - 1)
+      factorial(n1, factorial1)
+      vm_is(factorial, factorial1 * n)
+    end
+    defmethod(:number, :factorial, [n, factorial]) do
+      not([vm_ground(n)])
+      vm_ground(factorial)
+      between(factorial, 1, factorial, n)
+      factorial(n, factorial)
+    end
+
     new(:class, %{name: :list, super: :object, ivars: []}, _)
 
     defmethod(:list, :hd, [[h | _t], h]) do
