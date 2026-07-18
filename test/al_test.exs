@@ -22,6 +22,10 @@ defmodule ALNumbersTest do
   use ExExample.ExUnit, for: Examples.ALNumbers
 end
 
+defmodule ALFunctorTest do
+  use ExExample.ExUnit, for: Examples.ALFunctor
+end
+
 defmodule ALListsTest do
   use ExExample.ExUnit, for: Examples.ALLists
 end

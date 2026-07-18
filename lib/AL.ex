@@ -218,6 +218,15 @@ defmodule AL do
 
   def ast_to_pattern({:vm_ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
+  def ast_to_pattern({:vm_functor, _, [term, name, args]}),
+    do: %Goal.Functor{
+      term: ast_to_pattern(term),
+      name: ast_to_pattern(name),
+      args: ast_to_pattern(args)
+    }
+
+  def ast_to_pattern({:call_term, _, [term]}), do: %Goal.CallTerm{term: ast_to_pattern(term)}
+
   def ast_to_pattern({:var, _, [term]}), do: %Goal.IsVar{term: ast_to_pattern(term)}
 
   def ast_to_pattern({:freeze, _, [var, goals]}),
@@ -1273,6 +1282,84 @@ defmodule AL do
   def interp(%Goal.Ground{term: term}, state) do
     if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.bindings))) == 0 do
       state
+    else
+      backtrack(state)
+    end
+  end
+
+  def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
+    bindings = bindings(state)
+    resolved_term = AL.Var.subst(term, bindings)
+
+    if resolved?(resolved_term) do
+      {term_name, term_args} = decompose_term(resolved_term)
+
+      put_bindings(state, AL.Var.unify([name, args], [term_name, term_args], bindings), [
+        name,
+        args
+      ])
+    else
+      ground_name = AL.Var.subst(name, bindings)
+      resolved_args = AL.Var.subst(args, bindings)
+
+      if ground?(ground_name) and is_list(resolved_args) do
+        put_bindings(
+          state,
+          AL.Var.unify(term, compose_term(ground_name, resolved_args), bindings),
+          [term]
+        )
+      else
+        backtrack(state)
+      end
+    end
+  end
+
+  # A term constructed from a functor `name` and its `args` — the tuple
+  # `{name, arg1, ...}`, or bare `name` when there are no args (matching
+  # `decompose_term`'s inverse: an atomic term has `args = []`).
+  defp compose_term(name, []), do: name
+  defp compose_term(name, args), do: List.to_tuple([name | args])
+
+  # A term's functor `name` and `args` — a tuple's first element and the rest
+  # as a list, or the term itself with `args = []` if it's atomic (not a
+  # tuple). Prolog's `functor/3` crossed with `=..`. `t`'s own top-level shape
+  # must be resolved (see `resolved?/1`), but elements within it (an arg, a
+  # nested var) are free to stay unbound — they just ride along.
+  defp decompose_term(t) when is_tuple(t), do: {elem(t, 0), t |> Tuple.to_list() |> tl()}
+  defp decompose_term(atomic), do: {atomic, []}
+
+  defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
+
+  # Enough to decompose: not a bare unbound var. Weaker than `ground?/1` on
+  # purpose — `{:foo, x}` with `x` still open is a perfectly good term to pull
+  # a functor/args out of, only a dangling var itself has nothing to offer.
+  defp resolved?(term), do: not AL.Var.var?(term)
+
+  # Prolog's `call/1`: `term`'s top-level shape must be resolved (see
+  # `resolved?/1`) — its first arg is treated as the receiver and its functor
+  # as the selector. `call_term({foo, self, x})` re-dispatches as
+  # `send(self, :foo, [x])`, the same [self | args] shape every `oapply`
+  # clause head already uses; `self`/`x` can still be unbound, `Send`'s own
+  # dispatch handles that.
+  def interp(%Goal.CallTerm{term: term}, state) do
+    resolved_term = AL.Var.subst(term, bindings(state))
+
+    if resolved?(resolved_term) do
+      case decompose_term(resolved_term) do
+        {name, [self | rest]} ->
+          choice = state.active_choicepoint
+
+          %AL{
+            state
+            | active_choicepoint: %AL.Choicepoint{
+                choice
+                | goals: splice_goals(state, [%Goal.Send{object: self, method: name, args: rest}])
+              }
+          }
+
+        {_name, []} ->
+          backtrack(state)
+      end
     else
       backtrack(state)
     end

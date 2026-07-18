@@ -38,6 +38,8 @@ defmodule AL.Goal do
           | Ground.t()
           | IsVar.t()
           | Freeze.t()
+          | Functor.t()
+          | CallTerm.t()
           | Call.t()
           | Send.t()
           | SendQuery.t()
@@ -212,6 +214,22 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Ground do
+    field(:term, AL.Var.t())
+  end
+
+  # Prolog's `functor/3` crossed with `=..`: `term` ground decomposes into
+  # `name` (a tuple's first element, or the term itself if atomic) and `args`
+  # (the tuple's remaining elements, or `[]` if atomic); `name`/`args` ground
+  # with `term` unbound constructs the reverse.
+  typedstruct enforce: true, module: Functor do
+    field(:term, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  # Prolog's `call/1`: re-dispatch a ground compound term as a `send`, treating
+  # its first arg as the receiver and its functor as the selector.
+  typedstruct enforce: true, module: CallTerm do
     field(:term, AL.Var.t())
   end
 
