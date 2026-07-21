@@ -301,4 +301,77 @@ defmodule Examples.ALConstraints do
 
     bindings
   end
+
+  example interval_propagation_skips_enumeration() do
+    pid = self()
+
+    {:atomic, {_bindings, _state}} =
+      run branch: :examples do
+        new(:elixir_process, %{name: :interval_subscriber, pid: ^pid}, _)
+
+        defmethod(:interval_subscriber, :cell_updated, [self, cell, domain]) do
+          vm_get_slot(self, :pid, p)
+          vm_functor(message, :cell_updated, [cell, domain])
+          send_elixir(p, message)
+        end
+
+        defmethod(:interval_subscriber, :dependents, [self, acc, dependents]) do
+          unify(acc, dependents)
+        end
+
+        new(:cell, %{name: :ia}, ia)
+        new(:cell, %{name: :ib}, ib)
+        new(:cell, %{name: :ic}, ic)
+        subscribe(ic, :interval_subscriber)
+
+        new(:propagator, %{input_cells: [ia, ib], output_cell: ic, name: :interval_adder}, adder)
+
+        # Interval-typed :constrain: does arithmetic on the interval terms
+        # directly, unlike the scalar-combo :constrain clauses above.
+        defmethod(adder, :constrain, [_self, [i1, i2], result]) do
+          vm_map_get(i1, :lo, lo1)
+          vm_map_get(i1, :hi, hi1)
+          vm_map_get(i2, :lo, lo2)
+          vm_map_get(i2, :hi, hi2)
+          vm_is(lo, lo1 + lo2)
+          vm_is(hi, hi1 + hi2)
+          unify(result, %{class: :interval, lo: lo, hi: hi})
+        end
+
+        new(:interval, %{lo: 1, hi: 5}, interval_a)
+        new(:interval, %{lo: 3, hi: 8}, interval_b)
+
+        send_async(ia, :constrain, [interval_a])
+        send_async(ib, :constrain, [interval_b])
+      end
+
+    slot_result =
+      run branch: :examples do
+        vm_get_slot(:ic, :domain, domain)
+      end
+
+    domain =
+      case slot_result do
+        {:atomic, {bindings, _state}} ->
+          Map.get(bindings, :"$domain")
+
+        {:aborted, _} ->
+          receive do
+            {:cell_updated, :ic, d} -> d
+          after
+            1000 -> flunk("timed out waiting for :ic to update")
+          end
+      end
+
+    assert domain == %{class: :interval, lo: 4, hi: 13}
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        vm_get_slot(:ic, :domain, domain)
+      end
+
+    assert Map.get(bindings, :"$domain") == %{class: :interval, lo: 4, hi: 13}
+
+    bindings
+  end
 end

@@ -18,7 +18,11 @@ defmodule Examples.ALMapset do
         new(:mapset, %{elems: [3, 1, 2, 1]}, s)
       end
 
-    assert Map.get(bindings, :"$s") == %{class: :mapset, elems: %{1 => true, 2 => true, 3 => true}}
+    assert Map.get(bindings, :"$s") == %{
+             class: :mapset,
+             elems: %{1 => true, 2 => true, 3 => true}
+           }
+
     :ok
   end
 
@@ -185,7 +189,11 @@ defmodule Examples.ALMapset do
         members(s, [3, 1, 2, 1])
       end
 
-    assert Map.get(bindings, :"$s") == %{class: :mapset, elems: %{1 => true, 2 => true, 3 => true}}
+    assert Map.get(bindings, :"$s") == %{
+             class: :mapset,
+             elems: %{1 => true, 2 => true, 3 => true}
+           }
+
     :ok
   end
 

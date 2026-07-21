@@ -66,6 +66,10 @@ defmodule ALFailuresTest do
   use ExExample.ExUnit, for: Examples.ALFailures
 end
 
+defmodule ALIntervalTest do
+  use ExExample.ExUnit, for: Examples.ALInterval
+end
+
 defmodule ALMapsetTest do
   use ExExample.ExUnit, for: Examples.ALMapset
 end

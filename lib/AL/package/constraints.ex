@@ -1,7 +1,7 @@
 defmodule AL.Package.Constraints do
   use AL.Package
 
-  defpackage :constraints, version: 1, deps: [:bootstrap, :elixir_process, :mapset] do
+  defpackage :constraints, version: 1, deps: [:bootstrap, :elixir_process, :mapset, :interval] do
     ### Cell
 
     new(:class, %{name: :cell, super: :object, ivars: [:subscribers, :domain, :name]}, _)
@@ -16,8 +16,12 @@ defmodule AL.Package.Constraints do
           intersection(old_domain, candidate, new_domain)
 
           implies do
-            [new_domain == old_domain] -> true
-            :else -> set_slot(self, :domain, new_domain); notify(self, new_domain)
+            [new_domain == old_domain] ->
+              true
+
+            :else ->
+              set_slot(self, :domain, new_domain)
+              notify(self, new_domain)
           end
 
         :else ->
@@ -84,29 +88,50 @@ defmodule AL.Package.Constraints do
       send_async(self, :cell_updated, [:none, :none])
     end
 
-    # Domain propagation: take each input cell's domain (a set of possible
-    # values), form the cartesian product across all inputs, map the
-    # propagator's own `constrain` fn over every combo, and narrow the output
-    # cell to the resulting set of possible values.
+    # Take each input cell's domain and narrow the output cell to whatever
+    # the propagator's own `constrain` fn produces from them — the *strategy*
+    # depends on how the domains are represented (see `narrow_output`), not
+    # on the propagator itself: a mapset domain enumerates+combos, an
+    # interval domain skips enumeration and passes the interval terms
+    # straight through so `constrain` can do interval arithmetic directly.
     defmethod(:propagator, :cell_updated, [self, _cell_name, _domain]) do
       get_slot(self, :input_cells, input_cells)
       get_slot(self, :output_cell, output_cell)
 
       findall(
-        input_list,
-        [
-          member(input_cells, input_cell),
-          get_slot(input_cell, :domain, input_domain),
-          members(input_domain, input_list)
-        ],
-        input_lists
+        input_domain,
+        [member(input_cells, input_cell), get_slot(input_cell, :domain, input_domain)],
+        input_domains
       )
 
       # Not every input cell has a domain yet (only length, not identity,
       # matters — findall above silently drops a not-yet-set input rather
       # than failing outright, so a plain fail-if-missing check needs a
       # count comparison, not a direct conjunction on get_slot).
-      same_length(input_cells, input_lists)
+      same_length(input_cells, input_domains)
+
+      narrow_output(self, input_domains, candidate)
+      send_async(output_cell, :constrain, [candidate])
+    end
+
+    # Interval domains: no enumeration — hand the interval terms straight to
+    # the propagator's own `constrain` clause, which does interval
+    # arithmetic directly (that's the whole reason to use intervals instead
+    # of mapsets for a wide/continuous range).
+    defmethod(:propagator, :narrow_output, [self, [first | rest], candidate]) do
+      vm_class(first, :interval)
+      constrain(self, [first | rest], candidate)
+    end
+
+    # Mapset (or any other enumerable) domains: cartesian product across all
+    # inputs, map the propagator's own `constrain` fn over every combo,
+    # collect the results into the output's candidate set.
+    defmethod(:propagator, :narrow_output, [self, input_domains, candidate]) do
+      findall(
+        input_list,
+        [member(input_domains, domain), members(domain, input_list)],
+        input_lists
+      )
 
       combos(input_lists, input_combos)
 
@@ -117,7 +142,6 @@ defmodule AL.Package.Constraints do
       )
 
       members(candidate, output_values)
-      send_async(output_cell, :constrain, [candidate])
     end
 
     defmethod(:propagator, :dependents, [self, dependents]) do
