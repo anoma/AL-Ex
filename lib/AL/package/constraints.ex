@@ -7,15 +7,20 @@ defmodule AL.Package.Constraints do
     new(:class, %{name: :cell, super: :object, ivars: [:subscribers, :value, :name]}, _)
 
     defmethod(:cell, :init, [self, args, self]) do
-      set_slots(self, %{name: self, subscribers: [], value: :absent})
+      set_slots(self, %{name: self, subscribers: []})
     end
 
     # If no value set yet, can set value
-    # TODO make a type of cell and propagator that can support sets. Suggesion: Take input cells combinations and determine all possible output cell combinations from this using the propagator constraint fn. Initialise cell with domain.
+    # TODO make a type of cell and propagator that can support sets.
+    # One Suggestion That Won't Scale but Works in Some Sense: Take input cells combinations and determine all possible output cell combinations from this using the propagator constraint fn. Initialise cell with domain, or make a network wrapper to ensure domain consistency
     defmethod(:cell, :constrain, [self, value]) do
-      get_slot(self, :value, :absent)
-      set_slot(self, :value, value)
-
+      implies do
+        [get_slot(self, :value, value)] -> true
+        :else -> set_slot(self, :value, value); notify(self, value) 
+      end
+    end
+        
+    defmethod(:cell, :notify, [self, value]) do
       forall([get_slot(self, :subscribers, subscribers), member(subscribers, subscriber)]) do
         send_async(subscriber, :cell_updated, [self, value])
       end

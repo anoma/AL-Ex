@@ -12,7 +12,7 @@ config :al,
     AL.Package.Users,
     AL.Package.ElixirProcess,
     AL.Package.Constraints,
-    AL.Package.Sets,
+    AL.Package.Mapset,
     AL.Package.Equations
   ]
 

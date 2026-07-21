@@ -2,8 +2,8 @@ defmodule Examples.ALDefclass do
   @moduledoc """
   I provide examples for `defclass` — a class declaration bundling what
   otherwise needs a hand-sequenced `new(metaclass, …)` + one `import` per
-  category + one `defmethod` per method (see how `sets.ex`'s `single`/`union`
-  were written before this existed). It lowers to a single `:defclass` OApply,
+  category + one `defmethod` per method (see how mapset.ex's predecessor's
+  `single`/`union` classes were written before this existed). It lowers to a single `:defclass` OApply,
   the same way `defmethod` itself lowers to a single `:defmethod` OApply — the
   sequencing lives in AL (bootstrap.ex), not in the surface syntax.
   """
@@ -61,7 +61,7 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # `metaclass: :object` (as `empty_set` in sets.ex uses) makes the *class
+  # `metaclass: :object` (as `empty_set` in mapset.ex's predecessor used) makes the *class
   # itself* a plain durable object — no per-instance construction at all,
   # matching how `empty_set` is its own singleton.
   example defclass_supports_metaclass_override() do

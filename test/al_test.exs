@@ -66,8 +66,8 @@ defmodule ALFailuresTest do
   use ExExample.ExUnit, for: Examples.ALFailures
 end
 
-defmodule ALSetsTest do
-  use ExExample.ExUnit, for: Examples.ALSets
+defmodule ALMapsetTest do
+  use ExExample.ExUnit, for: Examples.ALMapset
 end
 
 defmodule ALCategoriesTest do

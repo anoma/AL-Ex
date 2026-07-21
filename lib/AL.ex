@@ -799,12 +799,24 @@ defmodule AL do
     do: backtrack(state)
 
   def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
-    matches =
-      m
-      |> Enum.map(&AL.Var.unify({k_pattern, v_pattern}, &1, bindings(state)))
-      |> Enum.filter(& &1)
+    k = AL.Var.subst(k_pattern, bindings(state))
 
-    fan_out(state, matches, &{&1, [{k_pattern, v_pattern}]})
+    if ground?(k) do
+      case Map.fetch(m, k) do
+        {:ok, v} ->
+          put_bindings(state, AL.Var.unify(v_pattern, v, bindings(state)), [v_pattern])
+
+        :error ->
+          backtrack(state)
+      end
+    else
+      matches =
+        m
+        |> Enum.map(&AL.Var.unify({k_pattern, v_pattern}, &1, bindings(state)))
+        |> Enum.filter(& &1)
+
+      fan_out(state, matches, &{&1, [{k_pattern, v_pattern}]})
+    end
   end
 
   def interp(%Goal.OApply{method_id: :map_put, args: [m1, _k, _v, _m2]}, state)
