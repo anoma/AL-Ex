@@ -24,7 +24,8 @@ defmodule Examples.ALGenserver do
 
         defmethod(^object_id, :increment, [self, amount]) do
           vm_get_slot(self, :pid, p)
-          send_elixir(p, {:increment, amount})
+          vm_functor(message, :increment, [amount])
+          send_elixir(p, message)
         end
       end
 

@@ -11,8 +11,8 @@ config :al,
     AL.Package.Bootstrap,
     AL.Package.Users,
     AL.Package.ElixirProcess,
-    AL.Package.Constraints,
     AL.Package.Mapset,
+    AL.Package.Constraints,
     AL.Package.Equations
   ]
 

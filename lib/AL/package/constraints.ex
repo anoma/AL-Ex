@@ -1,28 +1,34 @@
 defmodule AL.Package.Constraints do
   use AL.Package
 
-  defpackage :constraints, version: 1, deps: [:bootstrap] do
+  defpackage :constraints, version: 1, deps: [:bootstrap, :elixir_process, :mapset] do
     ### Cell
 
-    new(:class, %{name: :cell, super: :object, ivars: [:subscribers, :value, :name]}, _)
+    new(:class, %{name: :cell, super: :object, ivars: [:subscribers, :domain, :name]}, _)
 
     defmethod(:cell, :init, [self, args, self]) do
       set_slots(self, %{name: self, subscribers: []})
     end
 
-    # If no value set yet, can set value
-    # TODO make a type of cell and propagator that can support sets.
-    # One Suggestion That Won't Scale but Works in Some Sense: Take input cells combinations and determine all possible output cell combinations from this using the propagator constraint fn. Initialise cell with domain, or make a network wrapper to ensure domain consistency
-    defmethod(:cell, :constrain, [self, value]) do
+    defmethod(:cell, :constrain, [self, candidate]) do
       implies do
-        [get_slot(self, :value, value)] -> true
-        :else -> set_slot(self, :value, value); notify(self, value) 
+        [get_slot(self, :domain, old_domain)] ->
+          intersection(old_domain, candidate, new_domain)
+
+          implies do
+            [new_domain == old_domain] -> true
+            :else -> set_slot(self, :domain, new_domain); notify(self, new_domain)
+          end
+
+        :else ->
+          set_slot(self, :domain, candidate)
+          notify(self, candidate)
       end
     end
-        
-    defmethod(:cell, :notify, [self, value]) do
+
+    defmethod(:cell, :notify, [self, domain]) do
       forall([get_slot(self, :subscribers, subscribers), member(subscribers, subscriber)]) do
-        send_async(subscriber, :cell_updated, [self, value])
+        send_async(subscriber, :cell_updated, [self, domain])
       end
 
       cut
@@ -78,22 +84,40 @@ defmodule AL.Package.Constraints do
       send_async(self, :cell_updated, [:none, :none])
     end
 
-    defmethod(:propagator, :cell_updated, [self, _cell_name, _value]) do
+    # Domain propagation: take each input cell's domain (a set of possible
+    # values), form the cartesian product across all inputs, map the
+    # propagator's own `constrain` fn over every combo, and narrow the output
+    # cell to the resulting set of possible values.
+    defmethod(:propagator, :cell_updated, [self, _cell_name, _domain]) do
       get_slot(self, :input_cells, input_cells)
       get_slot(self, :output_cell, output_cell)
 
       findall(
-        input_cell_value,
-        [member(input_cells, input_cell), get_slot(input_cell, :value, input_cell_value)],
-        input_cell_values
+        input_list,
+        [
+          member(input_cells, input_cell),
+          get_slot(input_cell, :domain, input_domain),
+          members(input_domain, input_list)
+        ],
+        input_lists
       )
 
-      forall([member(input_cell_values, input_cell_value)]) do
-        not [unify(input_cell_value, :absent)]
-      end
+      # Not every input cell has a domain yet (only length, not identity,
+      # matters — findall above silently drops a not-yet-set input rather
+      # than failing outright, so a plain fail-if-missing check needs a
+      # count comparison, not a direct conjunction on get_slot).
+      same_length(input_cells, input_lists)
 
-      constrain(self, input_cell_values, output_value)
-      send_async(output_cell, :constrain, [output_value])
+      combos(input_lists, input_combos)
+
+      findall(
+        output_value,
+        [member(input_combos, combo), constrain(self, combo, output_value)],
+        output_values
+      )
+
+      members(candidate, output_values)
+      send_async(output_cell, :constrain, [candidate])
     end
 
     defmethod(:propagator, :dependents, [self, dependents]) do
@@ -110,6 +134,16 @@ defmodule AL.Package.Constraints do
           vm_map_put(acc, self, [output_cell], new_acc)
           dependents(output_cell, new_acc, dependents)
       end
+    end
+
+    ### Cartesian product of a list of lists — [[1,2],[3,4]] -> [[1,3],[1,4],[2,3],[2,4]]
+
+    defmethod(:list, :combos, [[], [[]]]) do
+    end
+
+    defmethod(:list, :combos, [[xs | xss], result]) do
+      combos(xss, rest_combos)
+      findall([x | rest], [member(xs, x), member(rest_combos, rest)], result)
     end
   end
 end
