@@ -2,8 +2,12 @@ defmodule Examples.ALInterval do
   @moduledoc """
   I provide examples for the `:interval` package — an interval is
   `%{class: :interval, lo:, hi:}`, a closed numeric range `[lo, hi]`.
-  `intersection` narrows two intervals to their overlap and fails if they're
-  disjoint (no valid `lo <= hi` interval to represent the empty result).
+  `intersection` narrows two intervals to their overlap. A disjoint
+  intersection (or an `lo > hi` construction) doesn't fail the goal — it
+  produces the canonical empty interval `%{class: :interval, lo: :empty, hi:
+  :empty}`, the lattice bottom/contradiction value, so a propagator can
+  represent and propagate "no valid value" as data instead of the
+  computation just silently vanishing.
   """
 
   use ExExample
@@ -20,13 +24,13 @@ defmodule Examples.ALInterval do
     :ok
   end
 
-  example new_interval_fails_when_lo_is_greater_than_hi() do
-    result =
+  example new_interval_is_empty_when_lo_is_greater_than_hi() do
+    {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:interval, %{lo: 5, hi: 4}, i)
       end
 
-    assert {:aborted, _} = result
+    assert Map.get(bindings, :"$i") == %{class: :interval, lo: :empty, hi: :empty}
     :ok
   end
 
@@ -41,6 +45,19 @@ defmodule Examples.ALInterval do
         not [elem(i, 0)]
         not [elem(i, 5)]
 
+        unify(checked, true)
+      end
+
+    assert Map.get(bindings, :"$checked") == true
+    :ok
+  end
+
+  example elem_never_holds_for_the_empty_interval() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:interval, %{lo: 5, hi: 4}, empty)
+        not [elem(empty, 0)]
+        not [elem(empty, 5)]
         unify(checked, true)
       end
 
@@ -85,15 +102,29 @@ defmodule Examples.ALInterval do
     :ok
   end
 
-  example intersection_of_disjoint_intervals_fails() do
-    result =
+  example intersection_of_disjoint_intervals_is_empty() do
+    {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:interval, %{lo: 1, hi: 2}, a)
         new(:interval, %{lo: 3, hi: 4}, b)
         intersection(a, b, i)
       end
 
-    assert {:aborted, _} = result
+    assert Map.get(bindings, :"$i") == %{class: :interval, lo: :empty, hi: :empty}
+    :ok
+  end
+
+  example intersection_with_an_empty_interval_stays_empty() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:interval, %{lo: 5, hi: 4}, empty)
+        new(:interval, %{lo: 1, hi: 10}, a)
+        intersection(empty, a, i1)
+        intersection(a, empty, i2)
+      end
+
+    assert Map.get(bindings, :"$i1") == %{class: :interval, lo: :empty, hi: :empty}
+    assert Map.get(bindings, :"$i2") == %{class: :interval, lo: :empty, hi: :empty}
     :ok
   end
 end
