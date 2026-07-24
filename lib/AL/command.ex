@@ -68,10 +68,14 @@ defmodule AL.Command do
   end
 
   @doc """
-  Initialise the event log, or re-use the one on disc.
+  Initialise the event log, or re-use the one on disc. The store's
+  directory comes from the `:al` application's `:mnesia_dir` config,
+  `.mnesiastore/` in the host's cwd by default, so a test suite can
+  keep its own store apart from a live node's log.
   """
   def setup() do
-    :ok = Application.put_env(:mnesia, :dir, ~c".mnesiastore/")
+    dir = Application.get_env(:al, :mnesia_dir, ".mnesiastore/")
+    :ok = Application.put_env(:mnesia, :dir, to_charlist(dir))
 
     case :mnesia.create_schema([node()]) do
       :ok -> :ok
