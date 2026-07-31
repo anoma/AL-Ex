@@ -518,4 +518,94 @@ defmodule Examples.ALObjects do
     assert status == :aborted
     :ok
   end
+
+  # `AL.Dispatch`'s durable leg defers its `scan_class` behind a placeholder
+  # choicepoint (`AL.Dispatch.force_durable_candidates`) instead of scanning
+  # eagerly at dispatch time — a query the value leg alone can answer should
+  # never reach it. Observable via `AL.ResolutionCache`'s `durable_classes`
+  # table, which only a real scan ever populates. A throwaway fork keeps this
+  # from seeing another example's dispatch calls having already warmed the
+  # shared `:examples` branch's cache.
+  example durable_scan_is_deferred_until_actually_needed() do
+    fork = AL.Branch.fork()
+    cache_table = AL.ResolutionCache.table(:durable_classes, fork)
+
+    {:atomic, _} =
+      run branch: fork.id do
+        vm_set_class(:lazy_only_class, :object)
+
+        defmethod(:lazy_only_class, :only_here, [self, :found]) do
+        end
+
+        vm_set_class(:lazy_only_object, :lazy_only_class)
+      end
+
+    assert :mnesia.dirty_read(cache_table, :value) == []
+
+    {:atomic, {bindings, _}} =
+      run branch: fork.id do
+        factorial(x, 1)
+      end
+
+    assert Map.get(bindings, :"$x") == 1
+    assert :mnesia.dirty_read(cache_table, :value) == []
+
+    {:atomic, {bindings2, _}} =
+      run branch: fork.id do
+        only_here(o, r)
+      end
+
+    assert Map.get(bindings2, :"$o") == :lazy_only_object
+    assert Map.get(bindings2, :"$r") == :found
+    assert :mnesia.dirty_read(cache_table, :value) != []
+
+    AL.Branch.discard(fork)
+  end
+
+  # `AL.Var.bind/5` is the one choke point every unification passes through —
+  # dispatch's own candidate generation (`AL.Dispatch.structural_candidate`)
+  # goes through the exact same `AL.Var.unify` a plain `unify/2` goal does, so
+  # a `vm_class(x, C)` constraint has to reject a wrong-class bind whichever
+  # of those two ways it's reached, not just a direct one. Both
+  # `:isa_durable_class_a`/`_b` answer `:isa_durable_probe`, so dispatch would
+  # offer both instances as candidates absent the constraint — this pins that
+  # only the constraint-compatible one ever survives.
+  example isa_constraint_rejects_a_wrong_durable_class() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:isa_durable_class_a, :object)
+        vm_set_class(:isa_durable_class_b, :object)
+
+        defmethod(:isa_durable_class_a, :isa_durable_probe, [self, self]) do
+        end
+
+        defmethod(:isa_durable_class_b, :isa_durable_probe, [self, self]) do
+        end
+
+        vm_set_class(:isa_durable_instance_a, :isa_durable_class_a)
+        vm_set_class(:isa_durable_instance_b, :isa_durable_class_b)
+      end
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        vm_class(x, :isa_durable_class_a)
+        unify(x, :isa_durable_instance_b)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, :isa_durable_class_a)
+        unify(x, :isa_durable_instance_a)
+      end
+
+    assert Map.get(bindings, :"$x") == :isa_durable_instance_a
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        vm_class(o, :isa_durable_class_a)
+        findall(o, [isa_durable_probe(o, o)], os)
+      end
+
+    assert Map.get(bindings2, :"$os") == [:isa_durable_instance_a]
+  end
 end

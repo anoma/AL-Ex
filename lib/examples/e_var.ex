@@ -13,7 +13,7 @@ defmodule Examples.AL.Var do
   end
 
   example unification() do
-    bindings =
+    {bindings, _constraints} =
       AL.Var.unify([:"$self", %{name: :"$name"}, {:"$_", 3}], [
         :"$self",
         %{name: "alice", age: 32},
@@ -25,13 +25,14 @@ defmodule Examples.AL.Var do
   end
 
   example unification_two() do
-    result = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
-    result
+    {bindings, _constraints} = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
+    bindings
   end
 
   example unification_three() do
-    result = AL.Var.unify(:"$x", 3, AL.Var.unify(:"$y", :"$x"))
-    result
+    {inner_bindings, inner_constraints} = AL.Var.unify(:"$y", :"$x")
+    {bindings, _constraints} = AL.Var.unify(:"$x", 3, inner_bindings, inner_constraints)
+    bindings
   end
 
   example substitution() do
@@ -66,12 +67,12 @@ defmodule Examples.AL.Var do
     refute AL.Var.occurs?(:"$x", [1 | :"$y"], %{})
 
     # a var that does not occur in the term still binds normally
-    assert AL.Var.unify(:"$x", [1, 2, :"$y"]) == %{"$x": [1, 2, :"$y"]}
+    assert AL.Var.unify(:"$x", [1, 2, :"$y"]) == {%{"$x": [1, 2, :"$y"]}, %{}}
     :ok
   end
 
   example subst_and_find_vars_cover_map_keys() do
-    bindings = AL.Var.unify(:"$k", :resolved)
+    {bindings, _constraints} = AL.Var.unify(:"$k", :resolved)
 
     # a variable in key position is substituted, not left as a (freshened) var
     assert AL.Var.subst(%{:"$k" => :v}, bindings) == %{resolved: :v}
@@ -82,19 +83,20 @@ defmodule Examples.AL.Var do
   end
 
   example dif_survives_var_to_var_aliasing() do
-    bindings = AL.Var.add_dif(%{}, :"$x", 1)
+    constraints = AL.Var.add_dif(%{}, :"$x", 1)
 
     # `$x` is still open, so unifying it with another open var aliases one to
     # the other rather than binding either to a concrete term — and which one
     # survives as the live representative is an internal choice, not
-    # something calling code should have to predict.
-    aliased = AL.Var.unify(:"$x", :"$y", bindings)
+    # something calling code should have to predict. The constraint store is
+    # threaded alongside `bindings`, not smuggled inside it.
+    {aliased_bindings, aliased_constraints} = AL.Var.unify(:"$x", :"$y", %{}, constraints)
 
     # whichever name is now live still owes `$x`'s dif constraint: binding
     # either name to the forbidden value has to fail.
-    assert AL.Var.unify(:"$y", 1, aliased) == nil
-    assert AL.Var.unify(:"$x", 1, aliased) == nil
-    assert AL.Var.unify(:"$y", 2, aliased) != nil
+    assert AL.Var.unify(:"$y", 1, aliased_bindings, aliased_constraints) == nil
+    assert AL.Var.unify(:"$x", 1, aliased_bindings, aliased_constraints) == nil
+    assert AL.Var.unify(:"$y", 2, aliased_bindings, aliased_constraints) != nil
     :ok
   end
 end

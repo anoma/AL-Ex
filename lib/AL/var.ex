@@ -13,6 +13,8 @@ defmodule AL.Var do
   @type variable() :: atom() | {:"$fresh", variable(), String.t()}
   @type t() :: atom() | number() | binary() | [t()] | tuple() | map()
   @type bindings() :: %{optional(variable()) => t()}
+  @type constraint_set() :: %{dif: [{t(), t()}], isa: MapSet.t(atom())}
+  @type constraints() :: %{optional(variable()) => constraint_set()}
 
   @spec empty_bindings() :: bindings()
   def empty_bindings() do
@@ -124,8 +126,9 @@ defmodule AL.Var do
     end
   end
 
-  @spec extend(bindings(), t(), t()) :: bindings() | nil
-  def extend(bindings, x, y) do
+  @spec extend(bindings(), t(), t(), constraints(), AL.Branch.t()) ::
+          {bindings(), constraints()} | nil
+  def extend(bindings, x, y, constraints, branch) do
     rx = deref(bindings, x)
     ry = deref(bindings, y)
 
@@ -133,74 +136,124 @@ defmodule AL.Var do
     is_var_ry = var?(ry)
 
     cond do
-      rx == ry -> bindings
-      not is_var_rx && is_var_ry -> bind(bindings, ry, x)
-      rx == x && is_var_ry -> bind(bindings, ry, x)
-      not is_var_ry && is_var_rx -> bind(bindings, rx, y)
-      ry == y && is_var_rx -> bind(bindings, rx, y)
-      is_var_ry && is_var_rx -> bind(bindings, rx, ry)
-      true -> unify(rx, ry, bindings)
+      rx == ry -> {bindings, constraints}
+      not is_var_rx && is_var_ry -> bind(bindings, ry, x, constraints, branch)
+      rx == x && is_var_ry -> bind(bindings, ry, x, constraints, branch)
+      not is_var_ry && is_var_rx -> bind(bindings, rx, y, constraints, branch)
+      ry == y && is_var_rx -> bind(bindings, rx, y, constraints, branch)
+      is_var_ry && is_var_rx -> bind(bindings, rx, ry, constraints, branch)
+      true -> unify(rx, ry, bindings, constraints, branch)
     end
   end
 
   # Bind `var` to `term`, refusing (returning nil, i.e. unification failure) if
   # `var` occurs in `term` — the occurs check, which keeps cyclic terms out of
   # the bindings so `subst`/`deref` can't loop forever — or if the binding would
-  # satisfy a `dif/2` parked on `var` (see `add_dif/3`).
-  @spec bind(bindings(), variable(), t()) :: bindings() | nil
-  defp bind(bindings, var, term) do
+  # satisfy a `dif/2` or `isa` parked on `var` (see `add_dif/3`/`add_isa/3`).
+  # This is the one choke point every unification in the VM passes through
+  # (`extend/5` is `bind/5`'s only caller, `unify/5` is `extend/5`'s only
+  # caller — dispatch's own candidate generation included, since
+  # `AL.Dispatch.structural_candidate` unifies through this same path), so
+  # it's the only place a constraint check is guaranteed to see every bind
+  # regardless of how deep in the interpreter it happens. `branch` only
+  # matters for `isa`: verifying a durable class needs a lookup of the
+  # concrete term's own class row (`AL.Dispatch.MethodOrder.method_scopes/2`)
+  # — cheap (one object's own classification), not the scan generating
+  # durable *candidates* needs (see al-dif-constraints memory).
+  @spec bind(bindings(), variable(), t(), constraints(), AL.Branch.t()) ::
+          {bindings(), constraints()} | nil
+  defp bind(bindings, var, term, constraints, branch) do
     if occurs?(var, term, bindings) do
       nil
     else
-      new_bindings =
-        bindings
-        |> Map.put(var, term)
-        |> migrate_dif(var, term)
+      new_bindings = Map.put(bindings, var, term)
+      new_constraints = migrate_constraints(constraints, var, term)
 
-      if dif_violated?(new_bindings, var), do: nil, else: new_bindings
+      if constraints_violated?(new_constraints, new_bindings, var, term, branch) do
+        nil
+      else
+        {new_bindings, new_constraints}
+      end
     end
   end
 
-  # `extend/3` picks which of two still-open vars becomes the alias and which
-  # stays live by argument position, not by which one carries a `dif`
-  # constraint — so a constrained var can end up retired in favour of a fresh
-  # one that has never heard of the constraint. Carry it forward onto
-  # whichever var is still live, or a later bind of the survivor alone would
-  # never see it.
-  defp migrate_dif(bindings, var, term) do
+  # `extend/4` picks which of two still-open vars becomes the alias and which
+  # stays live by argument position, not by which one carries a constraint —
+  # so a constrained var can end up retired in favour of a fresh one that has
+  # never heard of it. Carry its constraints forward onto whichever var is
+  # still live, or a later bind of the survivor alone would never see them.
+  defp migrate_constraints(constraints, var, term) do
     if var?(term) do
-      case Map.get(bindings, {:dif, var}) do
-        nil -> bindings
-        pairs -> Map.update(bindings, {:dif, term}, pairs, &(pairs ++ &1))
+      case Map.get(constraints, var) do
+        nil -> constraints
+        set -> Map.update(constraints, term, set, &merge_constraint_sets(&1, set))
       end
     else
-      bindings
+      constraints
     end
   end
 
-  # `dif/2` constraints live as extra entries in the same `bindings` map, keyed
-  # by `{:dif, var}` for every var either side mentions — a tuple key, so it
-  # can never collide with an actual var (vars are always `$`-prefixed atoms,
-  # see `var?/1`) and is invisible to `deref`/`subst`'s normal atom-keyed
-  # lookups. That means it needs no dedicated field on `AL.Choicepoint`: it
-  # rides along on every backtrack for free, the same way an ordinary binding
-  # does, since a choicepoint already carries its own full snapshot of
-  # `bindings` rather than a WAM-style trail.
-  @spec add_dif(bindings(), t(), t()) :: bindings()
-  def add_dif(bindings, a, b) do
+  defp merge_constraint_sets(a, b), do: %{dif: a.dif ++ b.dif, isa: MapSet.union(a.isa, b.isa)}
+
+  defp empty_constraint_set(), do: %{dif: [], isa: MapSet.new()}
+
+  # The constraint store: a var's constraints, kept as a structure of its own
+  # rather than smuggled into `bindings` — `bindings` stays a plain
+  # substitution map everything else in the codebase can keep reading
+  # directly, and the store rides along on backtrack for free anyway, since a
+  # choicepoint already snapshots itself wholesale rather than using a
+  # WAM-style trail.
+  @spec add_dif(constraints(), t(), t()) :: constraints()
+  def add_dif(constraints, a, b) do
     a
     |> find_vars(find_vars(b))
-    |> Enum.reduce(bindings, fn v, acc ->
-      Map.update(acc, {:dif, v}, [{a, b}], &[{a, b} | &1])
+    |> Enum.reduce(constraints, fn v, acc ->
+      Map.update(acc, v, %{empty_constraint_set() | dif: [{a, b}]}, fn set ->
+        %{set | dif: [{a, b} | set.dif]}
+      end)
     end)
   end
 
-  @spec dif_violated?(bindings(), variable()) :: boolean()
-  defp dif_violated?(bindings, var) do
-    bindings
-    |> Map.get({:dif, var}, [])
-    |> Enum.any?(fn {a, b} -> subst(a, bindings) == subst(b, bindings) end)
+  # `isa` is `dif`'s positive counterpart: instead of "never equal to this
+  # term", "every future bind of this var must belong to `class`". Registered
+  # wherever a dispatch leg commits an open var to a class before it's
+  # necessarily grounded (see `AL.Dispatch.do_send_as`) — a var routed through
+  # `:number`'s value leg shouldn't be bindable to a durable object just
+  # because it's still open when that leg returns.
+  @spec add_isa(constraints(), variable(), atom()) :: constraints()
+  def add_isa(constraints, var, class) do
+    Map.update(constraints, var, %{empty_constraint_set() | isa: MapSet.new([class])}, fn set ->
+      %{set | isa: MapSet.put(set.isa, class)}
+    end)
   end
+
+  @spec constraints_violated?(constraints(), bindings(), variable(), t(), AL.Branch.t()) ::
+          boolean()
+  defp constraints_violated?(constraints, bindings, var, term, branch) do
+    case Map.get(constraints, var) do
+      nil ->
+        false
+
+      set ->
+        Enum.any?(set.dif, fn {a, b} -> subst(a, bindings) == subst(b, bindings) end) or
+          (not var?(term) and Enum.any?(set.isa, &(not isa?(term, &1, branch))))
+    end
+  end
+
+  # `:number`/`:list`/`:map` are decidable from `term`'s own shape — no lookup.
+  # Every other class is a *relational fact* recorded separately in the
+  # durable store (an object's own name carries no information about what
+  # class it is — `:my_point_1` and `:my_widget_1` are indistinguishable as
+  # terms), so verifying membership means asking that store: a lookup of
+  # `term`'s own class/super chain (`AL.Dispatch.MethodOrder.method_scopes/2`)
+  # — one object's own classification, not the scan generating durable
+  # *candidates* needs (see al-dif-constraints memory for that distinction).
+  defp isa?(term, :number, _branch), do: is_number(term)
+  defp isa?(term, :list, _branch), do: is_list(term)
+  defp isa?(term, :map, _branch), do: is_map(term)
+
+  defp isa?(term, class, branch),
+    do: class in AL.Dispatch.MethodOrder.method_scopes(term, branch)
 
   @spec occurs?(variable(), t(), bindings()) :: boolean()
   def occurs?(var, term, bindings) do
@@ -223,26 +276,30 @@ defmodule AL.Var do
 
   defp occurs_in_list?(var, tail, bindings), do: occurs?(var, tail, bindings)
 
-  @spec unify(t(), t(), bindings()) :: bindings() | nil
-  def unify(x, y, bindings \\ %{}) do
+  @spec unify(t(), t(), bindings(), constraints(), AL.Branch.t()) ::
+          {bindings(), constraints()} | nil
+  def unify(x, y, bindings \\ %{}, constraints \\ %{}, branch \\ AL.Branch.head()) do
     cond do
       x == :"$_" || y == :"$_" ->
-        bindings
+        {bindings, constraints}
 
       var?(x) || var?(y) ->
-        extend(bindings, x, y)
+        extend(bindings, x, y, constraints, branch)
 
       is_list(x) && is_list(y) && x != [] && y != [] ->
         [x | xs] = x
         [y | ys] = y
 
-        case unify(x, y, bindings) do
-          nil -> nil
-          next_bindings -> unify(xs, ys, next_bindings)
+        case unify(x, y, bindings, constraints, branch) do
+          nil ->
+            nil
+
+          {next_bindings, next_constraints} ->
+            unify(xs, ys, next_bindings, next_constraints, branch)
         end
 
       is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        unify(Tuple.to_list(x), Tuple.to_list(y), bindings)
+        unify(Tuple.to_list(x), Tuple.to_list(y), bindings, constraints, branch)
 
       is_map(x) && is_map(y) ->
         keys = Map.keys(x) |> MapSet.new() |> MapSet.intersection(MapSet.new(Map.keys(y)))
@@ -250,11 +307,13 @@ defmodule AL.Var do
         unify(
           Enum.map(keys, fn k -> Map.get(x, k) end),
           Enum.map(keys, fn k -> Map.get(y, k) end),
-          bindings
+          bindings,
+          constraints,
+          branch
         )
 
       x == y ->
-        bindings
+        {bindings, constraints}
 
       true ->
         nil

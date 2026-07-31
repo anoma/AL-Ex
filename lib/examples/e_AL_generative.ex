@@ -1,9 +1,13 @@
 defmodule Examples.ALGenerative do
   @moduledoc """
   I provide examples for AL's generative sends: dispatch with an unbound
-  receiver hypothesises structural candidates (`[]`, `[H|T]`) so list methods
-  can bind it through ordinary head unification, the same way Prolog's
-  recursive list clauses generate — and terminate — open lists on backtracking.
+  receiver hypothesises candidates so a method can bind it through ordinary
+  head unification rather than only searching for an existing durable
+  instance. Structural candidates (`[]`, `[H|T]`) cover lists, the same way
+  Prolog's recursive list clauses generate — and terminate — open lists on
+  backtracking; the value leg (any class that `import`s `:value`, `:number`
+  included) covers classes whose clause heads are the complete, authoritative
+  spec of an instance, tried directly with no construction step at all.
   """
 
   use ExExample
@@ -95,5 +99,66 @@ defmodule Examples.ALGenerative do
     assert a == b
     assert AL.Var.var?(a)
     refute Atom.to_string(a) =~ "second"
+  end
+
+  # The value leg isn't `:number`-specific — any class opts in the same way
+  # `:ephemeral` classes opt into ephemeral candidate generation: `import(class,
+  # :value)`. `:letter_chain` has no durable instances at all, so this only
+  # passes if dispatch tries its clauses directly against the unbound receiver
+  # — `durable_candidates` would find nothing to offer.
+  example custom_class_opts_into_value_dispatch() do
+    {:atomic, _} =
+      run branch: :examples do
+        new(:class, %{name: :letter_chain, super: :object, ivars: []}, _)
+        import(:letter_chain, :value)
+
+        defmethod(:letter_chain, :next, [:a, :b]) do
+        end
+
+        defmethod(:letter_chain, :next, [:b, :c]) do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        next(x, :b)
+      end
+
+    assert Map.get(bindings, :"$x") == :a
+  end
+
+  # The "reaching the value leg pins you to this class" protection
+  # (`value_dispatch_pins_an_open_receiver_to_its_class`, `e_AL_numbers.ex`)
+  # isn't `:number`-specific either: `:letter_word`'s clause leaves `self`
+  # open the same way `:number`'s `stays_open` does, so a later bind to
+  # something that isn't durably a `:letter_word` must fail — and a later
+  # bind to something that genuinely is one must still succeed. A selector
+  # unique to `:letter_word` (not `:stays_open`, which `:number` also
+  # answers) so the value leg has only one class to try, not two.
+  example custom_value_class_pins_an_open_receiver_too() do
+    {:atomic, _} =
+      run branch: :examples do
+        new(:class, %{name: :letter_word, super: :object, ivars: []}, _)
+        import(:letter_word, :value)
+
+        defmethod(:letter_word, :letter_word_stays_open, [self]) do
+        end
+
+        vm_set_class(:letter_word_real_instance, :letter_word)
+      end
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        letter_word_stays_open(x)
+        unify(x, :not_a_letter_word)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        letter_word_stays_open(x)
+        unify(x, :letter_word_real_instance)
+      end
+
+    assert Map.get(bindings, :"$x") == :letter_word_real_instance
   end
 end

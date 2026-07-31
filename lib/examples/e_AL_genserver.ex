@@ -64,6 +64,28 @@ defmodule Examples.ALGenserver do
     end
   end
 
+  # `send_async`'s scheduler pickup has no ordering guarantee against this
+  # test's own next `count/1` call — `count/1` is already a real synchronous
+  # round-trip to `CounterService` (send + receive), so polling it is enough
+  # to wait for the actual result instead of guessing a `Process.sleep`
+  # duration; no new notification channel needed on top of what's already there.
+  defp wait_for_count(pid, expected, deadline \\ System.monotonic_time(:millisecond) + 1000)
+
+  defp wait_for_count(pid, expected, deadline) do
+    case CounterService.count(pid) do
+      ^expected ->
+        expected
+
+      other ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          flunk("timed out waiting for count to reach #{expected}, last saw #{inspect(other)}")
+        else
+          Process.sleep(5)
+          wait_for_count(pid, expected, deadline)
+        end
+    end
+  end
+
   example genserver_registers_as_al_object() do
     {:ok, pid} = CounterService.start_link(:my_counter)
 
@@ -79,12 +101,12 @@ defmodule Examples.ALGenserver do
         send_async(:my_counter, :increment, [5])
       end
 
-    Process.sleep(50)
+    assert wait_for_count(pid, 5) == 5
 
-    assert CounterService.count(pid) == 5
-
+    # `GenServer.stop/1` is synchronous — it only returns once the process has
+    # actually terminated, which (for a normal stop) means `terminate/2` (and
+    # its retract transaction) has already run. No sleep needed after it.
     GenServer.stop(pid)
-    Process.sleep(50)
 
     {:atomic, after_stop} =
       :mnesia.transaction(fn ->

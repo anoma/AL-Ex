@@ -14,7 +14,13 @@ defmodule AL.ResolutionCache do
   alternative exhausted) discards it, and that's the rare case.
   """
 
-  @relations [:providers, :ephemeral_descendants, :durable_classes, :oapply_clauses]
+  @relations [
+    :providers,
+    :ephemeral_descendants,
+    :value_descendants,
+    :durable_classes,
+    :oapply_clauses
+  ]
 
   @spec table(atom(), AL.Branch.t()) :: atom()
   def table(relation, %AL.Branch{id: :main}), do: :"al_#{relation}_cache"
@@ -50,6 +56,10 @@ defmodule AL.ResolutionCache do
   def fetch_ephemeral_descendants(branch, compute),
     do: fetch(table(:ephemeral_descendants, branch), :ephemeral_descendants, :value, compute)
 
+  @spec fetch_value_descendants(AL.Branch.t(), (-> term())) :: term()
+  def fetch_value_descendants(branch, compute),
+    do: fetch(table(:value_descendants, branch), :value_descendants, :value, compute)
+
   @spec fetch_durable_classes(AL.Branch.t(), (-> term())) :: term()
   def fetch_durable_classes(branch, compute),
     do: fetch(table(:durable_classes, branch), :durable_classes, :value, compute)
@@ -78,6 +88,11 @@ defmodule AL.ResolutionCache do
   @spec invalidate_ephemeral_descendants(AL.Branch.t()) :: :ok
   def invalidate_ephemeral_descendants(branch) do
     clear(table(:ephemeral_descendants, branch))
+  end
+
+  @spec invalidate_value_descendants(AL.Branch.t()) :: :ok
+  def invalidate_value_descendants(branch) do
+    clear(table(:value_descendants, branch))
   end
 
   @spec invalidate_durable_classes(AL.Branch.t()) :: :ok

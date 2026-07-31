@@ -179,6 +179,15 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(self, k, v)
     end
 
+    # A marker category — no methods to copy, `import` just stamps the
+    # `:value` slot every importer needs to be discovered by
+    # `AL.Dispatch.value_descendants/1`. Opting in means the class's own
+    # clause heads are the complete, authoritative spec of an instance (see
+    # al-bidirectional-structural-dispatch memory), so dispatch can try them
+    # directly against an unbound receiver with no construction step —
+    # `:number` is the first importer.
+    new(:category, %{name: :value}, _)
+
     vm_set_super(:map, :object)
 
     # `defclass name, metaclass: :class, super: ..., ivars: [...],
@@ -241,6 +250,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     new(:class, %{name: :number, super: :object, ivars: []}, _)
+    import(:number, :value)
 
     defmethod(:number, :factorial, [1, 1])
 
@@ -258,6 +268,22 @@ defmodule AL.Package.Bootstrap do
       vm_ground(factorial)
       between(factorial, 1, factorial, n)
       factorial(n, factorial)
+    end
+
+    defmethod(:number, :fibonacci, [1, 1])
+    defmethod(:number, :fibonacci, [2, 1])
+
+    defmethod(:number, :fibonacci, [n, x]) do
+      vm_ground(n)
+      n > 2
+
+      vm_is(n1, n - 1)
+      vm_is(n2, n - 2)
+
+      fibonacci(n1, x1)
+      fibonacci(n2, x2)
+
+      vm_is(x, x1 + x2)
     end
 
     new(:class, %{name: :list, super: :object, ivars: []}, _)

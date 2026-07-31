@@ -10,18 +10,37 @@ defmodule Examples.ALTasks do
   use AL
   import ExUnit.Assertions
 
-  # An object with one method that records, in a slot, that it ran.
-  example worker() do
+  # A worker whose handler both performs its effect and notifies a registered
+  # `:elixir_process` — the same synchronization `Examples.ALConstraints` uses:
+  # `send_async`'s scheduler pickup has no ordering guarantee against the test
+  # process's own next line, so waiting means an actual signal (a blocking
+  # `receive`), not a guessed `Process.sleep` duration. `name`/`subscriber` are
+  # unique per caller so two examples registering their own worker never
+  # accrete onto (or race with) each other's clauses.
+  defp register_worker(name, subscriber, pid) do
     {:atomic, _} =
       run branch: :examples do
-        vm_set_class(:worker, :object)
+        new(:elixir_process, %{name: ^subscriber, pid: ^pid}, _)
 
-        defmethod(:worker, :handle, [self, object]) do
+        vm_set_class(^name, :object)
+
+        defmethod(^name, :handle, [self, object]) do
           vm_set_slots(object, %{processed: true})
+          vm_get_slot(^subscriber, :pid, p)
+          vm_functor(message, :handled, [object])
+          send_elixir(p, message)
         end
       end
 
-    :worker
+    :ok
+  end
+
+  defp await_handled(object) do
+    receive do
+      {:handled, ^object} -> :ok
+    after
+      1000 -> flunk("timed out waiting for #{inspect(object)} to be handled")
+    end
   end
 
   defp processed?(object) do
@@ -34,29 +53,27 @@ defmodule Examples.ALTasks do
   end
 
   example async_send_runs_handler() do
-    worker()
+    register_worker(:async_worker_1, :async_subscriber_1, self())
 
     {:atomic, _} =
       run branch: :examples do
-        send_async(:worker, :handle, [:async_obj])
+        send_async(:async_worker_1, :handle, [:async_obj])
       end
 
-    Process.sleep(50)
-
+    await_handled(:async_obj)
     assert processed?(:async_obj)
   end
 
   example async_send_resolves_receiver_var() do
-    worker()
+    register_worker(:async_worker_2, :async_subscriber_2, self())
 
     {:atomic, _} =
       run branch: :examples do
-        unify(w, :worker)
+        unify(w, :async_worker_2)
         send_async(w, :handle, [:async_obj_2])
       end
 
-    Process.sleep(50)
-
+    await_handled(:async_obj_2)
     assert processed?(:async_obj_2)
   end
 end

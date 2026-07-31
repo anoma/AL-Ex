@@ -32,8 +32,12 @@ defmodule AL.Package.Interval do
       vm_map_get(other, :lo, lo2)
 
       implies do
-        [lo1 == :empty] -> unify(new, %{class: :interval, lo: :empty, hi: :empty})
-        [lo2 == :empty] -> unify(new, %{class: :interval, lo: :empty, hi: :empty})
+        [lo1 == :empty] ->
+          unify(new, %{class: :interval, lo: :empty, hi: :empty})
+
+        [lo2 == :empty] ->
+          unify(new, %{class: :interval, lo: :empty, hi: :empty})
+
         :else ->
           vm_map_get(self, :hi, hi1)
           vm_map_get(other, :hi, hi2)

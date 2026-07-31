@@ -181,14 +181,24 @@ defmodule Examples.ALBranch do
 
   example async_send_stays_on_fork() do
     branch = AL.Branch.fork()
+    pid = self()
 
-    # a worker object that lives only on the fork, built from bootstrap primitives
+    # a worker object that lives only on the fork, built from bootstrap
+    # primitives — its handler notifies a registered `:elixir_process` once
+    # done, the same synchronization `Examples.ALConstraints` uses: a blocking
+    # `receive` instead of a guessed `Process.sleep`, since `send_async`'s
+    # scheduler pickup has no ordering guarantee against this test's own next line.
     {:atomic, _} =
       run branch: branch.id do
+        new(:elixir_process, %{name: :fork_worker_subscriber, pid: ^pid}, _)
+
         vm_set_class(:fork_worker, :object)
 
         defmethod(:fork_worker, :handle, [self, object]) do
           vm_set_slots(object, %{processed: true})
+          vm_get_slot(:fork_worker_subscriber, :pid, p)
+          vm_functor(message, :handled, [object])
+          send_elixir(p, message)
         end
       end
 
@@ -198,7 +208,11 @@ defmodule Examples.ALBranch do
         send_async(:fork_worker, :handle, [:fork_obj])
       end
 
-    Process.sleep(50)
+    receive do
+      {:handled, :fork_obj} -> :ok
+    after
+      1000 -> flunk("timed out waiting for :fork_obj to be handled")
+    end
 
     {:atomic, {fork_bindings, _}} =
       run branch: branch.id do

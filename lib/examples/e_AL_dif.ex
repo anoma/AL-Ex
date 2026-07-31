@@ -95,4 +95,46 @@ defmodule Examples.ALDif do
 
     assert Map.get(bindings, :"$x") == 3
   end
+
+  # An unbound receiver's generative dispatch offers each durable object
+  # answering the selector as a candidate for `self`; `dif` rules one out
+  # before it ever reaches a choicepoint (see `maybe_push_choicepoint`), not
+  # just when it's eventually tried — this pins the observable half of that:
+  # the excluded object never surfaces as a solution, everything else still does.
+  example dif_excludes_a_durable_candidate_from_generative_dispatch() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:dif_dispatch_pingable, :object)
+
+        defmethod(:dif_dispatch_pingable, :ping, [self, :pong]) do
+        end
+
+        vm_set_class(:dif_dispatch_ping_a, :dif_dispatch_pingable)
+        vm_set_class(:dif_dispatch_ping_b, :dif_dispatch_pingable)
+      end
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        dif(o, :dif_dispatch_ping_a)
+        findall(o, [ping(o, :pong)], os)
+      end
+
+    os = Map.get(bindings, :"$os")
+    assert :dif_dispatch_ping_b in os
+    refute :dif_dispatch_ping_a in os
+  end
+
+  # Same pruning, structural leg: `reverse(x, y)` fully unbound would normally
+  # generate `x = []` first (see `reverse_enumerates_both_unbound`); `dif(x, [])`
+  # rules the `[]` structural candidate out before it's pushed, so the very
+  # first solution should already be a one-element list.
+  example dif_excludes_the_empty_list_structural_candidate() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        dif(x, [])
+        reverse(x, y)
+      end
+
+    assert length(Map.get(bindings, :"$x")) == 1
+  end
 end

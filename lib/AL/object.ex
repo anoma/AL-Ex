@@ -185,12 +185,14 @@ defmodule AL.Object do
     end
 
     AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_value_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
   def retract_slots(object, _slots, branch) do
     :mnesia.delete(table(:slots, branch), object, :write)
     AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_value_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -263,12 +265,14 @@ defmodule AL.Object do
 
     :mnesia.write(table(:slots, branch), {:slots, object, Map.merge(existing, new_slots)}, :write)
     AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_value_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
   def set_slots(object, slots, branch) do
     :mnesia.write(table(:slots, branch), {:slots, object, slots}, :write)
     AL.ResolutionCache.invalidate_ephemeral_descendants(branch)
+    AL.ResolutionCache.invalidate_value_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 

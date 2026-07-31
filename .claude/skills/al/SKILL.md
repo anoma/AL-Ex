@@ -29,29 +29,105 @@ transactions, durable + replayable state, Git-like branching.
 
 ## Architecture (lib/AL)
 
-- **`AL` (lib/AL.ex)** — the interpreter, a choicepoint machine:
-  - `run do … end` → `ast_to_pattern` lowers surface syntax to `goal()` tuples →
-    `eval/3` runs them in `:mnesia.transaction`. `run branch: b do … end` targets
-    fork `b`; bare `run` uses `AL.Branch.head()`.
+- **`AL` (lib/AL.ex)** — the interpreter's core stepping engine:
+  - `run do … end` → `AL.Lowering.ast_to_pattern` lowers surface syntax to
+    `goal()` tuples → `eval/3` runs them in `:mnesia.transaction`. `run branch: b
+    do … end` targets fork `b`; bare `run` uses `AL.Branch.head()`.
   - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, …}`.
     `continue/1` drives goals, `backtrack/1` pops the stack. Success →
     `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, trace}`.
-  - `interp/2` has one clause per goal. `oapply` expands a method head into its
-    body **bidirectionally**: freshen the clause's vars by scope, unify head with
-    call args into the *shared* binding map, run the body; a continuation resumes
-    the caller with that same map — so head-var bindings made in the body are
-    visible to the caller (no copy-back).
-  - `send` resolves a method id up the class/super chain and applies it (see "How
-    a `send` evaluates"). A **var in receiver or selector position makes the send a
-    query** that backtracks over candidates; `does_not_understand` fires only for a
-    fully-ground send.
+  - `interp/2` has one clause per goal, but for whole *families* of goals that
+    clause is one line delegating to the module that owns that concern — `AL`
+    itself only keeps the goals with no better-named home: `Unify`/`Equal`/
+    `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Functor`/`CallTerm`/`Not`/`Call`/
+    `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
+    primitive `OApply` cases (`is`, `map_get`, `map_put`, `fresh_id`,
+    `current_tx`) and `OApply`'s own general clause (method dispatch — see
+    below). `oapply` expands a method head into its body **bidirectionally**:
+    freshen the clause's vars by scope, unify head with call args into the
+    *shared* binding map, run the body; a continuation resumes the caller with
+    that same map — so head-var bindings made in the body are visible to the
+    caller (no copy-back). `send`/`send_query`/`send_as_value`/
+    `durable_candidates`/`call_next_method` clauses delegate straight to
+    `AL.Dispatch`.
+  - `wake/2`, `unify/3`, `try_unify/5`, `fresh_scope/0`, `cached_scan_clauses/2`,
+    `put_bindings/3`, `fan_out/3`, `scan_clauses/5`, `standardize_apart/1`,
+    `splice_goals/2` are `def` (not `defp`) specifically so `AL.Dispatch`,
+    `AL.Store`, `AL.Relations`, and `AL.ControlFlow` can call back into
+    them — all mutually recursive with `AL` (each calls `AL.interp/2` to run
+    goals it splices; `interp`'s own clauses delegate out to them), which is
+    fine across modules on the BEAM. `unify/3` is the one nearly every goal
+    clause wants: `AL.unify(state, x, y)` pulls `bindings`/`constraints`/
+    `branch` off `state` itself, so `branch` threading for `isa` (see
+    `AL.Var`, below) stays invisible at ordinary call sites.
   - Object creation is **three-phase**: `construct` (ephemeral object, e.g.
     `%{class: self}`) → `allocate` (persist / give identity) → `init` (setup).
     `new` on `:class` chains all three (AL's take on ObjVLisp allocate/initialize).
+- **`AL.Lowering` (lib/AL/lowering.ex)** — `ast_to_pattern/1`: a pure, stateless
+  tree transform from the `run`/`defmethod` surface syntax to `AL.Goal` structs.
+  No interpreter state, doesn't call `interp`/dispatch. `AL.ast_to_pattern/1` is
+  kept as a `defdelegate` so the public API and the `run` macro don't need to
+  change.
+- **`AL.Dispatch` (lib/AL/dispatch.ex)** — resolves a `send` into a concrete
+  method application: candidate generation (structural/ephemeral/value/durable
+  legs), the selector query, grounded application (`do_send`/`run_providers`),
+  and DNU. See "How a `send` evaluates" below — that whole section now lives
+  here. Public entry points `dispatch/5`, `do_send_as/6`, `force_durable_candidates/4`,
+  `run_providers/6`, `dnu/4` are what `AL`'s `interp/2` calls into; everything
+  else is private. Doesn't touch the constraint store at all anymore — `isa`
+  pinning for the value leg is a goal (`Goal.ConstrainIsa`) spliced into the
+  goal list, not something this module computes (see `AL.Var`, below).
+- **`AL.Dispatch.MethodOrder` (lib/AL/dispatch/method_order.ex)** — the
+  resolution-order topological sort (`method_scopes/2`, `super_chain/3`, Kahn's
+  algorithm). Pure functions of a receiver/class and a branch, no choicepoint or
+  bindings involved — the most standalone piece of the whole dispatch subsystem.
+- **`AL.Continuation`/`AL.Choicepoint` (lib/AL/continuation.ex,
+  lib/AL/choicepoint.ex)** — the two struct defs `AL` builds its state from;
+  split out since they're pure data, no logic.
+- **`AL.Store` (lib/AL/store.ex)** — the object-mutation goals: `SetClass`/
+  `SetSuper`/`SetMethod`/`SetOapply`/`SetSlots` and their five `Retract*`
+  counterparts. Every one writes both the durable command log (`AL.Command`)
+  and the in-memory projection (`AL.Object`) through one shared `write/3`
+  helper — same op name on both modules by design, so `write/3` just `apply/3`s
+  it onto each. A goal whose `object` is already a live map (an ephemeral
+  instance) is a no-op on all ten — ephemeral objects carry no command-log
+  identity at all.
+- **`AL.Relations` (lib/AL/relations.ex)** — the relational *read* goals:
+  `GetClass`/`GetSuper`/`GetMethod`/`GetOapply`/`GetSlots`. Each is a scan
+  through `AL.Object` fanned out over `AL.fan_out/3` (a shared `scan_relation/3`
+  covers everything but `GetOapply`, which standardizes each row apart first —
+  see "How a `send` evaluates" for why that matters). `GetClass` is the one
+  exception to "always scan": an unbound `object` with a ground `class`
+  doesn't need a witness to succeed, so it registers an `isa` constraint (see
+  `AL.Var`, below) instead of touching `AL.Object` at all — see
+  al-dif-constraints memory for why that's sound.
+- **`AL.ControlFlow` (lib/AL/control_flow.ex)** — the choicepoint-stack control
+  goals: `Cut`, `Implies`, `Or`, `Then`. Each is entirely about which
+  alternatives stay on `state.choicepoint_stack`, never about producing a
+  binding — see "Execution model: choicepoints, marks, cut" below for what
+  `{:mark, scope}`/`:implies_mark` mean and why `Cut`/`Then` drop the stack
+  down to one.
 - **`AL.Var` (var.ex)** — unification. Bindings are a var→term map; `deref`,
-  `subst`, `freshen`, `unify`. `bind/3` runs an **occurs-check** (`occurs?/3`,
-  cons-aware for improper lists `[h | $tail]`) so cyclic terms can't form. Vars
-  are atoms starting with `$` (`:"$x"`).
+  `subst`, `freshen`, `unify`. `bind/5` runs an **occurs-check** (`occurs?/3`,
+  cons-aware for improper lists `[h | $tail]`) so cyclic terms can't form, and
+  checks the **constraint store** (`unify/extend/bind`'s threaded `constraints`
+  argument, kept separate from `bindings` — see `AL.Choicepoint`'s `constraints`
+  field) — the one place a constraint is guaranteed to see every bind, however
+  deep in the interpreter it happens, dispatch's own candidate generation
+  included (`AL.Dispatch.structural_candidate` unifies through this same
+  path). `dif/2` and `isa` (`add_isa/3`, `dif`'s positive counterpart — "every
+  future bind must belong to `class`", not "must never equal `term`") are its
+  two tenants. Verifying `isa` needs a `branch` — `:number`/`:list`/`:map` are
+  decidable from the term's own shape for free, but any other class is a
+  relational fact recorded in the durable store, not a property of the term,
+  so it costs one lookup of the bound term's own class chain
+  (`AL.Dispatch.MethodOrder.method_scopes/2` — cheap, one object's own
+  classification, not the scan generating durable *candidates* needs). That's
+  the one place `AL.Var` reaches outside itself; `AL.unify/3` (in `AL.ex`)
+  is the state-aware convenience every other module actually calls —
+  `AL.Var.unify/5` directly only when there's no `AL` state to pull
+  `bindings`/`constraints`/`branch` from (see e.g. `e_var.ex`, which relies on
+  `branch`'s default). Vars are atoms starting with `$` (`:"$x"`).
 - **`AL.Command` (command.ex)** — the event log. Each mutating goal writes a
   `{:command, t, tx_id, op}` row. `t` is a **global monotonic counter** shared
   across stores, so commands are globally ordered (makes cross-branch diff/merge by
@@ -97,7 +173,39 @@ how far to reach:
 
 ## How a `send` evaluates
 
-1. **Lowering (`ast_to_pattern`).** `send(recv, sel, args)` and implicit
+Lives in `AL.Dispatch` (+ `AL.Dispatch.MethodOrder` for resolution order); `AL`
+just delegates to it from `interp/2`.
+
+**The candidate families (durable/ephemeral/value/structural — structural
+counted as one family below even though it's pushed as two separate
+choicepoints, cons and `[]`) answer one question differently: does this class
+have a construction step whose behavior isn't fully readable off the clause
+heads?**
+- **Durable** — real identity; must retrieve an existing object
+  (`durable_candidates`), never fabricate one.
+- **Ephemeral** — has real construction behavior (`construct`/`allocate`/`init`,
+  possibly with defaults/validation/side effects beyond what a clause head
+  literally mentions) — must actually run `new` to get a faithful shape
+  (`ephemeral_candidate`), or a hand-assumed shape risks drifting from what
+  `init` really builds.
+- **Value** — no construction step at all; the clause heads *are* the complete,
+  authoritative spec of a valid instance (`:number`: `1`, `n` — nothing else
+  could be true of an instance). Unifying an unbound `self` straight against
+  the class's own clauses is safe precisely because there's no hidden
+  constructor behavior to skip — routing an *ephemeral* class through this
+  leg instead would silently fabricate instances that bypass `init`.
+- **Structural** — `:list`'s cons/`[]` hypothesis is really a degenerate case
+  of "value" (a list's own shape *is* its complete spec) kept as a bespoke
+  VM-level special case rather than an `import(:list, :value)` opt-in, mostly
+  for history — `:value` didn't exist as a general mechanism yet when this was
+  built. Worth revisiting now that it does (see "Known gaps" below).
+
+Orthogonal to all four: an **`isa` constraint** (`AL.Var.add_isa`) pins a var
+to a class the moment dispatch commits it there, even if the matched clause
+leaves it open — see the value leg's `ConstrainIsa` step and al-clp-for-objects
+memory for the timing subtlety that makes this sound.
+
+1. **Lowering (`AL.Lowering.ast_to_pattern`).** `send(recv, sel, args)` and implicit
    `sel(recv, …)` (any atom head with ≥1 arg) become `{:send, recv, sel, args}`.
    Direct VM ops never become sends: arithmetic (`+ - * / **`) and
    `@oapply_primitives` (`is`, `map_get`, `map_put`, `lookup`, `fresh_id`,
@@ -106,18 +214,31 @@ how far to reach:
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
 3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
    `on_miss = backtrack`):
-   - **var receiver** (not `:"$_"`) → generative dispatch over four candidate
+   - **var receiver** (not `:"$_"`) → generative dispatch over five candidate
      kinds, each pushed as a choicepoint (current frame `Fail`s to force entry,
-     LIFO try order): durable objects (`durable_candidates`, filtered by
+     LIFO try order): durable objects (`durable_candidates`, deferred behind a
+     placeholder choicepoint — see `AL.Dispatch`, above — filtered by
      `answers_selector?` — not an unconditional class-table scan) → ephemeral
      classes (`ephemeral_descendants`, also selector-filtered; `new`-based
      construction for classes with declared ivars, e.g. `single`/`union`/`set`)
-     → structural cons cell → structural `[]` (lists only — direct `unify`, no
-     dispatch round-trip, cheaper than the generic ephemeral path; `:list`
-     itself is *not* an ephemeral descendant). `AL.ResolutionCache` (per-branch,
-     flush-on-write ETS tables) memoizes `providers/3`, `ephemeral_descendants/1`,
-     `durable_classes/1`, and `answers_selector?` — all pure functions of durable
-     state otherwise re-derived on every open dispatch.
+     → value classes (`value_descendants`, also selector-filtered; any class
+     that `import`s `:value` — `:number` in bootstrap.ex today — is tried
+     directly against `self` via its own clause heads, no construction/retrieval
+     at all) → structural cons cell → structural `[]` (lists only — direct
+     `unify`, no dispatch round-trip, cheaper than the generic ephemeral path;
+     `:list` itself is *not* an ephemeral descendant). `AL.ResolutionCache`
+     (per-branch, flush-on-write Mnesia tables) memoizes `providers/3`,
+     `ephemeral_descendants/1`, `value_descendants/1`, `durable_classes/1`, and
+     `answers_selector?` — all pure functions of durable state otherwise
+     re-derived on every open dispatch. A var reaching the value leg gets an
+     `isa` constraint pinning it to that class going forward (`AL.Var.add_isa`,
+     via a `Goal.ConstrainIsa` spliced *after* the `SendAsValue` attempt, not
+     before — registering it first would make the class's own first clause
+     match immediately violate the constraint that same call just added, for
+     any class whose clause-head literals aren't otherwise durably classified;
+     deferring past the `OApply` continuation means there's nothing to check
+     yet if the clause already grounded `self`, and it's sound to add if the
+     clause left `self` open). See al-clp-for-objects memory.
    - **var selector** (not `:"$_"`) → query over the receiver's methods:
      `understood_method_names` walks `self` then its class/super chain (deduped); a
      choicepoint per name binds `sel`, then re-dispatches. Arg shape decides which
@@ -147,8 +268,8 @@ how far to reach:
 Edge cases: a query with no candidates fails, never DNUs; only fully-ground sends
 DNU; `:"$_"` in receiver/selector is the match-anything wildcard, not a slot to
 ground (falls to `do_send`, takes the first method — use a real var for a query);
-of the four var-receiver candidate kinds, only durable objects require a class
-row — ephemeral/structural candidates are offered regardless.
+of the five var-receiver candidate kinds, only durable objects require a class
+row — ephemeral/value/structural candidates are offered regardless.
 
 ## Tables
 
@@ -189,18 +310,27 @@ Lineage (`AL.Branch`, `:main` only):
 `command@f`, …) created with `record_name:` the base relation, so record tags and
 scan patterns are identical across stores. Almost every `AL.Object`/`AL.Command`
 function takes a trailing `branch \\ :main`. `AL.ResolutionCache` follows the same
-per-branch naming (`al_providers_cache@f`, …) for its flush-on-write ETS caches
-(`providers/3`, `ephemeral_descendants/1`, `durable_classes/1`,
-`answers_selector?`'s memo) — created/dropped alongside a branch's other tables in
-`AL.Branch.setup/create_fork/discard`, so a fork's cache never leaks into `:main`'s.
+per-branch naming (`al_providers_cache@f`, …) for its flush-on-write **Mnesia**
+`ram_copies` tables — not ETS; a table has to outlive whichever transient process
+called `AL.Branch.fork/2`, which an ETS table wouldn't (`providers/3`,
+`ephemeral_descendants/1`, `value_descendants/1`, `durable_classes/1`,
+`oapply_clauses/1`, `answers_selector?`'s memo) — created/dropped alongside a
+branch's other tables in `AL.Branch.setup/create_fork/discard`, so a fork's
+cache never leaks into `:main`'s.
 
 ## Adding a goal
 
-1. `ast_to_pattern/1` clause (surface syntax → goal tuple) in lib/AL.ex.
+1. `ast_to_pattern/1` clause (surface syntax → goal tuple) in lib/AL/lowering.ex.
 2. Add it to the `goal()` typespec.
-3. `interp/2` clause. Read/query goals scan the projection and push choicepoints;
-   a mutating goal must **both** write the command (`AL.Command.*`) **and** apply
-   to the projection (`AL.Object.*`).
+3. `interp/2` clause, in whichever module owns that goal's concern — a plain
+   mutation goes in `AL.Store`, a plain scan in `AL.Relations`, a choicepoint-
+   stack goal in `AL.ControlFlow`, a dispatch goal in `AL.Dispatch`; only add a
+   clause directly to `AL` itself if the goal doesn't fit any of those (and
+   add a one-line delegating clause to `AL`'s own `interp/2`, matching the
+   existing ones, so `continue/1` still finds it). A mutating goal must
+   **both** write the command (`AL.Command.*`) **and** apply to the
+   projection (`AL.Object.*`); a read/query goal scans the projection and
+   pushes choicepoints via `AL.fan_out/3`.
 4. If it mutates, add a case to `AL.Object.hydrate_event/3` so replay/fork works.
 
 ## Conventions
@@ -254,7 +384,7 @@ per-branch naming (`al_providers_cache@f`, …) for its flush-on-write ETS cache
     :else -> else_goals       # optional; omitting it means an empty (failing) else
   end
   ```
-  It lowers (`build_implies/1`) to nested `{:implies, cond, then, else}`. Branch
+  It lowers (`AL.Lowering.build_implies/1`) to nested `{:implies, cond, then, else}`. Branch
   bodies are `do`-block clauses (newline-separated), so it side-steps the comma
   gotcha. A `->` clause can't have an empty body — for an empty then-branch put the
   shared trailing goals inside each branch.
@@ -284,6 +414,58 @@ README promises **bitemporality** (valid-time, not just the log's transaction-ti
 `t`) and easy time-travel between branch points. Forks are the groundwork;
 diff/merge and valid-time queries are unbuilt.
 
-`method_scopes/2` (the materialised resolution order) is the substrate for a future
+`AL.Dispatch.MethodOrder.method_scopes/2` (the materialised resolution order) is the substrate for a future
 `call_next_method`: have resolution return its position in that list and let a
 `call_next_method` goal re-resolve the selector from the next scope on.
+
+## Known gaps
+
+- **No real arithmetic constraint propagation.** `Compare`/`vm_is` are forward-only
+  (both operands must already be ground) — `factorial`'s backward clause works
+  around this with a `between`-based generate-and-test, not real domain
+  propagation. A `#<`/`#>`-style CLP(FD) mechanism (park a propagator when a
+  side is unbound, narrow bounds, check once both are ground — same shape as
+  `dif`/`isa` in `AL.Var`, but with an actual domain instead of a single
+  equality/membership check) is the real fix, and is what backward-mode
+  fibonacci genuinely needs. Alternative/complementary approach never built:
+  represent numbers as bit-lists (LSB-first, miniKanren's `pluso`/`*o` style)
+  so unification can extend them one bit at a time the way `[H|T]` does for
+  lists — `+ - * / **` are `@oapply_primitives` that skip `dispatch`/`send`
+  entirely today, so this would be a real `:number`/`:bits` behaviour with its
+  own recursive clauses, coexisting with (not replacing) native-integer `is`.
+- **`:list`'s structural leg predates the general `:value` mechanism.** It's
+  really a degenerate case of "value" (see the dispatch-leg rule above) kept
+  as a hardcoded VM special case rather than `import(:list, :value)`. Worth
+  folding in now that `:value` is real and general — wasn't previously,
+  because `:value` didn't exist yet when the structural leg was built.
+- **Durable candidate generation doesn't consult `isa`/`dif` before scanning.**
+  `AL.Var.bind/5` being the one choke point means a wrong-class durable
+  candidate is always *rejected* correctly (see al-clp-for-objects memory),
+  but `durable_candidates` still enumerates and `try_unify`s every
+  selector-matching object first — an existing `isa` constraint could in
+  principle narrow the scan itself, not just filter its results after the
+  fact. Not built; lower priority than correctness, which is already there.
+- **Tuple literal parsing gap.** `AL.Lowering.ast_to_pattern` has no case for
+  reconstructing a literal 3+-element tuple from Elixir's `{:{}, meta, list}`
+  quoted form — writing `{:foo, 1, 2}` directly in AL surface syntax silently
+  misparses as `send(:foo, :"{}", [1, 2])` instead of a tuple literal.
+  (2-tuples are unaffected — `{:a, :b}` is self-quoting in Elixir's AST, no
+  `{:{}, ...}` wrapper involved.) Workaround: build 3+-tuples via
+  `vm_functor` instead of writing them as literals. Not fixed.
+- **Atom-identity leak.** `fresh_id`/`gensym` mint atoms (`:"#N"`); the BEAM
+  never garbage-collects atoms, and replay re-mints the same ones on top of
+  whatever's already live. A long-lived node doing enough object creation
+  eventually approaches the ~1M atom ceiling and dies. Fix is a non-atom
+  identity scheme — invasive, needs its own design pass, not started.
+- **Prior art, if extending constraints further**: CLOS generic-function
+  dispatch has no analogue for "hypothesize a value for an unbound receiver"
+  — it presupposes arguments already have concrete runtime classes, no
+  unification/backtracking underneath. Prolog has no dispatch-by-type layer
+  to hook into at all — clauses already *are* the generation policy, nothing
+  gates them; the problem AL solves here is self-inflicted by layering OO
+  dispatch over logic search, not something plain Prolog ever faces. Closest
+  real precedent: **CLP(FD) `labeling(Strategy, Vars)`** (a pluggable policy
+  for how an unbound finite-domain var gets concretized — `ff`/`min`/`max`/
+  `bisect`) plus attributed-variable hooks (`attr_unify_hook/2`,
+  `verify_attributes/3`, `freeze/2`) for customizing what happens around a
+  variable's unification.
