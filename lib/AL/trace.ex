@@ -49,6 +49,29 @@ defmodule AL.Trace do
     ])
   end
 
+  # Method-level `call/4`/`fail/3` only fire once a clause is actually applied
+  # — nothing says *which candidate legs an unbound receiver had to try* to
+  # get there. This fires once, at `AL.Dispatch.dispatch/5`'s var-receiver
+  # branch, before any leg has actually run. `durable` deliberately reports
+  # as `deferred`, not a candidate count: durable candidate generation is
+  # lazy (`AL.Dispatch.force_durable_candidates/4`) precisely so it doesn't
+  # pay for a scan a cheaper leg might make unnecessary — reporting a count
+  # here would force that scan just to trace it, undoing the laziness.
+  @spec dispatch(term(), term(), [atom()], [atom()]) :: :ok
+  def dispatch(self, method, ephemeral_classes, value_classes) do
+    IO.puts([
+      "Dispatch: ",
+      inspect(pretty(self)),
+      " <- ",
+      inspect(pretty(method)),
+      " (legs: structural=[cons, []], ephemeral=",
+      inspect(ephemeral_classes),
+      ", value=",
+      inspect(value_classes),
+      ", durable=deferred)"
+    ])
+  end
+
   @spec pretty(term()) :: term()
   def pretty(a) when is_atom(a) do
     s = Atom.to_string(a)

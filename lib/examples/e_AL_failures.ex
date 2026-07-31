@@ -49,6 +49,57 @@ defmodule Examples.ALFailures do
     :ok
   end
 
+  # A failed run doesn't just report a curated summary — the actual final
+  # `%AL{}` state (whatever bindings/constraints were live on the last
+  # attempt, before the choicepoint stack exhausted) survives as
+  # `reason.state`, so a live debugging session can inspect it directly
+  # instead of only reading a linear trace of goals tried.
+  example failed_run_exposes_the_final_state() do
+    {:aborted, reason} =
+      run branch: :examples do
+        dif(x, 1)
+        unify(x, 1)
+      end
+
+    assert %AL{} = reason.state
+    assert reason.state.active_choicepoint.bindings == nil
+    assert reason.state.branch.id == :examples
+  end
+
+  # `unify(a, b)` failing because a `dif`/`isa` constraint rejected it looks
+  # identical to an ordinary structural mismatch in the trace alone — the next
+  # goal just isn't there either way. Naming *which* constraint fired (not just
+  # that some goal failed) is exactly the gap that made debugging this
+  # session's own `:letter_chain` dispatch bug require throwaway `IO.inspect`s.
+  example unify_failure_names_the_violated_constraint() do
+    {:aborted, dif_reason} =
+      run branch: :examples do
+        dif(x, 1)
+        unify(x, 1)
+      end
+
+    assert match?({:constraint_violated, {:dif, _, _}}, dif_reason.reason)
+    assert dif_reason.message =~ "dif"
+
+    {:aborted, isa_reason} =
+      run branch: :examples do
+        vm_class(y, :number)
+        unify(y, :not_a_number)
+      end
+
+    assert match?({:constraint_violated, {:isa, _, :number}}, isa_reason.reason)
+    assert isa_reason.message =~ "class"
+
+    # a plain mismatch, no constraint involved, still gets the ordinary
+    # generic message — this isn't claiming a constraint caused it
+    {:aborted, plain_reason} =
+      run branch: :examples do
+        unify(1, 2)
+      end
+
+    refute match?({:constraint_violated, _}, plain_reason.reason)
+  end
+
   # A receiver with its own does_not_understand handles the miss, so the run does
   # not abort with a does_not_understand reason.
   example custom_dnu_is_not_reported_as_failure() do

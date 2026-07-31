@@ -287,6 +287,13 @@ defmodule AL.Package.Bootstrap do
     end
 
     new(:class, %{name: :list, super: :object, ivars: []}, _)
+    # Every clause below already pattern-matches `self` as `[]`/`[h|t]` —
+    # exactly what the value leg requires (clause heads are the complete,
+    # authoritative spec of an instance) — so list's own structural dispatch
+    # is just the value leg applied to `:list`, not a separate mechanism.
+    # Used to be a hardcoded VM special case in `AL.Dispatch` (predates
+    # `:value` existing as a real opt-in); folded in now that it does.
+    import(:list, :value)
 
     defmethod(:list, :hd, [[h | _t], h]) do
     end

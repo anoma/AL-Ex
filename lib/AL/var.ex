@@ -169,7 +169,7 @@ defmodule AL.Var do
       new_bindings = Map.put(bindings, var, term)
       new_constraints = migrate_constraints(constraints, var, term)
 
-      if constraints_violated?(new_constraints, new_bindings, var, term, branch) do
+      if constraint_violation(new_constraints, new_bindings, var, term, branch) do
         nil
       else
         {new_bindings, new_constraints}
@@ -227,18 +227,61 @@ defmodule AL.Var do
     end)
   end
 
-  @spec constraints_violated?(constraints(), bindings(), variable(), t(), AL.Branch.t()) ::
-          boolean()
-  defp constraints_violated?(constraints, bindings, var, term, branch) do
+  # `def`, not `defp` — this is also the diagnostic entry point
+  # (`diagnose_unify_failure/5`) uses to explain *why* a bind was refused,
+  # not just that `bind/5` returned `nil`. Returns the first violated
+  # constraint, not just a boolean, so a caller can report which one.
+  @spec constraint_violation(constraints(), bindings(), variable(), t(), AL.Branch.t()) ::
+          {:dif, t(), t()} | {:isa, atom()} | nil
+  def constraint_violation(constraints, bindings, var, term, branch) do
     case Map.get(constraints, var) do
       nil ->
-        false
+        nil
 
       set ->
-        Enum.any?(set.dif, fn {a, b} -> subst(a, bindings) == subst(b, bindings) end) or
-          (not var?(term) and Enum.any?(set.isa, &(not isa?(term, &1, branch))))
+        case Enum.find(set.dif, fn {a, b} -> subst(a, bindings) == subst(b, bindings) end) do
+          {a, b} ->
+            {:dif, a, b}
+
+          nil ->
+            if not var?(term) do
+              case Enum.find(set.isa, &(not isa?(term, &1, branch))) do
+                nil -> nil
+                class -> {:isa, class}
+              end
+            end
+        end
     end
   end
+
+  # A user-facing "why did `unify(x, y)` just fail" explanation, distinct from
+  # `bind/5`'s own internal check: covers the common, legible shape (one side
+  # a still-open var carrying a constraint, the other already concrete) rather
+  # than trying to replicate `extend/5`'s full var-vs-var aliasing logic — a
+  # var-vs-var or both-already-concrete mismatch returns `nil` (no diagnosis
+  # offered) rather than guessing. Only meaningful to call *after* `unify`
+  # itself has already returned `nil` for this exact `x`/`y` — it does not
+  # unify anything itself.
+  @spec diagnose_unify_failure(t(), t(), bindings(), constraints(), AL.Branch.t()) ::
+          {:dif, t(), t()} | {:isa, variable(), atom()} | nil
+  def diagnose_unify_failure(x, y, bindings, constraints, branch) do
+    rx = deref(bindings, x)
+    ry = deref(bindings, y)
+
+    cond do
+      var?(rx) and not var?(ry) ->
+        tag_isa(constraint_violation(constraints, Map.put(bindings, rx, ry), rx, ry, branch), rx)
+
+      var?(ry) and not var?(rx) ->
+        tag_isa(constraint_violation(constraints, Map.put(bindings, ry, rx), ry, rx, branch), ry)
+
+      true ->
+        nil
+    end
+  end
+
+  defp tag_isa({:isa, class}, var), do: {:isa, var, class}
+  defp tag_isa(other, _var), do: other
 
   # `:number`/`:list`/`:map` are decidable from `term`'s own shape — no lookup.
   # Every other class is a *relational fact* recorded separately in the

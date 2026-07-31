@@ -176,11 +176,10 @@ how far to reach:
 Lives in `AL.Dispatch` (+ `AL.Dispatch.MethodOrder` for resolution order); `AL`
 just delegates to it from `interp/2`.
 
-**The candidate families (durable/ephemeral/value/structural — structural
-counted as one family below even though it's pushed as two separate
-choicepoints, cons and `[]`) answer one question differently: does this class
-have a construction step whose behavior isn't fully readable off the clause
-heads?**
+**The three candidate families (durable/ephemeral/value) answer one question
+differently: does this class have a construction step whose behavior isn't
+fully readable off the clause heads?** (See "Known gaps" for the domain +
+labeling framing this decomposes into, and where it's headed next.)
 - **Durable** — real identity; must retrieve an existing object
   (`durable_candidates`), never fabricate one.
 - **Ephemeral** — has real construction behavior (`construct`/`allocate`/`init`,
@@ -189,18 +188,17 @@ heads?**
   (`ephemeral_candidate`), or a hand-assumed shape risks drifting from what
   `init` really builds.
 - **Value** — no construction step at all; the clause heads *are* the complete,
-  authoritative spec of a valid instance (`:number`: `1`, `n` — nothing else
-  could be true of an instance). Unifying an unbound `self` straight against
-  the class's own clauses is safe precisely because there's no hidden
-  constructor behavior to skip — routing an *ephemeral* class through this
-  leg instead would silently fabricate instances that bypass `init`.
-- **Structural** — `:list`'s cons/`[]` hypothesis is really a degenerate case
-  of "value" (a list's own shape *is* its complete spec) kept as a bespoke
-  VM-level special case rather than an `import(:list, :value)` opt-in, mostly
-  for history — `:value` didn't exist as a general mechanism yet when this was
-  built. Worth revisiting now that it does (see "Known gaps" below).
+  authoritative spec of a valid instance (`:number`: `1`, `n`; `:list`: `[]`,
+  `[h|t]` — nothing else could be true of an instance). Unifying an unbound
+  `self` straight against the class's own clauses is safe precisely because
+  there's no hidden constructor behavior to skip — routing an *ephemeral*
+  class through this leg instead would silently fabricate instances that
+  bypass `init`. `:list`'s `[]`/cons hypothesis used to be a fourth,
+  hardcoded "structural" leg — folded into value (`import(:list, :value)`)
+  once `:list`'s own clause heads turned out to already satisfy exactly this
+  leg's requirement, with no VM-level special case needed at all.
 
-Orthogonal to all four: an **`isa` constraint** (`AL.Var.add_isa`) pins a var
+Orthogonal to all three: an **`isa` constraint** (`AL.Var.add_isa`) pins a var
 to a class the moment dispatch commits it there, even if the matched clause
 leaves it open — see the value leg's `ConstrainIsa` step and al-clp-for-objects
 memory for the timing subtlety that makes this sound.
@@ -214,7 +212,7 @@ memory for the timing subtlety that makes this sound.
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
 3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
    `on_miss = backtrack`):
-   - **var receiver** (not `:"$_"`) → generative dispatch over five candidate
+   - **var receiver** (not `:"$_"`) → generative dispatch over three candidate
      kinds, each pushed as a choicepoint (current frame `Fail`s to force entry,
      LIFO try order): durable objects (`durable_candidates`, deferred behind a
      placeholder choicepoint — see `AL.Dispatch`, above — filtered by
@@ -222,11 +220,9 @@ memory for the timing subtlety that makes this sound.
      classes (`ephemeral_descendants`, also selector-filtered; `new`-based
      construction for classes with declared ivars, e.g. `single`/`union`/`set`)
      → value classes (`value_descendants`, also selector-filtered; any class
-     that `import`s `:value` — `:number` in bootstrap.ex today — is tried
-     directly against `self` via its own clause heads, no construction/retrieval
-     at all) → structural cons cell → structural `[]` (lists only — direct
-     `unify`, no dispatch round-trip, cheaper than the generic ephemeral path;
-     `:list` itself is *not* an ephemeral descendant). `AL.ResolutionCache`
+     that `import`s `:value` — `:number` and `:list` in bootstrap.ex today —
+     is tried directly against `self` via its own clause heads, no
+     construction/retrieval at all). `AL.ResolutionCache`
      (per-branch, flush-on-write Mnesia tables) memoizes `providers/3`,
      `ephemeral_descendants/1`, `value_descendants/1`, `durable_classes/1`, and
      `answers_selector?` — all pure functions of durable state otherwise
@@ -268,8 +264,8 @@ memory for the timing subtlety that makes this sound.
 Edge cases: a query with no candidates fails, never DNUs; only fully-ground sends
 DNU; `:"$_"` in receiver/selector is the match-anything wildcard, not a slot to
 ground (falls to `do_send`, takes the first method — use a real var for a query);
-of the five var-receiver candidate kinds, only durable objects require a class
-row — ephemeral/value/structural candidates are offered regardless.
+of the three var-receiver candidate kinds, only durable objects require a class
+row — ephemeral/value candidates are offered regardless.
 
 ## Tables
 
@@ -317,6 +313,49 @@ called `AL.Branch.fork/2`, which an ETS table wouldn't (`providers/3`,
 `oapply_clauses/1`, `answers_selector?`'s memo) — created/dropped alongside a
 branch's other tables in `AL.Branch.setup/create_fork/discard`, so a fork's
 cache never leaks into `:main`'s.
+
+## Debugging a live session
+
+A failed `run`/`next_solution` doesn't just hand back a curated summary — the
+reason map (`message`/`reason`/`failed_on`/`trace`) also carries **`state`**:
+the actual final `%AL{}`, whatever bindings/constraints/choicepoint_stack the
+last attempt left behind before the stack exhausted. `trace` tells you *which
+goals were tried*; `reason.state` lets you inspect *what was true when the
+last one failed* — e.g. `reason.state.active_choicepoint.constraints` for
+what was still parked on a var, not just that some goal failed. Stripped back
+out (`nil`) on the `heap:`-capped `eval` path (`AL.shed/1`) — that path exists
+specifically to bound what crosses the process boundary, so keeping the full
+state there would defeat its own purpose. Example:
+`failed_run_exposes_the_final_state` in `e_AL_failures.ex`.
+
+A `unify(a, b)` goal failing because a `dif`/`isa` constraint rejected it looks
+identical to an ordinary structural mismatch in the trace alone — the next
+goal just isn't there either way, no annotation of *why*. `Goal.Unify`'s
+interp clause calls `AL.Var.diagnose_unify_failure/5` on a `nil` result and,
+if it can explain it, records `{:constraint_violated, violation}` into
+`state.diagnostics` (the same mechanism DNU/resource-limit already use), so
+`reason.message`/`reason.reason` name the constraint directly instead of just
+"goal failed". Deliberately scoped, not exhaustive: only covers the direct
+"one side a still-open var carrying the constraint, other side already
+concrete" shape (covers every constraint example in this codebase, including
+the ones that motivated building this) — a var-vs-var mismatch, or a failure
+from some other goal that calls `AL.unify/3` internally (`GetClass`,
+`GetSuper`, method-head unification during `OApply`, …) doesn't get this
+treatment yet, and returns `nil` (no diagnosis offered) rather than guessing.
+Example: `unify_failure_names_the_violated_constraint` in `e_AL_failures.ex`.
+
+`AL.Trace.call/4`/`fail/3` (`trace(:selector)`) only fire once a clause is
+actually applied — they say nothing about *which candidate legs an unbound
+receiver had to try* to get there. `AL.Dispatch.dispatch/5`'s var-receiver
+branch calls `AL.Trace.dispatch/4` when the selector is a tracepoint, printing
+the legs being offered *before* any of them run: structural (always
+`[cons, []]`), `ephemeral=[...]`/`value=[...]` (the actual selector-filtered
+class lists — already computed either way, free to report), and
+`durable=deferred` — deliberately not a candidate count, since the durable
+leg's whole point is not scanning until backtracking actually reaches it
+(`AL.Dispatch.force_durable_candidates/4`); reporting a count here would force
+that scan just to trace it. Example: `trace_shows_dispatch_legs` in
+`e_AL_trace.ex`.
 
 ## Adding a goal
 
@@ -433,11 +472,53 @@ diff/merge and valid-time queries are unbuilt.
   lists — `+ - * / **` are `@oapply_primitives` that skip `dispatch`/`send`
   entirely today, so this would be a real `:number`/`:bits` behaviour with its
   own recursive clauses, coexisting with (not replacing) native-integer `is`.
-- **`:list`'s structural leg predates the general `:value` mechanism.** It's
-  really a degenerate case of "value" (see the dispatch-leg rule above) kept
-  as a hardcoded VM special case rather than `import(:list, :value)`. Worth
-  folding in now that `:value` is real and general — wasn't previously,
-  because `:value` didn't exist yet when the structural leg was built.
+- **The four dispatch legs are converging toward one domain-constraint
+  mechanism — in progress, not finished.** Every leg answers the same
+  question — "self is unbound; what's its domain of possible values, and how
+  do we get a concrete one when forced (`labeling`, in CLP(FD) terms)?" —
+  differing only in how the domain is represented: value/structural is a
+  predicate domain ("unifies with one of class C's clause heads"), ephemeral
+  is a shape domain ("a map with these keys, satisfying these invariants"),
+  durable is an explicit finite set (ids read from the log). `isa` already
+  stores a predicate domain (a class name, checked via `isa?/3`); the
+  generalization is letting that stored domain be richer — a shape
+  description, or an explicit id set — so all of them write into the same
+  constraint instead of three-to-four separately-hardcoded Elixir legs.
+  - **Structural folds into value with no caveats** — `:list`'s cons/`[]`
+    hypothesis already *is* a value-leg case (a list's shape is its complete
+    spec), kept as a hardcoded special case only because it predates
+    `:value`'s existence. This is the concrete near-term step (see
+    al-clp-for-objects memory for progress).
+  - **Ephemeral also fully collapses, once two things are true.** (a) Its
+    validation/defaults/invariants (e.g. a `union`'s left/right disjointness)
+    need to be expressible as constraints, not imperative checks — this is
+    exactly what `absento` (miniKanren's structural disequality: "X never
+    appears anywhere inside Term", even as Term grows through still-open
+    sub-parts — `dif`'s `migrate_constraints` re-attach trick, generalized to
+    recurse into revealed structure) is for; not built. (b) Ephemeral
+    construction must never touch anything durable or external — already
+    true by construction today (`AL.Store`'s goals no-op when `object` is a
+    live map; `:ephemeral`'s own `allocate`/`init` are identity), so this
+    isn't a new constraint to add, just an invariant to keep honoring as
+    classes gain real `init` logic.
+  - **Durable does not collapse into the others — a different resource, not
+    a different amount of laziness.** Its domain is real, mutable, external,
+    persistent state; producing a witness (`labeling`) means an actual scan,
+    can race against concurrent writers, and is the one place backtracking
+    away from a tried candidate doesn't undo anything (nothing durable was
+    written by a `send`'s own candidate generation) — contrast a
+    non-transactional effect like `send_elixir` reaching an external
+    process, which *is* the one place nothing in AL rolls back, but that's a
+    property of the goal type, not of durable dispatch specifically. This
+    split is exactly why the durable leg was the one to get lazy first
+    (`AL.Dispatch.force_durable_candidates/4`) — it was already the odd one
+    out.
+  - End state: one dispatch loop asking each candidate class how it wants to
+    describe its domain (an AL-level category/behaviour hook, not an Elixir
+    special case per leg — consistent with "package means defpackage"),
+    with durable staying the sole leg whose *labeling* is genuinely
+    expensive and lazy, not because it's special-cased but because it's
+    touching a different kind of resource than the other three.
 - **Durable candidate generation doesn't consult `isa`/`dif` before scanning.**
   `AL.Var.bind/5` being the one choke point means a wrong-class durable
   candidate is always *rejected* correctly (see al-clp-for-objects memory),

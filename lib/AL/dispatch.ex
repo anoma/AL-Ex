@@ -4,17 +4,20 @@ defmodule AL.Dispatch do
 
   A ground receiver and selector go straight to `do_send/5` (via `dispatch/5`).
   An open receiver or selector instead makes the send a *query*: `dispatch/5`
-  enumerates candidates — structural (`[]`/cons), ephemeral (constructed via
-  each importing class's own `new`), durable (a real object scan — deferred
-  behind a placeholder choicepoint until backtracking actually reaches it, see
-  `force_durable_candidates/4`), and value (a class's clauses tried directly)
-  — each pushed as its own choicepoint, so backtracking tries the next one. A
-  var selector instead enumerates `self`'s own understood method names
-  (`enumerate_selectors/4`) and re-dispatches per name. Once both sides are
-  ground, `do_send/5` looks up the ordered list of `{scope, id}` providers for
-  the selector and runs the first whose clause actually matches
-  (`run_providers/6`), falling through to `on_miss` — DNU for a directed send,
-  a plain backtrack for a query.
+  enumerates candidates — ephemeral (constructed via each importing class's
+  own `new`), durable (a real object scan — deferred behind a placeholder
+  choicepoint until backtracking actually reaches it, see
+  `force_durable_candidates/4`), and value (a class's own clauses tried
+  directly against `self`, still possibly unbound — `:list`'s `[]`/cons
+  hypothesis included, since its clause heads already pattern-match that
+  shape; no separate structural leg exists anymore) — each pushed as its own
+  choicepoint, so backtracking tries the next one. A var selector instead
+  enumerates `self`'s own understood method names (`enumerate_selectors/4`)
+  and re-dispatches per name. Once both sides are ground, `do_send/5` looks
+  up the ordered list of `{scope, id}` providers for the selector and runs
+  the first whose clause actually matches (`run_providers/6`), falling
+  through to `on_miss` — DNU for a directed send, a plain backtrack for a
+  query.
   """
 
   alias AL.Goal
@@ -27,9 +30,6 @@ defmodule AL.Dispatch do
   def dispatch(self, method, args, state, on_miss) do
     cond do
       AL.Var.var?(self) and self != :"$_" ->
-        requery =
-          AL.splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
-
         ephemeral_classes =
           state.branch
           |> ephemeral_descendants()
@@ -40,10 +40,10 @@ defmodule AL.Dispatch do
           |> value_descendants()
           |> filter_by_selector(method, state.branch)
 
+        maybe_trace_dispatch(state, self, method, ephemeral_classes, value_classes)
+
         state
         |> splice_into([%Goal.Fail{}])
-        |> maybe_push_choicepoint(structural_candidate(state, requery, self, fresh_cons_cell()))
-        |> maybe_push_choicepoint(structural_candidate(state, requery, self, []))
         |> push_ephemeral_candidates(state, self, method, args, ephemeral_classes)
         |> push_choicepoint(durable_placeholder(state, self, method, args))
         |> push_value_candidates(state, self, method, args, value_classes)
@@ -56,12 +56,23 @@ defmodule AL.Dispatch do
     end
   end
 
-  # An unbound receiver is normally grounded only against durable objects (via
-  # `GetClass`), which lists never are (recognised structurally, no `class` row).
-  # Offer `self` as `[]` and as a fresh cons cell too, so list methods bind it
-  # through ordinary head unification in `oapply` — the same way Prolog's
-  # `member([X|_], X).`/`reverse([], []).` clauses generate (and terminate) open
-  # lists on backtracking, rather than a special-cased search.
+  # `method` has to already be ground to check it against `state.tracepoints`
+  # — a var selector (the other cond branch in `dispatch/5`) has no selector
+  # yet to look up, so there's nothing meaningful to trace at this point for
+  # that case.
+  defp maybe_trace_dispatch(state, self, method, ephemeral_classes, value_classes) do
+    if not AL.Var.var?(method) and MapSet.member?(state.tracepoints, method) do
+      AL.Trace.dispatch(self, method, ephemeral_classes, value_classes)
+    end
+  end
+
+  # Offer `self = shape` as one hypothesis, re-querying once grounded — used
+  # by the durable leg to wrap each real object as a candidate (`shape` is a
+  # concrete id there). Lists used to get their own hardcoded call here too
+  # (`self = []`/a fresh cons cell), before `:list` importing `:value` made
+  # that redundant with the value leg's own mechanism — see al-clp-for-objects
+  # memory for why that fold is sound (list's own clause heads already
+  # pattern-match `[]`/`[h|t]`, exactly what the value leg requires).
   defp structural_candidate(state, requery_goals, self, shape) do
     {new_bindings, new_constraints} =
       AL.try_unify(
@@ -82,10 +93,11 @@ defmodule AL.Dispatch do
 
   # The "value" dispatch leg: no construction, no retrieval — just offer `class`'s own
   # clauses to unify against `self` directly, still possibly unbound. Only sound for
-  # classes whose clause heads are the complete, authoritative spec of an instance (see
-  # al-bidirectional-structural-dispatch memory for why ephemeral classes can't use
-  # this) — an opt-in via `import(class, :value)`, `:number` being the first (and, in
-  # bootstrap.ex, only) importer, mirroring `:ephemeral`'s own opt-in exactly.
+  # classes whose clause heads are the complete, authoritative spec of an instance
+  # (see al-clp-for-objects memory for why ephemeral classes can't use this,
+  # and what would need to be true for them to) — an opt-in via
+  # `import(class, :value)`. `:number` and `:list` both import it today,
+  # mirroring `:ephemeral`'s own opt-in exactly.
   #
   # Constrain *after*, not before: `ConstrainIsa` is spliced to run once
   # `SendAsValue`'s own clause application has completed (via the ordinary
@@ -296,22 +308,8 @@ defmodule AL.Dispatch do
   defp import_ordinal(id),
     do: id |> Atom.to_string() |> String.trim_leading("#") |> String.to_integer()
 
-  defp fresh_cons_cell() do
-    scope = AL.fresh_scope()
-    [AL.Var.var("list_head_#{scope}") | AL.Var.var("list_tail_#{scope}")]
-  end
-
   defp push_choicepoint(state, choicepoint),
     do: %AL{state | choicepoint_stack: [choicepoint | state.choicepoint_stack]}
-
-  # A candidate already known to be doomed (its unify was tried eagerly at
-  # construction time and came back poisoned — an active constraint like
-  # `dif` ruled it out) never needs a spot on the stack: it would only get
-  # popped and immediately self-backtrack (`continue/1`'s `bindings == nil`
-  # check) when its turn came. Same final results either way, just without
-  # the wasted round trip.
-  defp maybe_push_choicepoint(state, %AL.Choicepoint{bindings: nil}), do: state
-  defp maybe_push_choicepoint(state, choicepoint), do: push_choicepoint(state, choicepoint)
 
   defp splice_into(state, goals) do
     %AL{

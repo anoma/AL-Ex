@@ -293,6 +293,15 @@ defmodule AL do
       | diagnostics: [{:resource_limit_exceeded, @max_reductions} | state.diagnostics]
     }
 
+  defp record_constraint_violation(state, nil, a, b) do
+    case AL.Var.diagnose_unify_failure(a, b, bindings(state), constraints(state), state.branch) do
+      nil -> state
+      violation -> %AL{state | diagnostics: [{:constraint_violated, violation} | state.diagnostics]}
+    end
+  end
+
+  defp record_constraint_violation(state, _result, _a, _b), do: state
+
   defp bindings(state), do: state.active_choicepoint.bindings
   defp constraints(state), do: state.active_choicepoint.constraints
 
@@ -680,8 +689,16 @@ defmodule AL do
     end
   end
 
-  def interp(%Goal.Unify{a: a, b: b}, state),
-    do: put_bindings(state, unify(state, a, b), [a, b])
+  # An ordinary `dif`/`isa` violation looks identical to a structural
+  # mismatch in the trace alone — the next goal just isn't there either way.
+  # `diagnose_unify_failure/5` re-derives *which* constraint fired (or `nil`,
+  # for an ordinary mismatch it doesn't try to explain — see its own doc) so
+  # `format_failure` can name it instead of just "goal failed".
+  def interp(%Goal.Unify{a: a, b: b}, state) do
+    result = unify(state, a, b)
+    state = record_constraint_violation(state, result, a, b)
+    put_bindings(state, result, [a, b])
+  end
 
   # Prolog `==`: structural equality; never binds, so an unbound side fails.
   def interp(%Goal.Equal{a: a, b: b}, state) do
@@ -921,8 +938,14 @@ defmodule AL do
   # crosses as bounded text.
   defp shed({:atomic, {bindings, _state}}), do: {:atomic, {bindings, nil}}
 
-  defp shed({:aborted, %{failed_on: goal} = reason}),
-    do: {:aborted, %{reason | failed_on: goal |> inspect(limit: 8) |> String.slice(0, 200)}}
+  defp shed({:aborted, %{failed_on: goal} = reason}) do
+    {:aborted,
+     %{
+       reason
+       | failed_on: goal |> inspect(limit: 8) |> String.slice(0, 200),
+         state: nil
+     }}
+  end
 
   defp shed(other), do: other
 
@@ -1029,7 +1052,12 @@ defmodule AL do
   end
 
   # A legible failure reason: an unhandled `does_not_understand` wins, else the last
-  # goal reached. Trace stripped of `:backtrack` noise.
+  # goal reached. Trace stripped of `:backtrack` noise. `state` rides along whole —
+  # the trace is a curated summary, but a live debugging session often needs the
+  # actual bindings/constraints/choicepoint_stack the last attempt left behind, not
+  # just the sequence of goals that led to it. Stripped back out for the
+  # heap-capped `eval` path (see `shed/1`) — it exists specifically to bound what
+  # crosses the process boundary.
   defp format_failure(state) do
     steps =
       state.trace
@@ -1045,7 +1073,8 @@ defmodule AL do
               "backtracking (a generative send with no termination guarantee).",
           reason: {:resource_limit_exceeded, limit},
           failed_on: List.last(steps),
-          trace: Enum.take(steps, -20)
+          trace: Enum.take(steps, -20),
+          state: state
         }
 
       [{receiver, selector, arity, suggestions} | _] ->
@@ -1062,7 +1091,17 @@ defmodule AL do
             "#{inspect(receiver)} does not understand #{inspect(selector)}/#{arity}." <> hint,
           reason: {:does_not_understand, receiver, selector, arity, suggestions},
           failed_on: List.last(steps),
-          trace: steps
+          trace: steps,
+          state: state
+        }
+
+      [{:constraint_violated, violation} | _] ->
+        %{
+          message: constraint_violation_message(violation),
+          reason: {:constraint_violated, pretty_violation(violation)},
+          failed_on: List.last(steps),
+          trace: steps,
+          state: state
         }
 
       [] ->
@@ -1072,10 +1111,24 @@ defmodule AL do
           message: "Goal failed: #{inspect(failed_on)}",
           reason: {:goal_failed, failed_on},
           failed_on: failed_on,
-          trace: steps
+          trace: steps,
+          state: state
         }
     end
   end
+
+  defp constraint_violation_message({:dif, a, b}) do
+    "Constraint violated: dif(#{inspect(AL.Trace.pretty(a))}, #{inspect(AL.Trace.pretty(b))}) " <>
+      "required these to stay different."
+  end
+
+  defp constraint_violation_message({:isa, var, class}) do
+    "Constraint violated: #{inspect(AL.Trace.pretty(var))} was required to resolve within " <>
+      "class #{inspect(class)}."
+  end
+
+  defp pretty_violation({:dif, a, b}), do: {:dif, AL.Trace.pretty(a), AL.Trace.pretty(b)}
+  defp pretty_violation({:isa, var, class}), do: {:isa, AL.Trace.pretty(var), class}
 
   defp trace_call(state, method_id, bind_head) do
     {receiver, args} =
