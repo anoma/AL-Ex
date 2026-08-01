@@ -1,6 +1,6 @@
 defmodule AL.ResolutionCache do
   @moduledoc """
-  Flush-on-write cache for `providers/3` / `ephemeral_descendants/1` /
+  Flush-on-write cache for `providers/3` / `generative_descendants/2` /
   `durable_classes/1` / `oapply_clauses/1`. One Mnesia `ram_copies` table set per
   branch, named like `AL.Command.table/2` (`al_providers_cache@fork_123`) — so a
   discarded branch's cache just gets dropped with its other tables, not swept by
@@ -16,8 +16,7 @@ defmodule AL.ResolutionCache do
 
   @relations [
     :providers,
-    :ephemeral_descendants,
-    :value_descendants,
+    :generative_descendants,
     :durable_classes,
     :oapply_clauses
   ]
@@ -52,13 +51,13 @@ defmodule AL.ResolutionCache do
   def fetch_providers(branch, key, compute),
     do: fetch(table(:providers, branch), :providers, key, compute)
 
-  @spec fetch_ephemeral_descendants(AL.Branch.t(), (-> term())) :: term()
-  def fetch_ephemeral_descendants(branch, compute),
-    do: fetch(table(:ephemeral_descendants, branch), :ephemeral_descendants, :value, compute)
-
-  @spec fetch_value_descendants(AL.Branch.t(), (-> term())) :: term()
-  def fetch_value_descendants(branch, compute),
-    do: fetch(table(:value_descendants, branch), :value_descendants, :value, compute)
+  # One relation for every `:ephemeral`/`:value`-importing class together, not
+  # two — `AL.Object`'s writers always invalidate both at once (any `:slots`
+  # write could touch either category marker), so they were never actually
+  # independent caches, just one split in two for no reason.
+  @spec fetch_generative_descendants(AL.Branch.t(), (-> term())) :: term()
+  def fetch_generative_descendants(branch, compute),
+    do: fetch(table(:generative_descendants, branch), :generative_descendants, :value, compute)
 
   @spec fetch_durable_classes(AL.Branch.t(), (-> term())) :: term()
   def fetch_durable_classes(branch, compute),
@@ -85,14 +84,9 @@ defmodule AL.ResolutionCache do
     clear(table(:providers, branch))
   end
 
-  @spec invalidate_ephemeral_descendants(AL.Branch.t()) :: :ok
-  def invalidate_ephemeral_descendants(branch) do
-    clear(table(:ephemeral_descendants, branch))
-  end
-
-  @spec invalidate_value_descendants(AL.Branch.t()) :: :ok
-  def invalidate_value_descendants(branch) do
-    clear(table(:value_descendants, branch))
+  @spec invalidate_generative_descendants(AL.Branch.t()) :: :ok
+  def invalidate_generative_descendants(branch) do
+    clear(table(:generative_descendants, branch))
   end
 
   @spec invalidate_durable_classes(AL.Branch.t()) :: :ok

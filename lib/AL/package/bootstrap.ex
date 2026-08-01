@@ -158,12 +158,30 @@ defmodule AL.Package.Bootstrap do
     # imported it (reusing `vm_fresh_id`, not a new mechanism) — this is what
     # lets `:ephemeral` be discovered and ordered later purely from `:slots`,
     # with no separate bookkeeping relation.
+    #
+    # `copy_methods` walks `pairs` by direct clause recursion rather than
+    # `forall([member(pairs, ...)])` — `member` is `:list`'s own method
+    # (`:list_member`, defined later in this file), so a `member`-based walk
+    # here would make `:object`'s foundational `:import` depend on bootstrap
+    # ordering: `import(..., :value)` calls that run before `:list`'s
+    # `:member` exists would have that send silently fail (zero solutions),
+    # indistinguishable from `pairs` genuinely being empty. That's exactly
+    # what happened here — masked for as long as `:value` itself had no
+    # methods to copy (`pairs` was always `[]` either way), only surfacing
+    # once `:value` gained real ones. `copy_methods` needs nothing but `:object`
+    # itself, so `import` no longer has any ordering dependency on other
+    # classes' methods being defined yet.
+    defmethod(:object, :copy_methods, [_self, []]) do
+    end
+
+    defmethod(:object, :copy_methods, [self, [[name, id] | rest]]) do
+      vm_set_method(self, name, id)
+      copy_methods(self, rest)
+    end
+
     defmethod(:object, :import, [self, category]) do
       findall([name, id], [vm_method(category, name, id)], pairs)
-
-      forall([member(pairs, [name, id])]) do
-        vm_set_method(self, name, id)
-      end
+      copy_methods(self, pairs)
 
       vm_fresh_id(seq)
       set_slot(self, category, seq)
@@ -179,14 +197,26 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(self, k, v)
     end
 
-    # A marker category — no methods to copy, `import` just stamps the
-    # `:value` slot every importer needs to be discovered by
-    # `AL.Dispatch.value_descendants/1`. Opting in means the class's own
-    # clause heads are the complete, authoritative spec of an instance (see
-    # al-bidirectional-structural-dispatch memory), so dispatch can try them
-    # directly against an unbound receiver with no construction step —
-    # `:number` is the first importer.
+    # `import` stamps the `:value` slot every importer needs to be discovered
+    # by `AL.Dispatch.generative_descendants/2`. Opting in means the class's
+    # own clause heads are the complete, authoritative spec of an instance
+    # (see al-clp-for-objects memory) — but unlike the old design, `new` still
+    # runs the ordinary `construct`/`allocate`/`init` pipeline (so
+    # `:number`'s `.new` is a real, resolvable send chain, not skipped): it's
+    # `init` that discards the constructed scaffold. `output` below is never
+    # unified with `self`, so it comes back exactly as open as it started —
+    # this is what lets `AL.Dispatch.generative_candidate/6` route
+    # `:ephemeral` and `:value` through one identical call to `new`, no
+    # strategy branch, with a class's own clause heads then unifying directly
+    # against that still-open result via `send_as_value`. `:number` is the
+    # first importer.
     new(:category, %{name: :value}, _)
+
+    defmethod(:value, :allocate, [self, _, self]) do
+    end
+
+    defmethod(:value, :init, [self, _, output]) do
+    end
 
     vm_set_super(:map, :object)
 

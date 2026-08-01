@@ -250,9 +250,9 @@ defmodule AL.Var do
   # `isa` is `dif`'s positive counterpart: instead of "never equal to this
   # term", "every future bind of this var must belong to `class`". Registered
   # wherever a dispatch leg commits an open var to a class before it's
-  # necessarily grounded (see `AL.Dispatch.value_candidate`) — a var routed
-  # through `:number`'s value leg shouldn't be bindable to a durable object
-  # just because it's still open when that leg returns.
+  # necessarily grounded (see `AL.Dispatch.generative_candidate`) — a var
+  # routed through `:number`'s value leg shouldn't be bindable to a durable
+  # object just because it's still open when that leg returns.
   @spec add_isa(store(), variable(), atom()) :: store()
   def add_isa(store, var, class) do
     Map.update(store, var, %ConstraintSet{isa: MapSet.new([class])}, fn

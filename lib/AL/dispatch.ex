@@ -4,20 +4,26 @@ defmodule AL.Dispatch do
 
   A ground receiver and selector go straight to `do_send/5` (via `dispatch/5`).
   An open receiver or selector instead makes the send a *query*: `dispatch/5`
-  enumerates candidates — ephemeral (constructed via each importing class's
-  own `new`), durable (a real object scan — deferred behind a placeholder
-  choicepoint until backtracking actually reaches it, see
-  `force_durable_candidates/4`), and value (a class's own clauses tried
-  directly against `self`, still possibly unbound — `:list`'s `[]`/cons
-  hypothesis included, since its clause heads already pattern-match that
-  shape; no separate structural leg exists anymore) — each pushed as its own
-  choicepoint, so backtracking tries the next one. A var selector instead
-  enumerates `self`'s own understood method names (`enumerate_selectors/4`)
-  and re-dispatches per name. Once both sides are ground, `do_send/5` looks
-  up the ordered list of `{scope, id}` providers for the selector and runs
-  the first whose clause actually matches (`run_providers/6`), falling
-  through to `on_miss` — DNU for a directed send, a plain backtrack for a
-  query.
+  enumerates candidates over **one shared generative mechanism**
+  (`generative_candidate/5`) — every importing class, `:ephemeral` and
+  `:value` alike, is offered a candidate by calling its own `new` (`:list`'s
+  `[]`/cons hypothesis included, since its clause heads already pattern-match
+  that shape) — plus durable (a real object scan — deferred behind a
+  placeholder choicepoint until backtracking actually reaches it, see
+  `force_durable_candidates/4`). `:value`'s `init` discards what `new`
+  constructs instead of keeping it, so `self` comes back exactly as open as
+  it started, ready to unify directly against the class's own clause heads
+  (`send_as_value`) — `:ephemeral`'s `init` fills the scaffold in for real.
+  Same call, same goal sequence, no strategy branch; only the imported
+  category's own `allocate`/`init` differ. Every generative candidate
+  attaches `isa` to its own choicepoint before any of its goals run, then
+  each is pushed as its own choicepoint, so backtracking tries the next one.
+  A var selector instead enumerates `self`'s own understood method names
+  (`enumerate_selectors/4`) and re-dispatches per name. Once both sides are
+  ground, `do_send/5` looks up the ordered list of `{scope, id}` providers
+  for the selector and runs the first whose clause actually matches
+  (`run_providers/6`), falling through to `on_miss` — DNU for a directed
+  send, a plain backtrack for a query.
   """
 
   alias AL.Goal
@@ -46,13 +52,13 @@ defmodule AL.Dispatch do
             []
           else
             state.branch
-            |> ephemeral_descendants()
+            |> generative_descendants(:ephemeral)
             |> filter_by_selector(method, state.branch)
           end
 
         value_classes =
           state.branch
-          |> value_descendants()
+          |> generative_descendants(:value)
           |> filter_by_selector(method, state.branch)
           |> Enum.reject(&shape_conflict?(&1, known_shape))
 
@@ -60,9 +66,9 @@ defmodule AL.Dispatch do
 
         state
         |> splice_into([%Goal.Fail{}])
-        |> push_ephemeral_candidates(state, self, method, args, ephemeral_classes)
+        |> push_candidates(state, self, method, args, ephemeral_classes)
         |> push_choicepoint(durable_placeholder(state, self, method, args))
-        |> push_value_candidates(state, self, method, args, value_classes)
+        |> push_candidates(state, self, method, args, value_classes)
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state)
@@ -117,30 +123,40 @@ defmodule AL.Dispatch do
     }
   end
 
-  # The "value" dispatch leg: no construction, no retrieval — just offer `class`'s own
-  # clauses to unify against `self` directly, still possibly unbound. Only sound for
-  # classes whose clause heads are the complete, authoritative spec of an instance
-  # (see al-clp-for-objects memory for why ephemeral classes can't use this,
-  # and what would need to be true for them to) — an opt-in via
-  # `import(class, :value)`. `:number` and `:list` both import it today,
-  # mirroring `:ephemeral`'s own opt-in exactly.
+  # One mechanism for both generative legs, no strategy branch: attach `isa`
+  # to the choicepoint at construction — before *any* of the goals below run,
+  # so it's live for the whole call, nested sends included, not just future
+  # binds after the call returns (see al-clp-for-objects memory) — then call
+  # `class`'s own `new` with a fresh var for each declared ivar, the same
+  # construction path a real caller would use, just with the slots left open
+  # for unification to fill in.
   #
-  # Constrained at construction, before `SendAsValue` (and therefore the
-  # matched clause's whole body) ever runs — so it's live for the entire
-  # method call, nested sends included, not just future binds after the call
-  # returns. Safe against the class's *own* head-unification because the isa
-  # check (`AL.Var.isa?/3`) only ever fires on a bind to a *concrete* term;
-  # a clause whose head leaves `self` open (`:number`'s backward-search
-  # `factorial`, `:object`'s inherited `:examine`) never trips it during its
-  # own match — and a clause that *does* ground `self` to one of the class's
-  # own literals (`:letter_chain`'s `:a`/`:b`) is exactly what `isa?/3` now
-  # accepts as membership evidence for a value class, so it doesn't
-  # self-violate the constraint it's the proof of.
-  defp value_candidate(state, self, method, args, class) do
-    goals =
-      AL.splice_goals(state, [
-        %Goal.SendAsValue{class: class, object: self, method: method, args: args}
-      ])
+  # What `new` actually *does* with those fresh vars is where `:ephemeral`
+  # and `:value` genuinely differ, and that difference lives entirely in each
+  # category's own `allocate`/`init` (bootstrap.ex), not here: `:ephemeral`'s
+  # `init` fills the constructed scaffold in for real (classes with no
+  # construction-time invariants can just inherit `:object`'s default, which
+  # echoes it through unchanged). `:value`'s `init` discards the scaffold —
+  # `output` is never unified with `self`, so `new`'s result comes back
+  # exactly as open as it started, ready for `send_as_value` to unify
+  # directly against `class`'s own clause heads. Only sound for classes whose
+  # clause heads are the complete, authoritative spec of an instance — an
+  # opt-in via `import(class, :value)`. Safe against the class's *own*
+  # head-unification because the isa check (`AL.Var.isa?/3`) only ever fires
+  # on a bind to a *concrete* term; a clause whose head leaves `self` open
+  # (`:number`'s backward-search `factorial`, `:object`'s inherited
+  # `:examine`) never trips it during its own match — and a clause that
+  # *does* ground `self` to one of the class's own literals
+  # (`:letter_chain`'s `:a`/`:b`) is exactly what `isa?/3` now accepts as
+  # membership evidence for a value class, so it doesn't self-violate the
+  # constraint it's the proof of.
+  #
+  # Attaching `isa` is harmless, not just inert, for `:ephemeral`: its own
+  # `init` grounds `self` to a fresh concrete instance right away, and that
+  # instance's own class is exactly `class`, so the isa check it trips at
+  # that bind always passes.
+  defp generative_candidate(state, self, method, args, class) do
+    goals = AL.splice_goals(state, strategy_goals(state, self, method, args, class))
 
     %AL.Choicepoint{
       state.active_choicepoint
@@ -149,56 +165,34 @@ defmodule AL.Dispatch do
     }
   end
 
-  # `value_descendants/1` orders earliest-imported-first, same as
-  # `ephemeral_descendants/1` below — reversed here for the same reason
-  # `push_ephemeral_candidates/6` reverses: the choicepoint stack is LIFO, so
-  # the earliest-declared class needs to be pushed last to be tried first.
-  defp push_value_candidates(state, orig_state, self, method, args, classes) do
-    Enum.reduce(Enum.reverse(classes), state, fn class, acc ->
-      push_choicepoint(acc, value_candidate(orig_state, self, method, args, class))
-    end)
+  defp strategy_goals(state, self, method, args, class) do
+    scope = AL.fresh_scope()
+    shape = AL.Var.var("candidate_shape_#{scope}")
+
+    fresh_args =
+      Map.new(class_ivars(class, state.branch), fn ivar ->
+        {ivar, AL.Var.var("candidate_ivar_#{ivar}_#{scope}")}
+      end)
+
+    [
+      %Goal.Send{object: class, method: :new, args: [fresh_args, shape]},
+      %Goal.Unify{a: self, b: shape},
+      %Goal.SendAsValue{class: class, object: self, method: method, args: args}
+    ]
   end
 
-  # Ephemeral classes (map-tagged, never durable) have no `class` row for `GetClass`
-  # to find, and no fixed structural shape like a list's cons cell — so instead of
-  # asking each class to hand-declare its own shape (which risks drifting from
-  # what `init` actually builds, see the `union` disjointness saga), every class
-  # that has `import`ed `:ephemeral` is offered a candidate by literally calling
-  # its own `new` with a fresh var for each declared ivar — the same construction
-  # path a real caller would use, just with the slots left open for unification
-  # to fill in, the same way `structural_candidate` offers `[]`/cons.
-  #
-  # `ephemeral_descendants/1` returns classes ordered earliest-imported-first
-  # (see the `:ephemeral` ordinal recorded by `import` in bootstrap.ex) — that's
-  # a real declaration-order signal, not a proxy. Reversed here because the
+  # `generative_descendants/2` orders earliest-imported-first (the `:ephemeral`/
+  # `:value` ordinal recorded by `import` in bootstrap.ex — a real
+  # declaration-order signal, not a proxy). Reversed here because the
   # choicepoint stack is LIFO: the last one pushed is the first one tried, so
   # the earliest-declared class needs to be pushed last to be tried first.
   # This is what keeps e.g. `single` (declared before `union`) tried before
   # `union` — trying `union` first would recurse into generating `left`/`right`
   # before ever reaching the trivial `single` case.
-  defp push_ephemeral_candidates(state, orig_state, self, method, args, classes) do
+  defp push_candidates(state, orig_state, self, method, args, classes) do
     Enum.reduce(Enum.reverse(classes), state, fn class, acc ->
-      push_choicepoint(acc, ephemeral_candidate(orig_state, self, method, args, class))
+      push_choicepoint(acc, generative_candidate(orig_state, self, method, args, class))
     end)
-  end
-
-  defp ephemeral_candidate(state, self, method, args, class) do
-    scope = AL.fresh_scope()
-    shape = AL.Var.var("ephemeral_shape_#{scope}")
-
-    fresh_args =
-      Map.new(class_ivars(class, state.branch), fn ivar ->
-        {ivar, AL.Var.var("ephemeral_ivar_#{ivar}_#{scope}")}
-      end)
-
-    goals =
-      AL.splice_goals(state, [
-        %Goal.Send{object: class, method: :new, args: [fresh_args, shape]},
-        %Goal.Unify{a: self, b: shape},
-        %Goal.SendQuery{object: self, method: method, args: args}
-      ])
-
-    %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
 
   # Deferred durable candidates. Scanning every durable object of a matching
@@ -298,34 +292,50 @@ defmodule AL.Dispatch do
     end
   end
 
-  # Every class that has `import`ed `:ephemeral` — a flat `:slots` scan, no
-  # `super`-graph traversal at all. `import` (bootstrap.ex) stamps a slot named
-  # for the imported category on any importer, valued with a fresh id minted at
-  # import time — a real monotonic ordinal, so sorting by it recovers genuine
-  # declaration order rather than relying on undefined bag-scan order across
-  # different classes. `value_descendants/1` (the value dispatch leg's opt-in,
-  # `import(class, :value)`) is the same scan against a different slot name —
-  # shared here rather than duplicated.
-  defp ephemeral_descendants(branch),
-    do:
-      category_descendants(branch, :ephemeral, &AL.ResolutionCache.fetch_ephemeral_descendants/2)
+  # Every class that has `import`ed `:ephemeral` or `:value` — a flat `:slots`
+  # scan, no `super`-graph traversal at all, both categories in one pass and
+  # one cache entry (a class can in principle import both; nothing here
+  # assumes it imports only one). `import` (bootstrap.ex) stamps a slot named
+  # for the imported category on any importer, valued with a fresh id minted
+  # at import time — a real monotonic ordinal, so sorting by it recovers
+  # genuine declaration order rather than relying on undefined bag-scan order
+  # across different classes.
+  defp generative_descendants(branch, category) do
+    AL.ResolutionCache.fetch_generative_descendants(branch, fn ->
+      scope = AL.fresh_scope()
 
-  defp value_descendants(branch),
-    do: category_descendants(branch, :value, &AL.ResolutionCache.fetch_value_descendants/2)
+      AL.Object.scan_slots(
+        AL.Var.var("category_scan_class_#{scope}"),
+        AL.Var.var("category_scan_slots_#{scope}"),
+        branch
+      )
+      |> Enum.flat_map(fn {:slots, class, slots} ->
+        if is_map(slots) do
+          for {cat, id} <- Map.take(slots, [:ephemeral, :value]),
+              do: {cat, class, import_ordinal(id)}
+        else
+          []
+        end
+      end)
+    end)
+    |> Enum.filter(fn {cat, _class, _ordinal} -> cat == category end)
+    |> Enum.sort_by(fn {_cat, _class, ordinal} -> ordinal end)
+    |> Enum.map(fn {_cat, class, _ordinal} -> class end)
+  end
 
   # Whether `term` is provably a `class` instance by the value leg's own
   # standard: unifies with one of `class`'s own clause heads in the self
   # position. Used by `AL.Var.isa?/3` so an `isa` constraint attached *before*
-  # a value candidate's clause match (see `value_candidate/5`) doesn't reject
-  # the class's own defining clauses — `:letter_chain`'s bare-atom `:a`/`:b`
-  # were never durably classified, matching one of `:letter_chain`'s own
-  # clauses is the *only* evidence of membership there is. A bare-variable
-  # self position (`:number`'s recursive `factorial` clause, any inherited
-  # method reached only via the super chain) proves nothing and is excluded —
-  # otherwise this would be vacuously true for anything.
+  # a value candidate's clause match (see `generative_candidate/6`) doesn't
+  # reject the class's own defining clauses — `:letter_chain`'s bare-atom
+  # `:a`/`:b` were never durably classified, matching one of `:letter_chain`'s
+  # own clauses is the *only* evidence of membership there is. A
+  # bare-variable self position (`:number`'s recursive `factorial` clause,
+  # any inherited method reached only via the super chain) proves nothing and
+  # is excluded — otherwise this would be vacuously true for anything.
   @spec value_member?(AL.Var.t(), atom(), AL.Branch.t()) :: boolean()
   def value_member?(term, class, branch) do
-    class in value_descendants(branch) and
+    class in generative_descendants(branch, :value) and
       class
       |> own_clause_self_patterns(branch)
       |> Enum.any?(fn pattern ->
@@ -339,26 +349,6 @@ defmodule AL.Dispatch do
           AL.Object.scan_method(class, :"$isa_check_name", :"$isa_check_id", branch),
         {:oapply, _id, _seq, [self_pattern | _], _body} <- AL.cached_scan_clauses(id, branch),
         do: self_pattern
-  end
-
-  defp category_descendants(branch, category, fetch) do
-    fetch.(branch, fn ->
-      scope = AL.fresh_scope()
-
-      AL.Object.scan_slots(
-        AL.Var.var("category_scan_class_#{scope}"),
-        AL.Var.var("category_scan_slots_#{scope}"),
-        branch
-      )
-      |> Enum.flat_map(fn {:slots, class, slots} ->
-        case is_map(slots) and Map.fetch(slots, category) do
-          {:ok, id} -> [{class, import_ordinal(id)}]
-          _ -> []
-        end
-      end)
-      |> Enum.sort_by(fn {_class, ordinal} -> ordinal end)
-      |> Enum.map(fn {class, _ordinal} -> class end)
-    end)
   end
 
   defp import_ordinal(id),
@@ -430,8 +420,8 @@ defmodule AL.Dispatch do
   # Like `do_send`, but the scope chain is seeded from an explicit `class` rather
   # than derived from `self`'s own term shape — `providers/3`'s `is_number`/`is_map`/
   # `is_list` guards need a concrete term to guard on, which an unbound `self` isn't.
-  # `self` gets constrained to `class` by the caller (`value_candidate` attaches
-  # `isa` to the choicepoint at construction), not here.
+  # `self` gets constrained to `class` by the caller (`generative_candidate`
+  # attaches `isa` to the choicepoint at construction), not here.
   def do_send_as(class, self, method, args, state, on_miss) do
     candidates =
       providers_for(

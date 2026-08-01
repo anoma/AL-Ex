@@ -42,7 +42,7 @@ defmodule AL.Relations do
 
       # Querying `object`'s class (`class_pattern` still open) rather than
       # asserting it — if `object` already carries a known `isa` domain (e.g.
-      # from the value dispatch leg's `value_candidate`), that domain *is* the
+      # from the value dispatch leg's `generative_candidate`), that domain *is* the
       # answer, so answer from it directly instead of scanning the durable
       # table for an object that, for an ephemeral/value receiver, was never
       # durably classified to begin with.

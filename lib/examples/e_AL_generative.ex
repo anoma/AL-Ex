@@ -208,4 +208,145 @@ defmodule Examples.ALGenerative do
     assert Map.get(bindings, :"$c") == :letter_chain_reflective
     assert AL.Var.var?(Map.get(bindings, :"$y"))
   end
+
+  # `:value` classes now construct through the same real `new` pipeline as
+  # `:ephemeral` (`construct`/`allocate`/`init`) instead of skipping
+  # construction entirely — `:value`'s own `init` just discards the
+  # constructed scaffold, so the result comes back exactly as open as it
+  # started. Before this, a value class had no `allocate`/`init` of its own
+  # at all, so calling `new` on one directly fell through to `:object`'s
+  # default allocate and would have durably registered a fake instance —
+  # calling `new` on a value class now stays purely symbolic, no durable
+  # object created.
+  example new_on_a_value_class_stays_open_not_durable() do
+    {:atomic, _} =
+      run branch: :examples do
+        new(:class, %{name: :letter_symbol, super: :object, ivars: []}, _)
+        import(:letter_symbol, :value)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:letter_symbol, %{}, obj)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$obj"))
+  end
+
+  # Two directions through the exact same clause: forward is ordinary OO
+  # dispatch (a real `:square` computes its own area from its own `:side`).
+  # Backward asks dispatch to *invent* a square: construct a fresh ephemeral
+  # instance with `side` still open, then let `:area`'s own body narrow it
+  # via generate-and-test — the same `between`-driven idiom `:number`'s
+  # backward `factorial` uses (`e_AL_numbers.ex`). One method definition,
+  # no special-casing either direction; the receiver dispatch does the
+  # rest via `AL.Dispatch.generative_candidate/5`.
+  example squares_compute_area_forward_and_backward() do
+    {:atomic, _} =
+      run branch: :examples do
+        new(:class, %{name: :square, super: :object, ivars: [:side]}, _)
+        import(:square, :ephemeral)
+
+        defmethod(:square, :init, [self, args, new]) do
+          vm_map_get(args, :side, side)
+          unify(new, %{class: :square, side: side})
+        end
+
+        defmethod(:square, :area, [self, result]) do
+          get_slot(self, :side, side)
+
+          implies do
+            [vm_ground(side)] ->
+              vm_is(result, side * side)
+
+            :else ->
+              vm_ground(result)
+              between(self, 1, result, side)
+              vm_is(check, side * side)
+              unify(check, result)
+          end
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:square, %{side: 4}, sq)
+        area(sq, a)
+      end
+
+    assert Map.get(bindings, :"$a") == 16
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        area(x, 16)
+      end
+
+    invented = Map.get(bindings, :"$x")
+    assert invented.side == 4
+  end
+
+  # `:change` is the classic "count ways to make change" predicate
+  # (SICP/Prolog folklore) ported directly to AL: try the largest remaining
+  # denomination again, or drop to the next-smaller one — no special
+  # machinery beyond what dispatch already does for any relational method.
+  # `findall` turns the whole backtracking search into one list: every way
+  # to make 30 cents from quarters/dimes/nickels/pennies, produced by
+  # search rather than an explicit combinatorial loop. `:coins` is a real,
+  # properly scoped class (not dumped onto `:object` — `between`-style
+  # universal methods are the exception, not the norm), dispatched through
+  # one singleton instance rather than the class atom itself: sending to
+  # the *class* object would silently find nothing, since `method_scopes`
+  # excludes a receiver from its own scope chain whenever the receiver is
+  # itself a class/category/behaviour object
+  # (`AL.Dispatch.MethodOrder.method_scopes/2`) — an ordinary instance of
+  # `:coins` doesn't hit that rule at all.
+  # `coin_change_oracle/2` is the same algorithm written as a plain Elixir
+  # recursion, independent of AL's dispatch/backtracking — cross-checking
+  # against it (rather than a hand-counted literal) is what actually proves
+  # the search found every solution, not just some plausible-looking ones.
+  example thirty_cents_change_via_backtracking() do
+    {:atomic, _} =
+      run branch: :examples do
+        new(:class, %{name: :coins, super: :object, ivars: []}, _)
+
+        defmethod(:coins, :change, [self, 0, _denoms, []])
+
+        defmethod(:coins, :change, [self, amount, [c | rest], [c | combo]]) do
+          amount >= c
+          vm_is(remaining, amount - c)
+          change(self, remaining, [c | rest], combo)
+        end
+
+        defmethod(:coins, :change, [self, amount, [_c | rest], combo]) do
+          amount > 0
+          change(self, amount, rest, combo)
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:coins, %{}, coins)
+        findall(combo, [change(coins, 30, [25, 10, 5, 1], combo)], all)
+      end
+
+    combos = Map.get(bindings, :"$all")
+
+    assert Enum.all?(combos, fn combo -> Enum.sum(combo) == 30 end)
+    assert [25, 5] in combos
+    assert [10, 10, 10] in combos
+    assert List.duplicate(1, 30) in combos
+    assert length(combos) == length(coin_change_oracle(30, [25, 10, 5, 1]))
+  end
+
+  defp coin_change_oracle(0, _denoms), do: [[]]
+  defp coin_change_oracle(_amount, []), do: []
+
+  defp coin_change_oracle(amount, [c | rest] = denoms) do
+    with_c =
+      if amount >= c,
+        do: for(combo <- coin_change_oracle(amount - c, denoms), do: [c | combo]),
+        else: []
+
+    coin_change_oracle(amount, rest) ++ with_c
+  end
 end

@@ -64,7 +64,7 @@ defmodule AL.Trace do
       inspect(pretty(self)),
       " <- ",
       inspect(pretty(method)),
-      " (legs: structural=[cons, []], ephemeral=",
+      " (legs: ephemeral=",
       inspect(ephemeral_classes),
       ", value=",
       inspect(value_classes),

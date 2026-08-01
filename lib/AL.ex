@@ -569,7 +569,12 @@ defmodule AL do
   end
 
   def interp(%Goal.Forall{condition: condition, body: body}, state) do
-    case collect_all_solutions(condition, state.active_choicepoint.store, state.tx_id, state.branch) do
+    case collect_all_solutions(
+           condition,
+           state.active_choicepoint.store,
+           state.tx_id,
+           state.branch
+         ) do
       {:ok, solutions} ->
         body_goals =
           Enum.flat_map(solutions, fn store ->
@@ -593,7 +598,12 @@ defmodule AL do
   end
 
   def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
-    case collect_all_solutions(condition, state.active_choicepoint.store, state.tx_id, state.branch) do
+    case collect_all_solutions(
+           condition,
+           state.active_choicepoint.store,
+           state.tx_id,
+           state.branch
+         ) do
       {:ok, solutions} ->
         collected =
           Enum.map(solutions, fn store ->
@@ -784,7 +794,12 @@ defmodule AL do
   end
 
   def interp(%Goal.Not{condition: condition}, state) do
-    case collect_all_solutions(condition, state.active_choicepoint.store, state.tx_id, state.branch) do
+    case collect_all_solutions(
+           condition,
+           state.active_choicepoint.store,
+           state.tx_id,
+           state.branch
+         ) do
       {:ok, []} -> state
       {:ok, _} -> backtrack(state)
       :resource_limit_exceeded -> resource_limit_abort(state)
