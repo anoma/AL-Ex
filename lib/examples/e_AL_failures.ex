@@ -62,7 +62,7 @@ defmodule Examples.ALFailures do
       end
 
     assert %AL{} = reason.state
-    assert reason.state.active_choicepoint.bindings == nil
+    assert reason.state.active_choicepoint.store == nil
     assert reason.state.branch.id == :examples
   end
 

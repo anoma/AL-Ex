@@ -34,19 +34,15 @@ defmodule AL.Relations do
   # numbers are never durable). `object` already ground, or `class_pattern` also
   # unbound (no class to constrain against), still need the real scan.
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
-    known_isa = AL.Var.isa_of(constraints(state), object)
+    known_isa = AL.Var.isa_of(store(state), object)
 
     cond do
       AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class_pattern) ->
-        AL.put_bindings(
-          state,
-          {bindings(state), AL.Var.add_isa(constraints(state), object, class_pattern)},
-          []
-        )
+        AL.put_bindings(state, AL.Var.add_isa(store(state), object, class_pattern), [])
 
       # Querying `object`'s class (`class_pattern` still open) rather than
       # asserting it — if `object` already carries a known `isa` domain (e.g.
-      # from the value dispatch leg's `ConstrainIsa`), that domain *is* the
+      # from the value dispatch leg's `value_candidate`), that domain *is* the
       # answer, so answer from it directly instead of scanning the durable
       # table for an object that, for an ephemeral/value receiver, was never
       # durably classified to begin with.
@@ -120,6 +116,5 @@ defmodule AL.Relations do
     AL.fan_out(state, rows, fn row -> {AL.unify(state, row, pattern), [pattern]} end)
   end
 
-  defp bindings(state), do: state.active_choicepoint.bindings
-  defp constraints(state), do: state.active_choicepoint.constraints
+  defp store(state), do: state.active_choicepoint.store
 end

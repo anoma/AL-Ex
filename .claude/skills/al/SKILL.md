@@ -57,9 +57,9 @@ transactions, durable + replayable state, Git-like branching.
     them — all mutually recursive with `AL` (each calls `AL.interp/2` to run
     goals it splices; `interp`'s own clauses delegate out to them), which is
     fine across modules on the BEAM. `unify/3` is the one nearly every goal
-    clause wants: `AL.unify(state, x, y)` pulls `bindings`/`constraints`/
-    `branch` off `state` itself, so `branch` threading for `isa` (see
-    `AL.Var`, below) stays invisible at ordinary call sites.
+    clause wants: `AL.unify(state, x, y)` pulls `store`/`branch` off `state`
+    itself, so `branch` threading for `isa` (see `AL.Var`, below) stays
+    invisible at ordinary call sites.
   - Object creation is **three-phase**: `construct` (ephemeral object, e.g.
     `%{class: self}`) → `allocate` (persist / give identity) → `init` (setup).
     `new` on `:class` chains all three (AL's take on ObjVLisp allocate/initialize).
@@ -74,9 +74,14 @@ transactions, durable + replayable state, Git-like branching.
   and DNU. See "How a `send` evaluates" below — that whole section now lives
   here. Public entry points `dispatch/5`, `do_send_as/6`, `force_durable_candidates/4`,
   `run_providers/6`, `dnu/4` are what `AL`'s `interp/2` calls into; everything
-  else is private. Doesn't touch the constraint store at all anymore — `isa`
-  pinning for the value leg is a goal (`Goal.ConstrainIsa`) spliced into the
-  goal list, not something this module computes (see `AL.Var`, below).
+  else is private. A value candidate's `isa` pinning is attached directly to
+  the choicepoint `value_candidate/5` builds, at construction — before its
+  clause ever runs, so it's live for the whole call including nested sends,
+  not a goal spliced to run afterward (see `AL.Var`, below, and
+  al-clp-for-objects memory for why the timing has to be this way round).
+  `dispatch/5` also won't offer `:number`/`:list`/`:map` as sibling candidates
+  once `self` already carries one of them — they're mutually exclusive by
+  construction (`shape_conflict?/2`).
 - **`AL.Dispatch.MethodOrder` (lib/AL/dispatch/method_order.ex)** — the
   resolution-order topological sort (`method_scopes/2`, `super_chain/3`, Kahn's
   algorithm). Pure functions of a receiver/class and a branch, no choicepoint or
@@ -100,34 +105,56 @@ transactions, durable + replayable state, Git-like branching.
   exception to "always scan": an unbound `object` with a ground `class`
   doesn't need a witness to succeed, so it registers an `isa` constraint (see
   `AL.Var`, below) instead of touching `AL.Object` at all — see
-  al-dif-constraints memory for why that's sound.
+  al-dif-constraints memory for why that's sound. The reverse direction (`object`
+  unbound, `class` *also* unbound — querying self's class, not asserting it)
+  has its own fast path too: if `object` already carries a known `isa` domain,
+  `GetClass` answers from it directly instead of scanning a durable table an
+  ephemeral/value receiver was never going to have a row in.
 - **`AL.ControlFlow` (lib/AL/control_flow.ex)** — the choicepoint-stack control
   goals: `Cut`, `Implies`, `Or`, `Then`. Each is entirely about which
   alternatives stay on `state.choicepoint_stack`, never about producing a
   binding — see "Execution model: choicepoints, marks, cut" below for what
   `{:mark, scope}`/`:implies_mark` mean and why `Cut`/`Then` drop the stack
   down to one.
-- **`AL.Var` (var.ex)** — unification. Bindings are a var→term map; `deref`,
-  `subst`, `freshen`, `unify`. `bind/5` runs an **occurs-check** (`occurs?/3`,
-  cons-aware for improper lists `[h | $tail]`) so cyclic terms can't form, and
-  checks the **constraint store** (`unify/extend/bind`'s threaded `constraints`
-  argument, kept separate from `bindings` — see `AL.Choicepoint`'s `constraints`
-  field) — the one place a constraint is guaranteed to see every bind, however
-  deep in the interpreter it happens, dispatch's own candidate generation
-  included (`AL.Dispatch.structural_candidate` unifies through this same
-  path). `dif/2` and `isa` (`add_isa/3`, `dif`'s positive counterpart — "every
+- **`AL.Var` (var.ex)** — unification against one unified **store**: a
+  var→entry map where an entry is either a bare bound term or an
+  `AL.Var.ConstraintSet{dif, isa}` struct for a still-open var carrying
+  constraints — a binding is just the maximally-specific case of "what's
+  known about this var," not a different kind of fact from `dif`/`isa`, and
+  standard CLP theory doesn't distinguish them either. The struct (not a
+  plain map) is what lets `deref/2` tell "still open, here's what's known"
+  apart from "bound to a term that happens to be a plain map," with no
+  wrapper needed on the bound side — no AL-level term is ever a
+  `%ConstraintSet{}`, so a bare bound value and the struct are already
+  unambiguous by pattern match, and a plain old-style bindings-only map
+  (nothing but bound vars, no `dif`/`isa` ever used) is already a valid store
+  as-is. `deref`, `subst`, `freshen`, `unify` all take this one store.
+  `bind/4` runs an **occurs-check** (`occurs?/3`, cons-aware for improper
+  lists `[h | $tail]`) so cyclic terms can't form, and checks the constraint
+  set on a var *before* overwriting it with a bind (a bind and a
+  `ConstraintSet` are the same store slot — capture-then-check, not
+  check-then-overwrite, or the lookup would find nothing) — the one place a
+  constraint is guaranteed to see every bind, however deep in the interpreter
+  it happens, dispatch's own candidate generation included
+  (`AL.Dispatch.structural_candidate` unifies through this same path).
+  `dif/2` and `isa` (`add_isa/3`, `dif`'s positive counterpart — "every
   future bind must belong to `class`", not "must never equal `term`") are its
-  two tenants. Verifying `isa` needs a `branch` — `:number`/`:list`/`:map` are
-  decidable from the term's own shape for free, but any other class is a
-  relational fact recorded in the durable store, not a property of the term,
-  so it costs one lookup of the bound term's own class chain
-  (`AL.Dispatch.MethodOrder.method_scopes/2` — cheap, one object's own
-  classification, not the scan generating durable *candidates* needs). That's
-  the one place `AL.Var` reaches outside itself; `AL.unify/3` (in `AL.ex`)
-  is the state-aware convenience every other module actually calls —
-  `AL.Var.unify/5` directly only when there's no `AL` state to pull
-  `bindings`/`constraints`/`branch` from (see e.g. `e_var.ex`, which relies on
-  `branch`'s default). Vars are atoms starting with `$` (`:"$x"`).
+  two tenants; `isa_of/2` is the read side, letting a query answer from a
+  var's known domain instead of scanning (see `AL.Relations`'s `GetClass`,
+  above). Verifying `isa` needs a `branch` — `:number`/`:list`/`:map` are
+  decidable from the term's own shape for free; a value class beyond those
+  three is provable by matching one of its own *discriminating* clause heads
+  (`AL.Dispatch.value_member?/3` — a bare-variable self position proves
+  nothing and is excluded, or this would be vacuously true for anything);
+  every other class is a relational fact recorded in the durable store, not a
+  property of the term, so it costs one lookup of the bound term's own class
+  chain (`AL.Dispatch.MethodOrder.method_scopes/2` — cheap, one object's own
+  classification, not the scan generating durable *candidates* needs).
+  That's the one place `AL.Var` reaches outside itself; `AL.unify/3` (in
+  `AL.ex`) is the state-aware convenience every other module actually calls —
+  `AL.Var.unify/4` directly only when there's no `AL` state to pull
+  `store`/`branch` from (see e.g. `e_var.ex`, which relies on `branch`'s
+  default). Vars are atoms starting with `$` (`:"$x"`).
 - **`AL.Command` (command.ex)** — the event log. Each mutating goal writes a
   `{:command, t, tx_id, op}` row. `t` is a **global monotonic counter** shared
   across stores, so commands are globally ordered (makes cross-branch diff/merge by
@@ -318,10 +345,10 @@ cache never leaks into `:main`'s.
 
 A failed `run`/`next_solution` doesn't just hand back a curated summary — the
 reason map (`message`/`reason`/`failed_on`/`trace`) also carries **`state`**:
-the actual final `%AL{}`, whatever bindings/constraints/choicepoint_stack the
-last attempt left behind before the stack exhausted. `trace` tells you *which
-goals were tried*; `reason.state` lets you inspect *what was true when the
-last one failed* — e.g. `reason.state.active_choicepoint.constraints` for
+the actual final `%AL{}`, whatever store/choicepoint_stack the last attempt
+left behind before the stack exhausted. `trace` tells you *which goals were
+tried*; `reason.state` lets you inspect *what was true when the last one
+failed* — e.g. `AL.Var.isa_of(reason.state.active_choicepoint.store, var)` for
 what was still parked on a var, not just that some goal failed. Stripped back
 out (`nil`) on the `heap:`-capped `eval` path (`AL.shed/1`) — that path exists
 specifically to bound what crosses the process boundary, so keeping the full

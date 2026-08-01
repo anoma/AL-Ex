@@ -91,15 +91,15 @@ defmodule AL do
 
       AL.eval(goals, nil, branch, heap: 256_000_000)
   """
-  @spec eval([AL.Goal.t()], AL.Var.bindings() | nil, AL.Branch.t(), keyword()) ::
-          {:atomic, {AL.Var.bindings(), t() | nil}} | {:aborted, term()} | {:error, String.t()}
-  def eval(program, initial_bindings \\ nil, branch \\ AL.Branch.head(), opts \\ [])
+  @spec eval([AL.Goal.t()], AL.Var.store() | nil, AL.Branch.t(), keyword()) ::
+          {:atomic, {AL.Var.store(), t() | nil}} | {:aborted, term()} | {:error, String.t()}
+  def eval(program, initial_store \\ nil, branch \\ AL.Branch.head(), opts \\ [])
 
-  def eval(program, initial_bindings, branch, heap: heap) do
+  def eval(program, initial_store, branch, heap: heap) do
     {pid, ref} =
       spawn_monitor(fn ->
         Process.flag(:max_heap_size, %{size: heap, kill: true, error_logger: false})
-        exit({:derived, shed(eval(program, initial_bindings, branch))})
+        exit({:derived, shed(eval(program, initial_store, branch))})
       end)
 
     receive do
@@ -111,8 +111,8 @@ defmodule AL do
     end
   end
 
-  def eval(program, initial_bindings, branch, _opts) do
-    bindings = initial_bindings || AL.Var.empty_bindings()
+  def eval(program, initial_store, branch, _opts) do
+    store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
 
     :mnesia.transaction(fn ->
@@ -122,7 +122,7 @@ defmodule AL do
         continue(%AL{
           active_choicepoint: %AL.Choicepoint{
             goals: program,
-            bindings: bindings,
+            store: store,
             continuations: [],
             done: [],
             scope_pointer: 0
@@ -135,10 +135,10 @@ defmodule AL do
           tracepoints: AL.Trace.tracepoints()
         })
 
-      if result.active_choicepoint.bindings == nil do
+      if result.active_choicepoint.store == nil do
         :mnesia.abort(format_failure(result))
       else
-        {format_output_vars(input_vars, result.active_choicepoint.bindings), result}
+        {format_output_vars(input_vars, result.active_choicepoint.store), result}
       end
     end)
   end
@@ -150,10 +150,10 @@ defmodule AL do
       tx_id = AL.Command.system_time(state.branch)
       result = backtrack(%AL{state | tx_id: tx_id})
 
-      if result.active_choicepoint.bindings == nil do
+      if result.active_choicepoint.store == nil do
         :mnesia.abort(format_failure(result))
       else
-        {format_output_vars(input_vars, result.active_choicepoint.bindings), result}
+        {format_output_vars(input_vars, result.active_choicepoint.store), result}
       end
     end)
   end
@@ -163,12 +163,12 @@ defmodule AL do
   # never surface, not directly and not nested inside another output var's value.
   # `canonical_names` maps each such internal representative back to whichever
   # observable var it's aliased to, so every output var displays it the same way.
-  defp format_output_vars(input_vars, bindings) do
+  defp format_output_vars(input_vars, store) do
     sorted_vars = Enum.sort(input_vars)
 
     canonical_names =
       Enum.reduce(sorted_vars, %{}, fn variable, acc ->
-        resolved = AL.Var.deref(bindings, variable)
+        resolved = AL.Var.deref(store, variable)
         if AL.Var.var?(resolved), do: Map.put_new(acc, resolved, variable), else: acc
       end)
 
@@ -181,7 +181,7 @@ defmodule AL do
     {display_names, _n} =
       Enum.reduce(sorted_vars, {canonical_names, 0}, fn variable, {names, n} ->
         variable
-        |> AL.Var.subst(bindings)
+        |> AL.Var.subst(store)
         |> AL.Var.find_vars()
         |> Enum.sort()
         |> Enum.reduce({names, n}, fn leaf, {names, n} ->
@@ -196,7 +196,7 @@ defmodule AL do
     rewrite_unbound = fn resolved -> Map.get(display_names, resolved, resolved) end
 
     sorted_vars
-    |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, bindings, rewrite_unbound)} end)
+    |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, store, rewrite_unbound)} end)
     |> Map.new()
   end
 
@@ -208,7 +208,7 @@ defmodule AL do
           state
           | active_choicepoint: %AL.Choicepoint{
               state.active_choicepoint
-              | bindings: nil
+              | store: nil
             }
         }
 
@@ -236,10 +236,10 @@ defmodule AL do
       state.reductions > @max_reductions ->
         %AL{
           record_resource_limit(state)
-          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: nil}
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
         }
 
-      state.active_choicepoint.bindings == nil ->
+      state.active_choicepoint.store == nil ->
         backtrack(state)
 
       state.active_choicepoint.goals == [] ->
@@ -258,18 +258,17 @@ defmodule AL do
             | active_choicepoint: %AL.Choicepoint{
                 goals: continuation.goals,
                 done: continuation.done,
-                bindings: state.active_choicepoint.bindings,
+                store: state.active_choicepoint.store,
                 continuations: rest_continuations,
                 scope_pointer: continuation.scope_pointer,
-                suspensions: state.active_choicepoint.suspensions,
-                constraints: state.active_choicepoint.constraints
+                suspensions: state.active_choicepoint.suspensions
               }
           })
         end
 
       true ->
         [raw | ahead] = state.active_choicepoint.goals
-        goal = AL.Var.subst(raw, state.active_choicepoint.bindings)
+        goal = AL.Var.subst(raw, state.active_choicepoint.store)
 
         next_frame = %AL{
           state
@@ -294,7 +293,7 @@ defmodule AL do
     }
 
   defp record_constraint_violation(state, nil, a, b) do
-    case AL.Var.diagnose_unify_failure(a, b, bindings(state), constraints(state), state.branch) do
+    case AL.Var.diagnose_unify_failure(a, b, store(state), state.branch) do
       nil ->
         state
 
@@ -305,52 +304,29 @@ defmodule AL do
 
   defp record_constraint_violation(state, _result, _a, _b), do: state
 
-  defp bindings(state), do: state.active_choicepoint.bindings
-  defp constraints(state), do: state.active_choicepoint.constraints
+  defp store(state), do: state.active_choicepoint.store
 
   # The common case at almost every call site below: unify against `state`'s
-  # own current bindings/constraints/branch, nothing else. `def`, not `defp`
-  # — `AL.Relations`/`AL.Dispatch` use this too, so `branch` threading (needed
-  # for `isa` — see `AL.Var.bind/5`) stays invisible at the call site instead
-  # of every caller re-spelling `bindings(state), constraints(state), state.branch`.
-  @spec unify(t(), AL.Var.t(), AL.Var.t()) :: {AL.Var.bindings(), AL.Var.constraints()} | nil
-  def unify(state, x, y),
-    do: AL.Var.unify(x, y, bindings(state), constraints(state), state.branch)
-
-  # For call sites that build a `%Choicepoint{}` literal directly (alternative
-  # clauses, structural/query candidates) rather than going through
-  # `put_bindings` — always returns a `{bindings, constraints}` pair so the
-  # caller can spread both fields, with `bindings: nil` on failure the poison
-  # pill `continue/1` already treats as "this alternative fails when tried".
-  @spec try_unify(AL.Var.t(), AL.Var.t(), AL.Var.bindings(), AL.Var.constraints(), AL.Branch.t()) ::
-          {AL.Var.bindings() | nil, AL.Var.constraints()}
-  def try_unify(x, y, bindings, constraints, branch) do
-    case AL.Var.unify(x, y, bindings, constraints, branch) do
-      nil -> {nil, constraints}
-      {new_bindings, new_constraints} -> {new_bindings, new_constraints}
-    end
-  end
+  # own current store/branch, nothing else. `def`, not `defp` — `AL.Relations`/
+  # `AL.Dispatch` use this too, so `branch` threading (needed for `isa` — see
+  # `AL.Var.bind/4`) stays invisible at the call site instead of every caller
+  # re-spelling `store(state), state.branch`.
+  @spec unify(t(), AL.Var.t(), AL.Var.t()) :: AL.Var.store() | nil
+  def unify(state, x, y), do: AL.Var.unify(x, y, store(state), state.branch)
 
   def put_bindings(state, nil, _terms), do: backtrack(state)
 
-  def put_bindings(state, {new_bindings, new_constraints}, terms),
+  def put_bindings(state, new_store, terms),
     do: %AL{
       state
       | active_choicepoint:
-          wake(
-            %AL.Choicepoint{
-              state.active_choicepoint
-              | bindings: new_bindings,
-                constraints: new_constraints
-            },
-            terms
-          )
+          wake(%AL.Choicepoint{state.active_choicepoint | store: new_store}, terms)
     }
 
   # Bindings arrived: only suspensions keyed on a variable the change
   # touched can resolve, so wake follows the changed terms' variables
   # down their alias chains instead of scanning everything parked.
-  def wake(%AL.Choicepoint{bindings: nil} = choice, _terms), do: choice
+  def wake(%AL.Choicepoint{store: nil} = choice, _terms), do: choice
   def wake(%AL.Choicepoint{suspensions: s} = choice, _terms) when s == %{}, do: choice
 
   def wake(choice, terms) do
@@ -362,7 +338,9 @@ defmodule AL do
   defp wake_chain(choice, v) do
     choice = wake_key(choice, v)
 
-    case Map.get(choice.bindings, v) do
+    case Map.get(choice.store, v) do
+      nil -> choice
+      %AL.Var.ConstraintSet{} -> choice
       ^v -> choice
       w -> if AL.Var.var?(w), do: wake_chain(choice, w), else: choice
     end
@@ -376,7 +354,7 @@ defmodule AL do
         choice
 
       {:ok, goals} ->
-        target = AL.Var.deref(choice.bindings, v)
+        target = AL.Var.deref(choice.store, v)
 
         cond do
           target == v ->
@@ -405,18 +383,8 @@ defmodule AL do
     base = state.active_choicepoint
 
     build = fn alt ->
-      {result, terms} = to_bindings.(alt)
-
-      case result do
-        nil ->
-          wake(%AL.Choicepoint{base | bindings: nil}, terms)
-
-        {new_bindings, new_constraints} ->
-          wake(
-            %AL.Choicepoint{base | bindings: new_bindings, constraints: new_constraints},
-            terms
-          )
-      end
+      {new_store, terms} = to_bindings.(alt)
+      wake(%AL.Choicepoint{base | store: new_store}, terms)
     end
 
     case alts do
@@ -448,7 +416,7 @@ defmodule AL do
     do: backtrack(state)
 
   def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
-    k = AL.Var.subst(k_pattern, bindings(state))
+    k = AL.Var.subst(k_pattern, store(state))
 
     if ground?(k) do
       case Map.fetch(m, k) do
@@ -476,12 +444,12 @@ defmodule AL do
     do: put_bindings(state, unify(state, m2, Map.put(m1, k_pattern, v_pattern)), [m2])
 
   def interp(%Goal.OApply{method_id: :is, args: [a, b]}, state) do
-    case interp_is(b, bindings(state)) do
+    case interp_is(b, store(state)) do
       :error ->
         backtrack(state)
 
       expr ->
-        put_bindings(state, unify(state, AL.Var.deref(bindings(state), a), expr), [a])
+        put_bindings(state, unify(state, AL.Var.deref(store(state), a), expr), [a])
     end
   end
 
@@ -507,35 +475,32 @@ defmodule AL do
 
         alternative_choicepoints =
           Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
-            {alt_bindings, alt_constraints} =
-              try_unify(
+            alt_store =
+              AL.Var.unify(
                 {AL.Var.freshen(alt_head, freshener), alt_id},
                 {bind_head_pattern, method_id_pattern},
-                state.active_choicepoint.bindings,
-                state.active_choicepoint.constraints,
+                state.active_choicepoint.store,
                 state.branch
               )
 
             wake(
               %AL.Choicepoint{
                 goals: AL.Var.freshen(alt_body, freshener),
-                bindings: alt_bindings,
+                store: alt_store,
                 continuations: [continuation | state.active_choicepoint.continuations],
                 done: [],
                 scope_pointer: scope,
-                suspensions: state.active_choicepoint.suspensions,
-                constraints: alt_constraints
+                suspensions: state.active_choicepoint.suspensions
               },
               [{bind_head_pattern, method_id_pattern}]
             )
           end)
 
-        {main_bindings, main_constraints} =
-          try_unify(
+        main_store =
+          AL.Var.unify(
             {head_pattern, id},
             {bind_head_pattern, method_id_pattern},
-            state.active_choicepoint.bindings,
-            state.active_choicepoint.constraints,
+            state.active_choicepoint.store,
             state.branch
           )
 
@@ -545,12 +510,11 @@ defmodule AL do
               wake(
                 %AL.Choicepoint{
                   goals: body_pattern,
-                  bindings: main_bindings,
+                  store: main_store,
                   continuations: [continuation | state.active_choicepoint.continuations],
                   done: [],
                   scope_pointer: scope,
-                  suspensions: state.active_choicepoint.suspensions,
-                  constraints: main_constraints
+                  suspensions: state.active_choicepoint.suspensions
                 },
                 [{bind_head_pattern, method_id_pattern}]
               ),
@@ -605,20 +569,14 @@ defmodule AL do
   end
 
   def interp(%Goal.Forall{condition: condition, body: body}, state) do
-    case collect_all_solutions(
-           condition,
-           state.active_choicepoint.bindings,
-           state.active_choicepoint.constraints,
-           state.tx_id,
-           state.branch
-         ) do
+    case collect_all_solutions(condition, state.active_choicepoint.store, state.tx_id, state.branch) do
       {:ok, solutions} ->
         body_goals =
-          Enum.flat_map(solutions, fn bindings ->
+          Enum.flat_map(solutions, fn store ->
             freshener = Integer.to_string(fresh_scope())
 
             Enum.map(body, fn goal ->
-              goal |> AL.Var.subst(bindings) |> AL.Var.freshen(freshener)
+              goal |> AL.Var.subst(store) |> AL.Var.freshen(freshener)
             end)
           end)
 
@@ -635,17 +593,11 @@ defmodule AL do
   end
 
   def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
-    case collect_all_solutions(
-           condition,
-           state.active_choicepoint.bindings,
-           state.active_choicepoint.constraints,
-           state.tx_id,
-           state.branch
-         ) do
+    case collect_all_solutions(condition, state.active_choicepoint.store, state.tx_id, state.branch) do
       {:ok, solutions} ->
         collected =
-          Enum.map(solutions, fn bindings ->
-            template |> AL.Var.subst(bindings) |> standardize_apart()
+          Enum.map(solutions, fn store ->
+            template |> AL.Var.subst(store) |> standardize_apart()
           end)
 
         put_bindings(state, unify(state, result, collected), [result])
@@ -665,7 +617,7 @@ defmodule AL do
       nil ->
         backtrack(state)
 
-      {new_bindings, new_constraints} ->
+      new_store ->
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
           done: state.active_choicepoint.done,
@@ -678,12 +630,11 @@ defmodule AL do
               wake(
                 %AL.Choicepoint{
                   goals: fresh_body,
-                  bindings: new_bindings,
+                  store: new_store,
                   continuations: [continuation | state.active_choicepoint.continuations],
                   done: [],
                   scope_pointer: scope,
-                  suspensions: state.active_choicepoint.suspensions,
-                  constraints: new_constraints
+                  suspensions: state.active_choicepoint.suspensions
                 },
                 [args]
               ),
@@ -705,9 +656,9 @@ defmodule AL do
 
   # Prolog `==`: structural equality; never binds, so an unbound side fails.
   def interp(%Goal.Equal{a: a, b: b}, state) do
-    bindings = state.active_choicepoint.bindings
+    store = state.active_choicepoint.store
 
-    if AL.Var.subst(a, bindings) == AL.Var.subst(b, bindings) do
+    if AL.Var.subst(a, store) == AL.Var.subst(b, store) do
       state
     else
       backtrack(state)
@@ -722,9 +673,9 @@ defmodule AL do
   # of those vars is bound, so this constraint survives exactly as long as its
   # choicepoint does, backtracked away the same way an ordinary binding is.
   def interp(%Goal.Dif{a: a, b: b}, state) do
-    bindings = bindings(state)
-    a1 = AL.Var.subst(a, bindings)
-    b1 = AL.Var.subst(b, bindings)
+    store = store(state)
+    a1 = AL.Var.subst(a, store)
+    b1 = AL.Var.subst(b, store)
 
     cond do
       a1 == b1 ->
@@ -734,17 +685,17 @@ defmodule AL do
         state
 
       true ->
-        put_bindings(state, {bindings, AL.Var.add_dif(constraints(state), a1, b1)}, [])
+        put_bindings(state, AL.Var.add_dif(store, a1, b1), [])
     end
   end
 
   # Prolog `< > <= >=`: numeric compare via `interp_is/2`; unbound/non-numeric or a
   # false comparison fails (same contract as `is/2`).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
-    bindings = state.active_choicepoint.bindings
+    store = state.active_choicepoint.store
 
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) <- interp_is(b, bindings),
+    with x when is_number(x) <- interp_is(a, store),
+         y when is_number(y) <- interp_is(b, store),
          true <- compare(op, x, y) do
       state
     else
@@ -767,7 +718,7 @@ defmodule AL do
   end
 
   def interp(%Goal.Ground{term: term}, state) do
-    if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.bindings))) == 0 do
+    if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.store))) == 0 do
       state
     else
       backtrack(state)
@@ -775,15 +726,15 @@ defmodule AL do
   end
 
   def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    bindings = bindings(state)
-    resolved_term = AL.Var.subst(term, bindings)
+    store = store(state)
+    resolved_term = AL.Var.subst(term, store)
 
     if resolved?(resolved_term) do
       {term_name, term_args} = decompose_term(resolved_term)
       put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
     else
-      ground_name = AL.Var.subst(name, bindings)
-      resolved_args = AL.Var.subst(args, bindings)
+      ground_name = AL.Var.subst(name, store)
+      resolved_args = AL.Var.subst(args, store)
 
       if ground?(ground_name) and is_list(resolved_args) do
         put_bindings(state, unify(state, term, compose_term(ground_name, resolved_args)), [term])
@@ -800,7 +751,7 @@ defmodule AL do
   # clause head already uses; `self`/`x` can still be unbound, `Send`'s own
   # dispatch handles that.
   def interp(%Goal.CallTerm{term: term}, state) do
-    resolved_term = AL.Var.subst(term, bindings(state))
+    resolved_term = AL.Var.subst(term, store(state))
 
     if resolved?(resolved_term) do
       case decompose_term(resolved_term) do
@@ -825,7 +776,7 @@ defmodule AL do
 
   # Ground's dual on leaves: succeeds only on an unbound variable.
   def interp(%Goal.IsVar{term: term}, state) do
-    if AL.Var.var?(AL.Var.deref(state.active_choicepoint.bindings, term)) do
+    if AL.Var.var?(AL.Var.deref(state.active_choicepoint.store, term)) do
       state
     else
       backtrack(state)
@@ -833,13 +784,7 @@ defmodule AL do
   end
 
   def interp(%Goal.Not{condition: condition}, state) do
-    case collect_all_solutions(
-           condition,
-           state.active_choicepoint.bindings,
-           state.active_choicepoint.constraints,
-           state.tx_id,
-           state.branch
-         ) do
+    case collect_all_solutions(condition, state.active_choicepoint.store, state.tx_id, state.branch) do
       {:ok, []} -> state
       {:ok, _} -> backtrack(state)
       :resource_limit_exceeded -> resource_limit_abort(state)
@@ -870,27 +815,6 @@ defmodule AL do
   # `scan_class`/per-object choicepoint expansion happen (see dispatch.ex).
   def interp(%Goal.DurableCandidates{object: self, method: method, args: args}, state),
     do: AL.Dispatch.force_durable_candidates(self, method, args, state)
-
-  # Spliced after a `SendAsValue` attempt, so this runs once that clause
-  # application has actually completed (see "constrain after, not before" in
-  # dispatch.ex): `var` may already be concrete by now (nothing to protect,
-  # no-op) or may still be open (protect it — `add_isa` attaches to whichever
-  # var is currently live, matching `Dif`'s own deref-before-adding pattern).
-  # Never itself rejects — only a *later* bind of the still-open var can
-  # violate what this records.
-  def interp(%Goal.ConstrainIsa{var: var, class: class}, state) do
-    resolved = AL.Var.deref(bindings(state), var)
-
-    if AL.Var.var?(resolved) do
-      put_bindings(
-        state,
-        {bindings(state), AL.Var.add_isa(constraints(state), resolved, class)},
-        []
-      )
-    else
-      state
-    end
-  end
 
   # Run the next provider of the same selector, from this frame's cursor. No cursor
   # (called outside a resolved method) or none left → fail.
@@ -988,15 +912,14 @@ defmodule AL do
     AL.Var.subst(term, rename)
   end
 
-  defp collect_all_solutions(condition, bindings, constraints, tx_id, branch) do
+  defp collect_all_solutions(condition, store, tx_id, branch) do
     initial = %AL{
       active_choicepoint: %AL.Choicepoint{
         goals: condition,
-        bindings: bindings,
+        store: store,
         continuations: [],
         done: [],
-        scope_pointer: 0,
-        constraints: constraints
+        scope_pointer: 0
       },
       choicepoint_stack: [],
       tx_id: tx_id,
@@ -1009,7 +932,7 @@ defmodule AL do
     do_collect(continue(initial), [])
   end
 
-  # `bindings == nil` means "no more solutions from here" for two genuinely
+  # `store == nil` means "no more solutions from here" for two genuinely
   # different reasons that used to be indistinguishable: the search space is
   # truly exhausted, or this sub-search's own (independent) reduction budget
   # ran out mid-search — e.g. an open-ended generative goal (`elem(x, e)` with
@@ -1023,8 +946,8 @@ defmodule AL do
   # `continue/1` does, before any other diagnostic could be added).
   defp do_collect(state, acc) do
     cond do
-      state.active_choicepoint.bindings != nil ->
-        new_acc = [state.active_choicepoint.bindings | acc]
+      state.active_choicepoint.store != nil ->
+        new_acc = [state.active_choicepoint.store | acc]
 
         case state.choicepoint_stack do
           [] -> {:ok, Enum.reverse(new_acc)}
@@ -1050,14 +973,14 @@ defmodule AL do
   defp resource_limit_abort(state) do
     %AL{
       record_resource_limit(state)
-      | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | bindings: nil}
+      | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
     }
   end
 
   # A legible failure reason: an unhandled `does_not_understand` wins, else the last
   # goal reached. Trace stripped of `:backtrack` noise. `state` rides along whole —
   # the trace is a curated summary, but a live debugging session often needs the
-  # actual bindings/constraints/choicepoint_stack the last attempt left behind, not
+  # actual store/choicepoint_stack the last attempt left behind, not
   # just the sequence of goals that led to it. Stripped back out for the
   # heap-capped `eval` path (see `shed/1`) — it exists specifically to bound what
   # crosses the process boundary.

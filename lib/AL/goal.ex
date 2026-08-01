@@ -45,7 +45,6 @@ defmodule AL.Goal do
           | SendQuery.t()
           | SendAsValue.t()
           | DurableCandidates.t()
-          | ConstrainIsa.t()
           | CallNextMethod.t()
           | Fail.t()
 
@@ -279,15 +278,6 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:method, AL.Var.t())
     field(:args, AL.Var.t())
-  end
-
-  # Internal, dispatch-only: spliced *after* a `SendAsValue` attempt in the
-  # same goal list, so it runs once that clause application has actually
-  # completed (via the ordinary `OApply` continuation), not before — see
-  # "constrain after, not before" in dispatch.ex for why the timing matters.
-  typedstruct enforce: true, module: ConstrainIsa do
-    field(:var, AL.Var.t())
-    field(:class, AL.Var.t())
   end
 
   typedstruct enforce: true, module: CallNextMethod do

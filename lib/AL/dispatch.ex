@@ -73,7 +73,7 @@ defmodule AL.Dispatch do
   end
 
   defp known_shape(state, self) do
-    state.active_choicepoint.constraints
+    state.active_choicepoint.store
     |> AL.Var.isa_of(self)
     |> Enum.find(&(&1 in @shape_classes))
   end
@@ -108,20 +108,12 @@ defmodule AL.Dispatch do
   # memory for why that fold is sound (list's own clause heads already
   # pattern-match `[]`/`[h|t]`, exactly what the value leg requires).
   defp structural_candidate(state, requery_goals, self, shape) do
-    {new_bindings, new_constraints} =
-      AL.try_unify(
-        self,
-        shape,
-        state.active_choicepoint.bindings,
-        state.active_choicepoint.constraints,
-        state.branch
-      )
+    new_store = AL.Var.unify(self, shape, state.active_choicepoint.store, state.branch)
 
     %AL.Choicepoint{
       state.active_choicepoint
       | goals: requery_goals,
-        bindings: new_bindings,
-        constraints: new_constraints
+        store: new_store
     }
   end
 
@@ -153,7 +145,7 @@ defmodule AL.Dispatch do
     %AL.Choicepoint{
       state.active_choicepoint
       | goals: goals,
-        constraints: AL.Var.add_isa(state.active_choicepoint.constraints, self, class)
+        store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
     }
   end
 
@@ -234,7 +226,7 @@ defmodule AL.Dispatch do
       state.branch
       |> durable_candidates(method)
       |> Enum.map(&structural_candidate(state, requery, self, &1))
-      |> Enum.reject(&(&1.bindings == nil))
+      |> Enum.reject(&(&1.store == nil))
 
     case candidates do
       [] ->
@@ -397,22 +389,10 @@ defmodule AL.Dispatch do
           AL.splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
 
         candidate = fn name ->
-          {new_bindings, new_constraints} =
-            AL.try_unify(
-              method,
-              name,
-              state.active_choicepoint.bindings,
-              state.active_choicepoint.constraints,
-              state.branch
-            )
+          new_store = AL.Var.unify(method, name, state.active_choicepoint.store, state.branch)
 
           AL.wake(
-            %AL.Choicepoint{
-              state.active_choicepoint
-              | goals: spliced,
-                bindings: new_bindings,
-                constraints: new_constraints
-            },
+            %AL.Choicepoint{state.active_choicepoint | goals: spliced, store: new_store},
             [method]
           )
         end
@@ -450,10 +430,8 @@ defmodule AL.Dispatch do
   # Like `do_send`, but the scope chain is seeded from an explicit `class` rather
   # than derived from `self`'s own term shape — `providers/3`'s `is_number`/`is_map`/
   # `is_list` guards need a concrete term to guard on, which an unbound `self` isn't.
-  # `self` gets constrained to `class` by the caller (`value_candidate`
-  # splices a `ConstrainIsa` goal after `SendAsValue`), not here — see the
-  # "constrain after, not before" comment on `value_candidate` for why the
-  # timing has to be this way round.
+  # `self` gets constrained to `class` by the caller (`value_candidate` attaches
+  # `isa` to the choicepoint at construction), not here.
   def do_send_as(class, self, method, args, state, on_miss) do
     candidates =
       providers_for(
@@ -472,13 +450,7 @@ defmodule AL.Dispatch do
   def run_providers([], _self, _selector, _call_args, state, on_miss), do: on_miss.(state)
 
   def run_providers([{_scope, id} | rest], self, selector, call_args, state, on_miss) do
-    if has_matching_clause?(
-         id,
-         call_args,
-         state.active_choicepoint.bindings,
-         state.active_choicepoint.constraints,
-         state.branch
-       ) do
+    if has_matching_clause?(id, call_args, state.active_choicepoint.store, state.branch) do
       state =
         if id in @primitive_methods,
           do: state,
@@ -556,15 +528,15 @@ defmodule AL.Dispatch do
     for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
   end
 
-  defp has_matching_clause?(id, call_args, bindings, constraints, branch) do
-    id in @primitive_methods or any_clause_matches?(id, call_args, bindings, constraints, branch)
+  defp has_matching_clause?(id, call_args, store, branch) do
+    id in @primitive_methods or any_clause_matches?(id, call_args, store, branch)
   end
 
-  defp any_clause_matches?(id, call_args, bindings, constraints, branch) do
+  defp any_clause_matches?(id, call_args, store, branch) do
     scope = Integer.to_string(AL.fresh_scope())
 
     Enum.any?(AL.cached_scan_clauses(id, branch), fn {:oapply, _id, _seq, head, _body} ->
-      AL.Var.unify(AL.Var.freshen(head, scope), call_args, bindings, constraints, branch) != nil
+      AL.Var.unify(AL.Var.freshen(head, scope), call_args, store, branch) != nil
     end)
   end
 end
