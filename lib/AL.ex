@@ -295,8 +295,11 @@ defmodule AL do
 
   defp record_constraint_violation(state, nil, a, b) do
     case AL.Var.diagnose_unify_failure(a, b, bindings(state), constraints(state), state.branch) do
-      nil -> state
-      violation -> %AL{state | diagnostics: [{:constraint_violated, violation} | state.diagnostics]}
+      nil ->
+        state
+
+      violation ->
+        %AL{state | diagnostics: [{:constraint_violated, violation} | state.diagnostics]}
     end
   end
 

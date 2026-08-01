@@ -24,21 +24,37 @@ defmodule AL.Dispatch do
 
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
+  # `:number`/`:list`/`:map` are mutually exclusive by construction — no term
+  # can ever satisfy more than one of `is_number`/`is_list`/`is_map` — so once
+  # `self` already carries one of them as an `isa` constraint (from an outer
+  # value candidate), offering the *others* as new candidates for the same
+  # still-open `self` is offering something provably impossible, not just
+  # unlikely. Ephemeral construction is always map-shaped (`new` builds
+  # `%{class: ..., ...}`), so it belongs to the `:map` family here too.
+  @shape_classes [:number, :list, :map]
+
   # A var receiver or selector makes the send a query: enumerate candidates, ground
   # the hole, re-dispatch as a query (misses backtrack, not DNU). Only a fully ground
   # send is directed and uses `on_miss`. `:"$_"` is the wildcard, not a hole.
   def dispatch(self, method, args, state, on_miss) do
     cond do
       AL.Var.var?(self) and self != :"$_" ->
+        known_shape = known_shape(state, self)
+
         ephemeral_classes =
-          state.branch
-          |> ephemeral_descendants()
-          |> filter_by_selector(method, state.branch)
+          if shape_conflict?(:map, known_shape) do
+            []
+          else
+            state.branch
+            |> ephemeral_descendants()
+            |> filter_by_selector(method, state.branch)
+          end
 
         value_classes =
           state.branch
           |> value_descendants()
           |> filter_by_selector(method, state.branch)
+          |> Enum.reject(&shape_conflict?(&1, known_shape))
 
         maybe_trace_dispatch(state, self, method, ephemeral_classes, value_classes)
 
@@ -55,6 +71,24 @@ defmodule AL.Dispatch do
         do_send(self, method, args, state, on_miss)
     end
   end
+
+  defp known_shape(state, self) do
+    state.active_choicepoint.constraints
+    |> AL.Var.isa_of(self)
+    |> Enum.find(&(&1 in @shape_classes))
+  end
+
+  # `class` conflicts with `known_shape` only if `class` is itself one of the
+  # three provably-exclusive shapes and differs from it — an ordinary
+  # relational/durable class (or a non-shape value class like a
+  # `:letter_chain`) is never excluded this way, since AL allows genuine
+  # multiple classification there and there's no a priori proof of conflict
+  # without a concrete witness (the reactive `bind`-time check still covers
+  # that case, see [[al-clp-for-objects]]).
+  defp shape_conflict?(class, known_shape) when class in @shape_classes,
+    do: known_shape != nil and known_shape != class
+
+  defp shape_conflict?(_class, _known_shape), do: false
 
   # `method` has to already be ground to check it against `state.tracepoints`
   # — a var selector (the other cond branch in `dispatch/5`) has no selector
@@ -99,26 +133,28 @@ defmodule AL.Dispatch do
   # `import(class, :value)`. `:number` and `:list` both import it today,
   # mirroring `:ephemeral`'s own opt-in exactly.
   #
-  # Constrain *after*, not before: `ConstrainIsa` is spliced to run once
-  # `SendAsValue`'s own clause application has completed (via the ordinary
-  # `OApply` continuation), not registered up front. Registering it first
-  # would make the class's *own* first clause match immediately violate the
-  # constraint that same call had just added, for any class whose clause-head
-  # literals aren't otherwise durably classified — `:number`'s literals get a
-  # free pass from `AL.Var.isa?/3` (`is_number`, no lookup), but a class like
-  # a bare-atom "letter chain" has no such pass, and its first clause
-  # (`:a`/`:b`/...) would have nothing to verify against. Deferring means: if
-  # the matched clause already grounded `self`, there's nothing left to
-  # protect (no-op); if it left `self` open, *now* constraining is sound,
-  # because nothing has tried to verify a value against it yet.
+  # Constrained at construction, before `SendAsValue` (and therefore the
+  # matched clause's whole body) ever runs — so it's live for the entire
+  # method call, nested sends included, not just future binds after the call
+  # returns. Safe against the class's *own* head-unification because the isa
+  # check (`AL.Var.isa?/3`) only ever fires on a bind to a *concrete* term;
+  # a clause whose head leaves `self` open (`:number`'s backward-search
+  # `factorial`, `:object`'s inherited `:examine`) never trips it during its
+  # own match — and a clause that *does* ground `self` to one of the class's
+  # own literals (`:letter_chain`'s `:a`/`:b`) is exactly what `isa?/3` now
+  # accepts as membership evidence for a value class, so it doesn't
+  # self-violate the constraint it's the proof of.
   defp value_candidate(state, self, method, args, class) do
     goals =
       AL.splice_goals(state, [
-        %Goal.SendAsValue{class: class, object: self, method: method, args: args},
-        %Goal.ConstrainIsa{var: self, class: class}
+        %Goal.SendAsValue{class: class, object: self, method: method, args: args}
       ])
 
-    %AL.Choicepoint{state.active_choicepoint | goals: goals}
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: goals,
+        constraints: AL.Var.add_isa(state.active_choicepoint.constraints, self, class)
+    }
   end
 
   # `value_descendants/1` orders earliest-imported-first, same as
@@ -284,6 +320,34 @@ defmodule AL.Dispatch do
 
   defp value_descendants(branch),
     do: category_descendants(branch, :value, &AL.ResolutionCache.fetch_value_descendants/2)
+
+  # Whether `term` is provably a `class` instance by the value leg's own
+  # standard: unifies with one of `class`'s own clause heads in the self
+  # position. Used by `AL.Var.isa?/3` so an `isa` constraint attached *before*
+  # a value candidate's clause match (see `value_candidate/5`) doesn't reject
+  # the class's own defining clauses — `:letter_chain`'s bare-atom `:a`/`:b`
+  # were never durably classified, matching one of `:letter_chain`'s own
+  # clauses is the *only* evidence of membership there is. A bare-variable
+  # self position (`:number`'s recursive `factorial` clause, any inherited
+  # method reached only via the super chain) proves nothing and is excluded —
+  # otherwise this would be vacuously true for anything.
+  @spec value_member?(AL.Var.t(), atom(), AL.Branch.t()) :: boolean()
+  def value_member?(term, class, branch) do
+    class in value_descendants(branch) and
+      class
+      |> own_clause_self_patterns(branch)
+      |> Enum.any?(fn pattern ->
+        not AL.Var.var?(pattern) and
+          AL.Var.unify(AL.Var.freshen(pattern, Integer.to_string(AL.fresh_scope())), term) != nil
+      end)
+  end
+
+  defp own_clause_self_patterns(class, branch) do
+    for {:method, _o, _n, id} <-
+          AL.Object.scan_method(class, :"$isa_check_name", :"$isa_check_id", branch),
+        {:oapply, _id, _seq, [self_pattern | _], _body} <- AL.cached_scan_clauses(id, branch),
+        do: self_pattern
+  end
 
   defp category_descendants(branch, category, fetch) do
     fetch.(branch, fn ->

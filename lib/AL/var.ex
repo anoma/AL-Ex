@@ -227,6 +227,19 @@ defmodule AL.Var do
     end)
   end
 
+  # A var's already-known class domain, if any — the read side of `add_isa/3`.
+  # Lets a query (e.g. `AL.Relations`'s `GetClass` asked for self's class with
+  # the class side still open) answer directly from what's already known
+  # instead of falling back to a real scan for a receiver that, for an
+  # ephemeral/value candidate, was never durably classified in the first place.
+  @spec isa_of(constraints(), variable()) :: MapSet.t(atom())
+  def isa_of(constraints, var) do
+    case Map.get(constraints, var) do
+      nil -> MapSet.new()
+      set -> set.isa
+    end
+  end
+
   # `def`, not `defp` — this is also the diagnostic entry point
   # (`diagnose_unify_failure/5`) uses to explain *why* a bind was refused,
   # not just that `bind/5` returned `nil`. Returns the first violated
@@ -296,7 +309,9 @@ defmodule AL.Var do
   defp isa?(term, :map, _branch), do: is_map(term)
 
   defp isa?(term, class, branch),
-    do: class in AL.Dispatch.MethodOrder.method_scopes(term, branch)
+    do:
+      class in AL.Dispatch.MethodOrder.method_scopes(term, branch) or
+        AL.Dispatch.value_member?(term, class, branch)
 
   @spec occurs?(variable(), t(), bindings()) :: boolean()
   def occurs?(var, term, bindings) do

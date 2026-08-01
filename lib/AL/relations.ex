@@ -34,18 +34,33 @@ defmodule AL.Relations do
   # numbers are never durable). `object` already ground, or `class_pattern` also
   # unbound (no class to constrain against), still need the real scan.
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
-    if AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class_pattern) do
-      AL.put_bindings(
-        state,
-        {bindings(state), AL.Var.add_isa(constraints(state), object, class_pattern)},
-        []
-      )
-    else
-      scan_relation(
-        state,
-        AL.Object.scan_class(object, class_pattern, state.branch),
-        {:class, object, :"$seq", class_pattern}
-      )
+    known_isa = AL.Var.isa_of(constraints(state), object)
+
+    cond do
+      AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class_pattern) ->
+        AL.put_bindings(
+          state,
+          {bindings(state), AL.Var.add_isa(constraints(state), object, class_pattern)},
+          []
+        )
+
+      # Querying `object`'s class (`class_pattern` still open) rather than
+      # asserting it — if `object` already carries a known `isa` domain (e.g.
+      # from the value dispatch leg's `ConstrainIsa`), that domain *is* the
+      # answer, so answer from it directly instead of scanning the durable
+      # table for an object that, for an ephemeral/value receiver, was never
+      # durably classified to begin with.
+      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
+          not Enum.empty?(known_isa) ->
+        rows = for class <- known_isa, do: {:class, object, :isa, class}
+        scan_relation(state, rows, {:class, object, :"$seq", class_pattern})
+
+      true ->
+        scan_relation(
+          state,
+          AL.Object.scan_class(object, class_pattern, state.branch),
+          {:class, object, :"$seq", class_pattern}
+        )
     end
   end
 

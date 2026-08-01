@@ -161,4 +161,51 @@ defmodule Examples.ALGenerative do
 
     assert Map.get(bindings, :"$x") == :letter_word_real_instance
   end
+
+  # The value candidate's `isa` constraint is attached *before* its clause
+  # runs, not after — live for the clause's own body, nested sends included,
+  # not just for binds that happen once the call has already returned (see
+  # al-clp-for-objects memory). Two things that depends on: a method can call
+  # another of the same class's own methods while `self` is still open
+  # (`chain_from` calling `next` — mirrors `custom_class_opts_into_value_dispatch`,
+  # just reached one level deeper), and a method can ask what class `self` is
+  # *while it's still undetermined* and get a real answer instead of scanning
+  # the whole durable table for an object that, as a value, was never
+  # durably classified to begin with (`confirm_class`).
+  example value_clause_body_sees_its_own_isa_constraint() do
+    {:atomic, _} =
+      run branch: :examples do
+        new(:class, %{name: :letter_chain_reflective, super: :object, ivars: []}, _)
+        import(:letter_chain_reflective, :value)
+
+        defmethod(:letter_chain_reflective, :next, [:a, :b]) do
+        end
+
+        defmethod(:letter_chain_reflective, :next, [:b, :c]) do
+        end
+
+        defmethod(:letter_chain_reflective, :chain_from, [self, first]) do
+          next(self, first)
+        end
+
+        defmethod(:letter_chain_reflective, :confirm_class, [self, result]) do
+          vm_class(self, result)
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        chain_from(x, :b)
+      end
+
+    assert Map.get(bindings, :"$x") == :a
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        confirm_class(y, c)
+      end
+
+    assert Map.get(bindings, :"$c") == :letter_chain_reflective
+    assert AL.Var.var?(Map.get(bindings, :"$y"))
+  end
 end
