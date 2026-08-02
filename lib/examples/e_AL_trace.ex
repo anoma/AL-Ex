@@ -41,19 +41,17 @@ defmodule Examples.ALTrace do
     output
   end
 
-  # Method-level Call/Fail (above) only fires once a clause is actually
-  # applied — it says nothing about *which candidate legs an unbound receiver
-  # even had to try*. Tracing the selector at dispatch time shows the legs
-  # offered before any of them run. `durable` deliberately reports as
-  # "deferred", not a candidate count — durable candidate generation is lazy
-  # (see al-clp-for-objects memory); forcing the scan just to report a count
-  # here would undo that.
+  # Call/Fail only fires once a clause applies -- says nothing about which
+  # candidate legs an unbound receiver tried. Selector trace shows legs before
+  # any run. durable reports "deferred" not a count -- scanning to report one
+  # would force the lazy scan it's meant to avoid.
   example trace_shows_dispatch_legs() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :trace_leg_class, super: :value, ivars: []}, _)
-
-        defmethod(:trace_leg_class, :trace_next, [:a, :b])
+        defclass :trace_leg_class, super: :value, ivars: [] do
+          defmethod(:trace_next, [:a, :b]) do
+          end
+        end
       end
 
     AL.trace(:trace_next)

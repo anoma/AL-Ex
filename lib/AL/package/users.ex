@@ -2,29 +2,31 @@ defmodule AL.Package.Users do
   use AL.Package
 
   defpackage :users, version: 1, deps: [:bootstrap] do
-    new(:class, %{name: :user, super: :object, ivars: [:name]}, _)
-    new(:class, %{name: :owned, super: :object, ivars: [:name, :owner]}, _)
-
-    defmethod(:owned, :init, [self, args, self]) do
-      set_slots(self, args)
+    defclass :user, super: :object, ivars: [:name] do
     end
 
-    defmethod(:owned, :update, [self, slots]) do
-      set_slots(self, slots)
-    end
+    defclass :owned, super: :object, ivars: [:name, :owner] do
+      defmethod(:init, [self, args, self]) do
+        set_slots(self, args)
+      end
 
-    defmethod(:owned, :may, [self, caller, _method, _args]) do
-      get_slot(self, :owner, owner)
-      caller == owner
-    end
+      defmethod(:update, [self, slots]) do
+        set_slots(self, slots)
+      end
 
-    defmethod(:owned, :guarded_send, [self, caller, method, args]) do
-      may(self, caller, method, args)
-      send(self, method, args)
-    end
+      defmethod(:may, [self, caller, _method, _args]) do
+        get_slot(self, :owner, owner)
+        caller == owner
+      end
 
-    defmethod(:owned, :does_not_understand, [self, method, [caller, args]]) do
-      guarded_send(self, caller, method, args)
+      defmethod(:guarded_send, [self, caller, method, args]) do
+        may(self, caller, method, args)
+        send(self, method, args)
+      end
+
+      defmethod(:does_not_understand, [self, method, [caller, args]]) do
+        guarded_send(self, caller, method, args)
+      end
     end
   end
 end

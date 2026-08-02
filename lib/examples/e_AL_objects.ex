@@ -10,13 +10,15 @@ defmodule Examples.ALObjects do
   example defmethod() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :greeter, super: :value}, _)
+        defclass :greeter, super: :value do
+          defmethod(:init, [self, _, self]) do
+          end
 
-        defmethod(:greeter, :init, [self, _, self])
+          defmethod(:greet, [self, name]) do
+          end
+        end
 
-        defmethod(:greeter, :greet, [self, name])
-
-        new(:greeter, _, instance)
+        new(:greeter, instance)
         greet(instance, :world)
       end
 
@@ -31,7 +33,7 @@ defmodule Examples.ALObjects do
 
         defmethod(new_point_class, :init, [self, _, self])
 
-        new(new_point_class, _, new_point_object)
+        new(new_point_class, new_point_object)
         cut
       end
 
@@ -44,15 +46,15 @@ defmodule Examples.ALObjects do
   example metaclass_alloc_override() do
     {:atomic, {b, program_state}} =
       run branch: :examples do
-        new(:class, %{name: :durable_meta, super: :object}, _)
+        defclass :durable_meta, super: :object do
+          defmethod(:allocate, [self, args, name]) do
+            vm_map_get(args, :name, name)
 
-        defmethod(:durable_meta, :allocate, [self, args, name]) do
-          vm_map_get(args, :name, name)
+            vm_class(self, meta)
 
-          vm_class(self, meta)
-
-          vm_set_class(name, meta)
-          vm_set_super(name, :object)
+            vm_set_class(name, meta)
+            vm_set_super(name, :object)
+          end
         end
 
         new(:durable_meta, %{name: :alloc_overriden}, obj)
@@ -114,10 +116,12 @@ defmodule Examples.ALObjects do
 
     {:atomic, {slot_bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :examine_slot_class, super: :object, ivars: [:legs]}, _)
+        defclass :examine_slot_class, super: :object, ivars: [:legs] do
+        end
+
         vm_set_slots(:examine_slot_class, %{legs: 4})
 
-        new(:examine_slot_class, _, obj)
+        new(:examine_slot_class, obj)
         vm_set_slots(obj, %{name: :rex})
 
         examine(obj, obj_info)
@@ -130,9 +134,8 @@ defmodule Examples.ALObjects do
     program_state
   end
 
-  # A send to a var receiver is a query over the store: it grounds `self` to a
-  # concrete object that genuinely implements the method, backtracking over the
-  # rest, and never consults `does_not_understand`.
+  # var receiver send = query: grounds self to real implementers, backtracks
+  # over the rest, never hits does_not_understand.
   example anonymous_send_grounds_receiver() do
     {:atomic, _} =
       run branch: :examples do
@@ -180,9 +183,8 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # An unspecified selector turns a send into a query over the object's methods:
-  # it binds the selector to each method whose clause accepts the call's arg
-  # shape, backtracking over them.
+  # unbound selector = query over the object's methods: binds selector to
+  # each method whose clause accepts the call's arg shape, backtracking.
   example send_with_unbound_selector_queries_methods() do
     {:atomic, _} =
       run branch: :examples do
@@ -221,8 +223,7 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # Resolution walks the receiver's class then up its supers, first match wins —
-  # so an inherited method is found, and a method on a nearer class shadows it.
+  # resolution walks class then supers, first match wins -- nearer class shadows.
   example send_resolves_up_super_chain_with_override() do
     {:atomic, _} =
       run branch: :examples do
@@ -258,9 +259,8 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # The safety property behind query sends: enumerating a receiver must not fire
-  # the does_not_understand of objects that don't match — DNU can have side
-  # effects, and a query is meant to be a read-only probe.
+  # query sends are read-only: enumerating a receiver skips does_not_understand
+  # on objects that don't match, even though DNU can have side effects.
   example query_send_does_not_trigger_dnu_side_effects() do
     {:atomic, _} =
       run branch: :examples do
@@ -311,9 +311,8 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # call_next_method continues resolution from where the current method sits, so an
-  # override can *extend* an inherited method rather than only replace it: pet's
-  # describe calls up into animal's and folds the result in.
+  # call_next_method continues resolution from the current method -- override
+  # can extend an inherited method, not just replace it.
   example call_next_method_extends_super() do
     {:atomic, {b, _}} =
       run branch: :examples do
@@ -337,8 +336,7 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # With no further provider in the resolution order, call_next_method has nothing
-  # to run, so it fails (aborts the run) rather than looping or DNU-ing.
+  # no further provider in resolution order -- call_next_method aborts, no DNU.
   example call_next_method_with_no_super_fails() do
     {:aborted, _} =
       run branch: :examples do
@@ -359,7 +357,9 @@ defmodule Examples.ALObjects do
   example multiple_slots() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :multislots, ivars: [], super: :object}, :multislots)
+        defclass :multislots, super: :object, ivars: [] do
+        end
+
         vm_set_slots(:multislots, %{x: 1, y: 2, z: 3})
         slots(:multislots, [:x, :z], m)
       end
@@ -372,10 +372,12 @@ defmodule Examples.ALObjects do
   example get_slot_inherits_from_class() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :slot_inherit_class, super: :object, ivars: [:legs]}, _)
+        defclass :slot_inherit_class, super: :object, ivars: [:legs] do
+        end
+
         vm_set_slots(:slot_inherit_class, %{legs: 4})
 
-        new(:slot_inherit_class, _, obj)
+        new(:slot_inherit_class, obj)
 
         get_slot(obj, :legs, legs)
       end
@@ -384,11 +386,9 @@ defmodule Examples.ALObjects do
     bindings
   end
 
-  # A class can opt into breadth-first method resolution via a
-  # `dispatch_strategy: :bfs` slot; without it, resolution stays depth-first
-  # (today's default, unchanged for every class that doesn't opt in). The
-  # switch is live: flipping the slot on an already-live class immediately
-  # changes how its instances resolve, no restart needed.
+  # dispatch_strategy: :bfs slot opts a class into breadth-first resolution;
+  # default depth-first. Live -- flipping the slot changes resolution
+  # immediately, no restart.
   example dispatch_strategy_flag_selects_bfs_or_dfs() do
     {:atomic, _} =
       run branch: :examples do
@@ -435,16 +435,22 @@ defmodule Examples.ALObjects do
   example shared_ancestor_kahns() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :mix_super_1, super: :mix_super_3, ivars: []}, _)
-        new(:class, %{name: :mix_super_2, super: :mix_super_3, ivars: []}, _)
+        defclass :mix_super_3, super: :object, ivars: [] do
+          defmethod(:flavour, [self, :lavender]) do
+          end
+        end
 
-        new(:class, %{name: :mix_super_3, super: :object, ivars: []}, _)
+        defclass :mix_super_1, super: :mix_super_3, ivars: [] do
+        end
 
-        defmethod(:mix_super_3, :flavour, [self, :lavender])
+        defclass :mix_super_2, super: :mix_super_3, ivars: [] do
+          defmethod(:flavour, [self, :chocolate]) do
+          end
+        end
 
-        defmethod(:mix_super_2, :flavour, [self, :chocolate])
+        defclass :mix_class, super: :mix_super_1, ivars: [] do
+        end
 
-        new(:class, %{name: :mix_class, super: :mix_super_1, ivars: []}, _)
         vm_set_super(:mix_class, :mix_super_2)
 
         new(:mix_class, %{name: :mix_obj}, _)
@@ -475,20 +481,17 @@ defmodule Examples.ALObjects do
            ]
   end
 
-  # Regression: `defmethod(SomeClass, sel, ...)` attaches methods meant for
-  # instances of `SomeClass` — sending directly to the class atom itself must
-  # not also resolve them. Otherwise a class atom offered as a receiver (e.g.
-  # via an unbound-receiver query enumerating durable objects, which doesn't
-  # distinguish classes from instances) could be mistaken for a valid instance
-  # of itself.
+  # defmethod(SomeClass, sel, ...) is for instances -- sending to the class
+  # atom itself must not also resolve them.
   example class_atom_does_not_resolve_its_own_instance_methods() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:class, %{name: :class_scope_probe, super: :object, ivars: []}, _)
+        defclass :class_scope_probe, super: :object, ivars: [] do
+          defmethod(:probe, [self, :hit]) do
+          end
+        end
 
-        defmethod(:class_scope_probe, :probe, [self, :hit])
-
-        new(:class_scope_probe, _, instance)
+        new(:class_scope_probe, instance)
         probe(instance, :hit)
 
         unify(worked, true)
@@ -505,13 +508,11 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # `AL.Dispatch`'s durable leg defers its `scan_class` behind a placeholder
-  # choicepoint (`AL.Dispatch.force_durable_candidates`) instead of scanning
-  # eagerly at dispatch time — a query the value leg alone can answer should
-  # never reach it. Observable via `AL.ResolutionCache`'s `durable_classes`
-  # table, which only a real scan ever populates. A throwaway fork keeps this
-  # from seeing another example's dispatch calls having already warmed the
-  # shared `:examples` branch's cache.
+  # durable leg's scan_class defers behind a placeholder choicepoint
+  # (force_durable_candidates) -- a query the value leg alone answers never
+  # reaches it. Checked via ResolutionCache's durable_classes table, only
+  # populated by a real scan. Fresh fork so another example's cache warmth
+  # doesn't leak in.
   example durable_scan_is_deferred_until_actually_needed() do
     fork = AL.Branch.fork()
     cache_table = AL.ResolutionCache.table(:durable_classes, fork)
@@ -547,14 +548,9 @@ defmodule Examples.ALObjects do
     AL.Branch.discard(fork)
   end
 
-  # `AL.Var.bind/5` is the one choke point every unification passes through —
-  # dispatch's own candidate generation (`AL.Dispatch.structural_candidate`)
-  # goes through the exact same `AL.Var.unify` a plain `unify/2` goal does, so
-  # a `vm_class(x, C)` constraint has to reject a wrong-class bind whichever
-  # of those two ways it's reached, not just a direct one. Both
-  # `:isa_durable_class_a`/`_b` answer `:isa_durable_probe`, so dispatch would
-  # offer both instances as candidates absent the constraint — this pins that
-  # only the constraint-compatible one ever survives.
+  # bind/5 is the one choke point every unification passes through, dispatch's
+  # own candidate generation included -- an isa constraint rejects a
+  # wrong-class bind either way, not just on a direct unify.
   example isa_constraint_rejects_a_wrong_durable_class() do
     {:atomic, _} =
       run branch: :examples do

@@ -46,17 +46,19 @@ defmodule Examples.AL do
   example does_not_understand_dispatch() do
     {:atomic, {b, _}} =
       run branch: :examples do
-        new(:class, %{name: :gadget, super: :value}, _)
+        defclass :gadget, super: :value do
+          defmethod(:init, [self, _, self]) do
+          end
 
-        defmethod(:gadget, :init, [self, _, self])
+          defmethod(:poke, [self, x]) do
+            unify(x, :ok)
+          end
 
-        defmethod(:gadget, :poke, [self, x]) do
-          unify(x, :ok)
+          defmethod(:does_not_understand, [self, _m, _a]) do
+          end
         end
 
-        defmethod(:gadget, :does_not_understand, [self, _m, _a])
-
-        new(:gadget, _, g)
+        new(:gadget, g)
       end
 
     g = Map.get(b, :"$g")
@@ -297,10 +299,8 @@ defmodule Examples.AL do
     :ok
   end
 
-  # Regression: `standardize_apart` treated `:"$_"` as an ordinary var, so two
-  # wildcards in one solution's template collapsed onto the same fresh var —
-  # a false alias. `:"$_"` never binds (unify/4's first clause), so it must
-  # never be renamed either.
+  # :"$_" never binds (unify/4's first clause), so standardize_apart must
+  # never rename it either -- else two wildcards collapse onto one fresh var.
   example findall_wildcard_placeholders_stay_independent() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
@@ -311,9 +311,8 @@ defmodule Examples.AL do
     :ok
   end
 
-  # Regression: when a query var (`y`) unifies with an internal freshened clause
-  # var (e.g. `concat`'s `fh`), the user never typed the internal name and must
-  # never see it — not directly, and not nested inside another output var's value.
+  # a query var unifying with an internal freshened clause var must never show
+  # that internal name -- not directly, not nested in another output var.
   example output_vars_use_consistent_names_for_aliased_vars() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
@@ -453,10 +452,8 @@ defmodule Examples.AL do
     :ok
   end
 
-  # Two separate writing transactions on the same branch must get distinct tx_ids,
-  # so their commands stay groupable apart. `tx_id` comes from the *written*
-  # branch's counter, which each write advances — using a fixed branch (e.g. head)
-  # would freeze it and make every transaction share an id.
+  # tx_id comes from the written branch's own counter, advanced per write --
+  # a fixed branch would freeze it and every tx would share an id.
   example writing_transactions_get_distinct_tx_ids() do
     a = fresh_id()
     b = fresh_id()

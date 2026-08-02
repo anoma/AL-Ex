@@ -2,37 +2,31 @@ defmodule AL.Package.Sudoku do
   use AL.Package
 
   defpackage :sudoku, version: 1, deps: [:bootstrap] do
-    # No durable identity needed — a puzzle instance is scratch, not
-    # something meant to survive as a standalone Mnesia-registered object.
-    # Like :mapset/:interval, self is just a map carrying its own :class tag
-    # (`:get_slot` reads it directly), not a bare list — real construction
-    # logic in :init is fine for :value (:mapset/:interval both have it
-    # too, e.g. :interval checking `lo > hi`); the actual test is "does self
-    # need durable identity," not "does init do real work."
-    new(:class, %{name: :sudoku, super: :value, ivars: [:rows]}, _)
+    # :value, not durable — a puzzle is scratch, and self already being a
+    # map means it's already its own printable/reified form.
+    defclass :sudoku, super: :value, ivars: [:rows] do
+      defmethod(:get_slot, [self, k, v]) do
+        vm_map_get(self, k, v)
+      end
 
-    defmethod(:sudoku, :get_slot, [self, k, v]) do
-      vm_map_get(self, k, v)
+      # givens: 9x9 list of 0..9, 0 = blank. Blanks come out open via
+      # ordinary unification against build_row's fresh output list.
+      defmethod(:init, [self, args, new]) do
+        vm_map_get(args, :givens, givens)
+        build_rows(givens, rows)
+        constrain_rows(rows)
+        unify(new, %{class: :sudoku, rows: rows})
+      end
+
+      defmethod(:solve, [self, solved]) do
+        get_slot(self, :rows, rows)
+        label_rows(rows)
+        unify(solved, rows)
+      end
     end
 
-    # `givens` is a 9x9 list of 0..9 — 0 marks a blank. A blank position's
-    # output cell comes out of ordinary unification against `build_row`'s
-    # still-open output list (no gensym needed — same idiom `length_of_size`
-    # etc. already use to grow a fresh list). Constraints post once here,
-    # not deferred to :solve.
-    defmethod(:sudoku, :init, [self, args, new]) do
-      vm_map_get(args, :givens, givens)
-      build_rows(givens, rows)
-      constrain_rows(rows)
-      unify(new, %{class: :sudoku, rows: rows})
-    end
-
-    # Every helper below takes a list (or list of lists) as its first
-    # argument, not a :sudoku-shaped self — dispatch resolves method scope
-    # from the *receiver's own runtime type*, not from which class block a
-    # defmethod is written under, so these are :list-scoped (same as
-    # mapset.ex's list_to_elems/map_insert living under :list/:map while
-    # defined inside the :mapset package block).
+    # Below: list-shaped helpers, :list-scoped (dispatch goes by the
+    # receiver's own type, not by which block a defmethod sits in).
     defmethod(:list, :build_rows, [[], []])
 
     defmethod(:list, :build_rows, [[given_row | given_rest], [row | rest]]) do
@@ -68,9 +62,7 @@ defmodule AL.Package.Sudoku do
       each_all_dif(rest)
     end
 
-    # 9x9 rows -> nine 3x3 boxes: chunk the rows into 3 row-bands, chunk
-    # each row within a band into 3 column-groups of 3, then zip the three
-    # rows' matching column-groups together into one 9-cell box per group.
+    # rows -> 3 row-bands -> each row chunked into 3 -> zip into 9 boxes
     defmethod(:list, :boxes, [rows, boxes]) do
       chunks3(rows, bands)
       bands_boxes(bands, box_groups)
@@ -100,12 +92,6 @@ defmodule AL.Package.Sudoku do
       concat(ab2, c2, box2)
       concat(a3, b3, ab3)
       concat(ab3, c3, box3)
-    end
-
-    defmethod(:sudoku, :solve, [self, solved]) do
-      get_slot(self, :rows, rows)
-      label_rows(rows)
-      unify(solved, rows)
     end
 
     defmethod(:list, :label_rows, [[]])

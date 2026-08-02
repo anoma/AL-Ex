@@ -1,11 +1,9 @@
 defmodule Examples.ALDefclass do
   @moduledoc """
-  I provide examples for `defclass` — a class declaration bundling what
-  otherwise needs a hand-sequenced `new(metaclass, …)` + one `import` per
-  category + one `defmethod` per method (see how mapset.ex's predecessor's
-  `single`/`union` classes were written before this existed). It lowers to a single `:defclass` OApply,
-  the same way `defmethod` itself lowers to a single `:defmethod` OApply — the
-  sequencing lives in AL (bootstrap.ex), not in the surface syntax.
+  I provide examples for `defclass` — bundles `new(metaclass, …)` + one
+  `import` per category + one `defmethod` per method into one declaration.
+  Lowers to a single `:defclass` OApply, same as `defmethod` lowers to
+  `:defmethod` — sequencing lives in AL (bootstrap.ex), not the syntax.
   """
 
   use ExExample
@@ -43,15 +41,14 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # `metaclass` defaults to `:class` — a durable, gensym'd instance, the same
-  # as writing `new(:class, %{...}, _)` by hand.
+  # metaclass defaults to :class — same as new(:class, %{...}, _) by hand.
   example defclass_defaults_metaclass_to_class() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :durable_thing, super: :object, ivars: [] do
         end
 
-        new(:durable_thing, _, instance)
+        new(:durable_thing, instance)
         vm_class(instance, class)
       end
 
@@ -60,9 +57,8 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # `metaclass: :object` (as `empty_set` in mapset.ex's predecessor used) makes the *class
-  # itself* a plain durable object — no per-instance construction at all,
-  # matching how `empty_set` is its own singleton.
+  # metaclass: :object -- the class itself is a plain durable object, no
+  # per-instance construction.
   example defclass_supports_metaclass_override() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
@@ -78,15 +74,14 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # `categories`/`ivars`/methods can all be omitted — an empty class body is
-  # legal, not a special case.
+  # categories/ivars/methods can all be omitted — empty class body is legal.
   example defclass_with_no_categories_or_methods() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :bare_thing, super: :object do
         end
 
-        new(:bare_thing, _, instance)
+        new(:bare_thing, instance)
         vm_class(instance, class)
       end
 

@@ -1,8 +1,7 @@
 defmodule Examples.ALFailures do
   @moduledoc """
-  I provide examples for AL's failure reporting: when a run aborts, the reason it
-  carries should be legible — naming the message that wasn't understood and
-  offering a suggestion — rather than a bare goal dump.
+  Failure reporting: an abort names the message that wasn't understood and
+  offers a suggestion, not a bare goal dump.
   """
 
   use ExExample
@@ -15,13 +14,15 @@ defmodule Examples.ALFailures do
   example unknown_selector_reports_does_not_understand() do
     {:aborted, reason} =
       run branch: :examples do
-        new(:class, %{name: :failgreeter, super: :value}, _)
+        defclass :failgreeter, super: :value do
+          defmethod(:init, [self, _, self]) do
+          end
 
-        defmethod(:failgreeter, :init, [self, _, self])
+          defmethod(:greet, [self, _name]) do
+          end
+        end
 
-        defmethod(:failgreeter, :greet, [self, _name])
-
-        new(:failgreeter, _, g)
+        new(:failgreeter, g)
         greett(g, :world)
       end
 
@@ -49,11 +50,8 @@ defmodule Examples.ALFailures do
     :ok
   end
 
-  # A failed run doesn't just report a curated summary — the actual final
-  # `%AL{}` state (whatever bindings/constraints were live on the last
-  # attempt, before the choicepoint stack exhausted) survives as
-  # `reason.state`, so a live debugging session can inspect it directly
-  # instead of only reading a linear trace of goals tried.
+  # reason.state carries the actual final %AL{} (bindings/constraints live at
+  # the last attempt), not just a curated summary.
   example failed_run_exposes_the_final_state() do
     {:aborted, reason} =
       run branch: :examples do
@@ -66,11 +64,8 @@ defmodule Examples.ALFailures do
     assert reason.state.branch.id == :examples
   end
 
-  # `unify(a, b)` failing because a `dif`/`isa` constraint rejected it looks
-  # identical to an ordinary structural mismatch in the trace alone — the next
-  # goal just isn't there either way. Naming *which* constraint fired (not just
-  # that some goal failed) is exactly the gap that made debugging this
-  # session's own `:letter_chain` dispatch bug require throwaway `IO.inspect`s.
+  # constraint-rejected unify looks identical to a plain mismatch in the trace
+  # alone -- reason names which constraint fired.
   example unify_failure_names_the_violated_constraint() do
     {:aborted, dif_reason} =
       run branch: :examples do
@@ -105,13 +100,15 @@ defmodule Examples.ALFailures do
   example custom_dnu_is_not_reported_as_failure() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :failquiet, super: :value}, _)
+        defclass :failquiet, super: :value do
+          defmethod(:init, [self, _, self]) do
+          end
 
-        defmethod(:failquiet, :init, [self, _, self])
+          defmethod(:does_not_understand, [self, _m, _a]) do
+          end
+        end
 
-        defmethod(:failquiet, :does_not_understand, [self, _m, _a])
-
-        new(:failquiet, _, q)
+        new(:failquiet, q)
         anything(q, :x)
       end
 

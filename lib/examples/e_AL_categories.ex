@@ -1,33 +1,32 @@
 defmodule Examples.ALCategories do
   @moduledoc """
-  I provide examples for `:object :import` — binding a shared implementation
-  onto a class without creating a `super` edge, AL's answer to Logtalk-style
-  categories.
+  `:object :import` -- binds a shared implementation onto a class with no
+  super edge. Logtalk-style categories.
   """
 
   use ExExample
   use AL
   import ExUnit.Assertions
 
-  # `import` attaches methods for a class's *instances* to resolve, the same way
-  # any other `defmethod(SomeClass, ...)` does — sending directly to the class
-  # atom itself doesn't work, by design, the same as any other class-defined
-  # method (a class isn't an instance of itself).
+  # import attaches methods for a class's instances to resolve, same as any
+  # defmethod(SomeClass, ...) -- sending to the class atom itself doesn't work
+  # (a class isn't an instance of itself).
   example import_shares_implementation_without_inheritance() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:category, %{name: :greeter_behaviour}, _)
+        defclass :greeter_behaviour, metaclass: :category, super: :object do
+          defmethod(:greet, [self, :hello]) do
+          end
+        end
 
-        defmethod(:greeter_behaviour, :greet, [self, :hello])
+        defclass :cat_a, super: :object, ivars: [], categories: [:greeter_behaviour] do
+        end
 
-        new(:class, %{name: :cat_a, super: :object, ivars: []}, _)
-        new(:class, %{name: :cat_b, super: :object, ivars: []}, _)
+        defclass :cat_b, super: :object, ivars: [], categories: [:greeter_behaviour] do
+        end
 
-        import(:cat_a, :greeter_behaviour)
-        import(:cat_b, :greeter_behaviour)
-
-        new(:cat_a, _, instance_a)
-        new(:cat_b, _, instance_b)
+        new(:cat_a, instance_a)
+        new(:cat_b, instance_b)
 
         greet(instance_a, greeting_a)
         greet(instance_b, greeting_b)
@@ -41,15 +40,16 @@ defmodule Examples.ALCategories do
   example import_creates_no_super_edge() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:category, %{name: :shared_behaviour}, _)
+        defclass :shared_behaviour, metaclass: :category, super: :object do
+          defmethod(:trait, [self, :shared_trait]) do
+          end
+        end
 
-        defmethod(:shared_behaviour, :trait, [self, :shared_trait])
+        defclass :import_a, super: :object, ivars: [], categories: [:shared_behaviour] do
+        end
 
-        new(:class, %{name: :import_a, super: :object, ivars: []}, _)
-        new(:class, %{name: :import_b, super: :object, ivars: []}, _)
-
-        import(:import_a, :shared_behaviour)
-        import(:import_b, :shared_behaviour)
+        defclass :import_b, super: :object, ivars: [], categories: [:shared_behaviour] do
+        end
 
         not [super(:import_a, :import_b)]
         not [super(:import_b, :import_a)]
@@ -65,7 +65,9 @@ defmodule Examples.ALCategories do
   example category_is_reflectively_queryable() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:category, %{name: :reflect_behaviour}, _)
+        defclass :reflect_behaviour, metaclass: :category, super: :object do
+        end
+
         class(:reflect_behaviour, kind)
       end
 
@@ -73,26 +75,22 @@ defmodule Examples.ALCategories do
     :ok
   end
 
-  # Regression: a category is a durable `:object`-classed thing (like a class
-  # atom is), so an unbound-receiver query used to offer it as a candidate for
-  # any selector defined directly on it — even though `import` only ever meant
-  # that method to be *copied* onto importers, not answered by the category
-  # itself. `method_scopes`'s self-prefix guard excluded `:class` atoms from
-  # this for the same reason but missed `:category` (and `:behaviour`) until
-  # `default_set_behaviour` got its first real method (`:members`) and this
-  # showed up live: `members(s, elems)` with `s` unbound ground to
-  # `:default_set_behaviour` itself as a spurious "solution".
+  # a category is a durable :object-classed thing, like a class atom -- must
+  # not be offered as an unbound-receiver candidate for its own methods, only
+  # copied onto importers. method_scopes's self-prefix guard covers :class but
+  # missed :category/:behaviour until this showed up live.
   example category_is_not_offered_as_an_unbound_receiver_candidate() do
     {:atomic, {b1, _}} =
       run branch: :examples do
-        new(:category, %{name: :counts_behaviour}, _)
+        defclass :counts_behaviour, metaclass: :category, super: :object do
+          defmethod(:count, [self, 0]) do
+          end
+        end
 
-        defmethod(:counts_behaviour, :count, [self, 0])
+        defclass :countable, super: :object, ivars: [], categories: [:counts_behaviour] do
+        end
 
-        new(:class, %{name: :countable, super: :object, ivars: []}, _)
-        import(:countable, :counts_behaviour)
-
-        new(:countable, _, instance)
+        new(:countable, instance)
 
         findall(s, [count(s, 0)], candidates)
       end

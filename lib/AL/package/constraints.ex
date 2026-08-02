@@ -87,12 +87,7 @@ defmodule AL.Package.Constraints do
       send_async(self, :cell_updated, [:none, :none])
     end
 
-    # Take each input cell's domain and narrow the output cell to whatever
-    # the propagator's own `constrain` fn produces from them — the *strategy*
-    # depends on how the domains are represented (see `narrow_output`), not
-    # on the propagator itself: a mapset domain enumerates+combos, an
-    # interval domain skips enumeration and passes the interval terms
-    # straight through so `constrain` can do interval arithmetic directly.
+    # narrow_output picks the domain strategy; constrain does the actual work.
     defmethod(:propagator, :cell_updated, [self, _cell_name, _domain]) do
       get_slot(self, :input_cells, input_cells)
       get_slot(self, :output_cell, output_cell)
@@ -103,28 +98,20 @@ defmodule AL.Package.Constraints do
         input_domains
       )
 
-      # Not every input cell has a domain yet (only length, not identity,
-      # matters — findall above silently drops a not-yet-set input rather
-      # than failing outright, so a plain fail-if-missing check needs a
-      # count comparison, not a direct conjunction on get_slot).
+      # length check: not every input has a domain yet, findall drops those
       same_length(input_cells, input_domains)
 
       narrow_output(self, input_domains, candidate)
       send_async(output_cell, :constrain, [candidate])
     end
 
-    # Interval domains: no enumeration — hand the interval terms straight to
-    # the propagator's own `constrain` clause, which does interval
-    # arithmetic directly (that's the whole reason to use intervals instead
-    # of mapsets for a wide/continuous range).
+    # interval domains: no enumeration, straight to constrain
     defmethod(:propagator, :narrow_output, [self, [first | rest], candidate]) do
       vm_class(first, :interval)
       constrain(self, [first | rest], candidate)
     end
 
-    # Mapset (or any other enumerable) domains: cartesian product across all
-    # inputs, map the propagator's own `constrain` fn over every combo,
-    # collect the results into the output's candidate set.
+    # enumerable domains: cartesian product, constrain each combo
     defmethod(:propagator, :narrow_output, [self, input_domains, candidate]) do
       findall(
         input_list,

@@ -151,6 +151,15 @@ defmodule AL.Package.Bootstrap do
       init(alloc, args, new)
     end
 
+    # `new(class, output)` — args-free shorthand for the very common case of
+    # no construction args at all. Coexists with the 3-arg form above by
+    # arity alone (unify fails on mismatched list lengths, so each call site
+    # only ever matches the clause with the same argument count) — no
+    # dispatch special-casing needed.
+    defmethod(:class, :new, [self, new]) do
+      new(self, %{}, new)
+    end
+
     new(:class, %{name: :category, super: :object, ivars: []}, _)
 
     # Copies a category's methods onto self by shared method_id — no
@@ -298,6 +307,46 @@ defmodule AL.Package.Bootstrap do
       fibonacci(n2, x2)
 
       eq(x, x1 + x2)
+    end
+
+    defmethod(:number, :count_to, [n, n]) do
+    end
+
+    # Linear recursion, one reduction per step — deliberately the opposite
+    # shape from fibonacci's naive-exponential one, for isolating raw
+    # per-call dispatch/reduction overhead from combinatorial blowup
+    # (bench/succ.exs). `vm_is`, not `eq` — matches :count_to_via_oapply's
+    # own increment exactly, so the two differ *only* in how the recursive
+    # step is reached (full dispatch vs raw oapply), not also in how much
+    # constraint machinery the increment itself pays for.
+    defmethod(:number, :count_to, [n, target]) do
+      n < target
+      vm_is(n1, n + 1)
+      count_to(n1, target)
+    end
+
+    # Same computation as :count_to, but `providers_for`/`method_scopes`
+    # resolution (resolution-cache lookup included) is paid once — `vm_method`
+    # finds the loop's own id up front — not once per recursive step: the
+    # loop below re-enters itself via `vm_oapply(id, ...)` directly, the same
+    # raw clause-matching `run_providers` itself calls into once dispatch has
+    # already resolved a provider, skipping the resolution work entirely on
+    # every step after the first. Isolates dispatch-resolution cost from
+    # clause-matching/execution cost (bench/succ.exs) — the gap between this
+    # and :count_to's own timing is exactly what re-resolving every step
+    # costs.
+    defmethod(:number, :count_to_via_oapply, [n, target]) do
+      vm_method(:number, :count_to_oapply_loop, id)
+      vm_oapply(id, [n, target, id])
+    end
+
+    defmethod(:number, :count_to_oapply_loop, [n, n, _id]) do
+    end
+
+    defmethod(:number, :count_to_oapply_loop, [n, target, id]) do
+      n < target
+      vm_is(n1, n + 1)
+      vm_oapply(id, [n1, target, id])
     end
 
     new(:class, %{name: :list, super: :value, ivars: []}, _)

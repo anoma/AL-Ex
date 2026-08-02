@@ -325,12 +325,9 @@ defmodule AL.Dispatch do
   # self is constrained to class by the caller, not here.
   def do_send_as(class, self, method, args, state, on_miss) do
     candidates =
-      providers_for(
-        class,
-        AL.Dispatch.MethodOrder.super_chain([class], state.branch, :dfs),
-        method,
-        state.branch
-      )
+      providers_for(class, method, state.branch, fn ->
+        AL.Dispatch.MethodOrder.super_chain([class], state.branch, :dfs)
+      end)
 
     run_providers(candidates, self, method, [self | args], state, on_miss)
   end
@@ -358,16 +355,19 @@ defmodule AL.Dispatch do
   # self (method_scopes only depends on class, not the rest of the content).
   defp providers(self, selector, branch),
     do:
-      providers_for(
-        resolution_key(self),
-        AL.Dispatch.MethodOrder.method_scopes(self, branch),
-        selector,
-        branch
-      )
+      providers_for(resolution_key(self), selector, branch, fn ->
+        AL.Dispatch.MethodOrder.method_scopes(self, branch)
+      end)
 
-  defp providers_for(key, scopes, selector, branch) do
+  # `scopes_fn` is a thunk, not an already-computed list — `method_scopes`/
+  # `super_chain` (Kahn's algorithm over the class hierarchy) is real work,
+  # and Elixir evaluates function arguments eagerly, so passing the
+  # computed list would run it on every call regardless of whether
+  # `fetch_providers` below even ends up needing it. Deferred like this, it
+  # only actually runs on a cache miss.
+  defp providers_for(key, selector, branch, scopes_fn) do
     AL.ResolutionCache.fetch_providers(branch, {key, selector}, fn ->
-      for scope <- scopes, id <- method_ids(scope, selector, branch), do: {scope, id}
+      for scope <- scopes_fn.(), id <- method_ids(scope, selector, branch), do: {scope, id}
     end)
   end
 

@@ -493,6 +493,33 @@ that scan just to trace it. Example: `trace_shows_dispatch_legs` in
   bodies are `do`-block clauses (newline-separated), so it side-steps the comma
   gotcha. A `->` clause can't have an empty body — for an empty then-branch put the
   shared trailing goals inside each branch.
+- **`defclass name, metaclass: :class (default), super: (required), ivars: [] (default), categories: [] (default) do ... end`**
+  bundles `new(metaclass, %{name:, super:, ivars:}, _)` + one `import` per
+  category + one `defmethod` per method into a single `:defclass` OApply
+  (bootstrap.ex). Methods inside use the 2-arg `defmethod(name, head) do body
+  end` shorthand (no class prefix), always with an explicit `do...end` even
+  when empty — the bodyless 3-arg `defmethod(class, name, head)` fallback
+  does not apply inside `defclass`.
+  - **Gotcha: two methods-list entries can't share a selector.** `:defclass`'s
+    own oapply retracts *all* existing `(name, method_name)` ids before each
+    `defmethod` call in the list — so a class with two same-selector entries
+    (any arity) has the second retract wipe out the first's fresh clause.
+    Multi-clause/multi-arity selectors (recursive methods, arity-based
+    overloads) must stay outside the block as plain top-level
+    `defmethod(class, name, head) do ... end` calls; single-clause methods
+    for the same class can still live inside `defclass` alongside them.
+  - **`metaclass: :category`** declares a category (`e_AL_categories.ex`) the
+    same way — `defclass :name, metaclass: :category, super: :object do
+    defmethod(...) end`. `super`/`ivars` end up as harmless unused keys in
+    the category instance's construction args.
+  - **`categories: [...]`** on an ordinary class bundles the `import` calls
+    that would otherwise follow `new(:class, ...)` by hand — no need to
+    declare the class first and `import` separately.
+  - `new(class, output)` — 2-arg shorthand for `:class`'s 3-arg `new`, empty
+    args (`bootstrap.ex`, coexists with the 3-arg form by arity alone). An
+    `:init` method's head is always the 3-arg `[self, args, new]` shape
+    regardless of which `new` arity the caller used, since `new/2` just
+    delegates to `new/3`.
 - Module docs are first-person ("I am …", "I provide …").
 - **No junk comments.** Don't restate code or narrate the obvious; names and types
   carry meaning. Comment only a non-obvious *why*. Keep docstrings terse.
