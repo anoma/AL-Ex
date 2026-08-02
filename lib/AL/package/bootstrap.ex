@@ -284,28 +284,46 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:number, :factorial, [1, 1])
 
+    # One relational clause, no forward/backward mode split: `n > 1` and
+    # `n <= factorial` are real invariants (the latter sound because
+    # n! >= n for n >= 1), not mode guards — posted while `n` may still be
+    # fully open, so an impossible target (factorial < 1) contradicts here
+    # and fails before `vm_label` ever runs. `vm_label(n)` is the one place
+    # concreteness is actually forced: a no-op if `n` already arrived ground
+    # (ordinary forward calls), otherwise real CLP(FD)-style labeling over
+    # whatever interval propagation narrowed it to. Once labeled, `n` is a
+    # plain ground number for the rest of the clause, same as before.
     defmethod(:number, :factorial, [n, factorial]) do
-      vm_ground(n)
       n > 1
+      factorial >= 1
+      n <= factorial
+      vm_label(n)
 
       vm_is(n1, n - 1)
       factorial(n1, factorial1)
       vm_is(factorial, factorial1 * n)
     end
 
-    defmethod(:number, :factorial, [n, factorial]) do
-      not [vm_ground(n)]
-      vm_ground(factorial)
-      between(factorial, 1, factorial, n)
-      factorial(n, factorial)
-    end
-
     defmethod(:number, :fibonacci, [1, 1])
     defmethod(:number, :fibonacci, [2, 1])
 
+    # Same collapse as factorial. `n <= x` isn't sound for fibonacci (e.g.
+    # fibonacci(3) = 2 < 3), but `n <= x + 1` is: `n - fibonacci(n)` peaks at
+    # exactly 1, hit at n = 2, 3, 4, and fibonacci(n) >= n for every n >= 5,
+    # so it's both correct and tight (not just a safe-looking margin). Only
+    # derivable once `x` itself is ground, though — in forward mode `x` is
+    # exactly what's still unknown here, so `vm_is(bound, x + 1)` fails
+    # (gracefully, same as `is/2` always has) and the omitted `:else` lets
+    # that be a genuine no-op: no bound to add, not a reason to fail.
     defmethod(:number, :fibonacci, [n, x]) do
-      vm_ground(n)
       n > 2
+      x >= 1
+
+      implies do
+        [vm_is(bound, x + 1)] -> n <= bound
+      end
+
+      vm_label(n)
 
       vm_is(n1, n - 1)
       vm_is(n2, n - 2)

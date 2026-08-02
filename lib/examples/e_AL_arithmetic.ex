@@ -120,12 +120,21 @@ defmodule Examples.ALArithmetic do
     :ok
   end
 
-  example comparison_fails_gracefully_on_unbound() do
-    # like `is/2`, an unbound operand fails the goal (backtracks) rather than
-    # crashing the transaction
-    {:aborted, _} =
+  # Unlike `is/2`, an unbound operand no longer fails the goal outright — it
+  # narrows the var's interval instead (see e_AL_bounds.ex) and leaves it
+  # open rather than crashing the transaction. A non-numeric ground operand
+  # still has no interval to narrow, so it's still a hard failure.
+  example comparison_narrows_rather_than_failing_on_unbound() do
+    {:atomic, {bindings, _}} =
       run branch: :examples do
         y > 1
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$y"))
+
+    {:aborted, _} =
+      run branch: :examples do
+        y > :not_a_number
       end
 
     :ok

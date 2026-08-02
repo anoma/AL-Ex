@@ -117,3 +117,7 @@ end
 defmodule ALGuardedTest do
   use ExExample.ExUnit, for: Examples.ALGuarded
 end
+
+defmodule ALBoundsTest do
+  use ExExample.ExUnit, for: Examples.ALBounds
+end

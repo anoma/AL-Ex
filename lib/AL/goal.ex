@@ -36,6 +36,7 @@ defmodule AL.Goal do
           | Dif.t()
           | Compare.t()
           | Ground.t()
+          | Label.t()
           | IsVar.t()
           | Freeze.t()
           | Functor.t()
@@ -215,6 +216,14 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Ground do
+    field(:term, AL.Var.t())
+  end
+
+  # CLP(FD)-style labeling: a no-op if `term` is already ground, otherwise
+  # enumerates its propagated `bounds` interval as ordinary backtracking
+  # alternatives — the one place bounds consistency (`Compare`) actually
+  # forces concreteness, since narrowing alone never does.
+  typedstruct enforce: true, module: Label do
     field(:term, AL.Var.t())
   end
 

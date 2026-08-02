@@ -78,6 +78,63 @@ defmodule Examples.ALNumbers do
     :ok
   end
 
+  # 7 isn't any n!, so exhausting `label(n)`'s [2, 7] domain (via `between`)
+  # has to fail cleanly rather than loop or crash.
+  example factorial_backward_search_fails_for_non_factorial_target() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        factorial(n, 7)
+      end
+
+    :ok
+  end
+
+  # `n <= factorial` is sound but loose (n's real value is O(log F)`, not
+  # O(F)) — `label(n)` delegating to `between/4` (an ordinary lazy recursive
+  # AL method, not an eager `fan_out`) is what keeps this fast despite that:
+  # each candidate is only computed if backtracking actually reaches it, so
+  # only 10 candidates ever run even though the domain is ~3.6M wide.
+  example factorial_backward_search_stays_fast_on_a_wide_domain() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        factorial(n, 3_628_800)
+      end
+
+    assert Map.get(bindings, :"$n") == 10
+    :ok
+  end
+
+  example fibonacci_forward_mode() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        fibonacci(8, out)
+      end
+
+    assert Map.get(bindings, :"$out") == 21
+    :ok
+  end
+
+  example fibonacci_backward_search() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        fibonacci(n, 21)
+      end
+
+    assert Map.get(bindings, :"$n") == 8
+    :ok
+  end
+
+  # 4 never appears in 1, 1, 2, 3, 5, 8, ... — same exhausted-domain failure
+  # shape as factorial's non-target case, exercised on the sibling search.
+  example fibonacci_backward_search_fails_for_non_fibonacci_target() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        fibonacci(n, 4)
+      end
+
+    :ok
+  end
+
   # `stays_open`'s clause head (`[self]`, no other args) unifies against an
   # unbound receiver without ever grounding it — so `x` comes out of the value
   # leg still an open var. Reaching that leg at all still means something: `x`

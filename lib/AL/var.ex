@@ -9,9 +9,17 @@ defmodule AL.Var.ConstraintSet do
   and this struct are already unambiguous by pattern match.
   """
 
-  @type t() :: %__MODULE__{dif: [{AL.Var.t(), AL.Var.t()}], isa: MapSet.t(atom())}
+  @type bound() :: integer() | nil
+  @type propagator() :: {AL.Var.t(), AL.Var.t(), boolean()}
 
-  defstruct dif: [], isa: MapSet.new()
+  @type t() :: %__MODULE__{
+          dif: [{AL.Var.t(), AL.Var.t()}],
+          isa: MapSet.t(atom()),
+          bounds: {bound(), bound()},
+          props: [propagator()]
+        }
+
+  defstruct dif: [], isa: MapSet.new(), bounds: {nil, nil}, props: []
 end
 
 defmodule AL.Var do
@@ -226,7 +234,14 @@ defmodule AL.Var do
   end
 
   defp merge_constraint_sets(a, b),
-    do: %ConstraintSet{dif: a.dif ++ b.dif, isa: MapSet.union(a.isa, b.isa)}
+    do: %ConstraintSet{
+      dif: a.dif ++ b.dif,
+      isa: MapSet.union(a.isa, b.isa),
+      bounds: merge_bounds(a.bounds, b.bounds),
+      props: a.props ++ b.props
+    }
+
+  defp merge_bounds({lo1, hi1}, {lo2, hi2}), do: {tighten_max(lo1, lo2), tighten_min(hi1, hi2)}
 
   # The constraint store: a var's constraints are their own entry kind, not
   # smuggled into an ordinary bound value — that's what `ConstraintSet` being
@@ -274,6 +289,13 @@ defmodule AL.Var do
     end
   end
 
+  # A var's already-propagated `{lo, hi}` interval, if any — the read side
+  # `Goal.Label` uses to know what to enumerate. Ground terms have a trivial
+  # singleton domain of themselves, same convention `domain/2` already uses
+  # internally for narrowing.
+  @spec bounds_of(store(), t()) :: {ConstraintSet.bound(), ConstraintSet.bound()}
+  def bounds_of(store, term), do: domain(store, term)
+
   defp violated?(nil, _store, _term, _branch), do: false
   defp violated?(set, store, term, branch), do: find_violation(set, store, term, branch) != nil
 
@@ -284,20 +306,28 @@ defmodule AL.Var do
   # overwrites the var's entry (a bound term and a `ConstraintSet` are the
   # same store slot), so callers always pass the set they already found
   # separately, not re-derive it from `store` here.
-  defp find_violation(%ConstraintSet{dif: dif, isa: isa}, store, term, branch) do
+  defp find_violation(%ConstraintSet{dif: dif, isa: isa, bounds: bounds}, store, term, branch) do
     case Enum.find(dif, fn {a, b} -> subst(a, store) == subst(b, store) end) do
       {a, b} ->
         {:dif, a, b}
 
       nil ->
         if not var?(term) do
-          case Enum.find(isa, &(not isa?(term, &1, branch))) do
-            nil -> nil
-            class -> {:isa, class}
+          cond do
+            not in_bounds?(bounds, term) ->
+              {:bounds, bounds}
+
+            (class = Enum.find(isa, &(not isa?(term, &1, branch)))) != nil ->
+              {:isa, class}
+
+            true ->
+              nil
           end
         end
     end
   end
+
+  defp in_bounds?({lo, hi}, term), do: (lo == nil or term >= lo) and (hi == nil or term <= hi)
 
   # `def`, not `defp` — this is also the diagnostic entry point
   # (`diagnose_unify_failure/4`) uses to explain *why* a bind was refused, not
@@ -365,6 +395,156 @@ defmodule AL.Var do
     do:
       class in AL.Dispatch.MethodOrder.method_scopes(term, branch) or
         AL.Dispatch.value_member?(term, class, branch)
+
+  # `< > <= >=` bounds consistency: each comparison narrows an interval
+  # instead of only ever failing on a non-ground side. Registered as a
+  # `propagator()` on every var either side mentions (same attach-to-every-
+  # mentioned-var pattern as `dif`), then run through a worklist fixpoint —
+  # narrowing one var re-queues every *other* propagator parked on it, so a
+  # chain (`x < y, y < 5`) tightens `x` transitively without `x < y` ever
+  # being re-evaluated by hand. A var whose bounds collapse to a single
+  # value is bound outright through the same `bind/4` every other constraint
+  # goes through (so a `dif`/`isa` obligation on it still gets checked), not
+  # left as a width-1 interval no other goal would recognise as ground.
+  @spec add_compare(store(), atom(), t(), t(), AL.Branch.t()) :: store() | nil
+  def add_compare(store, op, a, b, branch) do
+    {lo, hi, strict} = normalize(op, a, b)
+
+    store
+    |> register_propagator(lo, hi, strict)
+    |> run_fixpoint(MapSet.new([{lo, hi, strict}]), branch)
+  end
+
+  defp normalize(:<, a, b), do: {a, b, true}
+  defp normalize(:<=, a, b), do: {a, b, false}
+  defp normalize(:>, a, b), do: {b, a, true}
+  defp normalize(:>=, a, b), do: {b, a, false}
+
+  defp register_propagator(store, lo, hi, strict) do
+    prop = {lo, hi, strict}
+
+    [lo, hi]
+    |> Enum.map(&deref(store, &1))
+    |> Enum.filter(&var?/1)
+    |> Enum.uniq()
+    |> Enum.reduce(store, fn v, acc ->
+      Map.update(acc, v, %ConstraintSet{props: [prop]}, fn
+        %ConstraintSet{} = set -> %{set | props: [prop | set.props]}
+        other -> other
+      end)
+    end)
+  end
+
+  defp run_fixpoint(store, worklist, branch) do
+    case Enum.at(worklist, 0) do
+      nil ->
+        store
+
+      {lo, hi, strict} = t ->
+        rest = MapSet.delete(worklist, t)
+
+        case narrow_pair(store, lo, hi, strict, branch) do
+          nil -> nil
+          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+        end
+    end
+  end
+
+  # `lo <= hi` (or `lo < hi` if `strict`): narrow `hi`'s floor from `lo`'s
+  # floor, and `lo`'s ceiling from `hi`'s ceiling — the two directions an
+  # order constraint propagates in an interval domain.
+  defp narrow_pair(store, lo, hi, strict, branch) do
+    {lo_lo, lo_hi} = domain(store, lo)
+    {hi_lo, hi_hi} = domain(store, hi)
+
+    new_hi_bounds = {tighten_max(hi_lo, bump_up(lo_lo, strict)), hi_hi}
+    new_lo_bounds = {lo_lo, tighten_min(lo_hi, bump_down(hi_hi, strict))}
+
+    with {:ok, store1, hi_props} <- apply_domain(store, hi, new_hi_bounds, branch),
+         {:ok, store2, lo_props} <- apply_domain(store1, lo, new_lo_bounds, branch) do
+      {store2, MapSet.new(hi_props ++ lo_props)}
+    else
+      :fail -> nil
+    end
+  end
+
+  defp domain(store, term) do
+    case deref(store, term) do
+      n when is_number(n) ->
+        {n, n}
+
+      v ->
+        case constraint_set(store, v) do
+          %ConstraintSet{bounds: b} -> b
+          _ -> {nil, nil}
+        end
+    end
+  end
+
+  # Applies a freshly-narrowed `{lo, hi}` to one side of a comparison —
+  # `term` may already be ground (just a feasibility check, no store change),
+  # still open (record the tighter interval), or have just collapsed to a
+  # single value (bind it, and hand back the propagators that *were* parked
+  # on it before binding erased its `ConstraintSet`, so the caller's worklist
+  # still visits them with the now-ground value).
+  defp apply_domain(store, term, {new_lo, new_hi}, branch) do
+    if new_lo != nil and new_hi != nil and new_lo > new_hi do
+      :fail
+    else
+      case deref(store, term) do
+        n when is_number(n) ->
+          if in_bounds?({new_lo, new_hi}, n), do: {:ok, store, []}, else: :fail
+
+        v ->
+          old_bounds = domain(store, v)
+          props = props_of(store, v)
+
+          cond do
+            {new_lo, new_hi} == old_bounds ->
+              {:ok, store, []}
+
+            new_lo != nil and new_lo == new_hi ->
+              case bind(store, v, new_lo, branch) do
+                nil -> :fail
+                new_store -> {:ok, new_store, props}
+              end
+
+            true ->
+              {:ok, set_bounds(store, v, {new_lo, new_hi}), props}
+          end
+      end
+    end
+  end
+
+  defp props_of(store, v) do
+    case constraint_set(store, v) do
+      %ConstraintSet{props: props} -> props
+      _ -> []
+    end
+  end
+
+  defp set_bounds(store, v, bounds) do
+    Map.update(store, v, %ConstraintSet{bounds: bounds}, fn
+      %ConstraintSet{} = set -> %{set | bounds: bounds}
+      other -> other
+    end)
+  end
+
+  defp bump_up(nil, _strict), do: nil
+  defp bump_up(n, true), do: n + 1
+  defp bump_up(n, false), do: n
+
+  defp bump_down(nil, _strict), do: nil
+  defp bump_down(n, true), do: n - 1
+  defp bump_down(n, false), do: n
+
+  defp tighten_max(nil, x), do: x
+  defp tighten_max(x, nil), do: x
+  defp tighten_max(a, b), do: max(a, b)
+
+  defp tighten_min(nil, x), do: x
+  defp tighten_min(x, nil), do: x
+  defp tighten_min(a, b), do: min(a, b)
 
   @spec occurs?(variable(), t(), store()) :: boolean()
   def occurs?(var, term, store) do

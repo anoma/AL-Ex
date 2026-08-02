@@ -476,9 +476,19 @@ that scan just to trace it. Example: `trace_shows_dispatch_legs` in
   implies do
     [cond_goals] -> then_goals
     [more_goals] -> body      # extra clauses read as `else if`, nesting in the else
-    :else -> else_goals       # optional; omitting it means an empty (failing) else
+    :else -> else_goals       # optional; omitting it splices an *empty* goal list
   end
   ```
+  **Omitting `:else` is a vacuous success, not a failure** — `AL.ControlFlow`'s
+  `Implies` splices `otherwise` as-is, and `continue/1` treats a choicepoint with
+  `goals == []` as a solved goal (nothing left to run), same as any other
+  emptied-out goal list. If every `->` condition fails and there's no explicit
+  `:else`, the whole `implies` still *succeeds*, leaving whatever vars the
+  `then` branches would have bound untouched — surprising the first time,
+  since "no branch matched" reads like it should fail. Write `:else -> fail`
+  explicitly whenever "nothing matched" is meant to be a failure (bootstrap.ex's
+  `factorial_search`/`fibonacci_search` are the reference example — this bit
+  the first version of both).
   It lowers (`AL.Lowering.build_implies/1`) to nested `{:implies, cond, then, else}`. Branch
   bodies are `do`-block clauses (newline-separated), so it side-steps the comma
   gotcha. A `->` clause can't have an empty body — for an empty then-branch put the
@@ -541,19 +551,69 @@ diff/merge and valid-time queries are unbuilt.
 
 ## Known gaps
 
-- **No real arithmetic constraint propagation.** `Compare`/`vm_is` are forward-only
-  (both operands must already be ground) — `factorial`'s backward clause works
-  around this with a `between`-based generate-and-test, not real domain
-  propagation. A `#<`/`#>`-style CLP(FD) mechanism (park a propagator when a
-  side is unbound, narrow bounds, check once both are ground — same shape as
-  `dif`/`isa` in `AL.Var`, but with an actual domain instead of a single
-  equality/membership check) is the real fix, and is what backward-mode
-  fibonacci genuinely needs. Alternative/complementary approach never built:
-  represent numbers as bit-lists (LSB-first, miniKanren's `pluso`/`*o` style)
-  so unification can extend them one bit at a time the way `[H|T]` does for
-  lists — `+ - * / **` are `@oapply_primitives` that skip `dispatch`/`send`
-  entirely today, so this would be a real `:number`/`:bits` behaviour with its
-  own recursive clauses, coexisting with (not replacing) native-integer `is`.
+- **Arithmetic bounds consistency landed for `< > <= >=`** — no separate
+  `#<`-style dialect; the same operators do double duty. Both sides ground
+  (via `interp_is/2`, so compound expressions like `2 + 3 <= 5` still work) is
+  the original ground-only check; a side that derefs to a bare open var
+  narrows an interval instead of failing (`AL.Var.add_compare/5`), the same
+  `ConstraintSet` slot `dif`/`isa` already live in (`bounds :: {lo, hi}`, `nil`
+  = unbounded each side) with its own `props` list of parked propagators.
+  Narrowing one var re-queues every *other* propagator parked on it — a
+  worklist fixpoint (`AL.Var.run_fixpoint/3`), not a one-shot check — so a
+  chain (`x < y, y < 5`) tightens `x` transitively. A var whose bounds
+  collapse to a single value is bound outright through the existing `bind/4`
+  (so a `dif`/`isa` obligation on it is still checked), not left as a width-1
+  interval nothing else would recognise as ground. A comparison against a
+  non-numeric ground atom (`y > :not_a_number`) still hard-fails — only a
+  number-or-open-var pair has an interval to narrow; a *ground* compound
+  expression (`x < 5 + 1`) resolves fine on either side (each side prefers
+  its own `interp_is` result before falling back to a bare deref), but a
+  compound expression with an open var still buried inside it after
+  `interp_is` (e.g. `n - 1` with `n` open) has no interval to narrow either
+  and still hard-fails, same as `is/2` always has.
+
+  **`vm_label/1`** (`Goal.Label`) is the companion CLP(FD)-labeling
+  primitive this makes possible: a no-op on an already-ground term, a hard
+  fail if the domain isn't bounded on both sides (nothing finite to
+  enumerate), otherwise it enumerates a still-open var's propagated
+  `{lo, hi}` (via `AL.Var.bounds_of/2`) — but by *splicing a `between/4`
+  send* (`:object`'s own existing recursive method), not `AL.fan_out/3`.
+  `fan_out` builds every alternative eagerly (`Enum.map` over the whole
+  range immediately), fine for a handful of candidates but catastrophic for
+  a wide domain; `between` is an ordinary recursive AL method, so — same as
+  any other recursive dispatch — each next candidate only gets computed if
+  backtracking actually reaches that clause. This matters in practice, not
+  just in theory: `factorial`'s `n <= factorial` bound is sound but loose
+  (n is really O(log F)), so `factorial(n, 3628800)` labels over a ~3.6M-wide
+  domain — `fan_out` would try to eagerly materialize all of it; delegating
+  to `between` finds `n = 10` in ~10ms, only ever computing the candidates
+  backtracking actually visits.
+
+  `factorial`/`fibonacci` (`bootstrap.ex`) collapse to **one relational
+  clause each** on top of this — no `vm_ground(n)`/`not [vm_ground(n)]` mode
+  split: the inequalities are real invariants (`n <= factorial`, sound
+  because `n! >= n`), posted while `n` may still be fully open, then
+  `vm_label(n)` is the single point concreteness gets forced either way.
+  Forward calls hit it already-ground (no-op); backward calls hit it with a
+  propagated interval to search. `fibonacci` needs one extra wrinkle: its
+  sound bound is `n <= x + 1`, but `x` is exactly what's unknown in forward
+  mode, so that one derivation is wrapped in `implies` and deliberately
+  relies on the omitted-`:else`-is-vacuous-success behaviour (see below) —
+  no bound to add is fine, not a reason to fail. Standalone propagator
+  examples in `e_AL_bounds.ex`; see [[al-bounds-consistency]] for the full
+  design history, including a real bug hit along the way (`implies`'s
+  omitted `:else` is a vacuous *success*, not a failure — see this doc's
+  `implies` section, and note fibonacci's bound derivation above
+  deliberately *relies* on that same behaviour once it was understood).
+  Compound arithmetic bounds (real interval arithmetic through `+ - * /`,
+  narrowing a var buried inside an expression tree rather than just
+  resolving a fully-ground expression) is still unbuilt. Alternative/complementary
+  approach never built: represent numbers as bit-lists (LSB-first,
+  miniKanren's `pluso`/`*o` style) so unification can extend them one bit at a
+  time the way `[H|T]` does for lists — `+ - * / **` are `@oapply_primitives`
+  that skip `dispatch`/`send` entirely today, so this would be a real
+  `:number`/`:bits` behaviour with its own recursive clauses, coexisting with
+  (not replacing) native-integer `is`.
 - **The dispatch legs are converging toward one domain-constraint
   mechanism — mechanically unified, semantically still in progress.** Every
   leg answers the same question — "self is unbound; what's its domain of

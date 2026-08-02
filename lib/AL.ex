@@ -699,19 +699,45 @@ defmodule AL do
     end
   end
 
-  # Prolog `< > <= >=`: numeric compare via `interp_is/2`; unbound/non-numeric or a
-  # false comparison fails (same contract as `is/2`).
+  # Prolog `< > <= >=`, generalized to bounds consistency: both sides ground
+  # (via `interp_is/2`, so compound arithmetic like `2 + 3 <= 5` still works)
+  # compares directly, same contract as `is/2`. Otherwise, each side
+  # independently prefers its `interp_is` value when that succeeded (so a
+  # ground compound expression like `x + 1`, x bound, still resolves to a
+  # plain number here too — not just on the both-ground fast path above) and
+  # falls back to a bare deref otherwise, to catch a still-open var. A
+  # compound expression with an open var buried inside it (`interp_is` fails
+  # *and* the raw term isn't itself a var) is out of scope for propagation
+  # and still just fails, same as before.
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     store = state.active_choicepoint.store
 
-    with x when is_number(x) <- interp_is(a, store),
-         y when is_number(y) <- interp_is(b, store),
-         true <- compare(op, x, y) do
-      state
-    else
-      _ -> backtrack(state)
+    case {interp_is(a, store), interp_is(b, store)} do
+      {x, y} when is_number(x) and is_number(y) ->
+        if compare(op, x, y), do: state, else: backtrack(state)
+
+      {ia, ib} ->
+        ra = resolved_side(ia, a, store)
+        rb = resolved_side(ib, b, store)
+
+        if bound_side?(ra) and bound_side?(rb) do
+          case AL.Var.add_compare(store, op, ra, rb, state.branch) do
+            nil -> backtrack(state)
+            new_store -> put_bindings(state, new_store, [a, b])
+          end
+        else
+          backtrack(state)
+        end
     end
   end
+
+  defp resolved_side(computed, _raw, _store) when is_number(computed), do: computed
+  defp resolved_side(_error, raw, store), do: AL.Var.deref(store, raw)
+
+  # A comparison only ever propagates between a number and/or a still-open
+  # var — a non-numeric ground atom (or a compound expression `interp_is`
+  # couldn't evaluate) has no interval to narrow and stays a hard failure.
+  defp bound_side?(x), do: AL.Var.var?(x) or is_number(x)
 
   # freeze/2: the goals run now if the variable is bound, and park on
   # it otherwise; whoever binds it wakes them in place.
@@ -732,6 +758,38 @@ defmodule AL do
       state
     else
       backtrack(state)
+    end
+  end
+
+  # CLP(FD) labeling: a ground term is a no-op (propagation alone never
+  # determines a value from an interval, so this is the one place a
+  # `Compare`-narrowed-but-still-open var actually becomes concrete). Fails
+  # on a domain that isn't bounded on both sides — nothing finite to
+  # enumerate — rather than looping. Delegates to `:object`'s own `between/4`
+  # rather than `fan_out` — `fan_out` builds *every* alternative eagerly
+  # (`Enum.map` over the whole range right here), which is fine for a small
+  # handful of candidates but catastrophic for a wide one (`factorial(n,
+  # 3628800)`'s `n <= factorial` bound alone is ~3.6M candidates); `between`
+  # is an ordinary recursive AL method, so each next candidate only gets
+  # computed if backtracking actually reaches that clause, same as any other
+  # recursive dispatch — genuinely lazy, not just lazily *reported*.
+  def interp(%Goal.Label{term: term}, state) do
+    store = store(state)
+
+    case AL.Var.deref(store, term) do
+      n when is_number(n) ->
+        state
+
+      v ->
+        case AL.Var.bounds_of(store, v) do
+          {lo, hi} when is_integer(lo) and is_integer(hi) ->
+            goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
+            choice = state.active_choicepoint
+            %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, [goal])}}
+
+          _ ->
+            backtrack(state)
+        end
     end
   end
 
