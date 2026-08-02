@@ -67,15 +67,21 @@ defmodule AL.Command do
     :ok
   end
 
-  @doc "The on-disk directory Mnesia stores this node's schema/tables in — the single source of truth `mix al.reset` also reads, so the two can't drift apart."
+  @doc """
+  The on-disk directory Mnesia stores this node's schema/tables in — the
+  single source of truth `setup/0` and `mix al.reset` both read, so they
+  can't drift apart. Configurable via `config :al, :mnesia_dir` (falls back
+  to `.mnesiastore/` in the host's cwd) so two concurrent nodes — a live dev
+  session and a test run, say — can point at fully separate stores.
+  """
   @spec mnesia_dir() :: String.t()
-  def mnesia_dir(), do: ".mnesiastore/"
+  def mnesia_dir(), do: Application.get_env(:al, :mnesia_dir, ".mnesiastore/")
 
   @doc """
   Initialise the event log, or re-use the one on disc.
   """
   def setup() do
-    :ok = Application.put_env(:mnesia, :dir, String.to_charlist(mnesia_dir()))
+    :ok = Application.put_env(:mnesia, :dir, to_charlist(mnesia_dir()))
 
     case :mnesia.create_schema([node()]) do
       :ok -> :ok
