@@ -33,8 +33,8 @@ defmodule AL do
     field(:reductions, non_neg_integer(), default: 0)
   end
 
-  # Stack Limit
-  @max_reductions 200_000
+  # Stack limit. reductions = goals interpreted so far.
+  @max_reductions 2_000_000
 
   defmacro __using__(_opts) do
     quote do
@@ -75,19 +75,14 @@ defmodule AL do
   end
 
   @doc """
-  Top-level entry: run a program (a list of `AL.Goal.t()`s) in a Mnesia transaction,
-  returning `{:atomic, {output_vars, state}}` or `{:aborted, reason}`. The `AL.Goal`
-  structs and the `interp/2` clauses are the per-goal reference; two non-obvious
-  points they rely on:
+  Runs a goal list in a Mnesia transaction. Returns
+  `{:atomic, {output_vars, state}}` or `{:aborted, reason}`.
 
-  - `oapply` expands a method head into its body *bidirectionally* — head vars bound
-    while the body runs flow back to the caller (a continuation resumes it).
-  - `cut` is a Prolog-style commit pruning choicepoints in the call scope, not a
-    Mnesia transaction commit.
+  - `oapply`: bidirectional — head-var bindings from the body flow back to caller.
+  - `cut`: prunes choicepoints in call scope, not a Mnesia commit.
 
-  With `heap: words` the derivation runs in its own capped process and
-  only the bindings return, never my state: state shares structure in
-  the heap, and copying it out as a message flattens the sharing.
+  `heap: words` runs in a capped process, returns bindings only (state shares
+  heap structure; copying it out as a message would flatten it):
 
       AL.eval(goals, nil, branch, heap: 256_000_000)
   """
@@ -158,11 +153,8 @@ defmodule AL do
     end)
   end
 
-  # A query var (`y`) can end up unified with an internal freshened clause var
-  # (e.g. `concat`'s `fh_N`) — the user never typed the internal name, so it must
-  # never surface, not directly and not nested inside another output var's value.
-  # `canonical_names` maps each such internal representative back to whichever
-  # observable var it's aliased to, so every output var displays it the same way.
+  # canonical_names: internal freshened var (e.g. concat's fh_N) -> the
+  # observable var it's aliased to. Internal names must never surface.
   defp format_output_vars(input_vars, store) do
     sorted_vars = Enum.sort(input_vars)
 
@@ -172,17 +164,14 @@ defmodule AL do
         if AL.Var.var?(resolved), do: Map.put_new(acc, resolved, variable), else: acc
       end)
 
-    # A var with no observable-var alias is purely internal (e.g. a stored
-    # clause's own parameter name, freshened) — the caller never typed it and it
-    # means nothing to them. Prolog shows these as anonymous, opaque vars
-    # (`_G123`); give each a stable `_N` label instead of leaking the clause's
-    # source-level name, reusing the same label everywhere it recurs in this
-    # result so aliasing between two such vars stays visible.
+    # No alias = purely internal var: label `_N` (Prolog-style opaque),
+    # stable/reused so aliasing between two of them stays visible.
     {display_names, _n} =
       Enum.reduce(sorted_vars, {canonical_names, 0}, fn variable, {names, n} ->
         variable
         |> AL.Var.subst(store)
         |> AL.Var.find_vars()
+        |> MapSet.delete(:"$_")
         |> Enum.sort()
         |> Enum.reduce({names, n}, fn leaf, {names, n} ->
           if Map.has_key?(names, leaf) do
@@ -306,11 +295,8 @@ defmodule AL do
 
   defp store(state), do: state.active_choicepoint.store
 
-  # The common case at almost every call site below: unify against `state`'s
-  # own current store/branch, nothing else. `def`, not `defp` — `AL.Relations`/
-  # `AL.Dispatch` use this too, so `branch` threading (needed for `isa` — see
-  # `AL.Var.bind/4`) stays invisible at the call site instead of every caller
-  # re-spelling `store(state), state.branch`.
+  # def not defp: AL.Relations/AL.Dispatch use this too (branch threading for
+  # isa, see AL.Var.bind/4, stays invisible at call sites).
   @spec unify(t(), AL.Var.t(), AL.Var.t()) :: AL.Var.store() | nil
   def unify(state, x, y), do: AL.Var.unify(x, y, store(state), state.branch)
 
@@ -376,9 +362,8 @@ defmodule AL do
     end
   end
 
-  # Branch over `alts`, each mapped to a bindings map by `to_bindings`: the first is
-  # the current path, the rest wait on the stack for backtracking; empty => fail.
-  # `def`, not `defp` — `AL.Relations` builds every relational read goal on this.
+  # alts -> choicepoints via to_bindings; first = current path, empty = fail.
+  # def not defp: AL.Relations builds every read goal on this.
   def fan_out(state, alts, to_bindings) do
     base = state.active_choicepoint
 
@@ -605,6 +590,9 @@ defmodule AL do
            state.branch
          ) do
       {:ok, solutions} ->
+        # Per solution: resolve template against that solution's own
+        # bindings, then freshen any still-open vars so two solutions'
+        # leftovers can't collide/alias in the collected list.
         collected =
           Enum.map(solutions, fn store ->
             template |> AL.Var.subst(store) |> standardize_apart()
@@ -653,11 +641,8 @@ defmodule AL do
     end
   end
 
-  # An ordinary `dif`/`isa` violation looks identical to a structural
-  # mismatch in the trace alone — the next goal just isn't there either way.
-  # `diagnose_unify_failure/5` re-derives *which* constraint fired (or `nil`,
-  # for an ordinary mismatch it doesn't try to explain — see its own doc) so
-  # `format_failure` can name it instead of just "goal failed".
+  # dif/isa violation vs plain mismatch: identical in the trace. diagnose_unify_failure/5
+  # re-derives which constraint fired (nil if none) for format_failure.
   def interp(%Goal.Unify{a: a, b: b}, state) do
     result = unify(state, a, b)
     state = record_constraint_violation(state, result, a, b)
@@ -675,13 +660,8 @@ defmodule AL do
     end
   end
 
-  # Prolog `dif/2`: disequality that's never satisfied by binding a var (unlike
-  # `\+`/`Not`, which would just commit to whatever's true right now). Already
-  # provably equal/unequal → resolve immediately, no state kept. Otherwise still
-  # undetermined (either side has vars) → park it on every var either side
-  # mentions in the constraint store; `AL.Var.bind/4` rechecks it each time one
-  # of those vars is bound, so this constraint survives exactly as long as its
-  # choicepoint does, backtracked away the same way an ordinary binding is.
+  # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
+  # AL.Var.bind/4 rechecks on each future bind.
   def interp(%Goal.Dif{a: a, b: b}, state) do
     store = store(state)
     a1 = AL.Var.subst(a, store)
@@ -699,16 +679,7 @@ defmodule AL do
     end
   end
 
-  # Prolog `< > <= >=`, generalized to bounds consistency: both sides ground
-  # (via `interp_is/2`, so compound arithmetic like `2 + 3 <= 5` still works)
-  # compares directly, same contract as `is/2`. Otherwise, each side
-  # independently prefers its `interp_is` value when that succeeded (so a
-  # ground compound expression like `x + 1`, x bound, still resolves to a
-  # plain number here too — not just on the both-ground fast path above) and
-  # falls back to a bare deref otherwise, to catch a still-open var. A
-  # compound expression with an open var buried inside it (`interp_is` fails
-  # *and* the raw term isn't itself a var) is out of scope for propagation
-  # and still just fails, same as before.
+  # `< > <= >=` rely on constraint intervals (see AL.Var.Bounds).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     store = state.active_choicepoint.store
 
@@ -716,28 +687,13 @@ defmodule AL do
       {x, y} when is_number(x) and is_number(y) ->
         if compare(op, x, y), do: state, else: backtrack(state)
 
-      {ia, ib} ->
-        ra = resolved_side(ia, a, store)
-        rb = resolved_side(ib, b, store)
-
-        if bound_side?(ra) and bound_side?(rb) do
-          case AL.Var.add_compare(store, op, ra, rb, state.branch) do
-            nil -> backtrack(state)
-            new_store -> put_bindings(state, new_store, [a, b])
-          end
-        else
-          backtrack(state)
+      _ ->
+        case AL.Var.Bounds.add_compare(store, op, a, b, state.branch) do
+          nil -> backtrack(state)
+          new_store -> put_bindings(state, new_store, [a, b])
         end
     end
   end
-
-  defp resolved_side(computed, _raw, _store) when is_number(computed), do: computed
-  defp resolved_side(_error, raw, store), do: AL.Var.deref(store, raw)
-
-  # A comparison only ever propagates between a number and/or a still-open
-  # var — a non-numeric ground atom (or a compound expression `interp_is`
-  # couldn't evaluate) has no interval to narrow and stays a hard failure.
-  defp bound_side?(x), do: AL.Var.var?(x) or is_number(x)
 
   # freeze/2: the goals run now if the variable is bound, and park on
   # it otherwise; whoever binds it wakes them in place.
@@ -761,18 +717,9 @@ defmodule AL do
     end
   end
 
-  # CLP(FD) labeling: a ground term is a no-op (propagation alone never
-  # determines a value from an interval, so this is the one place a
-  # `Compare`-narrowed-but-still-open var actually becomes concrete). Fails
-  # on a domain that isn't bounded on both sides — nothing finite to
-  # enumerate — rather than looping. Delegates to `:object`'s own `between/4`
-  # rather than `fan_out` — `fan_out` builds *every* alternative eagerly
-  # (`Enum.map` over the whole range right here), which is fine for a small
-  # handful of candidates but catastrophic for a wide one (`factorial(n,
-  # 3628800)`'s `n <= factorial` bound alone is ~3.6M candidates); `between`
-  # is an ordinary recursive AL method, so each next candidate only gets
-  # computed if backtracking actually reaches that clause, same as any other
-  # recursive dispatch — genuinely lazy, not just lazily *reported*.
+  # CLP(FD) labeling. Ground = no-op. Unbounded domain = fail. Delegates to
+  # :object's between/4, not fan_out (eager — catastrophic on a wide domain,
+  # e.g. factorial's ~3.6M-wide bound); between is lazy, ordinary recursion.
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
 
@@ -781,7 +728,7 @@ defmodule AL do
         state
 
       v ->
-        case AL.Var.bounds_of(store, v) do
+        case AL.Var.Bounds.bounds_of(store, v) do
           {lo, hi} when is_integer(lo) and is_integer(hi) ->
             goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
             choice = state.active_choicepoint
@@ -812,12 +759,8 @@ defmodule AL do
     end
   end
 
-  # Prolog's `call/1`: `term`'s top-level shape must be resolved (see
-  # `resolved?/1`) — its first arg is treated as the receiver and its functor
-  # as the selector. `call_term({foo, self, x})` re-dispatches as
-  # `send(self, :foo, [x])`, the same [self | args] shape every `oapply`
-  # clause head already uses; `self`/`x` can still be unbound, `Send`'s own
-  # dispatch handles that.
+  # Prolog call/1. term's shape must be resolved; first arg = receiver, functor
+  # = selector — call_term({foo, self, x}) re-dispatches as send(self, :foo, [x]).
   def interp(%Goal.CallTerm{term: term}, state) do
     resolved_term = AL.Var.subst(term, store(state))
 
@@ -876,16 +819,14 @@ defmodule AL do
   def interp(%Goal.SendQuery{object: self, method: method, args: args}, state),
     do: AL.Dispatch.dispatch(self, method, args, state, &backtrack/1)
 
-  # The "value" dispatch leg: try `class`'s own clauses directly against `self`
-  # (possibly still unbound) via ordinary unification, no construction/retrieval.
-  # Only sound for classes whose clause heads are the complete, authoritative spec
-  # of a valid instance (see al-bidirectional-structural-dispatch memory) — not for
-  # ephemeral/durable classes.
+  # Value dispatch leg: unify self directly against class's own clauses, no
+  # construction/retrieval. Sound only when clause heads fully spec an
+  # instance — not ephemeral/durable classes.
   def interp(%Goal.SendAsValue{class: class, object: self, method: method, args: args}, state),
     do: AL.Dispatch.do_send_as(class, self, method, args, state, &backtrack/1)
 
-  # The durable leg's placeholder finally being entered: only now does the real
-  # `scan_class`/per-object choicepoint expansion happen (see dispatch.ex).
+  # Durable leg's placeholder entered: real scan_class/choicepoint expansion
+  # happens now (see dispatch.ex).
   def interp(%Goal.DurableCandidates{object: self, method: method, args: args}, state),
     do: AL.Dispatch.force_durable_candidates(self, method, args, state)
 
@@ -920,10 +861,8 @@ defmodule AL do
     |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
   end
 
-  # `oapply`'s own dispatch always asks the same question — every clause for a
-  # ground method_id — so it's cacheable the same way providers/3 is. A var
-  # method_id (an open query over clauses) isn't a stable cache key, so that
-  # case skips the cache entirely.
+  # Ground method_id: cacheable, same as providers/3. Var method_id (open
+  # query) isn't a stable key — skips the cache.
   def cached_scan_clauses(method_id_pattern, branch) do
     if AL.Var.var?(method_id_pattern) do
       scan_clauses(method_id_pattern, :"$seq", :"$head", :"$body", branch)
@@ -973,13 +912,13 @@ defmodule AL do
 
   defp observable_vars(goal), do: AL.Var.find_vars(goal)
 
-  # Prolog `copy_term`: rename a solution's unbound vars fresh so internal scope
-  # names don't leak out. `def`, not `defp` — `AL.Relations`'s `GetOapply` clause
-  # uses this too, for the same reason `Findall` does here.
+  # Prolog copy_term: rename unbound vars fresh, no internal scope names leak.
+  # def not defp: GetOapply uses this too.
   def standardize_apart(term) do
     rename =
       term
       |> AL.Var.find_vars()
+      |> MapSet.delete(:"$_")
       |> Map.new(fn v -> {v, AL.Var.fresh(:"$_G", "#{fresh_scope()}")} end)
 
     AL.Var.subst(term, rename)
@@ -1005,18 +944,9 @@ defmodule AL do
     do_collect(continue(initial), [])
   end
 
-  # `store == nil` means "no more solutions from here" for two genuinely
-  # different reasons that used to be indistinguishable: the search space is
-  # truly exhausted, or this sub-search's own (independent) reduction budget
-  # ran out mid-search — e.g. an open-ended generative goal (`elem(x, e)` with
-  # `x` unbound) inside a `findall`/`not`, which can legitimately have no
-  # natural end. Silently treating the latter as the former made `findall`
-  # return a partial list indistinguishable from a complete one — arbitrary
-  # (however many solutions fit in the reduction budget before it was cut off,
-  # not a real count) and unsignalled. `resource_limited?/1` reads the same
-  # diagnostic `record_resource_limit` stamps on the ceiling hit, which is
-  # guaranteed to be the freshest entry (that ceiling check is the first thing
-  # `continue/1` does, before any other diagnostic could be added).
+  # store == nil: exhausted, or this sub-search's own reduction budget ran
+  # out (e.g. open-ended findall/not) — resource_limited?/1 distinguishes,
+  # reading the freshest diagnostic.
   defp do_collect(state, acc) do
     cond do
       state.active_choicepoint.store != nil ->
@@ -1038,11 +968,8 @@ defmodule AL do
   defp resource_limited?(state),
     do: match?([{:resource_limit_exceeded, _} | _], state.diagnostics)
 
-  # Mirrors the top-level ceiling hit in `continue/1`: stamp the diagnostic on
-  # the *outer* state and mark its active choicepoint exhausted, so ordinary
-  # backtracking takes over — other outer alternatives still get a chance, but
-  # if none exist, `eval` aborts with the same legible resource-limit reason
-  # the top-level ceiling produces, instead of a silent partial result.
+  # Mirrors continue/1's ceiling hit: stamp diagnostic, exhaust active
+  # choicepoint, ordinary backtracking takes over.
   defp resource_limit_abort(state) do
     %AL{
       record_resource_limit(state)
@@ -1050,13 +977,28 @@ defmodule AL do
     }
   end
 
-  # A legible failure reason: an unhandled `does_not_understand` wins, else the last
-  # goal reached. Trace stripped of `:backtrack` noise. `state` rides along whole —
-  # the trace is a curated summary, but a live debugging session often needs the
-  # actual store/choicepoint_stack the last attempt left behind, not
-  # just the sequence of goals that led to it. Stripped back out for the
-  # heap-capped `eval` path (see `shed/1`) — it exists specifically to bound what
-  # crosses the process boundary.
+  # Failure reason: unhandled DNU wins, else last goal reached. Trace strips
+  # :backtrack noise. Full state rides along (stripped for heap-capped eval,
+  # see shed/1).
+  #
+  # Resource-limit clause: trace/stack can be huge (one entry per reduction).
+  # Only builds the last 20 steps shown; drops choicepoint_stack (not
+  # inspectable at that scale anyway).
+  defp format_failure(%AL{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state) do
+    raw_tail = last_raw_steps(state.trace, 20)
+    steps = Enum.map(raw_tail, &AL.Trace.pretty/1)
+
+    %{
+      message:
+        "Resource limit exceeded after #{limit} reduction steps — likely infinite " <>
+          "backtracking (a generative send with no termination guarantee).",
+      reason: {:resource_limit_exceeded, limit},
+      failed_on: List.last(steps),
+      trace: steps,
+      state: %AL{state | trace: raw_tail, choicepoint_stack: []}
+    }
+  end
+
   defp format_failure(state) do
     steps =
       state.trace
@@ -1065,17 +1007,6 @@ defmodule AL do
       |> Enum.map(&AL.Trace.pretty/1)
 
     case Enum.uniq(state.diagnostics) do
-      [{:resource_limit_exceeded, limit} | _] ->
-        %{
-          message:
-            "Resource limit exceeded after #{limit} reduction steps — likely infinite " <>
-              "backtracking (a generative send with no termination guarantee).",
-          reason: {:resource_limit_exceeded, limit},
-          failed_on: List.last(steps),
-          trace: Enum.take(steps, -20),
-          state: state
-        }
-
       [{receiver, selector, arity, suggestions} | _] ->
         receiver = AL.Trace.pretty(receiver)
 
@@ -1114,6 +1045,16 @@ defmodule AL do
           state: state
         }
     end
+  end
+
+  # trace is prepended (most-recent-first) — tail is already at the head, no
+  # need to touch the rest. count*5 pads against interspersed :backtrack markers.
+  defp last_raw_steps(trace, count) do
+    trace
+    |> Enum.take(count * 5)
+    |> Enum.reject(&(&1 == :backtrack))
+    |> Enum.take(count)
+    |> Enum.reverse()
   end
 
   defp constraint_violation_message({:dif, a, b}) do

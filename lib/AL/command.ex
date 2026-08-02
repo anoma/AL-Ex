@@ -144,9 +144,13 @@ defmodule AL.Command do
   end
 
   @doc """
-  Read all commands up to and including time t
+  Read all commands up to and including time t. `t` may be negative (e.g.
+  `-1`, "nothing before the log even starts") — `AL.Branch.fork/2`'s literal
+  `at:` values pass through here after being converted from a count to this
+  inclusive cutoff, and a genuinely empty prefix needs a cutoff below the
+  first real command (`t = 0`).
   """
-  @spec commands_until(non_neg_integer(), AL.Branch.t()) :: [command()]
+  @spec commands_until(integer(), AL.Branch.t()) :: [command()]
   def commands_until(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
@@ -165,7 +169,7 @@ defmodule AL.Command do
   end
 
   @doc "Copy `src`'s commands up to and including time `t` into `dst`'s log."
-  @spec copy_prefix(AL.Branch.t(), AL.Branch.t(), non_neg_integer()) ::
+  @spec copy_prefix(AL.Branch.t(), AL.Branch.t(), integer()) ::
           {:atomic, any()} | {:aborted, term()}
   def copy_prefix(src, dst, t) do
     :mnesia.transaction(fn ->

@@ -183,4 +183,99 @@ defmodule Examples.ALBounds do
 
     :ok
   end
+
+  # `open_var_narrows_against_a_ground_expression` above covers a *ground*
+  # compound expression on the non-var side. This is the other half: the var
+  # is buried *inside* the compound expression itself (`x + 1`, not just `x`)
+  # — `interp_is` can't evaluate it (x is open) and the raw term isn't a var
+  # either, so narrowing has to see through the `+` to reach `x`. This is
+  # exactly the shape `fibonacci`'s backward search needs (`n <= x + 1`
+  # posted while `x` may still be open) without a separate mode-probe.
+  example open_var_narrows_through_a_compound_expression() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        x + 1 <= 5
+        unify(x, 4)
+      end
+
+    assert Map.get(bindings, :"$x") == 4
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        x + 1 <= 5
+        unify(x, 5)
+      end
+
+    :ok
+  end
+
+  example open_var_narrows_through_subtraction_either_side() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        5 <= x - 1
+        unify(x, 6)
+      end
+
+    assert Map.get(bindings, :"$x") == 6
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        5 <= x - 1
+        unify(x, 5)
+      end
+
+    :ok
+  end
+
+  # `*` by a ground scalar scales the var's own domain, same inversion
+  # mechanism as `+`/`-` — this isn't special-cased to the fibonacci `+ 1`
+  # shape, it's a real affine expression engine.
+  example open_var_narrows_through_multiplication_by_a_ground_scalar() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        2 * x <= 7
+        unify(x, 3)
+      end
+
+    assert Map.get(bindings, :"$x") == 3
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        2 * x <= 7
+        unify(x, 4)
+      end
+
+    :ok
+  end
+
+  # Upper and lower bounds on the *same* compound expression collapse `x`
+  # outright, same as `singleton_bounds_auto_bind` for a bare var.
+  example singleton_bounds_auto_bind_through_compound_expression() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        x + 1 <= 5
+        x + 1 >= 5
+      end
+
+    assert Map.get(bindings, :"$x") == 4
+    :ok
+  end
+
+  # `/ ** rem` have no closed-form inversion here (and two distinct vars
+  # multiplied together isn't affine-in-one-var either) — a comparison
+  # touching one still just hard-fails, same as before compound expressions
+  # were supported at all.
+  example unsupported_compound_shapes_still_hard_fail() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        x / 2 <= 5
+      end
+
+    {:aborted, _trace2} =
+      run branch: :examples do
+        x * y <= 10
+      end
+
+    :ok
+  end
 end

@@ -57,16 +57,14 @@ defmodule AL.Trace do
   # lazy (`AL.Dispatch.force_durable_candidates/4`) precisely so it doesn't
   # pay for a scan a cheaper leg might make unnecessary — reporting a count
   # here would force that scan just to trace it, undoing the laziness.
-  @spec dispatch(term(), term(), [atom()], [atom()]) :: :ok
-  def dispatch(self, method, ephemeral_classes, value_classes) do
+  @spec dispatch(term(), term(), [atom()]) :: :ok
+  def dispatch(self, method, value_classes) do
     IO.puts([
       "Dispatch: ",
       inspect(pretty(self)),
       " <- ",
       inspect(pretty(method)),
-      " (legs: ephemeral=",
-      inspect(ephemeral_classes),
-      ", value=",
+      " (legs: value=",
       inspect(value_classes),
       ", durable=deferred)"
     ])

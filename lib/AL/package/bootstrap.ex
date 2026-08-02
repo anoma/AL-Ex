@@ -187,28 +187,15 @@ defmodule AL.Package.Bootstrap do
       set_slot(self, category, seq)
     end
 
-    new(:category, %{name: :ephemeral}, _)
-
-    defmethod(:ephemeral, :allocate, [self, _, self]) do
-      # vm_print(["allocate", self])
-    end
-
-    defmethod(:ephemeral, :get_slot, [self, k, v]) do
-      vm_map_get(self, k, v)
-    end
-
     # `import` stamps the `:value` slot every importer needs to be discovered
-    # by `AL.Dispatch.generative_descendants/2`. Opting in means the class's
-    # own clause heads are the complete, authoritative spec of an instance
-    # (see al-clp-for-objects memory) — but unlike the old design, `new` still
-    # runs the ordinary `construct`/`allocate`/`init` pipeline (so
-    # `:number`'s `.new` is a real, resolvable send chain, not skipped): it's
-    # `init` that discards the constructed scaffold. `output` below is never
-    # unified with `self`, so it comes back exactly as open as it started —
-    # this is what lets `AL.Dispatch.generative_candidate/6` route
-    # `:ephemeral` and `:value` through one identical call to `new`, no
-    # strategy branch, with a class's own clause heads then unifying directly
-    # against that still-open result via `send_as_value`. `:number` is the
+    # by `AL.Dispatch.generative_descendants/2`. `new` still runs the
+    # ordinary `construct`/`allocate`/`init` pipeline; `allocate` here is
+    # identity (skips :object's durable registration) and `init` is a no-op,
+    # so `output` is never unified with `self` — self comes back exactly as
+    # open as it started, ready for a class's own clauses to unify against
+    # directly via `send_as_value`, or to run whatever relational
+    # construction logic that class defines (`:mapset`'s `list_to_elems`,
+    # `:interval`'s bounds check) with self still open. `:number` is the
     # first importer.
     new(:category, %{name: :value}, _)
 
@@ -239,7 +226,18 @@ defmodule AL.Package.Bootstrap do
         import(name, category)
       end
 
+      # A method here overriding one a category import copied on needs its
+      # own fresh id, not another clause appended onto the shared one every
+      # other importer's own override would also land on (see mapset.ex).
+      # Retract whatever `name` currently resolves this selector to first —
+      # empty/no-op if nothing does.
       forall([member(methods, [method_name, head, body])]) do
+        findall(id, [vm_method(name, method_name, id)], existing_ids)
+
+        forall([member(existing_ids, id)]) do
+          vm_retract_method(name, method_name, id)
+        end
+
         defmethod(name, method_name, head, body)
       end
     end
@@ -284,19 +282,23 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:number, :factorial, [1, 1])
 
-    # One relational clause, no forward/backward mode split: `n > 1` and
-    # `n <= factorial` are real invariants (the latter sound because
-    # n! >= n for n >= 1), not mode guards — posted while `n` may still be
-    # fully open, so an impossible target (factorial < 1) contradicts here
-    # and fails before `vm_label` ever runs. `vm_label(n)` is the one place
-    # concreteness is actually forced: a no-op if `n` already arrived ground
-    # (ordinary forward calls), otherwise real CLP(FD)-style labeling over
-    # whatever interval propagation narrowed it to. Once labeled, `n` is a
-    # plain ground number for the rest of the clause, same as before.
+    # One relational clause, no forward/backward mode split. Two phases,
+    # cost-asymmetric even though they read the same:
+    #   1. `n > 1` / `n <= factorial` (sound since n! >= n for n >= 1) —
+    #      narrow-or-check, O(1) either way, no choicepoints, regardless of
+    #      how wide `n`'s domain ends up (an impossible target, factorial <
+    #      1, contradicts right here and fails before phase 2 ever runs).
+    #   2. `vm_label(n)` — the one place `n`'s domain actually collapses
+    #      into real backtracking choicepoints, one per remaining candidate
+    #      (lazily, via `between`). A no-op if `n` was already ground
+    #      (ordinary forward calls never pay for this at all); real search
+    #      only when `n` arrived open. Everything after this line sees a
+    #      plain ground `n`, same as before this clause existed.
     defmethod(:number, :factorial, [n, factorial]) do
       n > 1
       factorial >= 1
       n <= factorial
+
       vm_label(n)
 
       vm_is(n1, n - 1)
@@ -307,21 +309,19 @@ defmodule AL.Package.Bootstrap do
     defmethod(:number, :fibonacci, [1, 1])
     defmethod(:number, :fibonacci, [2, 1])
 
-    # Same collapse as factorial. `n <= x` isn't sound for fibonacci (e.g.
-    # fibonacci(3) = 2 < 3), but `n <= x + 1` is: `n - fibonacci(n)` peaks at
-    # exactly 1, hit at n = 2, 3, 4, and fibonacci(n) >= n for every n >= 5,
-    # so it's both correct and tight (not just a safe-looking margin). Only
-    # derivable once `x` itself is ground, though — in forward mode `x` is
-    # exactly what's still unknown here, so `vm_is(bound, x + 1)` fails
-    # (gracefully, same as `is/2` always has) and the omitted `:else` lets
-    # that be a genuine no-op: no bound to add, not a reason to fail.
+    # Same two-phase shape as factorial (see comment above), plus one more
+    # wrinkle: `n <= x` isn't sound for fibonacci (fibonacci(3) = 2 < 3), but
+    # `n <= x + 1` is (`n - fibonacci(n)` peaks at exactly 1, at n = 2, 3, 4;
+    # fibonacci(n) >= n for every n >= 5). Posting it directly works
+    # regardless of mode: compound-bounds propagation (`AL.Var.Bounds`)
+    # narrows `n` from `x + 1` even while `x` is still open (forward mode,
+    # computing `x`) the same way it narrows from an already-ground `x`
+    # (backward search) — no mode probe needed to tell the two apart, unlike
+    # the earlier version of this clause (see al-bounds-consistency memory).
     defmethod(:number, :fibonacci, [n, x]) do
       n > 2
       x >= 1
-
-      implies do
-        [vm_is(bound, x + 1)] -> n <= bound
-      end
+      n <= x + 1
 
       vm_label(n)
 
@@ -416,8 +416,6 @@ defmodule AL.Package.Bootstrap do
       reverse(xs, sx)
       hd(sx, last)
     end
-
-    import(:map, :ephemeral)
 
     defmethod(:list, :map, [[], _func, []]) do
     end

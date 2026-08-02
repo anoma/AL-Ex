@@ -11,7 +11,18 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:class, %{name: :greeter, super: :object}, _)
-        import(:greeter, :ephemeral)
+        import(:greeter, :value)
+
+        # Retract :value's imported :init pointer before overriding, or this
+        # lands as another clause on :value's shared method object.
+        findall(id, [vm_method(:greeter, :init, id)], greeter_init_ids)
+
+        forall([member(greeter_init_ids, id)]) do
+          vm_retract_method(:greeter, :init, id)
+        end
+
+        defmethod(:greeter, :init, [self, _, self]) do
+        end
 
         defmethod(:greeter, :greet, [self, name]) do
         end
@@ -28,7 +39,19 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, result}} =
       run branch: :examples do
         new(:class, %{name: :point, super: :object}, new_point_class)
-        import(new_point_class, :ephemeral)
+        import(new_point_class, :value)
+
+        # Retract :value's imported :init pointer before overriding, or this
+        # lands as another clause on :value's shared method object.
+        findall(id, [vm_method(new_point_class, :init, id)], point_init_ids)
+
+        forall([member(point_init_ids, id)]) do
+          vm_retract_method(new_point_class, :init, id)
+        end
+
+        defmethod(new_point_class, :init, [self, _, self]) do
+        end
+
         new(new_point_class, _, new_point_object)
         cut
       end

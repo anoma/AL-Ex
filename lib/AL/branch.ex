@@ -63,14 +63,39 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Ensure a fresh `:examples` branch forked from `:main`. Examples run here so they
-  don't pollute `:main`, while still accreting across one another within a session.
-  Rebuilt on each boot so it tracks `:main`'s current bootstrap.
+  Fork an empty branch and install all packages fresh from currently
+  compiled source — decoupled from `:main`'s own install state, which is
+  sticky by name (`AL.Package.ensure/2`) and can be stale across sessions.
+  Non-destructive; doesn't touch `:main` or HEAD. Use to verify a source
+  change without `mix al.reset`.
+
+      branch = AL.Branch.fork_fresh()
+      run branch: branch.id do ... end
+      AL.Branch.discard(branch)
+  """
+  @spec fork_fresh(t(), atom() | nil) :: t()
+  def fork_fresh(from \\ main(), id \\ nil) do
+    branch_id = id || :"fork_#{System.unique_integer([:positive])}"
+    branch = create_fork(%__MODULE__{id: branch_id}, 0, from)
+    original_head = head()
+
+    checkout(branch)
+    AL.Package.install_all(Application.get_env(:al, :packages, []))
+    checkout(original_head)
+
+    branch
+  end
+
+  @doc """
+  Ensure a fresh `:examples` branch on currently compiled source (via
+  `fork_fresh/2`), not whatever `:main` happens to have installed —
+  otherwise `mix test` can silently pass/fail against a stale `defmethod`
+  body. Examples accrete across one another within a session.
   """
   @spec ensure_examples() :: t()
   def ensure_examples() do
     if %__MODULE__{id: :examples} in list(), do: discard(%__MODULE__{id: :examples})
-    create_fork(%__MODULE__{id: :examples}, :tip, %__MODULE__{id: :main})
+    fork_fresh(main(), :examples)
   end
 
   defp create_fork(branch, at, from) do
@@ -157,9 +182,19 @@ defmodule AL.Branch do
     end)
   end
 
-  @spec at_time(non_neg_integer() | :tip, AL.Branch.t()) :: non_neg_integer() | :absent
+  # `AL.Command.system_time/1` is a *count* — "the next command will be
+  # written at this value," so a log with N commands (indices 0..N-1) has
+  # `system_time() == N`. `at: :tip` already relies on that count meaning
+  # directly. `commands_until/2` is inclusive (`ct =< t`), so passing a
+  # literal `at: N` straight through as if it were a raw timestamp cutoff
+  # copied N + 1 commands, not N — `at: 0` (meant to be a genuinely empty
+  # fork) actually copied command `t = 0`, the very first one ever logged.
+  # Subtracting 1 here converts the count into the inclusive cutoff
+  # `commands_until` actually wants, so `at: N` copies exactly the first N
+  # commands (0 copies none).
+  @spec at_time(non_neg_integer() | :tip, AL.Branch.t()) :: integer() | :absent
   defp at_time(branch, :tip), do: AL.Command.system_time(branch)
-  defp at_time(_branch, t) when is_integer(t), do: t
+  defp at_time(_branch, t) when is_integer(t), do: t - 1
 
   @spec stored_head() :: t()
   defp stored_head() do

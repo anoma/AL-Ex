@@ -19,7 +19,7 @@ defmodule Examples.ALBranch do
         vm_set_class(^sym, :object)
       end
 
-    past = AL.Branch.fork(before - 1)
+    past = AL.Branch.fork(before)
     tip = AL.Branch.fork()
 
     # the tip fork sees :tt_thing; the past fork does not

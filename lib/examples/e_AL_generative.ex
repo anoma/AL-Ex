@@ -101,11 +101,10 @@ defmodule Examples.ALGenerative do
     refute Atom.to_string(a) =~ "second"
   end
 
-  # The value leg isn't `:number`-specific — any class opts in the same way
-  # `:ephemeral` classes opt into ephemeral candidate generation: `import(class,
-  # :value)`. `:letter_chain` has no durable instances at all, so this only
-  # passes if dispatch tries its clauses directly against the unbound receiver
-  # — `durable_candidates` would find nothing to offer.
+  # The value leg isn't `:number`-specific — any class opts in the same way:
+  # `import(class, :value)`. `:letter_chain` has no durable instances at
+  # all, so this only passes if dispatch tries its clauses directly against
+  # the unbound receiver — `durable_candidates` would find nothing to offer.
   example custom_class_opts_into_value_dispatch() do
     {:atomic, _} =
       run branch: :examples do
@@ -209,15 +208,11 @@ defmodule Examples.ALGenerative do
     assert AL.Var.var?(Map.get(bindings, :"$y"))
   end
 
-  # `:value` classes now construct through the same real `new` pipeline as
-  # `:ephemeral` (`construct`/`allocate`/`init`) instead of skipping
-  # construction entirely — `:value`'s own `init` just discards the
-  # constructed scaffold, so the result comes back exactly as open as it
-  # started. Before this, a value class had no `allocate`/`init` of its own
-  # at all, so calling `new` on one directly fell through to `:object`'s
-  # default allocate and would have durably registered a fake instance —
-  # calling `new` on a value class now stays purely symbolic, no durable
-  # object created.
+  # `:value` classes construct through the real `new` pipeline
+  # (`construct`/`allocate`/`init`), not a skipped/special-cased one —
+  # `:value`'s own `init` just discards the constructed scaffold, so the
+  # result comes back exactly as open as it started. `new` on a value class
+  # stays purely symbolic; no durable object gets created.
   example new_on_a_value_class_stays_open_not_durable() do
     {:atomic, _} =
       run branch: :examples do
@@ -245,11 +240,25 @@ defmodule Examples.ALGenerative do
     {:atomic, _} =
       run branch: :examples do
         new(:class, %{name: :square, super: :object, ivars: [:side]}, _)
-        import(:square, :ephemeral)
+        import(:square, :value)
+
+        # Retract :value's imported :init pointer before overriding — a
+        # direct defmethod for a selector only reachable via import reuses
+        # that shared method id instead of minting a fresh one (see
+        # mapset.ex).
+        findall(id, [vm_method(:square, :init, id)], square_init_ids)
+
+        forall([member(square_init_ids, id)]) do
+          vm_retract_method(:square, :init, id)
+        end
 
         defmethod(:square, :init, [self, args, new]) do
           vm_map_get(args, :side, side)
           unify(new, %{class: :square, side: side})
+        end
+
+        defmethod(:square, :get_slot, [self, k, v]) do
+          vm_map_get(self, k, v)
         end
 
         defmethod(:square, :area, [self, result]) do

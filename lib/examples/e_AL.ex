@@ -47,7 +47,18 @@ defmodule Examples.AL do
     {:atomic, {b, _}} =
       run branch: :examples do
         new(:class, %{name: :gadget, super: :object}, _)
-        import(:gadget, :ephemeral)
+        import(:gadget, :value)
+
+        # Retract :value's imported :init pointer before overriding, or this
+        # lands as another clause on :value's shared method object.
+        findall(id, [vm_method(:gadget, :init, id)], gadget_init_ids)
+
+        forall([member(gadget_init_ids, id)]) do
+          vm_retract_method(:gadget, :init, id)
+        end
+
+        defmethod(:gadget, :init, [self, _, self]) do
+        end
 
         defmethod(:gadget, :poke, [self, x]) do
           unify(x, :ok)
@@ -294,6 +305,20 @@ defmodule Examples.AL do
 
     # both solutions come back as ground lists, not [:"$s", :"$s"]
     assert Enum.sort(pairs) == [[:alpha, :alpha], [:beta, :beta]]
+    :ok
+  end
+
+  # Regression: `standardize_apart` treated `:"$_"` as an ordinary var, so two
+  # wildcards in one solution's template collapsed onto the same fresh var —
+  # a false alias. `:"$_"` never binds (unify/4's first clause), so it must
+  # never be renamed either.
+  example findall_wildcard_placeholders_stay_independent() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall([1, :"$_", :"$_"], [1 == 1], result)
+      end
+
+    assert Map.get(bindings, :"$result") == [[1, :"$_", :"$_"]]
     :ok
   end
 

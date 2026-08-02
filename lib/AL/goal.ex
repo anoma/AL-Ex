@@ -420,7 +420,21 @@ defmodule AL.Goal do
 
   def from_stored(other), do: other
 
-  defp load(:term, v), do: v
+  # Mirrors store(:term, v)'s recursive to_stored on the write side — a
+  # :term value can itself nest a stored goal tuple (arithmetic inside an
+  # is/oapply arg list), so this has to recurse the same way, not just
+  # convert the top tag.
+  defp load(:term, v), do: term_from_stored(v)
   defp load(:goals, gs) when is_list(gs), do: Enum.map(gs, &from_stored/1)
   defp load(:goals, other), do: other
+
+  defp term_from_stored(t) when is_tuple(t) do
+    case Map.fetch(@from_form, elem(t, 0)) do
+      {:ok, _} -> from_stored(t)
+      :error -> t |> Tuple.to_list() |> Enum.map(&term_from_stored/1) |> List.to_tuple()
+    end
+  end
+
+  defp term_from_stored([h | t]), do: [term_from_stored(h) | term_from_stored(t)]
+  defp term_from_stored(other), do: other
 end

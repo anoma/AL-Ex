@@ -23,7 +23,7 @@ defmodule Examples.ALDefclass do
         defclass :widget,
           super: :object,
           ivars: [:label],
-          categories: [:widget_behaviour, :ephemeral] do
+          categories: [:widget_behaviour, :value] do
           defmethod(:init, [self, args, new]) do
             vm_map_get(args, :label, l)
             unify(new, %{class: :widget, label: l})

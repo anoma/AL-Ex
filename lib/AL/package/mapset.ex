@@ -3,7 +3,22 @@ defmodule AL.Package.Mapset do
 
   defpackage :mapset, version: 1, deps: [:bootstrap] do
     new(:class, %{name: :mapset, super: :object, ivars: [:elems]}, _)
-    import(:mapset, :ephemeral)
+    import(:mapset, :value)
+
+    defmethod(:mapset, :get_slot, [self, k, v]) do
+      vm_map_get(self, k, v)
+    end
+
+    # `import(:mapset, :value)` copies :value's own `:init` method onto
+    # :mapset by shared id (see AL.Package's `copy_methods`) — a genuine
+    # override needs its own fresh id, not another clause appended to that
+    # shared one (which every other :value importer's own init would also
+    # land on). Retract the inherited pointer first.
+    findall(id, [vm_method(:mapset, :init, id)], mapset_init_ids)
+
+    forall([member(mapset_init_ids, id)]) do
+      vm_retract_method(:mapset, :init, id)
+    end
 
     defmethod(:mapset, :init, [self, args, new]) do
       vm_map_get(args, :elems, list)
