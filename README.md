@@ -17,15 +17,15 @@ AL is a live, ACID, (eventually) bitemporal, relational-object operating system 
 - Urbit
 
 
-The goal of the system is to be the first truly principled object-oriented PROLOG, and the personal computing environment of the future.
-This runtime is the first version of AL, written in Elixir. The irony of the first Erlang interpreter having been written in PROLOG is not lost on us.
+The goal of the system is to merge the ideas of the relational paradigm and of the metaobject protocol, and, as a north star, to be the personal computing environment of the future.
+This runtime is the prototypical version of AL, written in Elixir. The irony of the first Erlang interpreter having been written in PROLOG is not lost on us.
 
 ## Features
 
 - Live Smalltalk-style objects, defined relationally. No more faux-ADTs. Define protocols and their implementations. Mix and match at your leisure. With bidirectional method resolution informed by WAM semantics.
 - Shutdown your system, continue later. All transactions are backed up by an on-disk database, hydrated at startup.
 - ACID transactions ensure your work is safe and easy to reason about.
-- CLP over finite domains, *including* over object IDs
+- CLP over finite domains, *including* over objects, both durable and ephemeral.
 - Git-Like branching behaviour. Fork your system at different points in the system's history.
 
 And to come:
@@ -46,11 +46,100 @@ From IEx, you can run `require AL`.
 
 ## Some Recipes
 
-- Use `examine(:my_object_id_here, info)` in order to get quick information about an object via its ID, such as its class(es!), superclass(es!), methods, and in the case of methods, relevant clauses.
+**Look inside a live object.**
 
-- Have a class import the `value` category through `import(:my_class, :value)` in order to support ephemeral objects that don't get added to the database but that can be generated as structures. 
+```elixir
+run do
+  examine(:object, info)
+end
+```
 
-- Use `mix al.reset --yes` for a quick wipe
+**Extend an inherited method**
+
+```elixir
+run do
+  defclass :animal, super: :object do
+    defmethod(:describe, [self, :i_am_animal]) do
+    end
+  end
+
+  defclass :pet, super: :animal do
+    defmethod(:describe, [self, d]) do
+      call_next_method(self, [parent])
+      unify(d, [:i_am_pet, parent])
+    end
+  end
+
+  new(:pet, rex)
+  describe(rex, result)
+end
+```
+
+**Run a method backwards.**
+
+```elixir
+run do
+  factorial(n, 120)
+end
+```
+
+**Propagate constraints about and between objects**
+
+```elixir
+run do
+  defclass :rectangle, super: :value, ivars: [:width, :height, :perimeter] do
+    defmethod(:init, [self, args, new]) do
+      vm_map_get(args, :width, w)
+      vm_map_get(args, :height, h)
+      vm_map_get(args, :perimeter, p)
+      eq(p, 2 * w + 2 * h)
+      unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
+    end
+
+    defmethod(:get_slot, [self, k, v]) do
+      vm_map_get(self, k, v)
+    end
+
+    defmethod(:area, [self, result]) do
+      get_slot(self, :width, w)
+      get_slot(self, :height, h)
+      vm_is(result, w * h)
+    end
+  end
+
+  new(:rectangle, %{width: w, height: 3, perimeter: 16}, r)
+  area(r, a)
+end
+```
+
+**Infer an object's identity from its class and a slot**
+
+```elixir
+run do
+  defclass :vehicle, super: :object do
+  end
+
+  defclass :car, super: :vehicle do
+  end
+
+  defclass :bicycle, super: :vehicle do
+  end
+
+  defclass :fire_hydrant, super: :object do
+  end
+
+  vm_set_slots(:car, %{color: :red})
+  vm_set_slots(:bicycle, %{color: :blue})
+  vm_set_slots(:fire_hydrant, %{color: :red})
+
+  new(:car, my_car)
+  new(:bicycle, my_bike)
+  new(:fire_hydrant, hydrant)
+
+  vm_class(x, :vehicle)
+  get_slot(x, :color, :red)
+end
+```
 
 ## Working with multiple sessions at once
 
