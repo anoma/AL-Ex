@@ -102,14 +102,13 @@ defmodule Examples.ALGenerative do
   end
 
   # The value leg isn't `:number`-specific — any class opts in the same way:
-  # `import(class, :value)`. `:letter_chain` has no durable instances at
-  # all, so this only passes if dispatch tries its clauses directly against
-  # the unbound receiver — `durable_candidates` would find nothing to offer.
+  # `super: :value`. `:letter_chain` has no durable instances at all, so
+  # this only passes if dispatch tries its clauses directly against the
+  # unbound receiver — `durable_candidates` would find nothing to offer.
   example custom_class_opts_into_value_dispatch() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :letter_chain, super: :object, ivars: []}, _)
-        import(:letter_chain, :value)
+        new(:class, %{name: :letter_chain, super: :value, ivars: []}, _)
 
         defmethod(:letter_chain, :next, [:a, :b]) do
         end
@@ -137,8 +136,7 @@ defmodule Examples.ALGenerative do
   example custom_value_class_pins_an_open_receiver_too() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :letter_word, super: :object, ivars: []}, _)
-        import(:letter_word, :value)
+        new(:class, %{name: :letter_word, super: :value, ivars: []}, _)
 
         defmethod(:letter_word, :letter_word_stays_open, [self]) do
         end
@@ -174,8 +172,7 @@ defmodule Examples.ALGenerative do
   example value_clause_body_sees_its_own_isa_constraint() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :letter_chain_reflective, super: :object, ivars: []}, _)
-        import(:letter_chain_reflective, :value)
+        new(:class, %{name: :letter_chain_reflective, super: :value, ivars: []}, _)
 
         defmethod(:letter_chain_reflective, :next, [:a, :b]) do
         end
@@ -216,8 +213,7 @@ defmodule Examples.ALGenerative do
   example new_on_a_value_class_stays_open_not_durable() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :letter_symbol, super: :object, ivars: []}, _)
-        import(:letter_symbol, :value)
+        new(:class, %{name: :letter_symbol, super: :value, ivars: []}, _)
       end
 
     {:atomic, {bindings, _}} =
@@ -239,18 +235,7 @@ defmodule Examples.ALGenerative do
   example squares_compute_area_forward_and_backward() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :square, super: :object, ivars: [:side]}, _)
-        import(:square, :value)
-
-        # Retract :value's imported :init pointer before overriding — a
-        # direct defmethod for a selector only reachable via import reuses
-        # that shared method id instead of minting a fresh one (see
-        # mapset.ex).
-        findall(id, [vm_method(:square, :init, id)], square_init_ids)
-
-        forall([member(square_init_ids, id)]) do
-          vm_retract_method(:square, :init, id)
-        end
+        new(:class, %{name: :square, super: :value, ivars: [:side]}, _)
 
         defmethod(:square, :init, [self, args, new]) do
           vm_map_get(args, :side, side)

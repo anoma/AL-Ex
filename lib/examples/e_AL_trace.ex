@@ -51,8 +51,7 @@ defmodule Examples.ALTrace do
   example trace_shows_dispatch_legs() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :trace_leg_class, super: :object, ivars: []}, _)
-        import(:trace_leg_class, :value)
+        new(:class, %{name: :trace_leg_class, super: :value, ivars: []}, _)
 
         defmethod(:trace_leg_class, :trace_next, [:a, :b]) do
         end

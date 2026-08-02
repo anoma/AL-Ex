@@ -46,16 +46,7 @@ defmodule Examples.AL do
   example does_not_understand_dispatch() do
     {:atomic, {b, _}} =
       run branch: :examples do
-        new(:class, %{name: :gadget, super: :object}, _)
-        import(:gadget, :value)
-
-        # Retract :value's imported :init pointer before overriding, or this
-        # lands as another clause on :value's shared method object.
-        findall(id, [vm_method(:gadget, :init, id)], gadget_init_ids)
-
-        forall([member(gadget_init_ids, id)]) do
-          vm_retract_method(:gadget, :init, id)
-        end
+        new(:class, %{name: :gadget, super: :value}, _)
 
         defmethod(:gadget, :init, [self, _, self]) do
         end

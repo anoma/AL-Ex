@@ -145,32 +145,26 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:class, :new, [self, args, new]) do
+      # class -> construct
       construct(self, construct)
+
+      # construct's inheritance -> allocate
       allocate(construct, args, alloc)
+
+      # construct's inheritance -> init
       init(alloc, args, new)
     end
 
     new(:class, %{name: :category, super: :object, ivars: []}, _)
 
-    # Copies a category's methods onto `self` by shared `method_id` — no
-    # ancestry edge, so this works regardless of `self`'s own `super` chain.
-    # Also records, per category, a monotonic ordinal for *when* `self`
-    # imported it (reusing `vm_fresh_id`, not a new mechanism) — this is what
-    # lets `:ephemeral` be discovered and ordered later purely from `:slots`,
-    # with no separate bookkeeping relation.
+    # Copies a category's methods onto self by shared method_id — no
+    # ancestry edge, works regardless of self's own super chain. Also stamps
+    # a monotonic per-category import ordinal (reuses vm_fresh_id).
     #
-    # `copy_methods` walks `pairs` by direct clause recursion rather than
-    # `forall([member(pairs, ...)])` — `member` is `:list`'s own method
-    # (`:list_member`, defined later in this file), so a `member`-based walk
-    # here would make `:object`'s foundational `:import` depend on bootstrap
-    # ordering: `import(..., :value)` calls that run before `:list`'s
-    # `:member` exists would have that send silently fail (zero solutions),
-    # indistinguishable from `pairs` genuinely being empty. That's exactly
-    # what happened here — masked for as long as `:value` itself had no
-    # methods to copy (`pairs` was always `[]` either way), only surfacing
-    # once `:value` gained real ones. `copy_methods` needs nothing but `:object`
-    # itself, so `import` no longer has any ordering dependency on other
-    # classes' methods being defined yet.
+    # Recurses directly rather than forall([member(pairs, ...)]) — member is
+    # :list's own method (defined later in this file), and a member-based
+    # walk here would make :object's foundational :import depend on bootstrap
+    # ordering.
     defmethod(:object, :copy_methods, [_self, []]) do
     end
 
@@ -187,17 +181,13 @@ defmodule AL.Package.Bootstrap do
       set_slot(self, category, seq)
     end
 
-    # `import` stamps the `:value` slot every importer needs to be discovered
-    # by `AL.Dispatch.generative_descendants/2`. `new` still runs the
-    # ordinary `construct`/`allocate`/`init` pipeline; `allocate` here is
-    # identity (skips :object's durable registration) and `init` is a no-op,
-    # so `output` is never unified with `self` — self comes back exactly as
-    # open as it started, ready for a class's own clauses to unify against
-    # directly via `send_as_value`, or to run whatever relational
-    # construction logic that class defines (`:mapset`'s `list_to_elems`,
-    # `:interval`'s bounds check) with self still open. `:number` is the
-    # first importer.
-    new(:category, %{name: :value}, _)
+    # A real class, not a category import: a value class's own :init override
+    # then gets a fresh method (real inheritance), not another clause on a
+    # shared imported one. allocate = identity (skip :object's durable
+    # registration); init discards the scaffold (output never unified with
+    # self), so self stays exactly as open as it started for a class's own
+    # clauses/relational logic to work with directly.
+    new(:class, %{name: :value, super: :object, ivars: []}, _)
 
     defmethod(:value, :allocate, [self, _, self]) do
     end
@@ -277,8 +267,7 @@ defmodule AL.Package.Bootstrap do
       set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
     end
 
-    new(:class, %{name: :number, super: :object, ivars: []}, _)
-    import(:number, :value)
+    new(:class, %{name: :number, super: :value, ivars: []}, _)
 
     defmethod(:number, :factorial, [1, 1])
 
@@ -334,14 +323,9 @@ defmodule AL.Package.Bootstrap do
       vm_is(x, x1 + x2)
     end
 
-    new(:class, %{name: :list, super: :object, ivars: []}, _)
-    # Every clause below already pattern-matches `self` as `[]`/`[h|t]` —
-    # exactly what the value leg requires (clause heads are the complete,
-    # authoritative spec of an instance) — so list's own structural dispatch
-    # is just the value leg applied to `:list`, not a separate mechanism.
-    # Used to be a hardcoded VM special case in `AL.Dispatch` (predates
-    # `:value` existing as a real opt-in); folded in now that it does.
-    import(:list, :value)
+    new(:class, %{name: :list, super: :value, ivars: []}, _)
+    # Every clause below pattern-matches self as []/[h|t] — the value leg's
+    # own requirement (clause heads are the complete spec of an instance).
 
     defmethod(:list, :hd, [[h | _t], h]) do
     end

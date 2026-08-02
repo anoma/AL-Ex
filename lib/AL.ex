@@ -732,7 +732,11 @@ defmodule AL do
           {lo, hi} when is_integer(lo) and is_integer(hi) ->
             goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
             choice = state.active_choicepoint
-            %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, [goal])}}
+
+            %AL{
+              state
+              | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, [goal])}
+            }
 
           _ ->
             backtrack(state)

@@ -15,16 +15,7 @@ defmodule Examples.ALFailures do
   example unknown_selector_reports_does_not_understand() do
     {:aborted, reason} =
       run branch: :examples do
-        new(:class, %{name: :failgreeter, super: :object}, _)
-        import(:failgreeter, :value)
-
-        # Retract :value's imported :init pointer before overriding, or this
-        # lands as another clause on :value's shared method object.
-        findall(id, [vm_method(:failgreeter, :init, id)], failgreeter_init_ids)
-
-        forall([member(failgreeter_init_ids, id)]) do
-          vm_retract_method(:failgreeter, :init, id)
-        end
+        new(:class, %{name: :failgreeter, super: :value}, _)
 
         defmethod(:failgreeter, :init, [self, _, self]) do
         end
@@ -116,16 +107,7 @@ defmodule Examples.ALFailures do
   example custom_dnu_is_not_reported_as_failure() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :failquiet, super: :object}, _)
-        import(:failquiet, :value)
-
-        # Retract :value's imported :init pointer before overriding, or this
-        # lands as another clause on :value's shared method object.
-        findall(id, [vm_method(:failquiet, :init, id)], failquiet_init_ids)
-
-        forall([member(failquiet_init_ids, id)]) do
-          vm_retract_method(:failquiet, :init, id)
-        end
+        new(:class, %{name: :failquiet, super: :value}, _)
 
         defmethod(:failquiet, :init, [self, _, self]) do
         end

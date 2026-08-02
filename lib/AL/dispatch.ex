@@ -96,8 +96,7 @@ defmodule AL.Dispatch do
   # own new with a fresh var per declared ivar; :value's own init
   # (bootstrap.ex) discards the scaffold, so self stays open for
   # send_as_value to unify against class's own clause heads directly (sound
-  # only when clause heads fully spec an instance — import(class, :value)
-  # opts in).
+  # only when clause heads fully spec an instance — super: :value opts in).
   defp generative_candidate(state, self, method, args, class) do
     goals = AL.splice_goals(state, strategy_goals(state, self, method, args, class))
 
@@ -229,27 +228,15 @@ defmodule AL.Dispatch do
     end
   end
 
-  # Classes that imported :value — flat :slots scan, no super-graph
-  # traversal. import stamps a fresh monotonic id per importer, sorted here
-  # for real declaration order (not undefined bag-scan order).
+  # Classes with :value as direct super. seq is per-object, no cross-class
+  # ordering guarantee.
   defp generative_descendants(branch) do
     AL.ResolutionCache.fetch_generative_descendants(branch, fn ->
       scope = AL.fresh_scope()
 
-      AL.Object.scan_slots(
-        AL.Var.var("category_scan_class_#{scope}"),
-        AL.Var.var("category_scan_slots_#{scope}"),
-        branch
-      )
-      |> Enum.flat_map(fn {:slots, class, slots} ->
-        case is_map(slots) and Map.fetch(slots, :value) do
-          {:ok, id} -> [{class, import_ordinal(id)}]
-          _ -> []
-        end
-      end)
+      AL.Object.scan_super(AL.Var.var("value_scan_class_#{scope}"), :value, branch)
+      |> Enum.map(fn {:super, class, _seq, :value} -> class end)
     end)
-    |> Enum.sort_by(fn {_class, ordinal} -> ordinal end)
-    |> Enum.map(fn {class, _ordinal} -> class end)
   end
 
   # term is provably a class instance: unifies with one of class's own clause
@@ -274,9 +261,6 @@ defmodule AL.Dispatch do
         {:oapply, _id, _seq, [self_pattern | _], _body} <- AL.cached_scan_clauses(id, branch),
         do: self_pattern
   end
-
-  defp import_ordinal(id),
-    do: id |> Atom.to_string() |> String.trim_leading("#") |> String.to_integer()
 
   defp push_choicepoint(state, choicepoint),
     do: %AL{state | choicepoint_stack: [choicepoint | state.choicepoint_stack]}
@@ -392,9 +376,18 @@ defmodule AL.Dispatch do
     end)
   end
 
-  defp resolution_key(self) when is_list(self), do: :list
-  defp resolution_key(self) when is_map(self), do: Map.get(self, :class, :map)
-  defp resolution_key(self) when is_number(self), do: :number
+  # `{:instance, class}`, not the bare class atom — a shape's key (a map's
+  # :class field, or the literal :list/:number for those shapes) can be the
+  # exact same atom a class uses as *its own* receiver during its one-time
+  # construction (:class's `new` calling allocate/init with self = the
+  # class's name atom, for every class including :list and :number
+  # themselves). Method_scopes computes those two cases differently (bare
+  # atom: drops itself, scopes from its own class chain; instance: its own
+  # super chain starting at itself) — sharing a cache key would let
+  # whichever populates first silently answer for both.
+  defp resolution_key(self) when is_list(self), do: {:instance, :list}
+  defp resolution_key(self) when is_map(self), do: {:instance, Map.get(self, :class, :map)}
+  defp resolution_key(self) when is_number(self), do: {:instance, :number}
   defp resolution_key(self), do: self
 
   def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)

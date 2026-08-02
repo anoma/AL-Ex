@@ -135,6 +135,7 @@ defmodule AL.Object do
   @spec retract_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_super(object_pattern, super_pattern, branch \\ AL.Branch.head()) do
     delete_all(:super, scan_super(object_pattern, super_pattern, branch), branch)
+    AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -184,13 +185,11 @@ defmodule AL.Object do
         :mnesia.delete(table(:slots, branch), object, :write)
     end
 
-    AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
   def retract_slots(object, _slots, branch) do
     :mnesia.delete(table(:slots, branch), object, :write)
-    AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -206,6 +205,7 @@ defmodule AL.Object do
   def set_super(object, super, branch \\ AL.Branch.head()) do
     seq = next_super_seq(object, branch)
     :mnesia.write(table(:super, branch), {:super, object, seq, super}, :write)
+    AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -262,13 +262,11 @@ defmodule AL.Object do
       end
 
     :mnesia.write(table(:slots, branch), {:slots, object, Map.merge(existing, new_slots)}, :write)
-    AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
   def set_slots(object, slots, branch) do
     :mnesia.write(table(:slots, branch), {:slots, object, slots}, :write)
-    AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 

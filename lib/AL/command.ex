@@ -82,7 +82,8 @@ defmodule AL.Command do
   """
   @spec mnesia_dir() :: String.t()
   def mnesia_dir(),
-    do: Application.get_env(:al, :mnesia_dir) || System.get_env("AL_MNESIA_DIR") || ".mnesiastore/"
+    do:
+      Application.get_env(:al, :mnesia_dir) || System.get_env("AL_MNESIA_DIR") || ".mnesiastore/"
 
   @doc """
   Initialise the event log, or re-use the one on disc.

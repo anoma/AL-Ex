@@ -2,20 +2,10 @@ defmodule AL.Package.Interval do
   use AL.Package
 
   defpackage :interval, version: 1, deps: [:bootstrap] do
-    new(:class, %{name: :interval, super: :object, ivars: [:lo, :hi]}, _)
-    import(:interval, :value)
+    new(:class, %{name: :interval, super: :value, ivars: [:lo, :hi]}, _)
 
     defmethod(:interval, :get_slot, [self, k, v]) do
       vm_map_get(self, k, v)
-    end
-
-    # See mapset.ex: retract :value's imported :init pointer before
-    # overriding, or this override lands as another clause on :value's
-    # shared method object instead of a fresh one of its own.
-    findall(id, [vm_method(:interval, :init, id)], interval_init_ids)
-
-    forall([member(interval_init_ids, id)]) do
-      vm_retract_method(:interval, :init, id)
     end
 
     # The canonical bottom/contradiction value — `lo: :empty, hi: :empty`,
