@@ -17,11 +17,9 @@ defmodule Examples.ALFailures do
       run branch: :examples do
         new(:class, %{name: :failgreeter, super: :value}, _)
 
-        defmethod(:failgreeter, :init, [self, _, self]) do
-        end
+        defmethod(:failgreeter, :init, [self, _, self])
 
-        defmethod(:failgreeter, :greet, [self, _name]) do
-        end
+        defmethod(:failgreeter, :greet, [self, _name])
 
         new(:failgreeter, _, g)
         greett(g, :world)
@@ -109,11 +107,9 @@ defmodule Examples.ALFailures do
       run branch: :examples do
         new(:class, %{name: :failquiet, super: :value}, _)
 
-        defmethod(:failquiet, :init, [self, _, self]) do
-        end
+        defmethod(:failquiet, :init, [self, _, self])
 
-        defmethod(:failquiet, :does_not_understand, [self, _m, _a]) do
-        end
+        defmethod(:failquiet, :does_not_understand, [self, _m, _a])
 
         new(:failquiet, _, q)
         anything(q, :x)

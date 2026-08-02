@@ -825,7 +825,7 @@ defmodule AL do
 
   # Value dispatch leg: unify self directly against class's own clauses, no
   # construction/retrieval. Sound only when clause heads fully spec an
-  # instance — not ephemeral/durable classes.
+  # instance — not durable classes, which have real identity to retrieve.
   def interp(%Goal.SendAsValue{class: class, object: self, method: method, args: args}, state),
     do: AL.Dispatch.do_send_as(class, self, method, args, state, &backtrack/1)
 

@@ -144,8 +144,7 @@ defmodule Examples.ALNumbers do
   example value_dispatch_pins_an_open_receiver_to_its_class() do
     {:atomic, _} =
       run branch: :examples do
-        defmethod(:number, :stays_open, [self]) do
-        end
+        defmethod(:number, :stays_open, [self])
       end
 
     {:aborted, _trace} =

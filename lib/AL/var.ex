@@ -150,10 +150,11 @@ defmodule AL.Var do
   end
 
   # Binds var to term. Occurs-check refuses cyclic terms; also refuses if it'd
-  # violate a dif/isa on var (add_dif/3, add_isa/3). Sole choke point every
-  # unify passes through (extend/4 -> bind/4, unify/4 -> extend/4 only),
-  # so every bind is constraint-checked here, however deep. def not defp:
-  # AL.Var.Bounds also binds directly through this path.
+  # violate a dif/isa/bounds constraint on var (add_dif/3, add_isa/3,
+  # AL.Var.Bounds). Sole choke point every unify passes through (extend/4 ->
+  # bind/4, unify/4 -> extend/4 only), so every bind is constraint-checked
+  # here, however deep. def not defp: AL.Var.Bounds also binds directly
+  # through this path.
   @spec bind(store(), variable(), t(), AL.Branch.t()) :: store() | nil
   def bind(store, var, term, branch) do
     if occurs?(var, term, store) do
@@ -243,8 +244,8 @@ defmodule AL.Var do
   # A var's already-known class domain, if any — the read side of `add_isa/3`.
   # Lets a query (e.g. `AL.Relations`'s `GetClass` asked for self's class with
   # the class side still open) answer directly from what's already known
-  # instead of falling back to a real scan for a receiver that, for an
-  # ephemeral/value candidate, was never durably classified in the first place.
+  # instead of falling back to a real scan for a receiver that, as a value
+  # candidate, was never durably classified in the first place.
   @spec isa_of(store(), variable()) :: MapSet.t(atom())
   def isa_of(store, var) do
     case constraint_set(store, var) do

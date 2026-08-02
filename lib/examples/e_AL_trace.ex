@@ -53,8 +53,7 @@ defmodule Examples.ALTrace do
       run branch: :examples do
         new(:class, %{name: :trace_leg_class, super: :value, ivars: []}, _)
 
-        defmethod(:trace_leg_class, :trace_next, [:a, :b]) do
-        end
+        defmethod(:trace_leg_class, :trace_next, [:a, :b])
       end
 
     AL.trace(:trace_next)

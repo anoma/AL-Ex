@@ -23,9 +23,7 @@ defmodule AL.Branch do
     %__MODULE__{id: :main}
   end
 
-  @doc """
-  Setup existing branches with their object tables and hydrate
-  """
+  @doc "Create/hydrate object tables for every existing branch."
   @spec setup() :: :ok
   def setup() do
     case :mnesia.create_table(:branch,
@@ -50,9 +48,7 @@ defmodule AL.Branch do
     :ok
   end
 
-  @doc """
-  Fork a command log
-  """
+  @doc "Fork a new branch: its own command log, object projection, and scheduler."
   @spec fork(non_neg_integer() | :tip, t()) :: t()
   def fork(at \\ :tip, from = %__MODULE__{} \\ head()) do
     unless from == main() or from in list() do
@@ -145,18 +141,13 @@ defmodule AL.Branch do
   @spec checkout(AL.Branch.t()) :: :ok
   def checkout(branch), do: set_head(branch)
 
-  @doc """
-  Current checked-out branch
-  """
   @spec head() :: t()
   def head() do
     head = stored_head()
     if head.id == :main or head in list(), do: head, else: main()
   end
 
-  @doc """
-  All forks (not including `:main`).
-  """
+  @doc "All forks (not including `:main`)."
   @spec list() :: [t()]
   def list() do
     {:atomic, children} =
@@ -167,9 +158,7 @@ defmodule AL.Branch do
     Enum.map(children, &%__MODULE__{id: &1})
   end
 
-  @doc """
-  The lineage as `{:branch, parent, child}` edges.
-  """
+  @doc "The lineage as `{:branch, parent, child}` edges."
   @spec branch_graph() :: [{:branch, t(), t()}]
   def branch_graph() do
     {:atomic, edges} =

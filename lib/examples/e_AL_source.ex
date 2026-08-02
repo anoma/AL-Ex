@@ -36,8 +36,7 @@ defmodule Examples.ALSource do
       run branch: branch.id do
         vm_set_class(:scoped, :object)
 
-        defmethod(:scoped, :hi, [_self]) do
-        end
+        defmethod(:scoped, :hi, [_self])
       end
 
     sources = AL.Source.method_sources(:scoped, branch.id)

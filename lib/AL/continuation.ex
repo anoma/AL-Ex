@@ -3,6 +3,7 @@ defmodule AL.Continuation do
   I define the information an AL continuation carries
   goals: Goals still ahead of the continuation
   done: Goals it already ran, newest first
+  scope_pointer: Pointer to the call-depth (for cut markers)
   """
 
   use TypedStruct

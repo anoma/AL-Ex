@@ -36,8 +36,7 @@ defmodule Examples.ALFreeze do
       run branch: :examples do
         vm_set_class(:frozen, :object)
 
-        defmethod(:frozen, :five, [_self, 5]) do
-        end
+        defmethod(:frozen, :five, [_self, 5])
 
         freeze(v, [vm_is(w, v + 1)])
         five(:frozen, v)

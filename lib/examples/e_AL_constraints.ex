@@ -33,8 +33,7 @@ defmodule Examples.ALConstraints do
 
         new(:propagator, %{input_cells: [], output_cell: x}, propagator)
 
-        defmethod(propagator, :constrain, [_self, [], 2]) do
-        end
+        defmethod(propagator, :constrain, [_self, [], 2])
 
         cut
       end

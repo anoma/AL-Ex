@@ -16,8 +16,7 @@ defmodule Examples.ALFreshening do
       run branch: branch.id do
         vm_set_class(:depth, :object)
 
-        defmethod(:depth, :down, [_self, 0]) do
-        end
+        defmethod(:depth, :down, [_self, 0])
 
         defmethod(:depth, :down, [self, n]) do
           n > 0

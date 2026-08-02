@@ -12,11 +12,9 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         new(:class, %{name: :greeter, super: :value}, _)
 
-        defmethod(:greeter, :init, [self, _, self]) do
-        end
+        defmethod(:greeter, :init, [self, _, self])
 
-        defmethod(:greeter, :greet, [self, name]) do
-        end
+        defmethod(:greeter, :greet, [self, name])
 
         new(:greeter, _, instance)
         greet(instance, :world)
@@ -31,8 +29,7 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         new(:class, %{name: :point, super: :value}, new_point_class)
 
-        defmethod(new_point_class, :init, [self, _, self]) do
-        end
+        defmethod(new_point_class, :init, [self, _, self])
 
         new(new_point_class, _, new_point_object)
         cut
@@ -74,11 +71,9 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:multi, :object)
 
-        defmethod(:multi, :pick, [self, :a, :first]) do
-        end
+        defmethod(:multi, :pick, [self, :a, :first])
 
-        defmethod(:multi, :pick, [self, :b, :second]) do
-        end
+        defmethod(:multi, :pick, [self, :b, :second])
       end
 
     # both clauses are reachable on the same method
@@ -143,16 +138,14 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:ping_class, :object)
 
-        defmethod(:ping_class, :ping, [self, :pong]) do
-        end
+        defmethod(:ping_class, :ping, [self, :pong])
 
         vm_set_class(:ping_a, :ping_class)
         vm_set_class(:ping_b, :ping_class)
 
         vm_set_class(:ping_proxy, :object)
 
-        defmethod(:ping_proxy, :does_not_understand, [self, _m, _a]) do
-        end
+        defmethod(:ping_proxy, :does_not_understand, [self, _m, _a])
       end
 
     {:atomic, {b, _}} =
@@ -195,14 +188,11 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:queryable, :object)
 
-        defmethod(:queryable, :alpha, [self, :a]) do
-        end
+        defmethod(:queryable, :alpha, [self, :a])
 
-        defmethod(:queryable, :delta, [self, :a]) do
-        end
+        defmethod(:queryable, :delta, [self, :a])
 
-        defmethod(:queryable, :beta, [self, :b]) do
-        end
+        defmethod(:queryable, :beta, [self, :b])
       end
 
     {:atomic, {b, _}} =
@@ -238,16 +228,14 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:animal, :object)
 
-        defmethod(:animal, :speak, [self, :generic_sound]) do
-        end
+        defmethod(:animal, :speak, [self, :generic_sound])
 
         vm_set_super(:dog, :animal)
         vm_set_class(:rex, :dog)
 
         vm_set_super(:cat, :animal)
 
-        defmethod(:cat, :speak, [self, :meow]) do
-        end
+        defmethod(:cat, :speak, [self, :meow])
 
         vm_set_class(:felix, :cat)
       end
@@ -278,8 +266,7 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:real_pinger_class, :object)
 
-        defmethod(:real_pinger_class, :probe, [self, :hit]) do
-        end
+        defmethod(:real_pinger_class, :probe, [self, :hit])
 
         vm_set_class(:real_pinger, :real_pinger_class)
 
@@ -332,8 +319,7 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:cnm_animal, :object)
 
-        defmethod(:cnm_animal, :describe, [self, :i_am_animal]) do
-        end
+        defmethod(:cnm_animal, :describe, [self, :i_am_animal])
 
         vm_set_super(:cnm_pet, :cnm_animal)
 
@@ -408,13 +394,11 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         vm_set_class(:dsp_deep, :object)
 
-        defmethod(:dsp_deep, :trait, [self, :deep_trait]) do
-        end
+        defmethod(:dsp_deep, :trait, [self, :deep_trait])
 
         vm_set_super(:dsp_branch_a, :dsp_deep)
 
-        defmethod(:dsp_branch_b, :trait, [self, :branch_b_trait]) do
-        end
+        defmethod(:dsp_branch_b, :trait, [self, :branch_b_trait])
 
         vm_set_super(:dsp_leaf, :dsp_branch_a)
         vm_set_super(:dsp_leaf, :dsp_branch_b)
@@ -456,11 +440,9 @@ defmodule Examples.ALObjects do
 
         new(:class, %{name: :mix_super_3, super: :object, ivars: []}, _)
 
-        defmethod(:mix_super_3, :flavour, [self, :lavender]) do
-        end
+        defmethod(:mix_super_3, :flavour, [self, :lavender])
 
-        defmethod(:mix_super_2, :flavour, [self, :chocolate]) do
-        end
+        defmethod(:mix_super_2, :flavour, [self, :chocolate])
 
         new(:class, %{name: :mix_class, super: :mix_super_1, ivars: []}, _)
         vm_set_super(:mix_class, :mix_super_2)
@@ -504,8 +486,7 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         new(:class, %{name: :class_scope_probe, super: :object, ivars: []}, _)
 
-        defmethod(:class_scope_probe, :probe, [self, :hit]) do
-        end
+        defmethod(:class_scope_probe, :probe, [self, :hit])
 
         new(:class_scope_probe, _, instance)
         probe(instance, :hit)
@@ -539,8 +520,7 @@ defmodule Examples.ALObjects do
       run branch: fork.id do
         vm_set_class(:lazy_only_class, :object)
 
-        defmethod(:lazy_only_class, :only_here, [self, :found]) do
-        end
+        defmethod(:lazy_only_class, :only_here, [self, :found])
 
         vm_set_class(:lazy_only_object, :lazy_only_class)
       end
@@ -581,11 +561,9 @@ defmodule Examples.ALObjects do
         vm_set_class(:isa_durable_class_a, :object)
         vm_set_class(:isa_durable_class_b, :object)
 
-        defmethod(:isa_durable_class_a, :isa_durable_probe, [self, self]) do
-        end
+        defmethod(:isa_durable_class_a, :isa_durable_probe, [self, self])
 
-        defmethod(:isa_durable_class_b, :isa_durable_probe, [self, self]) do
-        end
+        defmethod(:isa_durable_class_b, :isa_durable_probe, [self, self])
 
         vm_set_class(:isa_durable_instance_a, :isa_durable_class_a)
         vm_set_class(:isa_durable_instance_b, :isa_durable_class_b)

@@ -71,8 +71,7 @@ defmodule AL.Package.Mapset do
       vm_map_put(self, k, true, new_self)
     end
 
-    defmethod(:list, :list_to_elems, [[], %{}]) do
-    end
+    defmethod(:list, :list_to_elems, [[], %{}])
 
     defmethod(:list, :list_to_elems, [[x | xs], elems]) do
       list_to_elems(xs, rest)

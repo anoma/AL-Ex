@@ -3,11 +3,12 @@ defmodule Examples.ALGenerative do
   I provide examples for AL's generative sends: dispatch with an unbound
   receiver hypothesises candidates so a method can bind it through ordinary
   head unification rather than only searching for an existing durable
-  instance. Structural candidates (`[]`, `[H|T]`) cover lists, the same way
-  Prolog's recursive list clauses generate — and terminate — open lists on
-  backtracking; the value leg (any class that `import`s `:value`, `:number`
-  included) covers classes whose clause heads are the complete, authoritative
-  spec of an instance, tried directly with no construction step at all.
+  instance. Any class with `super: :value` (`:number`/`:list` included)
+  covers classes whose clause heads are the complete, authoritative spec of
+  an instance, tried directly against the unbound receiver with no
+  construction step at all — `[]`/`[H|T]` for lists is just `:list`'s own
+  clause heads, the same way Prolog's recursive list clauses generate and
+  terminate open lists on backtracking.
   """
 
   use ExExample
@@ -110,11 +111,9 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         new(:class, %{name: :letter_chain, super: :value, ivars: []}, _)
 
-        defmethod(:letter_chain, :next, [:a, :b]) do
-        end
+        defmethod(:letter_chain, :next, [:a, :b])
 
-        defmethod(:letter_chain, :next, [:b, :c]) do
-        end
+        defmethod(:letter_chain, :next, [:b, :c])
       end
 
     {:atomic, {bindings, _}} =
@@ -138,8 +137,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         new(:class, %{name: :letter_word, super: :value, ivars: []}, _)
 
-        defmethod(:letter_word, :letter_word_stays_open, [self]) do
-        end
+        defmethod(:letter_word, :letter_word_stays_open, [self])
 
         vm_set_class(:letter_word_real_instance, :letter_word)
       end
@@ -174,11 +172,9 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         new(:class, %{name: :letter_chain_reflective, super: :value, ivars: []}, _)
 
-        defmethod(:letter_chain_reflective, :next, [:a, :b]) do
-        end
+        defmethod(:letter_chain_reflective, :next, [:a, :b])
 
-        defmethod(:letter_chain_reflective, :next, [:b, :c]) do
-        end
+        defmethod(:letter_chain_reflective, :next, [:b, :c])
 
         defmethod(:letter_chain_reflective, :chain_from, [self, first]) do
           next(self, first)
@@ -226,8 +222,8 @@ defmodule Examples.ALGenerative do
 
   # Two directions through the exact same clause: forward is ordinary OO
   # dispatch (a real `:square` computes its own area from its own `:side`).
-  # Backward asks dispatch to *invent* a square: construct a fresh ephemeral
-  # instance with `side` still open, then let `:area`'s own body narrow it
+  # Backward asks dispatch to *invent* a square: construct a fresh instance
+  # with `side` still open, then let `:area`'s own body narrow it
   # via generate-and-test — the same `between`-driven idiom `:number`'s
   # backward `factorial` uses (`e_AL_numbers.ex`). One method definition,
   # no special-casing either direction; the receiver dispatch does the

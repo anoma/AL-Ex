@@ -59,8 +59,7 @@ defmodule AL.Package.Constraints do
       end
     end
 
-    defmethod(:cell, :dependents, [self, acc, [], acc]) do
-    end
+    defmethod(:cell, :dependents, [self, acc, [], acc])
 
     defmethod(:cell, :dependents, [self, acc, [subscriber | subscribers], dependents]) do
       dependents(subscriber, acc, new_acc)
@@ -162,8 +161,7 @@ defmodule AL.Package.Constraints do
 
     ### Cartesian product of a list of lists — [[1,2],[3,4]] -> [[1,3],[1,4],[2,3],[2,4]]
 
-    defmethod(:list, :combos, [[], [[]]]) do
-    end
+    defmethod(:list, :combos, [[], [[]]])
 
     defmethod(:list, :combos, [[xs | xss], result]) do
       combos(xss, rest_combos)

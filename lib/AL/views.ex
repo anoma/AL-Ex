@@ -1,5 +1,5 @@
 defmodule AL.Views do
-  @doc """
+  @moduledoc """
   I define GlamorousToolkit views for AL
   """
 

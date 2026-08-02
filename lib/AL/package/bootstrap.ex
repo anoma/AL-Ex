@@ -96,8 +96,7 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
-    defmethod(:object, :slots, [self, [], %{}]) do
-    end
+    defmethod(:object, :slots, [self, [], %{}])
 
     defmethod(:object, :slots, [self, [slot_name | slot_names], m]) do
       slots(self, slot_names, m1)
@@ -113,8 +112,7 @@ defmodule AL.Package.Bootstrap do
     vm_set_class(:map_put, :behaviour)
     vm_set_method(:map, :put, :map_put)
 
-    defmethod(:class, :construct, [self, %{class: self}]) do
-    end
+    defmethod(:class, :construct, [self, %{class: self}])
 
     vm_set_method(:class, :allocate, :allocate_class)
     vm_set_class(:allocate_class, :behaviour)
@@ -140,9 +138,7 @@ defmodule AL.Package.Bootstrap do
       vm_set_class(name, meta)
     end
 
-    defmethod(:object, :init, [self, _, self]) do
-      # vm_print(["initialise", self])
-    end
+    defmethod(:object, :init, [self, _, self])
 
     defmethod(:class, :new, [self, args, new]) do
       # class -> construct
@@ -158,15 +154,13 @@ defmodule AL.Package.Bootstrap do
     new(:class, %{name: :category, super: :object, ivars: []}, _)
 
     # Copies a category's methods onto self by shared method_id — no
-    # ancestry edge, works regardless of self's own super chain. Also stamps
-    # a monotonic per-category import ordinal (reuses vm_fresh_id).
+    # ancestry edge, works regardless of self's own super chain.
     #
     # Recurses directly rather than forall([member(pairs, ...)]) — member is
     # :list's own method (defined later in this file), and a member-based
     # walk here would make :object's foundational :import depend on bootstrap
     # ordering.
-    defmethod(:object, :copy_methods, [_self, []]) do
-    end
+    defmethod(:object, :copy_methods, [_self, []])
 
     defmethod(:object, :copy_methods, [self, [[name, id] | rest]]) do
       vm_set_method(self, name, id)
@@ -176,9 +170,6 @@ defmodule AL.Package.Bootstrap do
     defmethod(:object, :import, [self, category]) do
       findall([name, id], [vm_method(category, name, id)], pairs)
       copy_methods(self, pairs)
-
-      vm_fresh_id(seq)
-      set_slot(self, category, seq)
     end
 
     # A real class, not a category import: a value class's own :init override
@@ -189,11 +180,9 @@ defmodule AL.Package.Bootstrap do
     # clauses/relational logic to work with directly.
     new(:class, %{name: :value, super: :object, ivars: []}, _)
 
-    defmethod(:value, :allocate, [self, _, self]) do
-    end
+    defmethod(:value, :allocate, [self, _, self])
 
-    defmethod(:value, :init, [self, _, output]) do
-    end
+    defmethod(:value, :init, [self, _, output])
 
     vm_set_super(:map, :object)
 
@@ -327,11 +316,9 @@ defmodule AL.Package.Bootstrap do
     # Every clause below pattern-matches self as []/[h|t] — the value leg's
     # own requirement (clause heads are the complete spec of an instance).
 
-    defmethod(:list, :hd, [[h | _t], h]) do
-    end
+    defmethod(:list, :hd, [[h | _t], h])
 
-    defmethod(:list, :tl, [[_h | t], t]) do
-    end
+    defmethod(:list, :tl, [[_h | t], t])
 
     defmethod(:list, :length, [self, n]) do
       implies do
@@ -340,8 +327,7 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
-    defmethod(:list, :length_of_size, [[], 0]) do
-    end
+    defmethod(:list, :length_of_size, [[], 0])
 
     defmethod(:list, :length_of_size, [[_h | t], n]) do
       n > 0
@@ -349,8 +335,7 @@ defmodule AL.Package.Bootstrap do
       length_of_size(t, n1)
     end
 
-    defmethod(:list, :length_count, [[], 0]) do
-    end
+    defmethod(:list, :length_count, [[], 0])
 
     defmethod(:list, :length_count, [[_h | t], n]) do
       length_count(t, n1)
@@ -361,16 +346,14 @@ defmodule AL.Package.Bootstrap do
       at(xs, n, 0, x)
     end
 
-    defmethod(:list, :at, [[h | _t], n, n, h]) do
-    end
+    defmethod(:list, :at, [[h | _t], n, n, h])
 
     defmethod(:list, :at, [[h | t], n, i, v]) do
       vm_is(i1, i + 1)
       at(t, n, i1, v)
     end
 
-    defmethod(:list, :concat, [[], second, second]) do
-    end
+    defmethod(:list, :concat, [[], second, second])
 
     defmethod(:list, :concat, [[fh | ft], second, [fh | inner]]) do
       concat(ft, second, inner)
@@ -388,8 +371,7 @@ defmodule AL.Package.Bootstrap do
       member(t, x)
     end
 
-    defmethod(:list, :reverse, [[], []]) do
-    end
+    defmethod(:list, :reverse, [[], []])
 
     defmethod(:list, :reverse, [[h | t], reversed]) do
       reverse(t, reversed_tl)
@@ -401,11 +383,9 @@ defmodule AL.Package.Bootstrap do
       hd(sx, last)
     end
 
-    defmethod(:list, :map, [[], _func, []]) do
-    end
+    defmethod(:list, :map, [[], _func, []])
 
-    defmethod(:list, :map, [[], _head, _body, []]) do
-    end
+    defmethod(:list, :map, [[], _head, _body, []])
 
     defmethod(:list, :map, [[fh | ft], func, [sh | st]]) do
       send(fh, func, [sh])
@@ -417,11 +397,9 @@ defmodule AL.Package.Bootstrap do
       map(ft, head, body, st)
     end
 
-    defmethod(:list, :fold_left, [[], _func, acc, acc]) do
-    end
+    defmethod(:list, :fold_left, [[], _func, acc, acc])
 
-    defmethod(:list, :fold_left, [[], _head, _body, acc, acc]) do
-    end
+    defmethod(:list, :fold_left, [[], _head, _body, acc, acc])
 
     defmethod(:list, :fold_left, [[h | t], func, acc, result]) do
       send(acc, func, [h, next_acc])
@@ -429,16 +407,13 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:list, :fold_left, [[h | t], head, body, acc, result]) do
-      vm_print(acc)
       call(head, body, [acc, h, next_acc])
       fold_left(t, head, body, next_acc, result)
     end
 
-    defmethod(:list, :fold_right, [[], _func, acc, acc]) do
-    end
+    defmethod(:list, :fold_right, [[], _func, acc, acc])
 
-    defmethod(:list, :fold_right, [[], _head, _body, acc, acc]) do
-    end
+    defmethod(:list, :fold_right, [[], _head, _body, acc, acc])
 
     defmethod(:list, :fold_right, [[h | t], func, acc, result]) do
       fold_right(t, func, acc, next_acc)
@@ -454,15 +429,13 @@ defmodule AL.Package.Bootstrap do
       fold_left(lists, :concat, [], result)
     end
 
-    defmethod(:list, :same_length, [[], []]) do
-    end
+    defmethod(:list, :same_length, [[], []])
 
     defmethod(:list, :same_length, [[_fh | ft], [_sh | st]]) do
       same_length(ft, st)
     end
 
-    defmethod(:list, :sorted_insert, [[], x, [x]]) do
-    end
+    defmethod(:list, :sorted_insert, [[], x, [x]])
 
     defmethod(:list, :sorted_insert, [[h | t], x, [x | [h | t]]]) do
       x <= h
@@ -477,11 +450,9 @@ defmodule AL.Package.Bootstrap do
       fold_left(list, :sorted_insert, [], sorted)
     end
 
-    defmethod(:list, :dedupe, [[], []]) do
-    end
+    defmethod(:list, :dedupe, [[], []])
 
-    defmethod(:list, :dedupe, [[x], [x]]) do
-    end
+    defmethod(:list, :dedupe, [[x], [x]])
 
     defmethod(:list, :dedupe, [[x | [x | rest]], result]) do
       dedupe([x | rest], result)
@@ -500,8 +471,7 @@ defmodule AL.Package.Bootstrap do
       kahn(ready, degrees, chain)
     end
 
-    defmethod(:list, :reachable_classes, [[], seen, seen]) do
-    end
+    defmethod(:list, :reachable_classes, [[], seen, seen])
 
     defmethod(:list, :reachable_classes, [[c | cs], seen, result]) do
       implies do
@@ -521,16 +491,14 @@ defmodule AL.Package.Bootstrap do
       accumulate_degrees(classes, base, degrees)
     end
 
-    defmethod(:list, :base_degrees, [[], degrees, degrees]) do
-    end
+    defmethod(:list, :base_degrees, [[], degrees, degrees])
 
     defmethod(:list, :base_degrees, [[c | cs], acc, degrees]) do
       vm_map_put(acc, c, 0, acc2)
       base_degrees(cs, acc2, degrees)
     end
 
-    defmethod(:list, :accumulate_degrees, [[], degrees, degrees]) do
-    end
+    defmethod(:list, :accumulate_degrees, [[], degrees, degrees])
 
     defmethod(:list, :accumulate_degrees, [[c | cs], acc, degrees]) do
       findall(s, [super(c, s)], supers)
@@ -538,8 +506,7 @@ defmodule AL.Package.Bootstrap do
       accumulate_degrees(cs, acc2, degrees)
     end
 
-    defmethod(:list, :increment_degrees, [[], degrees, degrees]) do
-    end
+    defmethod(:list, :increment_degrees, [[], degrees, degrees])
 
     defmethod(:list, :increment_degrees, [[s | ss], acc, degrees]) do
       vm_map_get(acc, s, old)
@@ -548,8 +515,7 @@ defmodule AL.Package.Bootstrap do
       increment_degrees(ss, acc2, degrees)
     end
 
-    defmethod(:list, :filter_zero_degree, [[], _degrees, []]) do
-    end
+    defmethod(:list, :filter_zero_degree, [[], _degrees, []])
 
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, ready]) do
       vm_map_get(degrees, c, degree)
@@ -564,8 +530,7 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
-    defmethod(:list, :kahn, [[], _degrees, []]) do
-    end
+    defmethod(:list, :kahn, [[], _degrees, []])
 
     defmethod(:list, :kahn, [[c | rest], degrees, [c | chain]]) do
       findall(s, [super(c, s)], supers)
@@ -574,8 +539,7 @@ defmodule AL.Package.Bootstrap do
       kahn(queue, degrees2, chain)
     end
 
-    defmethod(:list, :decrement_ready, [[], degrees, degrees, []]) do
-    end
+    defmethod(:list, :decrement_ready, [[], degrees, degrees, []])
 
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, ready]) do
       vm_map_get(degrees, s, old)

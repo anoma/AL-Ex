@@ -17,8 +17,7 @@ defmodule Examples.ALDefclass do
       run branch: :examples do
         new(:category, %{name: :widget_behaviour}, _)
 
-        defmethod(:widget_behaviour, :describe, [self, :a_widget]) do
-        end
+        defmethod(:widget_behaviour, :describe, [self, :a_widget])
 
         defclass :widget,
           super: :value,

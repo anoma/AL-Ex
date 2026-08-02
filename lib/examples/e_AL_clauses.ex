@@ -36,11 +36,9 @@ defmodule Examples.ALClauses do
       run branch: :examples do
         vm_set_class(^c, :object)
 
-        defmethod(^c, :tag, [self, :first]) do
-        end
+        defmethod(^c, :tag, [self, :first])
 
-        defmethod(^c, :tag, [self, :second]) do
-        end
+        defmethod(^c, :tag, [self, :second])
       end
 
     {:atomic, {b, _}} =
@@ -61,11 +59,9 @@ defmodule Examples.ALClauses do
       run branch: :examples do
         vm_set_class(^c, :object)
 
-        defmethod(^c, :tag, [self, :first]) do
-        end
+        defmethod(^c, :tag, [self, :first])
 
-        defmethod(^c, :tag, [self, :second]) do
-        end
+        defmethod(^c, :tag, [self, :second])
       end
 
     tip = AL.Branch.fork(:tip, %AL.Branch{id: :examples})
@@ -90,11 +86,9 @@ defmodule Examples.ALClauses do
       run branch: :examples do
         vm_set_class(^c, :object)
 
-        defmethod(^c, :tag, [self, :first]) do
-        end
+        defmethod(^c, :tag, [self, :first])
 
-        defmethod(^c, :tag, [self, :second]) do
-        end
+        defmethod(^c, :tag, [self, :second])
       end
 
     {:atomic, _} =
@@ -132,11 +126,9 @@ defmodule Examples.ALClauses do
       run branch: :examples do
         vm_set_class(^c, :object)
 
-        defmethod(^c, :tag, [self, :first]) do
-        end
+        defmethod(^c, :tag, [self, :first])
 
-        defmethod(^c, :tag, [self, :second]) do
-        end
+        defmethod(^c, :tag, [self, :second])
       end
 
     {:atomic, {b, _}} =
@@ -159,11 +151,9 @@ defmodule Examples.ALClauses do
       run branch: :examples do
         vm_set_class(^c, :object)
 
-        defmethod(^c, :tag, [self, :first]) do
-        end
+        defmethod(^c, :tag, [self, :first])
 
-        defmethod(^c, :tag, [self, :second]) do
-        end
+        defmethod(^c, :tag, [self, :second])
       end
 
     {:atomic, _} =

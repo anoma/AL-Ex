@@ -106,8 +106,7 @@ defmodule Examples.ALDif do
       run branch: :examples do
         vm_set_class(:dif_dispatch_pingable, :object)
 
-        defmethod(:dif_dispatch_pingable, :ping, [self, :pong]) do
-        end
+        defmethod(:dif_dispatch_pingable, :ping, [self, :pong])
 
         vm_set_class(:dif_dispatch_ping_a, :dif_dispatch_pingable)
         vm_set_class(:dif_dispatch_ping_b, :dif_dispatch_pingable)

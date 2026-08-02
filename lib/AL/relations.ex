@@ -44,8 +44,8 @@ defmodule AL.Relations do
       # asserting it — if `object` already carries a known `isa` domain (e.g.
       # from the value dispatch leg's `generative_candidate`), that domain *is* the
       # answer, so answer from it directly instead of scanning the durable
-      # table for an object that, for an ephemeral/value receiver, was never
-      # durably classified to begin with.
+      # table for an object that, as a value receiver, was never durably
+      # classified to begin with.
       AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
           not Enum.empty?(known_isa) ->
         rows = for class <- known_isa, do: {:class, object, :isa, class}

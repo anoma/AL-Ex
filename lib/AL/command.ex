@@ -1,6 +1,7 @@
 defmodule AL.Command do
   @moduledoc """
-  I am the event-sourcing / command-logging module for AL. I manage the event/command log (stored in Mnesia) and provide the entrypoint for event hydration. System time here refers to a monotonic counter.
+  Event-sourcing / command log for AL, in Mnesia. Entry point for event
+  hydration. `system_time` is a monotonic counter, not wall-clock.
   """
 
   @type command_op() ::
@@ -110,18 +111,13 @@ defmodule AL.Command do
     :ok
   end
 
-  @doc """
-  Read current system time of the command log. The next command will be written at this value.
-  """
+  @doc "Current system time of the command log — the next command writes at this value."
   @spec system_time(AL.Branch.t()) :: non_neg_integer() | :absent
   def system_time(branch \\ AL.Branch.head()) do
     {:atomic, t} = :mnesia.transaction(fn -> read_meta(branch, :system_time, :absent) end)
     t
   end
 
-  @doc """
-  Read a command at time t
-  """
   @spec command(non_neg_integer(), AL.Branch.t()) :: command() | :absent
   def command(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
@@ -132,9 +128,6 @@ defmodule AL.Command do
     end
   end
 
-  @doc """
-  Read all commands since time t
-  """
   @spec commands_since(non_neg_integer(), AL.Branch.t()) :: [command()]
   def commands_since(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
@@ -160,9 +153,6 @@ defmodule AL.Command do
     ])
   end
 
-  @doc """
-  Read all commands for a given transaction
-  """
   def commands_for_transaction(tx_id, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:command, branch), [
       {{:command, :"$1", tx_id, :"$3"}, [], [:"$_"]}
@@ -187,34 +177,22 @@ defmodule AL.Command do
     end)
   end
 
-  @doc """
-  Write a command that says a class of an object was set
-  """
   @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_class(tx_id, object, class, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_class, {object, class}}, branch)
   end
 
-  @doc """
-  Write a command that says a superclass of an object was set
-  """
   @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_super(tx_id, object, super, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_super, {object, super}}, branch)
   end
 
-  @doc """
-  Write a command that says a method was set for an object
-  """
   @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           :ok
   def set_method(tx_id, object, method_name, method_id, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_method, {object, method_name, method_id}}, branch)
   end
 
-  @doc """
-  Write a command that says the object was given a run method
-  """
   @spec set_oapply(
           non_neg_integer(),
           AL.Var.t(),
@@ -228,9 +206,6 @@ defmodule AL.Command do
     write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
   end
 
-  @doc """
-  Write a command that says slots were set for an object
-  """
   @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def set_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_slots, {object, slots}}, branch)
@@ -281,9 +256,6 @@ defmodule AL.Command do
     :mnesia.write(command_reference, {:command, t1, tx_id, command}, :write)
   end
 
-  @doc """
-  I increase the monotonic system time of the log
-  """
   def inc_system_time(branch \\ AL.Branch.head()) do
     t = read_meta(branch, :system_time, 0, :write)
     write_meta(branch, :system_time, t + 1)
@@ -331,15 +303,5 @@ defmodule AL.Command do
 
   defp write_meta(branch, key, value) do
     :mnesia.write(table(:meta, branch), {:meta, key, value}, :write)
-  end
-
-  def dump_meta(branch \\ AL.Branch.head()) do
-    meta_reference = table(:meta, branch)
-
-    :mnesia.transaction(fn ->
-      :mnesia.select(meta_reference, [
-        {{:meta, :"$1", :"$2"}, [], [:"$_"]}
-      ])
-    end)
   end
 end

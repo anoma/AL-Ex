@@ -123,14 +123,9 @@ defmodule AL.Dispatch do
     ]
   end
 
-  # `generative_descendants/1` orders earliest-imported-first (the `:value`
-  # ordinal recorded by `import` in bootstrap.ex — a real declaration-order
-  # signal, not a proxy). Reversed here because the
-  # choicepoint stack is LIFO: the last one pushed is the first one tried, so
-  # the earliest-declared class needs to be pushed last to be tried first.
-  # This is what keeps e.g. `single` (declared before `union`) tried before
-  # `union` — trying `union` first would recurse into generating `left`/`right`
-  # before ever reaching the trivial `single` case.
+  # Choicepoint stack is LIFO — last pushed, first tried — so `classes` is
+  # reversed to preserve its given order as try-order. `generative_descendants/1`
+  # itself carries no cross-class ordering guarantee (see its own comment).
   defp push_candidates(state, orig_state, self, method, args, classes) do
     Enum.reduce(Enum.reverse(classes), state, fn class, acc ->
       push_choicepoint(acc, generative_candidate(orig_state, self, method, args, class))
@@ -201,8 +196,8 @@ defmodule AL.Dispatch do
 
   # Ground selector: prune candidates that couldn't answer it before they're
   # even constructed (cheap, reuses method lookup) — keeps this from paying
-  # for every ephemeral/value descendant on every open dispatch. Unbound
-  # selector: nothing to check, every class stays a candidate.
+  # for every value descendant on every open dispatch. Unbound selector:
+  # nothing to check, every class stays a candidate.
   defp filter_by_selector(classes, method, branch) do
     if AL.Var.var?(method) do
       classes

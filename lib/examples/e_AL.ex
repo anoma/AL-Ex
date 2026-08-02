@@ -48,15 +48,13 @@ defmodule Examples.AL do
       run branch: :examples do
         new(:class, %{name: :gadget, super: :value}, _)
 
-        defmethod(:gadget, :init, [self, _, self]) do
-        end
+        defmethod(:gadget, :init, [self, _, self])
 
         defmethod(:gadget, :poke, [self, x]) do
           unify(x, :ok)
         end
 
-        defmethod(:gadget, :does_not_understand, [self, _m, _a]) do
-        end
+        defmethod(:gadget, :does_not_understand, [self, _m, _a])
 
         new(:gadget, _, g)
       end

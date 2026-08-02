@@ -1,6 +1,6 @@
 defmodule AL.ResolutionCache do
   @moduledoc """
-  Flush-on-write cache for `providers/3` / `generative_descendants/2` /
+  Flush-on-write cache for `providers/3` / `generative_descendants/1` /
   `durable_classes/1` / `oapply_clauses/1`. One Mnesia `ram_copies` table set per
   branch, named like `AL.Command.table/2` (`al_providers_cache@fork_123`) — so a
   discarded branch's cache just gets dropped with its other tables, not swept by
@@ -51,10 +51,7 @@ defmodule AL.ResolutionCache do
   def fetch_providers(branch, key, compute),
     do: fetch(table(:providers, branch), :providers, key, compute)
 
-  # One relation for every `:ephemeral`/`:value`-importing class together, not
-  # two — `AL.Object`'s writers always invalidate both at once (any `:slots`
-  # write could touch either category marker), so they were never actually
-  # independent caches, just one split in two for no reason.
+  # Classes with :value as a direct super — invalidated by :super writes.
   @spec fetch_generative_descendants(AL.Branch.t(), (-> term())) :: term()
   def fetch_generative_descendants(branch, compute),
     do: fetch(table(:generative_descendants, branch), :generative_descendants, :value, compute)

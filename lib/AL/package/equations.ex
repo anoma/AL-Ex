@@ -62,8 +62,7 @@ defmodule AL.Package.Equations do
       vm_is(v, va * vb)
     end
 
-    defmethod(:equations, :val, [_self, x, x]) do
-    end
+    defmethod(:equations, :val, [_self, x, x])
 
     ### Algebra walks to the unknown: addition subtracts away, and
     ### multiplication divides exactly or fails. The var gate runs

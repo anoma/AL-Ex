@@ -18,8 +18,7 @@ defmodule Examples.ALCategories do
       run branch: :examples do
         new(:category, %{name: :greeter_behaviour}, _)
 
-        defmethod(:greeter_behaviour, :greet, [self, :hello]) do
-        end
+        defmethod(:greeter_behaviour, :greet, [self, :hello])
 
         new(:class, %{name: :cat_a, super: :object, ivars: []}, _)
         new(:class, %{name: :cat_b, super: :object, ivars: []}, _)
@@ -44,8 +43,7 @@ defmodule Examples.ALCategories do
       run branch: :examples do
         new(:category, %{name: :shared_behaviour}, _)
 
-        defmethod(:shared_behaviour, :trait, [self, :shared_trait]) do
-        end
+        defmethod(:shared_behaviour, :trait, [self, :shared_trait])
 
         new(:class, %{name: :import_a, super: :object, ivars: []}, _)
         new(:class, %{name: :import_b, super: :object, ivars: []}, _)
@@ -89,8 +87,7 @@ defmodule Examples.ALCategories do
       run branch: :examples do
         new(:category, %{name: :counts_behaviour}, _)
 
-        defmethod(:counts_behaviour, :count, [self, 0]) do
-        end
+        defmethod(:counts_behaviour, :count, [self, 0])
 
         new(:class, %{name: :countable, super: :object, ivars: []}, _)
         import(:countable, :counts_behaviour)
