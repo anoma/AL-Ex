@@ -70,12 +70,19 @@ defmodule AL.Command do
   @doc """
   The on-disk directory Mnesia stores this node's schema/tables in — the
   single source of truth `setup/0` and `mix al.reset` both read, so they
-  can't drift apart. Configurable via `config :al, :mnesia_dir` (falls back
-  to `.mnesiastore/` in the host's cwd) so two concurrent nodes — a live dev
-  session and a test run, say — can point at fully separate stores.
+  can't drift apart. Three ways to point it elsewhere, checked in order, so
+  a fully separate store for another node is always a one-liner and never
+  requires touching a committed config file:
+
+    1. `config :al, mnesia_dir: "..."` — a persistent per-project/per-env
+       preference (`config/dev.exs` etc.), loaded before boot.
+    2. The `AL_MNESIA_DIR` env var — no config file needed at all, e.g.
+       `AL_MNESIA_DIR=/tmp/my-store mix test`.
+    3. `.mnesiastore/` in the host's cwd, the default.
   """
   @spec mnesia_dir() :: String.t()
-  def mnesia_dir(), do: Application.get_env(:al, :mnesia_dir, ".mnesiastore/")
+  def mnesia_dir(),
+    do: Application.get_env(:al, :mnesia_dir) || System.get_env("AL_MNESIA_DIR") || ".mnesiastore/"
 
   @doc """
   Initialise the event log, or re-use the one on disc.

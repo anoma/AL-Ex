@@ -25,16 +25,17 @@ This runtime is the first version of AL, written in Elixir. The irony of the fir
 - Live Smalltalk-style objects, defined relationally. No more faux-ADTs. Define protocols and their implementations. Mix and match at your leisure. With bidirectional method resolution informed by WAM semantics.
 - Shutdown your system, continue later. All transactions are backed up by an on-disk database, hydrated at startup.
 - ACID transactions ensure your work is safe and easy to reason about.
-- Constraint Processing
+- CLP over finite domains, *including* over object IDs
+- Git-Like branching behaviour. Fork your system at different points in the system's history.
 
 And to come:
 
-- Bitemporality features: Model temporal systems. Spin off new branches of your system at different points in time and move between them easily.
+- Bitemporality features: Query objects as of certain times, working with system and business time separately
 
 For discussion of the design philosophy of AL and resources that were consulted during its design, please see: 
 https://forum.anoma.net/t/design-philosophy-of-al-bibliography/2698
 
-## Getting Started
+## Quickstart
 
 Install from terminal using `iex -S mix` or as a mix dependency.
 From IEx, you can run `require AL`.
@@ -43,9 +44,27 @@ From IEx, you can run `require AL`.
 `lib/AL/package` contains the bundled packages (the `bootstrap` package is the foundational one).
 `lib/AL` contains the runtime code.
 
-Tips:
+## Some Recipes
 
 - Use `examine(:my_object_id_here, info)` in order to get quick information about an object via its ID, such as its class(es!), superclass(es!), methods, and in the case of methods, relevant clauses.
+
+- Have a class import the `value` category through `import(:my_class, :value)` in order to support ephemeral objects that don't get added to the database but that can be generated as structures. 
+
+- Use `mix al.reset --yes` for a quick wipe
+
+## Working with multiple sessions at once
+
+AL persists to a local, gitignored Mnesia store (`.mnesiastore/` by default) that every `iex -S mix`/`mix run`/`mix test` invocation in a checkout shares unless told otherwise.
+
+You can utilise forks to have multiple streams work on the same node without conflict. 
+
+```elixir
+fork = AL.Branch.fork() <- fork from HEAD
+AL.Branch.checkout(fork) <- change HEAD to fork
+AL.Branch.discard(fork) <- discard the fork
+```
+
+Further isolation should be accomplished by configuration of the Mnesiastore dir.
 
 ## Installing into Glamorous Toolkit
 

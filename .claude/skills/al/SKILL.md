@@ -498,20 +498,52 @@ that scan just to trace it. Example: `trace_shows_dispatch_legs` in
   carry meaning. Comment only a non-obvious *why*. Keep docstrings terse.
 - Mnesia artifacts (`.mnesiastore/`, root `MnesiaCore.*`) are gitignored — never
   commit them.
-- **`rm -rf .mnesiastore` to pick up a changed definition is fine.** Package
-  install is idempotent by name only, so editing an already-installed package's
-  source (e.g. `bootstrap.ex`) has no effect until it's reinstalled — and
-  `defmethod` *accretes* a clause rather than replacing, so a buggy clause needs
-  an explicit retract or `uninstall` + reinstall otherwise. Wiping the store is
-  the simplest way to force that: it's gitignored/disposable, and boot
-  reinstalls every package fresh from current source. A **VM-level change to
-  the goal encoding** (tuple shape/arity, a new sentinel like `:next`, a
-  reordered field) makes a wipe *necessary* rather than just convenient —
-  old-shape goals already in the log can no longer replay (`interp/2` crashes
-  with a `function_clause` on an `interp({:set_oapply, …})`-style goal of the
-  wrong arity).
-- Prefer a **throwaway fork** (`AL.Branch.fork` … `discard`) instead when you
-  want to verify a fix without disturbing other branches'/forks' state.
+- Mnesia store is a **shared, gitignored file** (`.mnesiastore/` by default,
+  one directory per node — see below) — `rm -rf`ing it is a genuinely
+  destructive, process-wide operation, not a branch-scoped one, and will
+  pull the store out from under *any other node currently running against
+  it* (verified: two independent `mix run` processes sharing a store, each
+  only touching its own fork, don't conflict at all — the wipe itself is
+  the only thing that's actually unsafe). **Default to a throwaway fork**
+  (`AL.Branch.fork()` … `checkout` … `discard`) instead of touching `:main`
+  directly, whenever more than one person/process might be using the same
+  checkout — see the README's "Working with multiple people" section for
+  the concrete workflow, `mix al.reset` for the rare genuine-full-reset
+  case, and [[al-fork-practice]] for the fuller story (a wrong claim I made
+  and had to retract after the user pushed back and I actually tested it).
+- **Getting a changed definition picked up, three ways, cheapest-safe first:**
+  1. **A fork with a fresh install, no wipe at all**: package install is
+     idempotent by name only, so editing an already-installed package's
+     source (e.g. `bootstrap.ex`) has no effect on an *existing* branch until
+     it's reinstalled — and `defmethod` *accretes* a clause rather than
+     replacing, so even an explicit reinstall on the same branch needs an
+     `uninstall` first, which can fail outright for a foundational package
+     with dependents (`AL.Package.uninstall(:bootstrap)` refuses if anything
+     else installed depends on it — true of `:bootstrap` itself). Sidestep
+     all of that by forking from **before anything's installed** instead of
+     an existing branch: `AL.Branch.fork(0, AL.Branch.main())` (a fork only
+     copies whatever's already in its source's log — `at: 0` means "copy
+     nothing," a genuinely empty branch), checkout it, then
+     `AL.Package.install_all(Application.get_env(:al, :packages))` installs
+     every package fresh from *currently compiled* source. Verified
+     `:main`'s own state is untouched before/after.
+  2. **`mix al.reset`** (`--yes` to skip the confirmation prompt) when a
+     fork genuinely isn't enough — coordinate first if anyone else might
+     have a node up, since this wipes the *whole* store, every branch on it.
+  3. A **VM-level change to the goal encoding** (tuple shape/arity, a new
+     sentinel like `:next`, a reordered field) makes a full wipe (2)
+     *necessary* rather than just convenient, even for (1) — old-shape goals
+     already in *any* branch's log, empty forks included, can no longer
+     replay (`interp/2` crashes with a `function_clause` on an
+     `interp({:set_oapply, …})`-style goal of the wrong arity).
+- **The store directory itself is configurable**, three ways checked in
+  order, for when full filesystem-level separation between nodes is wanted
+  (not needed for normal fork-based collaboration, but there for CI or
+  wanting zero shared state on principle): `config :al, mnesia_dir: "..."`
+  (persistent, e.g. a personal gitignored `config/dev.exs`) → the
+  `AL_MNESIA_DIR` env var (`AL_MNESIA_DIR=/tmp/foo mix test`, no config file
+  needed) → `.mnesiastore/` in the cwd, the default. Single source of truth:
+  `AL.Command.mnesia_dir/0`, which `setup/0` and `mix al.reset` both read.
 - **An ephemeral class's `:init` must `unify` its output with a freshly
   literal-constructed map, not `set_slot`/`vm_set_slots` the input scaffold**
   (`:interval`'s own `:init`, `AL/package/interval.ex`, is the reference
