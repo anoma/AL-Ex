@@ -679,7 +679,7 @@ defmodule AL do
     end
   end
 
-  # `< > <= >=` rely on constraint intervals (see AL.Var.Bounds).
+  # `< > <= >= eq` rely on constraint intervals (see AL.Var.Bounds).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     store = state.active_choicepoint.store
 
@@ -717,9 +717,12 @@ defmodule AL do
     end
   end
 
-  # CLP(FD) labeling. Ground = no-op. Unbounded domain = fail. Delegates to
-  # :object's between/4, not fan_out (eager — catastrophic on a wide domain,
-  # e.g. factorial's ~3.6M-wide bound); between is lazy, ordinary recursion.
+  # CLP(FD) labeling. Ground = no-op. Numeric bounds -> :object's between/4,
+  # not fan_out (eager — catastrophic on a wide domain, e.g. factorial's
+  # ~3.6M-wide bound); between is lazy, ordinary recursion. No numeric
+  # bounds -> fall back to the var's own isa'd class advertising a domain
+  # (see label_from_class_domain/3 below). Neither -> fail, same as an
+  # unbounded numeric domain always has.
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
 
@@ -731,15 +734,10 @@ defmodule AL do
         case AL.Var.Bounds.bounds_of(store, v) do
           {lo, hi} when is_integer(lo) and is_integer(hi) ->
             goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
-            choice = state.active_choicepoint
-
-            %AL{
-              state
-              | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, [goal])}
-            }
+            splice_and_run(state, [goal])
 
           _ ->
-            backtrack(state)
+            label_from_class_domain(v, store, state)
         end
     end
   end
@@ -1178,6 +1176,45 @@ defmodule AL do
   defp compare(:>, x, y), do: x > y
   defp compare(:<=, x, y), do: x <= y
   defp compare(:>=, x, y), do: x >= y
+  defp compare(:eq, x, y), do: x == y
+
+  # A class-level `:domain` method is the symbolic counterpart to a numeric
+  # interval: not reached by sending to the bare class atom (its own class
+  # is :class, so method_scopes drops it from its own search — the same
+  # rule a category can't answer its own imported methods under), so this
+  # goes through the same class-seeded lookup value dispatch itself uses
+  # (Goal.SendAsValue/do_send_as), with `v` as self — matching how
+  # mapset's own backward-mode :elem/:members clauses use self as the var
+  # being determined, not a separate receiver. The returned list is
+  # enumerated via ordinary member/2 (lazy, real choicepoints — not
+  # fan_out), so each candidate still passes through AL.Var.bind's own isa
+  # check same as any other bind: `:domain`'s candidates only stick if the
+  # class also has literal per-value clause heads proving membership (see
+  # value_member?/3) — the same shape :letter_chain already uses, `:domain`
+  # doesn't grant membership on its own. No isa, or the class defines no
+  # :domain: still fails, same as an unbounded domain always did.
+  defp label_from_class_domain(v, store, state) do
+    case MapSet.to_list(AL.Var.isa_of(store, v)) do
+      [class | _] ->
+        scope = fresh_scope()
+        domain = AL.Var.var("label_domain_#{scope}")
+
+        goals = [
+          %Goal.SendAsValue{class: class, object: v, method: :domain, args: [domain]},
+          %Goal.Send{object: domain, method: :member, args: [v]}
+        ]
+
+        splice_and_run(state, goals)
+
+      [] ->
+        backtrack(state)
+    end
+  end
+
+  defp splice_and_run(state, goals) do
+    choice = state.active_choicepoint
+    %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, goals)}}
+  end
 end
 
 defimpl Inspect, for: AL do

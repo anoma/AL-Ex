@@ -14,7 +14,8 @@ config :al,
     AL.Package.Mapset,
     AL.Package.Interval,
     AL.Package.Constraints,
-    AL.Package.Equations
+    AL.Package.Equations,
+    AL.Package.Sudoku
   ]
 
 # Import environment specific config. This must remain at the bottom

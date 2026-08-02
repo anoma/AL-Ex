@@ -154,22 +154,55 @@ defmodule AL.Var do
   # AL.Var.Bounds). Sole choke point every unify passes through (extend/4 ->
   # bind/4, unify/4 -> extend/4 only), so every bind is constraint-checked
   # here, however deep. def not defp: AL.Var.Bounds also binds directly
-  # through this path.
+  # through this path — including recursively, from `propagate/3` below
+  # (mutual recursion across the two modules, same pattern as
+  # AL/AL.Dispatch/AL.Store elsewhere in this codebase).
+  #
+  # `term` is resolved here, once, before anything else touches it —
+  # `extend/4`'s own branch selection sometimes passes a raw, still-var-shaped
+  # reference (e.g. matching `[x|_t]` against `[h|t]` where `x` already
+  # resolved to a concrete value earlier in the *same* unify call — `x` the
+  # reference gets threaded through, not its value). `deref` is a no-op on
+  # anything that isn't itself an atom/var reference, so this is a pure
+  # resolve, not a behavior change to *what* gets bound — but it matters for
+  # `violated?` below, whose isa/bounds check only ever fires `if not
+  # var?(term)`: an unresolved reference reads as "still open" and silently
+  # skips the check even when what it ultimately points to is concrete.
   @spec bind(store(), variable(), t(), AL.Branch.t()) :: store() | nil
   def bind(store, var, term, branch) do
+    term = deref(store, term)
+
     if occurs?(var, term, store) do
       nil
     else
       old_constraints = constraint_set(store, var)
       new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
 
-      if violated?(old_constraints, new_store, term, branch) do
-        nil
-      else
-        new_store
+      case propagate(old_constraints, new_store, branch) do
+        nil ->
+          nil
+
+        propagated_store ->
+          if violated?(old_constraints, propagated_store, term, branch) do
+            nil
+          else
+            propagated_store
+          end
       end
     end
   end
+
+  # A var's own `props` (from an earlier `eq`/`< > <= >=`) don't only fire
+  # when another such call touches the same var again — an *ordinary* bind
+  # (this one) re-triggers them too, so a var grounded via plain head
+  # unification (a recursive clause's own base case, say) still wakes
+  # whatever was waiting on it, instead of leaving a stale, unchecked
+  # propagator sitting on a now-concrete value.
+  defp propagate(nil, store, _branch), do: store
+  defp propagate(%ConstraintSet{props: []}, store, _branch), do: store
+
+  defp propagate(%ConstraintSet{props: props}, store, branch),
+    do: AL.Var.Bounds.run_fixpoint(store, MapSet.new(props), branch)
 
   # `def`, not `defp` — `AL.Var.Bounds` reads a var's existing `ConstraintSet`
   # (its propagators, its current bounds) the same way `bind/4` does here.

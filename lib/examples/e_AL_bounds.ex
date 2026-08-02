@@ -278,4 +278,107 @@ defmodule Examples.ALBounds do
 
     :ok
   end
+
+  # `eq/2` (CLP(FD) `#=`, spelled `eq` — `#` can't appear in Elixir source) —
+  # arithmetic equality as a constraint, not `vm_is`'s immediate evaluation.
+  # Ground -> open binds the open side directly.
+  example eq_binds_an_open_var_from_a_ground_side() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        unify(n, 5)
+        eq(n1, n - 1)
+      end
+
+    assert Map.get(bindings, :"$n1") == 4
+    :ok
+  end
+
+  # Same mechanism, other direction: the var is on the compound side, the
+  # ground value is what pins it — no separate mode needed, unlike `vm_is`
+  # (which requires the right-hand side already ground).
+  example eq_inverts_through_a_compound_expression() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        unify(x, 10)
+        eq(x, y + 3)
+      end
+
+    assert Map.get(bindings, :"$y") == 7
+    :ok
+  end
+
+  example eq_fails_between_two_unequal_grounds() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        unify(p, 4)
+        unify(q, 5)
+        eq(p, q)
+      end
+
+    :ok
+  end
+
+  # Registering both directions (a<=b, b<=a) on the same fixpoint worklist
+  # `< > <= >=` already use means later constraints on either side keep
+  # narrowing until one collapses the other to a singleton and auto-binds it.
+  example eq_narrows_transitively_like_a_compare_chain() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        eq(x, y)
+        y <= 5
+        y >= 5
+      end
+
+    assert Map.get(bindings, :"$x") == 5
+    :ok
+  end
+
+  # Real N-ary bounds consistency, not a single-variable-affine special case:
+  # `z`, `a`, and `b` are all simultaneously open when `eq` posts the
+  # propagator — each one narrows from the *other two's* current domain
+  # (interval add/subtract), converging as `a`/`b` ground later. This is
+  # exactly fibonacci's `x #= x1 + x2` shape with all three still open.
+  example eq_narrows_an_n_ary_sum_of_simultaneously_open_vars() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        eq(z, a + b)
+        unify(a, 2)
+        unify(b, 3)
+      end
+
+    assert Map.get(bindings, :"$z") == 5
+    :ok
+  end
+
+  # Reactive binds, not just reactive `eq`/compare calls: `a`/`b` above get
+  # grounded via ordinary `unify`, not another `eq` — the fixpoint still has
+  # to fire from `AL.Var.bind` itself, or `z` would be left stale.
+  example eq_narrows_transitively_through_plain_unify_not_just_eq() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        eq(z, a + b + c)
+        unify(a, 1)
+        unify(b, 2)
+        unify(c, 3)
+      end
+
+    assert Map.get(bindings, :"$z") == 6
+    :ok
+  end
+
+  # `+`/`-` genuinely support any number of open vars now (bounds
+  # consistency, not single-variable inversion) — a *product* of two open
+  # vars is the real, still-unsupported case: interval multiplication is
+  # sign-dependent (four corner products, not "multiply the mins"), not
+  # representable in the same flat sum structure `+`/`-` share.
+  example eq_product_of_two_open_vars_still_hard_fails() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        eq(z, a * b)
+        unify(a, 2)
+        unify(b, 3)
+      end
+
+    :ok
+  end
 end

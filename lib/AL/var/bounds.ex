@@ -1,15 +1,24 @@
 defmodule AL.Var.Bounds do
   @moduledoc """
-  Narrows a still-open var's `{lo, hi}` interval from `< > <= >=`, via a
-  worklist fixpoint over propagators on `AL.Var.ConstraintSet` (same slot
-  `dif`/`isa` use). A side may be a bare var/number or an affine `+ - *`
-  expression with one ground operand (`x + 1`); narrowing inverts back onto
-  the var. `/ ** rem` unsupported — hard-fails.
+  Narrows a still-open var's `{lo, hi}` interval from `< > <= >= eq`
+  (`eq` = CLP(FD) `#=`, spelled `eq/2` at the surface — `#` can't appear in
+  Elixir source), via a worklist fixpoint over propagators on
+  `AL.Var.ConstraintSet` (same slot `dif`/`isa` use). A side reduces to
+  `Σ(coeff·var) + const` — real N-ary bounds consistency (each variable's
+  bounds narrow from the *others'* current bounds via interval
+  add/subtract, not just a single-variable inversion), so any number of
+  still-open vars combined by `+`/`-` narrow/auto-bind together. `*` only
+  combines when at least one side is a ground scalar (scaling a sum) —
+  genuine interval multiplication of two still-open vars is a real,
+  separate propagator this doesn't implement (sign-dependent corner
+  products, division by a zero-spanning interval on the inverse side —
+  not representable in the same flat sum structure). `/ ** rem`
+  unsupported too — all three hard-fail.
   """
 
   alias AL.Var.ConstraintSet
 
-  @type affine() :: {:const, number()} | {:linear, AL.Var.variable(), number(), number()}
+  @type affine() :: {:sum, %{AL.Var.variable() => number()}, number()}
   @type propagator() :: {affine(), affine(), boolean()}
 
   # Read side Goal.Label uses. Ground term = singleton domain.
@@ -23,6 +32,22 @@ defmodule AL.Var.Bounds do
   # or non-affine side — same backtrack either way at the call site.
   @spec add_compare(AL.Var.store(), atom(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           AL.Var.store() | nil
+  def add_compare(store, :eq, a, b, branch) do
+    with {:ok, a_aff} <- affine(store, a), {:ok, b_aff} <- affine(store, b) do
+      # `a = b` as two simultaneous `<=` propagators (a<=b and b<=a), on the
+      # same worklist fixpoint `< > <= >=` already use — narrowing one side
+      # re-triggers the other, so a fully-determined side collapses the
+      # other to a singleton and auto-binds it (AL.Var.bind, in
+      # apply_domain_ok), the same way `#=` narrows/grounds in CLP(FD).
+      store
+      |> register_propagator(a_aff, b_aff, false)
+      |> register_propagator(b_aff, a_aff, false)
+      |> run_fixpoint(MapSet.new([{a_aff, b_aff, false}, {b_aff, a_aff, false}]), branch)
+    else
+      :error -> nil
+    end
+  end
+
   def add_compare(store, op, a, b, branch) do
     {lo_expr, hi_expr, strict} = normalize(op, a, b)
 
@@ -41,11 +66,11 @@ defmodule AL.Var.Bounds do
   defp normalize(:>, a, b), do: {b, a, true}
   defp normalize(:>=, a, b), do: {b, a, false}
 
-  # Reduces a (already-substituted) comparison operand to `{:const, n}` or
-  # `{:linear, var, coeff, const}` ("value = coeff * var + const"). Only
+  # Reduces a (already-substituted) comparison operand to `{:sum, coeffs,
+  # const}` — "Σ(coeff·var) + const", coeffs empty = a plain constant. Only
   # `+ - *` combine two affine forms into one; anything else (non-numeric
-  # ground atom, `/ ** rem`, two distinct vars multiplied) is `:error`.
-  defp affine(_store, n) when is_number(n), do: {:ok, {:const, n}}
+  # ground atom, `/ ** rem`, two distinct open vars multiplied) is `:error`.
+  defp affine(_store, n) when is_number(n), do: {:ok, {:sum, %{}, n}}
 
   defp affine(store, %AL.Goal.OApply{method_id: op, args: [l, r]}) when op in [:+, :-, :*] do
     with {:ok, al} <- affine(store, l), {:ok, ar} <- affine(store, r) do
@@ -55,36 +80,45 @@ defmodule AL.Var.Bounds do
 
   defp affine(store, term) do
     case AL.Var.deref(store, term) do
-      n when is_number(n) -> {:ok, {:const, n}}
-      v -> if AL.Var.var?(v), do: {:ok, {:linear, v, 1, 0}}, else: :error
+      n when is_number(n) -> {:ok, {:sum, %{}, n}}
+      v -> if AL.Var.var?(v), do: {:ok, {:sum, %{v => 1}, 0}}, else: :error
     end
   end
 
-  defp combine(:+, {:const, a}, {:const, b}), do: {:ok, {:const, a + b}}
-  defp combine(:+, {:const, c}, {:linear, v, coeff, k}), do: {:ok, mk_linear(v, coeff, k + c)}
-  defp combine(:+, {:linear, v, coeff, k}, {:const, c}), do: {:ok, mk_linear(v, coeff, k + c)}
+  # `+`/`-` merge coefficient maps term-by-term (same var on both sides
+  # cancels or combines, not an error) — this is what lets an arbitrary
+  # number of still-open vars share one sum. `*` only combines when one
+  # side is a ground scalar (empty coeffs map): scaling a sum is still
+  # linear. Two non-scalar sides is a genuine product of unknowns —
+  # unsupported (see moduledoc).
+  defp combine(:+, {:sum, c1, k1}, {:sum, c2, k2}),
+    do: {:ok, {:sum, merge_coeffs(c1, c2, 1), k1 + k2}}
 
-  defp combine(:+, {:linear, v, c1, k1}, {:linear, v, c2, k2}),
-    do: {:ok, mk_linear(v, c1 + c2, k1 + k2)}
+  defp combine(:-, {:sum, c1, k1}, {:sum, c2, k2}),
+    do: {:ok, {:sum, merge_coeffs(c1, c2, -1), k1 - k2}}
 
-  defp combine(:+, {:linear, _, _, _}, {:linear, _, _, _}), do: :error
+  defp combine(:*, {:sum, c1, k1}, {:sum, c2, k2}) do
+    cond do
+      map_size(c1) == 0 -> {:ok, scale_sum(c2, k2, k1)}
+      map_size(c2) == 0 -> {:ok, scale_sum(c1, k1, k2)}
+      true -> :error
+    end
+  end
 
-  defp combine(:-, {:const, a}, {:const, b}), do: {:ok, {:const, a - b}}
-  defp combine(:-, {:linear, v, coeff, k}, {:const, c}), do: {:ok, mk_linear(v, coeff, k - c)}
-  defp combine(:-, {:const, c}, {:linear, v, coeff, k}), do: {:ok, mk_linear(v, -coeff, c - k)}
+  defp merge_coeffs(c1, c2, sign) do
+    c2
+    |> Enum.reduce(c1, fn {v, c}, acc -> Map.update(acc, v, sign * c, &(&1 + sign * c)) end)
+    |> drop_zero_coeffs()
+  end
 
-  defp combine(:-, {:linear, v, c1, k1}, {:linear, v, c2, k2}),
-    do: {:ok, mk_linear(v, c1 - c2, k1 - k2)}
+  defp scale_sum(coeffs, const, scalar),
+    do:
+      {:sum, coeffs |> Map.new(fn {v, c} -> {v, c * scalar} end) |> drop_zero_coeffs(),
+       const * scalar}
 
-  defp combine(:-, {:linear, _, _, _}, {:linear, _, _, _}), do: :error
+  defp drop_zero_coeffs(coeffs), do: coeffs |> Enum.reject(fn {_v, c} -> c == 0 end) |> Map.new()
 
-  defp combine(:*, {:const, a}, {:const, b}), do: {:ok, {:const, a * b}}
-  defp combine(:*, {:const, c}, {:linear, v, coeff, k}), do: {:ok, mk_linear(v, coeff * c, k * c)}
-  defp combine(:*, {:linear, v, coeff, k}, {:const, c}), do: {:ok, mk_linear(v, coeff * c, k * c)}
-  defp combine(:*, {:linear, _, _, _}, {:linear, _, _, _}), do: :error
-
-  defp mk_linear(_v, 0, k), do: {:const, k}
-  defp mk_linear(v, c, k), do: {:linear, v, c, k}
+  defp affine_vars({:sum, coeffs, _const}), do: Map.keys(coeffs)
 
   defp register_propagator(store, lo_aff, hi_aff, strict) do
     prop = {lo_aff, hi_aff, strict}
@@ -99,10 +133,15 @@ defmodule AL.Var.Bounds do
     end)
   end
 
-  defp affine_vars({:linear, v, _coeff, _const}), do: [v]
-  defp affine_vars({:const, _}), do: []
-
-  defp run_fixpoint(store, worklist, branch) do
+  # `def`, not `defp` — `AL.Var.bind/4` also runs the fixpoint directly, over
+  # whatever propagators are already parked on a var at the moment an
+  # *ordinary* unify grounds it (not just when a fresh `eq`/compare call
+  # touches it) — otherwise a var bound via plain head unification (e.g. a
+  # recursive clause's own base case) would leave stale propagators
+  # unchecked until something else happened to touch it later.
+  @spec run_fixpoint(AL.Var.store(), MapSet.t(propagator()), AL.Branch.t()) ::
+          AL.Var.store() | nil
+  def run_fixpoint(store, worklist, branch) do
     case Enum.at(worklist, 0) do
       nil ->
         store
@@ -135,11 +174,30 @@ defmodule AL.Var.Bounds do
     end
   end
 
-  # An affine form's own domain: a constant's is itself; a `coeff * var +
-  # const` scales the var's domain (`raw_domain/2`) and, for a negative
-  # coefficient, swaps ends (multiplying by a negative reverses order).
-  defp domain_of(_store, {:const, n}), do: {n, n}
-  defp domain_of(store, {:linear, v, coeff, k}), do: scale_domain(raw_domain(store, v), coeff, k)
+  # A sum's own domain: interval-add every term's own (var domain * coeff),
+  # plus const. Each term is still one-var-linear (`scale_domain`); it's the
+  # accumulation across terms, not any single term, that's N-ary.
+  defp domain_of(store, {:sum, coeffs, const}) do
+    Enum.reduce(coeffs, {const, const}, fn {v, coeff}, {acc_lo, acc_hi} ->
+      {lo, hi} = scale_domain(raw_domain(store, v), coeff, 0)
+      {add_bound(acc_lo, lo), add_bound(acc_hi, hi)}
+    end)
+  end
+
+  # Every term's domain except `exclude`'s, for isolating one variable out
+  # of a multi-var sum (bounds consistency: what must `exclude`'s own
+  # domain be, given everyone else's *current* domain, for the whole sum to
+  # land in the target interval).
+  defp domain_of_others(store, coeffs, const, exclude) do
+    Enum.reduce(coeffs, {const, const}, fn
+      {^exclude, _coeff}, acc ->
+        acc
+
+      {v, coeff}, {acc_lo, acc_hi} ->
+        {lo, hi} = scale_domain(raw_domain(store, v), coeff, 0)
+        {add_bound(acc_lo, lo), add_bound(acc_hi, hi)}
+    end)
+  end
 
   defp scale_domain({lo, hi}, coeff, k) when coeff >= 0,
     do: {scale(lo, coeff, k), scale(hi, coeff, k)}
@@ -148,6 +206,20 @@ defmodule AL.Var.Bounds do
 
   defp scale(nil, _coeff, _k), do: nil
   defp scale(n, coeff, k), do: n * coeff + k
+
+  defp add_bound(nil, _), do: nil
+  defp add_bound(_, nil), do: nil
+  defp add_bound(a, b), do: a + b
+
+  # Interval subtraction: [a,b] - [c,d] = [a-d, b-c] (the ends that widen the
+  # result the least/most swap, same reasoning as `scale_domain`'s
+  # negative-coefficient case).
+  defp subtract_bounds({t_lo, t_hi}, {o_lo, o_hi}),
+    do: {sub_bound(t_lo, o_hi), sub_bound(t_hi, o_lo)}
+
+  defp sub_bound(nil, _), do: nil
+  defp sub_bound(_, nil), do: nil
+  defp sub_bound(a, b), do: a - b
 
   # A bare var/number's own domain — ground terms are a singleton, an open
   # var reads its `ConstraintSet.bounds`, absent entirely means unbounded.
@@ -166,10 +238,10 @@ defmodule AL.Var.Bounds do
 
   # Applies a freshly-narrowed `{lo, hi}` to one side of a comparison. The
   # top-level infeasibility check is on the *expression's* own bounds
-  # (`new_lo > new_hi`); the `:linear` branch has a second one after
-  # inverting back onto the var, since integer rounding can turn an
-  # otherwise-feasible real range infeasible (e.g. `2 * v` narrowed to
-  # `[3, 3]` has no integer `v`, even though `3 <= 3`).
+  # (`new_lo > new_hi`); each variable isolated out of it below has its own
+  # second check, since integer rounding can turn an otherwise-feasible real
+  # range infeasible (e.g. `2 * v` narrowed to `[3, 3]` has no integer `v`,
+  # even though `3 <= 3`).
   defp apply_domain(store, aff, {new_lo, new_hi}, branch) do
     if new_lo != nil and new_hi != nil and new_lo > new_hi do
       :fail
@@ -178,13 +250,34 @@ defmodule AL.Var.Bounds do
     end
   end
 
-  defp apply_domain_ok(store, {:const, n}, {new_lo, new_hi}, _branch) do
-    if AL.Var.in_bounds?({new_lo, new_hi}, n), do: {:ok, store, []}, else: :fail
+  # No free vars: just a feasibility check against the constant. One free
+  # var: isolate and invert directly. Several: bounds-consistency — narrow
+  # each variable in turn from the target minus every *other* term's
+  # current domain, re-narrowing (not re-deriving from scratch) as earlier
+  # variables in the same pass update — full convergence across the whole
+  # propagator, if it takes more than one pass, happens because a variable
+  # that changed re-queues this same propagator (see `run_fixpoint`), not
+  # because this single call loops internally.
+  defp apply_domain_ok(store, {:sum, coeffs, const}, {new_lo, new_hi}, branch) do
+    case Map.to_list(coeffs) do
+      [] ->
+        if AL.Var.in_bounds?({new_lo, new_hi}, const), do: {:ok, store, []}, else: :fail
+
+      vars ->
+        Enum.reduce_while(vars, {:ok, store, []}, fn {v, coeff}, {:ok, acc_store, acc_props} ->
+          others = domain_of_others(acc_store, coeffs, const, v)
+          term_bounds = subtract_bounds({new_lo, new_hi}, others)
+          v_bounds = invert_domain(term_bounds, coeff, 0)
+
+          case narrow_one_var(acc_store, v, v_bounds, branch) do
+            :fail -> {:halt, :fail}
+            {:ok, new_store, props} -> {:cont, {:ok, new_store, acc_props ++ props}}
+          end
+        end)
+    end
   end
 
-  defp apply_domain_ok(store, {:linear, v, coeff, k}, {new_lo, new_hi}, branch) do
-    {v_lo, v_hi} = invert_domain({new_lo, new_hi}, coeff, k)
-
+  defp narrow_one_var(store, v, {v_lo, v_hi}, branch) do
     if v_lo != nil and v_hi != nil and v_lo > v_hi do
       :fail
     else

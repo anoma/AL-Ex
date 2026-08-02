@@ -1,7 +1,8 @@
 defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
-  reverse, map, fold, flatten, same_length) and mapping a lambda over a list.
+  reverse, map, fold, flatten, same_length, all_dif, label_range) and mapping
+  a lambda over a list.
   """
 
   use ExExample
@@ -125,6 +126,56 @@ defmodule Examples.ALLists do
       end
 
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
+    :ok
+  end
+
+  example all_dif_accepts_pairwise_distinct_elements() do
+    {:atomic, _} =
+      run branch: :examples do
+        all_dif([1, 2, 3])
+      end
+
+    :ok
+  end
+
+  example all_dif_rejects_a_repeated_element() do
+    {:aborted, _} =
+      run branch: :examples do
+        all_dif([1, 2, 1])
+      end
+
+    :ok
+  end
+
+  # Still-open elements: `all_dif` just attaches `dif` constraints (no
+  # groundedness required), so a later bind that violates one is still
+  # caught — same reactive-constraint discipline `dedupe` relies on.
+  example all_dif_catches_a_later_bind_between_open_elements() do
+    {:aborted, _} =
+      run branch: :examples do
+        unify(l, [1, x, y])
+        all_dif(l)
+        unify(x, 2)
+        unify(y, 2)
+      end
+
+    :ok
+  end
+
+  # Recurses via clause-head matching (`[h|t]`), not `forall`/`member` — a
+  # still-open shared element gets bound through ordinary unification this
+  # way, threading back to the caller's own var (see bootstrap.ex's own
+  # comment on `label_range`: `forall`'s collect-then-freshen splice would
+  # mint an independent copy instead).
+  example label_range_grounds_open_elements_within_bounds() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        unify(l, [1, x, 3])
+        all_dif(l)
+        label_range(l, 1, 3)
+      end
+
+    assert Map.get(bindings, :"$x") == 2
     :ok
   end
 end

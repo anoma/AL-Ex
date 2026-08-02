@@ -121,3 +121,11 @@ end
 defmodule ALBoundsTest do
   use ExExample.ExUnit, for: Examples.ALBounds
 end
+
+defmodule ALSudokuTest do
+  use ExExample.ExUnit, for: Examples.ALSudoku
+end
+
+defmodule ALDomainLabelTest do
+  use ExExample.ExUnit, for: Examples.ALDomainLabel
+end

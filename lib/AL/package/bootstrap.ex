@@ -175,14 +175,24 @@ defmodule AL.Package.Bootstrap do
     # A real class, not a category import: a value class's own :init override
     # then gets a fresh method (real inheritance), not another clause on a
     # shared imported one. allocate = identity (skip :object's durable
-    # registration); init discards the scaffold (output never unified with
-    # self), so self stays exactly as open as it started for a class's own
-    # clauses/relational logic to work with directly.
+    # registration); self stays exactly as open as it started for a class's
+    # own clauses/relational logic to work with directly (self never gets
+    # unified with output here).
     new(:class, %{name: :value, super: :object, ivars: []}, _)
 
     defmethod(:value, :allocate, [self, _, self])
 
-    defmethod(:value, :init, [self, _, output])
+    # `output`'s own isa tag: every value class gets this for free from an
+    # explicit `new`, not just from generative dispatch (which already
+    # attaches the same tag externally, before a candidate's own goals run,
+    # when an open var reaches a class through `send` instead of `new`) —
+    # one mechanism, not two. A class with its own :domain method can rely
+    # on `output` already being isa-tagged and ready for `vm_label` right
+    # after `new` returns, no separate `class(output, name)` call needed.
+    defmethod(:value, :init, [self, _, output]) do
+      vm_map_get(self, :class, class)
+      vm_class(output, class)
+    end
 
     vm_set_super(:map, :object)
 
@@ -260,18 +270,7 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:number, :factorial, [1, 1])
 
-    # One relational clause, no forward/backward mode split. Two phases,
-    # cost-asymmetric even though they read the same:
-    #   1. `n > 1` / `n <= factorial` (sound since n! >= n for n >= 1) —
-    #      narrow-or-check, O(1) either way, no choicepoints, regardless of
-    #      how wide `n`'s domain ends up (an impossible target, factorial <
-    #      1, contradicts right here and fails before phase 2 ever runs).
-    #   2. `vm_label(n)` — the one place `n`'s domain actually collapses
-    #      into real backtracking choicepoints, one per remaining candidate
-    #      (lazily, via `between`). A no-op if `n` was already ground
-    #      (ordinary forward calls never pay for this at all); real search
-    #      only when `n` arrived open. Everything after this line sees a
-    #      plain ground `n`, same as before this clause existed.
+    # TODO: Propagating multiplicative intervals
     defmethod(:number, :factorial, [n, factorial]) do
       n > 1
       factorial >= 1
@@ -287,29 +286,18 @@ defmodule AL.Package.Bootstrap do
     defmethod(:number, :fibonacci, [1, 1])
     defmethod(:number, :fibonacci, [2, 1])
 
-    # Same two-phase shape as factorial (see comment above), plus one more
-    # wrinkle: `n <= x` isn't sound for fibonacci (fibonacci(3) = 2 < 3), but
-    # `n <= x + 1` is (`n - fibonacci(n)` peaks at exactly 1, at n = 2, 3, 4;
-    # fibonacci(n) >= n for every n >= 5). Posting it directly works
-    # regardless of mode: compound-bounds propagation (`AL.Var.Bounds`)
-    # narrows `n` from `x + 1` even while `x` is still open (forward mode,
-    # computing `x`) the same way it narrows from an already-ground `x`
-    # (backward search) — no mode probe needed to tell the two apart, unlike
-    # the earlier version of this clause (see al-bounds-consistency memory).
     defmethod(:number, :fibonacci, [n, x]) do
       n > 2
       x >= 1
       n <= x + 1
 
-      vm_label(n)
-
-      vm_is(n1, n - 1)
-      vm_is(n2, n - 2)
+      eq(n1, n - 1)
+      eq(n2, n - 2)
 
       fibonacci(n1, x1)
       fibonacci(n2, x2)
 
-      vm_is(x, x1 + x2)
+      eq(x, x1 + x2)
     end
 
     new(:class, %{name: :list, super: :value, ivars: []}, _)
@@ -461,6 +449,51 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :dedupe, [[x | [y | rest]], [x | result]]) do
       dif(x, y)
       dedupe([y | rest], result)
+    end
+
+    defmethod(:list, :all_dif, [[]])
+
+    defmethod(:list, :all_dif, [[h | t]]) do
+      dif_from_all(t, h)
+      all_dif(t)
+    end
+
+    defmethod(:list, :dif_from_all, [[], _x])
+
+    defmethod(:list, :dif_from_all, [[h | t], x]) do
+      dif(x, h)
+      dif_from_all(t, x)
+    end
+
+    # Recurses via clause-head matching, not forall/member — a still-open
+    # shared element gets bound through ordinary unification this way
+    # (thread back to the caller's own var); forall's own
+    # collect-then-substitute-then-freshen splice mints an independent
+    # fresh alias for anything still open, disconnected from the original.
+    defmethod(:list, :label_range, [[], _lo, _hi])
+
+    defmethod(:list, :label_range, [[h | t], lo, hi]) do
+      h >= lo
+      h <= hi
+      vm_label(h)
+      label_range(t, lo, hi)
+    end
+
+    # Rows of a matrix -> columns. Terminates on the first row emptying —
+    # sound because every row shrinks by one element per recursive step in
+    # lockstep (`heads_tails`), so for a well-formed matrix (equal-length
+    # rows) every row is empty at exactly the same step.
+    defmethod(:list, :transpose, [[[] | _rows], []])
+
+    defmethod(:list, :transpose, [rows, [firsts | rest]]) do
+      heads_tails(rows, firsts, tails)
+      transpose(tails, rest)
+    end
+
+    defmethod(:list, :heads_tails, [[], [], []])
+
+    defmethod(:list, :heads_tails, [[[h | t] | rows], [h | hs], [t | ts]]) do
+      heads_tails(rows, hs, ts)
     end
 
     defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
