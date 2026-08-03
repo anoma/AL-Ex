@@ -725,6 +725,37 @@ diff/merge and valid-time queries are unbuilt.
   conceptually closer to "real things" than "plain symbols" (the way
   `:square`/`:card` already are), reserving bare-atom domain values for
   cases as unambiguously symbolic as `:hearts`/`:diamonds` always were.
+- **Ivar specs — `defclass`'s `ivars:` can carry a per-ivar `domain:`/`type:`
+  spec, and `:value`'s default `:init` wires both checking and generation
+  from it automatically, no hand-written `:init` needed for the common
+  case.** `ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]]`
+  (mixed with plain bare-name ivars is fine, e.g. `[:name, suit: [domain:
+  [...]]]`) — `domain:` posts `in_domain` on the field (validated
+  immediately if the caller supplies it, left open-but-domain-constrained if
+  not, ready for `unify`/`vm_label` later); `type:` attaches `isa` instead/
+  alongside so `vm_label`'s class-`:domain`-method fallback tier can
+  generate a value for it. Zero VM changes — `ivars` was already opaque,
+  already-stored class metadata, and a keyword-shaped ivar entry already
+  lowers through `ast_to_pattern` unchanged (keyword-list 2-tuples are
+  self-quoting in Elixir's AST like any other list literal). New methods
+  live on `:object`, not `:map` — a *classed* map (a constructed value
+  instance, `%{class: :card, ...}`) dispatches via its own `:class` field as
+  the `method_scopes` seed, which never passes through `:map` at all
+  (`:map` and `:value` are siblings under `:object`, not
+  ancestor/descendant); `:object` is the one place reachable from both a
+  raw classless args map and any classed instance. `ivars: []` (every value
+  class that predates this) keeps its exact old default-`:init` behavior —
+  the new "build from ivars" branch only ever fires for a class with
+  non-empty ivars and no `:init` override, a combination with zero existing
+  users before this feature. Decomposing a `{name, opts}` ivar entry uses
+  `vm_functor` (a real, deterministic decompose), not a bare-var fallback
+  clause after a tuple-specific one — the fallback would still structurally
+  unify with a real tuple too and silently win some of the time; see
+  [[feedback-prolog-clause-selection-not-elixir]]. Explicitly deferred:
+  numeric-range generation, and the same wiring for durable (`:object`-super)
+  classes, whose construction writes slots via Mnesia rather than an
+  ephemeral map. Demo in `lib/AL/package/blackjack.ex`'s `:card`, regression
+  examples in `e_AL_blackjack.ex`.
 - **The dispatch legs converged to one domain-constraint mechanism —
   mechanically done, semantically still in progress.** Every leg answers the
   same question — "self is unbound; what's its domain of possible values,

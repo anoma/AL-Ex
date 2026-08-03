@@ -114,6 +114,32 @@ defmodule AL.Package.Bootstrap do
     vm_set_class(:map_put, :behaviour)
     vm_set_method(:map, :put, :map_put)
 
+    # On :object, not :map -- a *classed* map (e.g. a constructed value
+    # instance, `%{class: :card, ...}`) dispatches via its own :class field
+    # as the method_scopes seed (:card -> :value -> :object here), which
+    # never passes through :map at all (:map and :value are siblings under
+    # :object, not ancestor/descendant). :object is the one place reachable
+    # from every map shape -- a "raw" args map with no :class field (seed
+    # defaults to :map, whose own super is :object) and any classed instance
+    # alike.
+
+    # Presence-optional get: bind `value` if `key` exists, leave it open
+    # otherwise (no failure) -- the one primitive an ivar spec's optional
+    # field needs, independent of whether it also carries a domain/type.
+    defmethod(:object, :get_optional, [self, key, value]) do
+      implies do
+        [vm_map_get(self, key, provided)] -> unify(value, provided)
+      end
+    end
+
+    # Ordinary dispatched read of a map-shaped value instance's own field --
+    # no vm_ prefix needed at the call site, same as :get/:put above already
+    # give a dispatched path to map_get/map_put without one (for a *raw*,
+    # classless map -- this one also works on a classed instance).
+    defmethod(:object, :slot_get, [self, key, value]) do
+      vm_map_get(self, key, value)
+    end
+
     defmethod(:class, :construct, [self, %{class: self}])
 
     vm_set_method(:class, :allocate, :allocate_class)
@@ -200,9 +226,75 @@ defmodule AL.Package.Bootstrap do
     # one mechanism, not two. A class with its own :domain method can rely
     # on `output` already being isa-tagged and ready for `vm_label` right
     # after `new` returns, no separate `class(output, name)` call needed.
-    defmethod(:value, :init, [self, _, output]) do
+    #
+    # `ivars: []` (every value class that predates ivar specs -- :number,
+    # :letter_chain, etc.) keeps exactly that behavior. A class with declared
+    # ivars and no :init override of its own (new this session -- no
+    # existing class both declares ivars and skips :init) instead builds a
+    # real map from them: each ivar individually get-optional'd, then
+    # domain/type-checked per its own spec, if it has one.
+    defmethod(:value, :init, [self, args, output]) do
       vm_map_get(self, :class, class)
-      vm_class(output, class)
+      vm_get_slot(class, :ivars, ivar_specs)
+
+      implies do
+        [unify(ivar_specs, [])] -> vm_class(output, class)
+        :else -> build_from_ivar_specs(self, class, args, ivar_specs, output)
+      end
+    end
+
+    # One ivar-spec entry -> its bare name and its value. A bare-var fallback
+    # clause (`[self, spec, name]` matching anything) is NOT safe here even
+    # ordered after a `{name, opts}`-pattern clause -- Prolog tries every
+    # clause whose head unifies, not just the first, so the bare fallback
+    # would still fire (and win, non-deterministically) on a real {name,
+    # opts} spec too, same bug just caught in `rank_value`. `vm_functor` is a
+    # real function (decompose direction, deterministic), not another
+    # relational alternative -- it either decomposes spec into {name,
+    # [opts]} (only possible when spec really is a 2-tuple, since a bare
+    # atom decomposes to {atom, []}, and [] never unifies with [opts]) or it
+    # doesn't; `implies` commits to whichever one actually happens, no
+    # overlap possible.
+    #
+    # `self` throughout this group is a dispatch anchor only, never
+    # inspected -- a bare atom (an ivar name, or {name, opts}) has no
+    # generic class of its own to dispatch through, so every call re-passes
+    # the *scaffold map* self came in as (its :class field is what actually
+    # walks the class's own super chain down to :object -- see method_scopes,
+    # which only does that for a map receiver's :class key, not for a bare
+    # atom classified as :class/:category/:behaviour, which is what the
+    # class atom itself resolves as).
+    defmethod(:object, :apply_ivar_spec, [self, args, spec, name, value]) do
+      implies do
+        [vm_functor(spec, name, [opts])] ->
+          implies do
+            [member(opts, {:domain, domain})] -> in_domain(value, domain)
+          end
+
+          implies do
+            [member(opts, {:type, type})] -> vm_class(value, type)
+          end
+
+        :else ->
+          unify(name, spec)
+      end
+
+      get_optional(args, name, value)
+    end
+
+    # Fold a class's own declared ivar specs into a constructed map -- same
+    # recursive-fold idiom as :list's own concat/reverse/fold. `self` is the
+    # scaffold map :init was called with (the dispatch anchor, re-passed
+    # explicitly on every recursive call -- self doesn't carry across nested
+    # sends the way it would in an ordinary OO language); `class` is the
+    # bare class atom, carried separately since it's what actually goes in
+    # the output map's own :class field.
+    defmethod(:object, :build_from_ivar_specs, [self, class, args, [], %{class: class}])
+
+    defmethod(:object, :build_from_ivar_specs, [self, class, args, [spec | rest], output]) do
+      build_from_ivar_specs(self, class, args, rest, partial)
+      apply_ivar_spec(self, args, spec, name, value)
+      vm_map_put(partial, name, value, output)
     end
 
     vm_set_super(:map, :object)

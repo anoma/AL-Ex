@@ -2,47 +2,44 @@ defmodule AL.Package.Blackjack do
   use AL.Package
 
   defpackage :blackjack, version: 1, deps: [:bootstrap] do
-    # durable instances, not a super: :value enum -- card_value dispatches
-    # on a real rank object either direction (ground or open, via the
-    # durable leg), no generative candidate involved, so there's no risk of
-    # the same fact being provable twice the way a value-class member would be.
-    defclass :card_rank, super: :object do
-      defmethod(:card_value, [:two, 2])
-      defmethod(:card_value, [:three, 3])
-      defmethod(:card_value, [:four, 4])
-      defmethod(:card_value, [:five, 5])
-      defmethod(:card_value, [:six, 6])
-      defmethod(:card_value, [:seven, 7])
-      defmethod(:card_value, [:eight, 8])
-      defmethod(:card_value, [:nine, 9])
-      defmethod(:card_value, [:ten, 10])
-      defmethod(:card_value, [:jack, 10])
-      defmethod(:card_value, [:queen, 10])
-      defmethod(:card_value, [:king, 10])
-      defmethod(:card_value, [:ace, 11])
-      defmethod(:card_value, [:ace, 1])
-    end
+    defclass :card,
+      super: :value,
+      ivars: [
+        suit: [domain: [:spades, :diamonds, :hearts, :clubs]],
+        rank: [domain: [2, 3, 4, 5, 6, 7, 8, 9, 10, :jack, :queen, :king, :ace]]
+      ] do
+      defmethod(:rank_value, [self, :jack, 10])
+      defmethod(:rank_value, [self, :queen, 10])
+      defmethod(:rank_value, [self, :king, 10])
+      defmethod(:rank_value, [self, :ace, 11])
+      defmethod(:rank_value, [self, :ace, 1])
 
-    new(:card_rank, %{name: :two}, _)
-    new(:card_rank, %{name: :three}, _)
-    new(:card_rank, %{name: :four}, _)
-    new(:card_rank, %{name: :five}, _)
-    new(:card_rank, %{name: :six}, _)
-    new(:card_rank, %{name: :seven}, _)
-    new(:card_rank, %{name: :eight}, _)
-    new(:card_rank, %{name: :nine}, _)
-    new(:card_rank, %{name: :ten}, _)
-    new(:card_rank, %{name: :jack}, _)
-    new(:card_rank, %{name: :queen}, _)
-    new(:card_rank, %{name: :king}, _)
-    new(:card_rank, %{name: :ace}, _)
+      defmethod(:rank_value, [self, r, r]) do
+        class(r, :number)
+      end
+
+      defmethod(:card_value, [self, v]) do
+        slot_get(self, :rank, r)
+        rank_value(self, r, v)
+      end
+    end
 
     defmethod(:list, :hand_total, [[], 0])
 
-    defmethod(:list, :hand_total, [[rank | rest], total]) do
-      card_value(rank, v)
+    defmethod(:list, :hand_total, [[card | rest], total]) do
+      card_value(card, v)
       hand_total(rest, rest_total)
       eq(total, v + rest_total)
     end
   end
 end
+
+# new(:card, _, c) <- should return a card
+# new(:card, c); slot_get(c, :rank, 100) <- should fail, outside of domain
+# card_value(c, 7) <- should return a card
+# card_value(c, 29) <- should fail, outside of domain
+# new(:card, %{rank: 29}, c) <- should fail, outside of domain
+# new(:card, %{rank: 7}, c) <- should return a card
+# new(:card, %{rank: 7}, c); slot_get(c, :rank, 2) <- should fail, constraint violation
+
+# Idea: Make this into an article, use it to show off live programming capabilities, forking, time travel. Prob

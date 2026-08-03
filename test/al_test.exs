@@ -133,4 +133,3 @@ end
 defmodule ALBlackjackTest do
   use ExExample.ExUnit, for: Examples.ALBlackjack
 end
-

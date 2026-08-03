@@ -133,7 +133,8 @@ defmodule AL.Store do
   defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
   defp store_body(body), do: body
 
-  defp generative_value_class?(class, branch), do: AL.Object.scan_super(class, :value, branch) != []
+  defp generative_value_class?(class, branch),
+    do: AL.Object.scan_super(class, :value, branch) != []
 
   defp direct_classes(o, branch) do
     scope = AL.fresh_scope()

@@ -193,10 +193,18 @@ defmodule AL do
     # open with an isa constraint) otherwise prints identically to a
     # genuinely free one -- surface real constraints under a reserved key,
     # keyed by the same display name shown in `bindings` itself, omitted
-    # entirely when nothing has anything to say.
-    constraints = constraint_summary(canonical_names, store)
+    # entirely when nothing has anything to say. `display_names`, not
+    # `canonical_names` -- a query var can itself be *bound* to a compound
+    # value (e.g. a constructed `%{class: :card, suit: ..., rank: ...}`)
+    # while still containing nested open-but-constrained vars; only
+    # `display_names` (built via `find_vars`, which walks into bound
+    # structures) reaches those, `canonical_names` only covers the case
+    # where the query var itself stayed open.
+    constraints = constraint_summary(display_names, store)
 
-    if map_size(constraints) == 0, do: bindings, else: Map.put(bindings, :"$constraints", constraints)
+    if map_size(constraints) == 0,
+      do: bindings,
+      else: Map.put(bindings, :"$constraints", constraints)
   end
 
   defp constraint_summary(canonical_names, store) do
@@ -214,11 +222,17 @@ defmodule AL do
     end)
   end
 
-  defp summarize_constraints(self, %AL.Var.ConstraintSet{dif: dif, isa: isa, bounds: bounds}) do
+  defp summarize_constraints(self, %AL.Var.ConstraintSet{
+         dif: dif,
+         isa: isa,
+         bounds: bounds,
+         domain: domain
+       }) do
     %{}
     |> maybe_put_isa(isa)
     |> maybe_put_dif(self, dif)
     |> maybe_put_bounds(bounds)
+    |> maybe_put_domain(domain)
   end
 
   defp maybe_put_isa(map, isa) do
@@ -232,6 +246,11 @@ defmodule AL do
 
   defp maybe_put_bounds(map, {nil, nil}), do: map
   defp maybe_put_bounds(map, bounds), do: Map.put(map, :bounds, bounds)
+
+  defp maybe_put_domain(map, nil), do: map
+
+  defp maybe_put_domain(map, domain),
+    do: Map.put(map, :domain, Enum.sort(MapSet.to_list(domain)))
 
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do

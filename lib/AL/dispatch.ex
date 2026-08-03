@@ -133,7 +133,8 @@ defmodule AL.Dispatch do
 
     fresh_args =
       Map.new(class_ivars(class, state.branch), fn ivar ->
-        {ivar, AL.Var.var("candidate_ivar_#{ivar}_#{scope}")}
+        name = ivar_name(ivar)
+        {name, AL.Var.var("candidate_ivar_#{name}_#{scope}")}
       end)
 
     [
@@ -247,6 +248,13 @@ defmodule AL.Dispatch do
       _ -> []
     end
   end
+
+  # An ivar is either a bare name or a {name, spec_opts} pair (ivar specs,
+  # e.g. `suit: [domain: [...]]]`) -- always resolve to the bare name before
+  # using it as a map key, or a spec'd ivar would key fresh_args by the whole
+  # tuple instead of its name.
+  defp ivar_name({name, _opts}), do: name
+  defp ivar_name(name), do: name
 
   # Classes with :value as direct super. seq is per-object, no cross-class
   # ordering guarantee.
