@@ -49,7 +49,10 @@ defmodule Examples.ALTrace do
     {:atomic, _} =
       run branch: :examples do
         defclass :trace_leg_class, super: :value, ivars: [] do
-          defmethod(:trace_next, [:a, :b])
+          defmethod(:trace_next, [
+            %{class: :trace_leg_class, letter: :a},
+            %{class: :trace_leg_class, letter: :b}
+          ])
         end
       end
 
@@ -58,7 +61,7 @@ defmodule Examples.ALTrace do
     output =
       capture_io(fn ->
         run branch: :examples do
-          trace_next(x, :b)
+          trace_next(x, %{class: :trace_leg_class, letter: :b})
         end
       end)
 

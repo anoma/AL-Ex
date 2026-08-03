@@ -59,7 +59,7 @@ defmodule Examples.ALEquationsCompile do
 
     {:atomic, {derived, _}} =
       run branch: branch.id do
-        equation(:equations, [:add, [:mul, p, 2], 1], 43)
+        equation(:equation_solver, [:add, [:mul, p, 2], 1], 43)
       end
 
     assert AL.Var.deref(compiled, :"$p") == AL.Var.deref(derived, :"$p")

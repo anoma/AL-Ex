@@ -184,13 +184,13 @@ defmodule Examples.ALBranch do
     pid = self()
 
     # a worker object that lives only on the fork, built from bootstrap
-    # primitives — its handler notifies a registered `:elixir_process` once
+    # primitives — its handler notifies a registered `:process` once
     # done, the same synchronization `Examples.ALConstraints` uses: a blocking
     # `receive` instead of a guessed `Process.sleep`, since `send_async`'s
     # scheduler pickup has no ordering guarantee against this test's own next line.
     {:atomic, _} =
       run branch: branch.id do
-        new(:elixir_process, %{name: :fork_worker_subscriber, pid: ^pid}, _)
+        new(:process, %{name: :fork_worker_subscriber, pid: ^pid}, _)
 
         vm_set_class(:fork_worker, :object)
 

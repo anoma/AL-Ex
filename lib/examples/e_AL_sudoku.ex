@@ -1,11 +1,11 @@
 defmodule Examples.ALSudoku do
   @moduledoc """
-  I provide examples for `AL.Package.Sudoku`'s `:sudoku` class:
-  `new(:sudoku, %{givens: rows}, puzzle)` builds the cell grid and posts
+  I provide examples for `AL.Package.Sudoku`'s `:sudoku_puzzle` class:
+  `new(:sudoku_puzzle, %{givens: rows}, puzzle)` builds the cell grid and posts
   every row/column/3x3-box `all_dif` (pairwise `dif`, no dedicated global
   all-different propagator) plus each cell's `[1,9]` domain; `solve(puzzle,
   solved)` runs `vm_label` per row to search the remainder. `puzzle` is a
-  `:value` instance (`%{class: :sudoku, rows: ...}`), not a durable object —
+  `:value` instance (`%{class: :sudoku_puzzle, rows: ...}`), not a durable object —
   a puzzle is scratch, and being a map means it already carries its own
   printable/reified form, nothing separate to build for that. Sudoku
   doesn't need `eq/2`'s arithmetic propagation at all (no sums or products
@@ -48,7 +48,7 @@ defmodule Examples.ALSudoku do
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        new(:sudoku, %{givens: ^givens}, puzzle)
+        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
         solve(puzzle, solved)
       end
 
@@ -59,7 +59,7 @@ defmodule Examples.ALSudoku do
   # A second, independent puzzle — a different valid grid (every digit of
   # `@solved` shifted by 3, still a valid grid: permuting symbol labels
   # preserves the all-different property everywhere), with an entire row
-  # left blank rather than a diagonal, to prove `:sudoku` genuinely works
+  # left blank rather than a diagonal, to prove `:sudoku_puzzle` genuinely works
   # for more than one hand-tuned shape, not just the class above.
   example sudoku_class_solves_a_second_independent_puzzle() do
     givens = [
@@ -76,7 +76,7 @@ defmodule Examples.ALSudoku do
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        new(:sudoku, %{givens: ^givens}, puzzle)
+        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
         solve(puzzle, solved)
       end
 
@@ -114,7 +114,7 @@ defmodule Examples.ALSudoku do
 
     {:aborted, _trace} =
       run branch: :examples do
-        new(:sudoku, %{givens: ^givens}, _puzzle)
+        new(:sudoku_puzzle, %{givens: ^givens}, _puzzle)
       end
 
     :ok

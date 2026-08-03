@@ -39,6 +39,9 @@ defmodule AL.Lowering do
   def ast_to_pattern({:vm_super, _, [object, super]}),
     do: %Goal.GetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
+  def ast_to_pattern({:vm_assert_valid_clause_self, _, [class, head]}),
+    do: %Goal.AssertValidClauseSelf{class: ast_to_pattern(class), head: ast_to_pattern(head)}
+
   def ast_to_pattern({:vm_method, _, [object, name, id]}),
     do: %Goal.GetMethod{
       object: ast_to_pattern(object),

@@ -802,26 +802,75 @@ diff/merge and valid-time queries are unbuilt.
     the double-proof conflict below isn't a special case to guard against,
     it's what happens when the same var's domain gets computed by two
     different strategies at once instead of one.
-  - **Concrete motivating case for that end state, found this session**: a
+  - **Concrete motivating case, found this session, now closed two ways**: a
     bare atom durably classified into a `super: :value` class whose own
     clause literally matches it (`vm_set_class(:two, :card_rank)` where
     `:card_rank` has `defmethod(:two, [:two])`) is reachable both as a
     durable object *and* as a generative candidate for the exact same fact
-    — `findall` reports it twice, one proof per leg. Fixed reactively for
-    now (`AL.Store`'s `SetClass` rejects the combination via
-    `AL.Dispatch.value_member?/3`), but the *principled* fix is exactly the
-    unification above: if durable candidacy were expressed as a lazily-
-    computed domain (same `ConstraintSet.domain` slot `in_domain/2` already
-    uses, just computed from a durable scan instead of a fixed literal set),
-    a var would have *one* domain, not two independent legs that can
-    coincidentally agree on the same fact — the conflict dissolves
-    structurally instead of needing a guard to catch it after the fact.
+    — `findall` reports it twice, one proof per leg. Two guards now catch
+    this, at two different points: `AL.Store`'s `SetClass` interp still
+    rejects the combination at *classification* time (`vm_set_class`, via
+    `AL.Dispatch.value_member?/3`), and `Goal.AssertValidClauseSelf` (native
+    check, `AL.Store`, called only from `:defmethod`'s own accretion body in
+    `bootstrap.ex`) rejects it even earlier, at *definition* time — a
+    `super: :value` class can no longer define a clause with a bare atom as
+    its self-pattern at all, so the ambiguous atom is never created in the
+    first place. Neither is a general-purpose primitive; both are narrowly
+    scoped to this one shape (bare atom self on a value class). The
+    *principled* fix is still the unification above: if durable candidacy
+    were expressed as a lazily-computed domain (same `ConstraintSet.domain`
+    slot `in_domain/2` already uses, just computed from a durable scan
+    instead of a fixed literal set), a var would have *one* domain, not two
+    independent legs that can coincidentally agree on the same fact — the
+    conflict dissolves structurally instead of needing a guard to catch it.
     `send`'s agnosticism about *which candidate kind will pan out* during
     search isn't the problem (that's ordinary backtracking, same as Prolog
     not knowing in advance which clause will match) — once something is
-    concrete, durable or generative, it's never ambiguous; the guard exists
+    concrete, durable or generative, it's never ambiguous; the guards exist
     for the narrower case of one *fact* being provable twice, not one
-    *object* being unclear what it is.
+    *object* being unclear what it is. Explicitly deferred, not today's
+    problem: a richer model where one Elixir datatype could belong to
+    multiple possible classes — rejected as too complex and not performant
+    enough to be worth it now.
+  - **A durable atom has exactly one direct class** — `AL.Store`'s `SetClass`
+    interp also rejects reclassifying an atom that already carries a
+    *different* direct class (`direct_classes/2`, via
+    `AL.Object.scan_class/3`); `vm_retract_class` first if the reclassify is
+    intentional. Supers/inheritance (`vm_set_super`) stay a free-form,
+    unrestricted DAG — this only constrains an object's own class row, not
+    its ancestry. Building this surfaced a real, previously-unresolved bug:
+    `AL.Package`'s `defpackage` macro creates a durable receipt object via
+    `new(:package, %{name: ...}, _)`, and `:object`'s default `:allocate`
+    uses `args[:name]` as the durable identity — so a package whose main
+    class shares its own name (a natural, common pattern) durably classifies
+    the *same atom* as both `:package` (the receipt) and `:class` (the class
+    declaration). Fixed by renaming the colliding class in each affected
+    package (`elixir_process`, `interval`, `sudoku`, `mapset`, `equations`),
+    not by changing `defpackage`'s own receipt mechanism — simpler for now,
+    though it doesn't automatically prevent the same collision in a future
+    package.
+  - **The durable and generative legs' requery step is now one shared
+    helper**, not two hardcoded paths chosen up front by which leg you're
+    in. `AL.Dispatch.requery_goals/4` splices an `Implies`/`IsVar` fragment
+    that checks, *after* construction goals actually run, whether `self` is
+    still open — open routes to `SendAsValue`, ground routes to `SendQuery`.
+    This has to be a goal-level check, not an eager Elixir-level branch: for
+    the generative leg, `new`/`Unify` haven't run yet at the point the
+    requery goals are spliced in, so `self` always still looks like a var to
+    an eager check regardless of which leg is running. For the durable leg
+    (`force_durable_candidates`/`structural_candidate`), unification is
+    eager, so by the time this runs `self` is already ground and the
+    `IsVar` check is a no-op — same shared helper either way, no special
+    casing. This replaced what used to be a hardcoded `SendAsValue` in one
+    leg and a hardcoded `SendQuery` in the other. An earlier, more ambitious
+    version of this unification effort (a new `vm_class_instances`/
+    `Goal.ClassInstances` primitive, meant to make durable candidacy an
+    overridable AL-level `:instances` method alongside generative's) was
+    built, then fully reverted — it introduced a second primitive
+    confusingly similar to `vm_class`, working against the goal of
+    converging on fewer primitives, not more. `vm_class` stays the one lazy
+    entry point it always was: register `isa` eagerly, defer the real scan
+    until dispatch actually needs a witness.
 - **Durable candidate generation doesn't consult `isa`/`dif` before scanning.**
   `AL.Var.bind/4` being the one choke point means a wrong-class durable
   candidate is always *rejected* correctly (see al-clp-for-objects memory),

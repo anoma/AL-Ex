@@ -1,6 +1,6 @@
 defmodule Examples.ALMapset do
   @moduledoc """
-  I provide examples for the `:mapset` package — a set is `%{class: :mapset,
+  I provide examples for the `:mapset_value` package — a set is `%{class: :mapset_value,
   elems: map}`, where `elems` holds each member as a key (value unused).
   Elixir/Erlang map equality is content-based regardless of insertion order,
   so two mapsets with the same members are the identical term and `==` is
@@ -15,11 +15,11 @@ defmodule Examples.ALMapset do
   example new_mapset_canonicalizes_elems() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [3, 1, 2, 1]}, s)
+        new(:mapset_value, %{elems: [3, 1, 2, 1]}, s)
       end
 
     assert Map.get(bindings, :"$s") == %{
-             class: :mapset,
+             class: :mapset_value,
              elems: %{1 => true, 2 => true, 3 => true}
            }
 
@@ -29,7 +29,7 @@ defmodule Examples.ALMapset do
   example mapset_elem_checks_membership() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4, 7]}, s)
+        new(:mapset_value, %{elems: [4, 7]}, s)
 
         elem(s, 4)
         elem(s, 7)
@@ -45,7 +45,7 @@ defmodule Examples.ALMapset do
   example empty_mapset_has_no_elements() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: []}, empty)
+        new(:mapset_value, %{elems: []}, empty)
         not [elem(empty, 4)]
         unify(checked, true)
       end
@@ -57,18 +57,18 @@ defmodule Examples.ALMapset do
   example insert_into_empty_mapset_makes_a_singleton() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: []}, empty)
+        new(:mapset_value, %{elems: []}, empty)
         insert(empty, 4, s)
       end
 
-    assert Map.get(bindings, :"$s") == %{class: :mapset, elems: %{4 => true}}
+    assert Map.get(bindings, :"$s") == %{class: :mapset_value, elems: %{4 => true}}
     :ok
   end
 
   example insert_existing_element_is_idempotent() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4]}, s)
+        new(:mapset_value, %{elems: [4]}, s)
         insert(s, 4, s2)
       end
 
@@ -79,47 +79,47 @@ defmodule Examples.ALMapset do
   example insert_new_element_grows_the_mapset() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4]}, s)
+        new(:mapset_value, %{elems: [4]}, s)
         insert(s, 7, grown)
       end
 
-    assert Map.get(bindings, :"$grown") == %{class: :mapset, elems: %{4 => true, 7 => true}}
+    assert Map.get(bindings, :"$grown") == %{class: :mapset_value, elems: %{4 => true, 7 => true}}
     :ok
   end
 
   example union_deduplicates_overlapping_elements() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4]}, s1)
-        new(:mapset, %{elems: [4]}, s2)
+        new(:mapset_value, %{elems: [4]}, s1)
+        new(:mapset_value, %{elems: [4]}, s2)
         union(s1, s2, u)
       end
 
-    assert Map.get(bindings, :"$u") == %{class: :mapset, elems: %{4 => true}}
+    assert Map.get(bindings, :"$u") == %{class: :mapset_value, elems: %{4 => true}}
     :ok
   end
 
   example union_of_disjoint_mapsets_combines_elements() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4]}, s1)
-        new(:mapset, %{elems: [7]}, s2)
+        new(:mapset_value, %{elems: [4]}, s1)
+        new(:mapset_value, %{elems: [7]}, s2)
         union(s1, s2, u)
       end
 
-    assert Map.get(bindings, :"$u") == %{class: :mapset, elems: %{4 => true, 7 => true}}
+    assert Map.get(bindings, :"$u") == %{class: :mapset_value, elems: %{4 => true, 7 => true}}
     :ok
   end
 
   example union_is_canonical_regardless_of_operand_order() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4]}, a1)
-        new(:mapset, %{elems: [7]}, a2)
+        new(:mapset_value, %{elems: [4]}, a1)
+        new(:mapset_value, %{elems: [7]}, a2)
         union(a1, a2, u1)
 
-        new(:mapset, %{elems: [7]}, b1)
-        new(:mapset, %{elems: [4]}, b2)
+        new(:mapset_value, %{elems: [7]}, b1)
+        new(:mapset_value, %{elems: [4]}, b2)
         union(b1, b2, u2)
       end
 
@@ -147,7 +147,7 @@ defmodule Examples.ALMapset do
         elem(x, 7)
       end
 
-    assert Map.get(b1, :"$x") == %{class: :mapset, elems: %{7 => true}}
+    assert Map.get(b1, :"$x") == %{class: :mapset_value, elems: %{7 => true}}
     :ok
   end
 
@@ -164,7 +164,7 @@ defmodule Examples.ALMapset do
   example members_of_empty_mapset_is_empty_list() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: []}, empty)
+        new(:mapset_value, %{elems: []}, empty)
         members(empty, elems)
       end
 
@@ -175,7 +175,7 @@ defmodule Examples.ALMapset do
   example members_of_mapset_is_its_elems() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4, 7]}, s)
+        new(:mapset_value, %{elems: [4, 7]}, s)
         members(s, elems)
       end
 
@@ -190,7 +190,7 @@ defmodule Examples.ALMapset do
       end
 
     assert Map.get(bindings, :"$s") == %{
-             class: :mapset,
+             class: :mapset_value,
              elems: %{1 => true, 2 => true, 3 => true}
            }
 
@@ -200,24 +200,24 @@ defmodule Examples.ALMapset do
   example intersection_of_overlapping_mapsets_produces_a_mapset() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [3, 4]}, s1)
-        new(:mapset, %{elems: [3, 5]}, s2)
+        new(:mapset_value, %{elems: [3, 4]}, s1)
+        new(:mapset_value, %{elems: [3, 5]}, s2)
         intersection(s1, s2, i)
       end
 
-    assert Map.get(bindings, :"$i") == %{class: :mapset, elems: %{3 => true}}
+    assert Map.get(bindings, :"$i") == %{class: :mapset_value, elems: %{3 => true}}
     :ok
   end
 
   example intersection_of_disjoint_mapsets_is_empty() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        new(:mapset, %{elems: [4]}, s1)
-        new(:mapset, %{elems: [7]}, s2)
+        new(:mapset_value, %{elems: [4]}, s1)
+        new(:mapset_value, %{elems: [7]}, s2)
         intersection(s1, s2, i)
       end
 
-    assert Map.get(bindings, :"$i") == %{class: :mapset, elems: %{}}
+    assert Map.get(bindings, :"$i") == %{class: :mapset_value, elems: %{}}
     :ok
   end
 end

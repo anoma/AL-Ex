@@ -118,14 +118,14 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :bodyless_thing, super: :value do
-          defmethod(:known, [:known])
+          defmethod(:known, [42])
         end
 
         new(:bodyless_thing, x)
-        unify(x, :known)
+        unify(x, 42)
       end
 
-    assert Map.get(bindings, :"$x") == :known
+    assert Map.get(bindings, :"$x") == 42
     :ok
   end
 end

@@ -11,7 +11,7 @@ defmodule Examples.ALTasks do
   import ExUnit.Assertions
 
   # A worker whose handler both performs its effect and notifies a registered
-  # `:elixir_process` — the same synchronization `Examples.ALConstraints` uses:
+  # `:process` — the same synchronization `Examples.ALConstraints` uses:
   # `send_async`'s scheduler pickup has no ordering guarantee against the test
   # process's own next line, so waiting means an actual signal (a blocking
   # `receive`), not a guessed `Process.sleep` duration. `name`/`subscriber` are
@@ -20,7 +20,7 @@ defmodule Examples.ALTasks do
   defp register_worker(name, subscriber, pid) do
     {:atomic, _} =
       run branch: :examples do
-        new(:elixir_process, %{name: ^subscriber, pid: ^pid}, _)
+        new(:process, %{name: ^subscriber, pid: ^pid}, _)
 
         vm_set_class(^name, :object)
 

@@ -11,9 +11,9 @@ defmodule AL.Package.Equations do
   use AL.Package
 
   defpackage :equations, version: 1, deps: [:bootstrap] do
-    vm_set_class(:equations, :object)
+    vm_set_class(:equation_solver, :object)
 
-    defmethod(:equations, :equation, [self, t, u]) do
+    defmethod(:equation_solver, :equation, [self, t, u]) do
       implies do
         [vm_ground(t), vm_ground(u)] ->
           val(self, t, a)
@@ -35,7 +35,7 @@ defmodule AL.Package.Equations do
     end
 
     # One unknown occurrence solves; several wait for one to bind.
-    defmethod(:equations, :settle, [self, side, acc, t, u]) do
+    defmethod(:equation_solver, :settle, [self, side, acc, t, u]) do
       findall(w, [var(self, side, w)], unknowns)
 
       implies do
@@ -50,33 +50,33 @@ defmodule AL.Package.Equations do
 
     ### Evaluation of ground prefix terms.
 
-    defmethod(:equations, :val, [self, [:add, a, b], v]) do
+    defmethod(:equation_solver, :val, [self, [:add, a, b], v]) do
       val(self, a, va)
       val(self, b, vb)
       vm_is(v, va + vb)
     end
 
-    defmethod(:equations, :val, [self, [:mul, a, b], v]) do
+    defmethod(:equation_solver, :val, [self, [:mul, a, b], v]) do
       val(self, a, va)
       val(self, b, vb)
       vm_is(v, va * vb)
     end
 
-    defmethod(:equations, :val, [_self, x, x])
+    defmethod(:equation_solver, :val, [_self, x, x])
 
     ### Algebra walks to the unknown: addition subtracts away, and
     ### multiplication divides exactly or fails. The var gate runs
     ### first, else a variable would unify with the patterns below and
     ### the solver would generate terms instead of matching them.
 
-    defmethod(:equations, :solve, [self, x, acc]) do
+    defmethod(:equation_solver, :solve, [self, x, acc]) do
       implies do
         [var(x)] -> unify(x, acc)
         :else -> descend(self, x, acc)
       end
     end
 
-    defmethod(:equations, :descend, [self, [:add, a, b], acc]) do
+    defmethod(:equation_solver, :descend, [self, [:add, a, b], acc]) do
       implies do
         [vm_ground(a)] ->
           val(self, a, va)
@@ -90,7 +90,7 @@ defmodule AL.Package.Equations do
       end
     end
 
-    defmethod(:equations, :descend, [self, [:mul, a, b], acc]) do
+    defmethod(:equation_solver, :descend, [self, [:mul, a, b], acc]) do
       implies do
         [vm_ground(a)] ->
           val(self, a, va)
@@ -111,22 +111,22 @@ defmodule AL.Package.Equations do
     ### Unknown occurrences, one per solution on backtracking; the
     ### same gate keeps variables out of the structural patterns.
 
-    defmethod(:equations, :var, [self, x, v]) do
+    defmethod(:equation_solver, :var, [self, x, v]) do
       implies do
         [var(x)] -> unify(v, x)
         :else -> var_in(self, x, v)
       end
     end
 
-    defmethod(:equations, :var_in, [self, [:add, a, b], v]) do
+    defmethod(:equation_solver, :var_in, [self, [:add, a, b], v]) do
       alternative([var(self, a, v)], [var(self, b, v)])
     end
 
-    defmethod(:equations, :var_in, [self, [:mul, a, b], v]) do
+    defmethod(:equation_solver, :var_in, [self, [:mul, a, b], v]) do
       alternative([var(self, a, v)], [var(self, b, v)])
     end
 
-    defmethod(:equations, :var_in, [self, [a, b], v]) do
+    defmethod(:equation_solver, :var_in, [self, [a, b], v]) do
       alternative([var(self, a, v)], [var(self, b, v)])
     end
   end

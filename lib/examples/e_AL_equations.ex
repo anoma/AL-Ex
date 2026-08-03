@@ -12,7 +12,7 @@ defmodule Examples.ALEquations do
   example ground_checks() do
     {:atomic, _} =
       run branch: :examples do
-        equation(:equations, [:add, 1, 2], 3)
+        equation(:equation_solver, [:add, 1, 2], 3)
       end
 
     :ok
@@ -22,7 +22,7 @@ defmodule Examples.ALEquations do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         unify(x, 4)
-        equation(:equations, [:add, x, 1], y)
+        equation(:equation_solver, [:add, x, 1], y)
       end
 
     assert AL.Var.deref(bindings, :"$y") == 5
@@ -33,7 +33,7 @@ defmodule Examples.ALEquations do
     # The kernel's inverse shape: 2p + 1 = 43, exactly.
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        equation(:equations, [:add, [:mul, p, 2], 1], 43)
+        equation(:equation_solver, [:add, [:mul, p, 2], 1], 43)
       end
 
     assert AL.Var.deref(bindings, :"$p") == 21
@@ -43,7 +43,7 @@ defmodule Examples.ALEquations do
   example inexact_division_fails() do
     {:aborted, _} =
       run branch: :examples do
-        equation(:equations, [:mul, p, 2], 43)
+        equation(:equation_solver, [:mul, p, 2], 43)
       end
 
     :ok
@@ -53,7 +53,7 @@ defmodule Examples.ALEquations do
     # Two unknowns park the equation; one binding wakes and solves it.
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        equation(:equations, [:add, x, y], 10)
+        equation(:equation_solver, [:add, x, y], 10)
         unify(x, 3)
       end
 
@@ -64,13 +64,13 @@ defmodule Examples.ALEquations do
   example squares_check_once_bound() do
     {:atomic, _} =
       run branch: :examples do
-        equation(:equations, [:mul, x, x], 25)
+        equation(:equation_solver, [:mul, x, x], 25)
         unify(x, 5)
       end
 
     {:aborted, _} =
       run branch: :examples do
-        equation(:equations, [:mul, x, x], 25)
+        equation(:equation_solver, [:mul, x, x], 25)
         unify(x, 4)
       end
 

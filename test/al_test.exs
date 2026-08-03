@@ -129,3 +129,8 @@ end
 defmodule ALInDomainTest do
   use ExExample.ExUnit, for: Examples.ALInDomain
 end
+
+defmodule ALBlackjackTest do
+  use ExExample.ExUnit, for: Examples.ALBlackjack
+end
+

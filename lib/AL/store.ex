@@ -23,13 +23,52 @@ defmodule AL.Store do
   # one that just leaves `self` open) is a different, legal situation and
   # must not be rejected.
   def interp(%Goal.SetClass{object: o, class: c}, state) do
-    if generative_value_class?(c, state.branch) and AL.Dispatch.value_member?(o, c, state.branch) do
-      raise "cannot durably classify #{inspect(o)} as #{inspect(c)}: #{inspect(o)} already " <>
-              "matches one of #{inspect(c)}'s own literal clauses, so it's reachable both as a " <>
-              "durable object and as a generative candidate for the same fact -- findall would " <>
-              "report it twice. Use in_domain/2 or a map-wrapped value instead."
-    else
-      write(state, :set_class, [o, c])
+    existing = direct_classes(o, state.branch)
+
+    cond do
+      generative_value_class?(c, state.branch) and AL.Dispatch.value_member?(o, c, state.branch) ->
+        raise "cannot durably classify #{inspect(o)} as #{inspect(c)}: #{inspect(o)} already " <>
+                "matches one of #{inspect(c)}'s own literal clauses, so it's reachable both as a " <>
+                "durable object and as a generative candidate for the same fact -- findall would " <>
+                "report it twice. Use in_domain/2 or a map-wrapped value instead."
+
+      # Exactly one direct class per durably-classified atom -- inheritance
+      # (vm_set_super) stays a free-form DAG, unrestricted; this only
+      # constrains an object's own class row, not its ancestry.
+      Enum.any?(existing, &(&1 != c)) ->
+        raise "cannot durably classify #{inspect(o)} as #{inspect(c)}: it already has a " <>
+                "different direct class (#{inspect(existing)}). vm_retract_class it first if " <>
+                "you mean to reclassify -- a durable object has exactly one direct class."
+
+      true ->
+        write(state, :set_class, [o, c])
+    end
+  end
+
+  # Narrowly-scoped validation (not a general primitive) -- called only from
+  # :defmethod's own accretion body. A super: :value class's clause binding
+  # self to a bare atom is the one shape that's structurally indistinguishable
+  # from durable identity, so it's the one case a class's own literal clause
+  # could conflict with a later durable classification of the same atom.
+  def interp(%Goal.AssertValidClauseSelf{class: class, head: head}, state) do
+    store = state.active_choicepoint.store
+    class_ground = AL.Var.subst(class, store)
+
+    case AL.Var.subst(head, store) do
+      [self_pattern | _] ->
+        if generative_value_class?(class_ground, state.branch) and is_atom(self_pattern) and
+             not AL.Var.var?(self_pattern) do
+          raise "cannot define #{inspect(class_ground)}'s clause with a bare atom self-pattern " <>
+                  "(#{inspect(self_pattern)}) -- a super: :value class's own literal clauses " <>
+                  "must bind self to a map, number, or list (or leave it open), never a bare " <>
+                  "atom, since atoms are how AL represents durable identity. Use a map wrapper " <>
+                  "(%{class: ..., ...}) instead."
+        else
+          state
+        end
+
+      _ ->
+        state
     end
   end
 
@@ -95,4 +134,12 @@ defmodule AL.Store do
   defp store_body(body), do: body
 
   defp generative_value_class?(class, branch), do: AL.Object.scan_super(class, :value, branch) != []
+
+  defp direct_classes(o, branch) do
+    scope = AL.fresh_scope()
+
+    for {:class, _o, _seq, class} <-
+          AL.Object.scan_class(o, AL.Var.var("direct_class_check_#{scope}"), branch),
+        do: class
+  end
 end

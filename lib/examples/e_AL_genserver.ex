@@ -20,7 +20,7 @@ defmodule Examples.ALGenserver do
       pid = self()
 
       run branch: :examples do
-        new(:elixir_process, %{name: ^object_id, pid: ^pid}, _)
+        new(:process, %{name: ^object_id, pid: ^pid}, _)
 
         defmethod(^object_id, :increment, [self, amount]) do
           vm_get_slot(self, :pid, p)
@@ -94,7 +94,7 @@ defmodule Examples.ALGenserver do
         AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples})
       end)
 
-    assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :elixir_process end)
+    assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :process end)
 
     {:atomic, _} =
       run branch: :examples do

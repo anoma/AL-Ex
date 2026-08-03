@@ -2,7 +2,7 @@ defmodule AL.Package.ElixirProcess do
   use AL.Package
 
   defpackage :elixir_process, version: 1, deps: [:bootstrap] do
-    defclass :elixir_process, super: :object do
+    defclass :process, super: :object do
       defmethod(:allocate, [self, args, new_obj]) do
         class(self, meta)
         vm_map_get(args, :name, new_obj)

@@ -143,11 +143,12 @@ defmodule Examples.AL do
     result
   end
 
+  # A durable object has exactly one direct class (AL.Store's SetClass
+  # guard) -- reclassifying means retract first, not accreting a second one.
   example retractall_class() do
     {:atomic, _} =
       run branch: :examples do
         vm_set_class(:retract_test, :foo)
-        vm_set_class(:retract_test, :bar)
       end
 
     {:atomic, {bindings, _}} =
@@ -155,7 +156,7 @@ defmodule Examples.AL do
         findall(c, [vm_class(:retract_test, c)], before_retract)
       end
 
-    assert Enum.sort(Map.get(bindings, :"$before_retract")) == [:bar, :foo]
+    assert Map.get(bindings, :"$before_retract") == [:foo]
 
     {:atomic, _} =
       run branch: :examples do
@@ -168,6 +169,19 @@ defmodule Examples.AL do
       end
 
     assert Map.get(bindings2, :"$after_retract") == []
+
+    # retracted, so reclassifying is legal again -- not a permanent lock.
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:retract_test, :bar)
+      end
+
+    {:atomic, {bindings3, _}} =
+      run branch: :examples do
+        findall(c, [vm_class(:retract_test, c)], reclassified)
+      end
+
+    assert Map.get(bindings3, :"$reclassified") == [:bar]
     :ok
   end
 

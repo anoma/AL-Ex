@@ -4,7 +4,7 @@ defmodule AL.Package.Sudoku do
   defpackage :sudoku, version: 1, deps: [:bootstrap] do
     # :value, not durable — a puzzle is scratch, and self already being a
     # map means it's already its own printable/reified form.
-    defclass :sudoku, super: :value, ivars: [:rows] do
+    defclass :sudoku_puzzle, super: :value, ivars: [:rows] do
       defmethod(:get_slot, [self, k, v]) do
         vm_map_get(self, k, v)
       end
@@ -15,7 +15,7 @@ defmodule AL.Package.Sudoku do
         vm_map_get(args, :givens, givens)
         build_rows(givens, rows)
         constrain_rows(rows)
-        unify(new, %{class: :sudoku, rows: rows})
+        unify(new, %{class: :sudoku_puzzle, rows: rows})
       end
 
       defmethod(:solve, [self, solved]) do

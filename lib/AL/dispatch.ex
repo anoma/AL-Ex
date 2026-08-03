@@ -7,7 +7,7 @@ defmodule AL.Dispatch do
   whose `init` discards the constructed scaffold, so self comes back
   exactly as open as it started; a class's own clauses then unify against
   it directly or run whatever relational construction logic they define
-  with self still open, e.g. `:mapset`'s `list_to_elems`), plus durable (a
+  with self still open, e.g. `:mapset_value`'s `list_to_elems`), plus durable (a
   real scan, deferred behind a placeholder until backtracking reaches it,
   `force_durable_candidates/4`). `isa` attaches to each candidate's
   choicepoint before its goals run; each candidate is its own choicepoint.
@@ -90,6 +90,26 @@ defmodule AL.Dispatch do
     }
   end
 
+  # Shared between both legs: which requery a candidate needs is purely
+  # "is self still open once its own construction goals have actually run" —
+  # not which leg produced the candidate. Durable's own unify (in
+  # structural_candidate, above) is eager, so self is already ground by the
+  # time this splices in; generative's isn't (new/init hasn't run yet at
+  # splice time, so whether self stays open depends on that class's own
+  # init), so the check has to be a goal that runs *after* construction, not
+  # an Elixir-level branch decided up front. One Implies/IsVar fragment
+  # covers both — for durable it's a no-op (the condition is already
+  # settled), for generative it's the actual decision.
+  defp requery_goals(self, class, method, args) do
+    [
+      %Goal.Implies{
+        condition: [%Goal.IsVar{term: self}],
+        then: [%Goal.SendAsValue{class: class, object: self, method: method, args: args}],
+        otherwise: [%Goal.SendQuery{object: self, method: method, args: args}]
+      }
+    ]
+  end
+
   # Only called for :value classes (dispatch/5's only generative leg — see
   # moduledoc). Attaches isa at construction (live for the whole call, not
   # just future binds — see al-clp-for-objects memory), then calls class's
@@ -118,9 +138,8 @@ defmodule AL.Dispatch do
 
     [
       %Goal.Send{object: class, method: :new, args: [fresh_args, shape]},
-      %Goal.Unify{a: self, b: shape},
-      %Goal.SendAsValue{class: class, object: self, method: method, args: args}
-    ]
+      %Goal.Unify{a: self, b: shape}
+    ] ++ requery_goals(self, class, method, args)
   end
 
   # Choicepoint stack is LIFO — last pushed, first tried — so `classes` is
@@ -149,7 +168,10 @@ defmodule AL.Dispatch do
 
   @spec force_durable_candidates(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.t()) :: AL.t()
   def force_durable_candidates(self, method, args, state) do
-    requery = AL.splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
+    # `class` here is never actually read -- structural_candidate/4 unifies
+    # self with a real, already-existing id before this ever runs, so the
+    # IsVar check inside requery_goals/4 always takes the SendQuery branch.
+    requery = AL.splice_goals(state, requery_goals(self, self, method, args))
 
     candidates =
       state.branch
@@ -177,7 +199,10 @@ defmodule AL.Dispatch do
 
   # Every {object, classes} pair with a durable class row. Unbound self/class scan
   # (no key to bind), so cached per branch rather than rescanned per dispatch.
-  defp durable_classes(branch) do
+  # `def`, not `defp` -- `AL.Relations`'s `ClassInstances` also reads this (a
+  # real witness scan for one specific class), so both share the one cached
+  # scan rather than each paying for their own.
+  def durable_classes(branch) do
     AL.ResolutionCache.fetch_durable_classes(branch, fn ->
       scope = AL.fresh_scope()
 

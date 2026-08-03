@@ -107,7 +107,7 @@ defmodule AL.Package.Constraints do
 
     # interval domains: no enumeration, straight to constrain
     defmethod(:propagator, :narrow_output, [self, [first | rest], candidate]) do
-      vm_class(first, :interval)
+      vm_class(first, :interval_value)
       constrain(self, [first | rest], candidate)
     end
 

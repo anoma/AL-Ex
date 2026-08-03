@@ -1,7 +1,7 @@
 defmodule Examples.ALConstraints do
   @moduledoc """
   I provide examples for the `:constraints` package — cells hold a `:domain`
-  (a `:mapset` of possible values, not a single scalar), `constrain` narrows a
+  (a `:mapset_value` of possible values, not a single scalar), `constrain` narrows a
   cell's domain by intersecting it with a candidate set, and a propagator maps
   its own `constrain` function over the cartesian product of its input cells'
   domains to narrow its output cell.
@@ -16,7 +16,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _state}} =
       run branch: :examples do
-        new(:elixir_process, %{name: :constant_subscriber, pid: ^pid}, _)
+        new(:process, %{name: :constant_subscriber, pid: ^pid}, _)
 
         defmethod(:constant_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
@@ -60,14 +60,14 @@ defmodule Examples.ALConstraints do
           end
       end
 
-    assert domain == %{class: :mapset, elems: %{2 => true}}
+    assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         vm_get_slot(:x, :domain, domain)
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset, elems: %{2 => true}}
+    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{2 => true}}
 
     bindings
   end
@@ -79,7 +79,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _state}} =
       run branch: :examples do
-        new(:elixir_process, %{name: :inc_subscriber, pid: ^pid}, _)
+        new(:process, %{name: :inc_subscriber, pid: ^pid}, _)
 
         defmethod(:inc_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
@@ -119,14 +119,14 @@ defmodule Examples.ALConstraints do
           end
       end
 
-    assert domain == %{class: :mapset, elems: %{3 => true}}
+    assert domain == %{class: :mapset_value, elems: %{3 => true}}
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         vm_get_slot(:y, :domain, domain)
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset, elems: %{3 => true}}
+    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{3 => true}}
 
     bindings
   end
@@ -151,7 +151,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _state}} =
       run branch: :examples do
-        new(:elixir_process, %{name: :bidirectional_adder_subscriber, pid: ^pid}, _)
+        new(:process, %{name: :bidirectional_adder_subscriber, pid: ^pid}, _)
 
         defmethod(:bidirectional_adder_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
@@ -185,8 +185,8 @@ defmodule Examples.ALConstraints do
           vm_is(a_val, c_val - b_val)
         end
 
-        new(:mapset, %{elems: [3]}, three)
-        new(:mapset, %{elems: [5]}, five)
+        new(:mapset_value, %{elems: [3]}, three)
+        new(:mapset_value, %{elems: [5]}, five)
         send_async(b, :constrain, [three])
         send_async(c, :constrain, [five])
       end
@@ -209,14 +209,14 @@ defmodule Examples.ALConstraints do
           end
       end
 
-    assert domain == %{class: :mapset, elems: %{2 => true}}
+    assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         vm_get_slot(:a, :domain, domain)
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset, elems: %{2 => true}}
+    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{2 => true}}
 
     bindings
   end
@@ -241,7 +241,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _state}} =
       run branch: :examples do
-        new(:elixir_process, %{name: :farenheit_subscriber, pid: ^pid}, _)
+        new(:process, %{name: :farenheit_subscriber, pid: ^pid}, _)
 
         defmethod(:farenheit_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
@@ -267,7 +267,7 @@ defmodule Examples.ALConstraints do
           vm_is(far_val, (cel_val - 32) * 5 / 9)
         end
 
-        new(:mapset, %{elems: [43]}, forty_three)
+        new(:mapset_value, %{elems: [43]}, forty_three)
         send_async(cel, :constrain, [forty_three])
       end
 
@@ -289,14 +289,14 @@ defmodule Examples.ALConstraints do
           end
       end
 
-    assert domain == %{class: :mapset, elems: %{6 => true}}
+    assert domain == %{class: :mapset_value, elems: %{6 => true}}
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         vm_get_slot(:farenheit_output, :domain, domain)
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset, elems: %{6 => true}}
+    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{6 => true}}
 
     bindings
   end
@@ -306,7 +306,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _state}} =
       run branch: :examples do
-        new(:elixir_process, %{name: :interval_subscriber, pid: ^pid}, _)
+        new(:process, %{name: :interval_subscriber, pid: ^pid}, _)
 
         defmethod(:interval_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
@@ -334,11 +334,11 @@ defmodule Examples.ALConstraints do
           vm_map_get(i2, :hi, hi2)
           vm_is(lo, lo1 + lo2)
           vm_is(hi, hi1 + hi2)
-          unify(result, %{class: :interval, lo: lo, hi: hi})
+          unify(result, %{class: :interval_value, lo: lo, hi: hi})
         end
 
-        new(:interval, %{lo: 1, hi: 5}, interval_a)
-        new(:interval, %{lo: 3, hi: 8}, interval_b)
+        new(:interval_value, %{lo: 1, hi: 5}, interval_a)
+        new(:interval_value, %{lo: 3, hi: 8}, interval_b)
 
         send_async(ia, :constrain, [interval_a])
         send_async(ib, :constrain, [interval_b])
@@ -362,14 +362,14 @@ defmodule Examples.ALConstraints do
           end
       end
 
-    assert domain == %{class: :interval, lo: 4, hi: 13}
+    assert domain == %{class: :interval_value, lo: 4, hi: 13}
 
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         vm_get_slot(:ic, :domain, domain)
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :interval, lo: 4, hi: 13}
+    assert Map.get(bindings, :"$domain") == %{class: :interval_value, lo: 4, hi: 13}
 
     bindings
   end

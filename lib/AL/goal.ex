@@ -20,6 +20,7 @@ defmodule AL.Goal do
           | GetSuper.t()
           | GetMethod.t()
           | GetOapply.t()
+          | AssertValidClauseSelf.t()
           | OApply.t()
           | Cut.t()
           | Implies.t()
@@ -141,6 +142,16 @@ defmodule AL.Goal do
     field(:seq, non_neg_integer())
     field(:head, AL.Var.t())
     field(:body, [AL.Goal.t()])
+  end
+
+  # Narrowly-scoped validation, not a general primitive -- called only from
+  # :defmethod's own accretion body (bootstrap.ex). Rejects a super: :value
+  # class's clause binding self to a bare atom (durable identity's own
+  # shape), which a durable classification of that same atom would be
+  # reachable through two independent ways at once. No-op for anything else.
+  typedstruct enforce: true, module: AssertValidClauseSelf do
+    field(:class, AL.Var.t())
+    field(:head, AL.Var.t())
   end
 
   typedstruct enforce: true, module: OApply do
@@ -358,6 +369,7 @@ defmodule AL.Goal do
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
+    {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},

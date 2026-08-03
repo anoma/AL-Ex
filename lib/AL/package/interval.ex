@@ -2,7 +2,7 @@ defmodule AL.Package.Interval do
   use AL.Package
 
   defpackage :interval, version: 1, deps: [:bootstrap] do
-    defclass :interval, super: :value, ivars: [:lo, :hi] do
+    defclass :interval_value, super: :value, ivars: [:lo, :hi] do
       defmethod(:get_slot, [self, k, v]) do
         vm_map_get(self, k, v)
       end
@@ -13,8 +13,8 @@ defmodule AL.Package.Interval do
         vm_map_get(args, :hi, hi)
 
         implies do
-          [lo > hi] -> unify(new, %{class: :interval, lo: :empty, hi: :empty})
-          :else -> unify(new, %{class: :interval, lo: lo, hi: hi})
+          [lo > hi] -> unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
+          :else -> unify(new, %{class: :interval_value, lo: lo, hi: hi})
         end
       end
 
@@ -32,10 +32,10 @@ defmodule AL.Package.Interval do
 
         implies do
           [lo1 == :empty] ->
-            unify(new, %{class: :interval, lo: :empty, hi: :empty})
+            unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
 
           [lo2 == :empty] ->
-            unify(new, %{class: :interval, lo: :empty, hi: :empty})
+            unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
 
           :else ->
             vm_map_get(self, :hi, hi1)
@@ -52,8 +52,8 @@ defmodule AL.Package.Interval do
             end
 
             implies do
-              [lo > hi] -> unify(new, %{class: :interval, lo: :empty, hi: :empty})
-              :else -> unify(new, %{class: :interval, lo: lo, hi: hi})
+              [lo > hi] -> unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
+              :else -> unify(new, %{class: :interval_value, lo: lo, hi: hi})
             end
         end
       end

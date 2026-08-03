@@ -22,6 +22,8 @@ defmodule AL.Package.Bootstrap do
     vm_set_class(:defmethod, :behaviour)
 
     vm_set_oapply(:defmethod, [self, method_name, head, body]) do
+      vm_assert_valid_clause_self(self, head)
+
       # Reuse the existing method id if this (object, name) is already defined,
       # otherwise mint a fresh behaviour. Either way append `head :- body` as a
       # clause, so repeated `defmethod`s on one name accrete clauses (Prolog-style)

@@ -122,20 +122,16 @@ defmodule Examples.ALGenerative do
     assert Map.get(bindings, :"$x") == %{class: :letter_chain, letter: :a}
   end
 
-  # A bare atom in a value class's own literal clause and then also durably
-  # classified into that same class is reachable both ways for the same
-  # fact -- AL.Store rejects it rather than let findall silently double it.
-  example durably_classifying_a_value_classs_own_literal_member_fails() do
-    {:atomic, _} =
+  # A bare atom in a value class's own literal clause is structurally
+  # indistinguishable from durable identity -- rejected right at definition
+  # time (:defmethod's own body), before it could ever be durably classified
+  # into the same class and become reachable both ways for the same fact.
+  example bare_atom_self_on_a_value_class_fails_at_definition_time() do
+    {:aborted, _trace} =
       run branch: :examples do
         defclass :letter_chain_antipattern, super: :value do
           defmethod(:a, [:a])
         end
-      end
-
-    {:aborted, _trace} =
-      run branch: :examples do
-        vm_set_class(:a, :letter_chain_antipattern)
       end
 
     :ok

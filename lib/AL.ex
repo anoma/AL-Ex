@@ -562,6 +562,7 @@ defmodule AL do
   def interp(%Goal.Then{} = g, state), do: AL.ControlFlow.interp(g, state)
 
   def interp(%Goal.SetClass{} = g, state), do: AL.Store.interp(g, state)
+  def interp(%Goal.AssertValidClauseSelf{} = g, state), do: AL.Store.interp(g, state)
   def interp(%Goal.SetSuper{} = g, state), do: AL.Store.interp(g, state)
   def interp(%Goal.SetMethod{} = g, state), do: AL.Store.interp(g, state)
   def interp(%Goal.SetOapply{} = g, state), do: AL.Store.interp(g, state)
