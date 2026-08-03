@@ -38,7 +38,11 @@ defmodule AL.Relations do
 
     cond do
       AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class_pattern) ->
-        AL.put_bindings(state, AL.Var.add_isa(store(state), object, class_pattern), [])
+        if AL.Dispatch.isa_conflict?(known_isa, class_pattern, state.branch) do
+          AL.put_bindings(state, nil, [])
+        else
+          AL.put_bindings(state, AL.Var.add_isa(store(state), object, class_pattern), [])
+        end
 
       # Querying `object`'s class (`class_pattern` still open) rather than
       # asserting it — if `object` already carries a known `isa` domain (e.g.

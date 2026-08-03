@@ -22,8 +22,10 @@ defmodule AL.Dispatch do
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
   # number/list/map: mutually exclusive by construction (is_number/is_list/is_map
-  # can't both hold), so once self carries one as isa, offering the others is
-  # provably impossible, not just unlikely.
+  # can't both hold) even though they're not scanned via generative_descendants
+  # (:map's own super is :object, not :value) -- folded into exclusive_classes/1
+  # below alongside every real `super: :value` class, since the same "a value
+  # is single-classed by construction" invariant covers both.
   @shape_classes [:number, :list, :map]
 
   # A var receiver or selector makes the send a query: enumerate candidates, ground
@@ -32,13 +34,13 @@ defmodule AL.Dispatch do
   def dispatch(self, method, args, state, on_miss) do
     cond do
       AL.Var.var?(self) and self != :"$_" ->
-        known_shape = known_shape(state, self)
+        known_isa = AL.Var.isa_of(state.active_choicepoint.store, self)
 
         value_classes =
           state.branch
           |> generative_descendants()
           |> filter_by_selector(method, state.branch)
-          |> Enum.reject(&shape_conflict?(&1, known_shape))
+          |> Enum.reject(&isa_conflict?(known_isa, &1, state.branch))
 
         maybe_trace_dispatch(state, self, method, value_classes)
 
@@ -55,19 +57,32 @@ defmodule AL.Dispatch do
     end
   end
 
-  defp known_shape(state, self) do
-    state.active_choicepoint.store
-    |> AL.Var.isa_of(self)
-    |> Enum.find(&(&1 in @shape_classes))
+  # A value is single-classed by construction: it can't simultaneously be an
+  # instance of two distinct value classes (`:number`/`:list`/`:map`'s own
+  # is_number/is_list/is_map, or any two unrelated `super: :value` classes,
+  # e.g. `:card` vs `:number`) unless one is an ancestor of the other (a
+  # genuine mixin/inheritance relationship, not a coincidence). Used both to
+  # filter which candidates dispatch offers (here) and by `GetClass`'s
+  # no-witness-needed isa fast path (`AL.Relations`), which used to be able to
+  # union in a conflicting class with no check at all.
+  @spec isa_conflict?(Enumerable.t(atom()), atom(), AL.Branch.t()) :: boolean()
+  def isa_conflict?(known_isa, class, branch) do
+    exclusive = exclusive_classes(branch)
+
+    MapSet.member?(exclusive, class) and
+      Enum.any?(known_isa, fn existing ->
+        existing != class and MapSet.member?(exclusive, existing) and
+          not related?(class, existing, branch)
+      end)
   end
 
-  # Conflicts only if class is itself one of the 3 exclusive shapes and
-  # differs — ordinary/relational classes allow genuine multiple
-  # classification, no a priori conflict (bind-time check still covers that).
-  defp shape_conflict?(class, known_shape) when class in @shape_classes,
-    do: known_shape != nil and known_shape != class
+  defp exclusive_classes(branch),
+    do: MapSet.new(@shape_classes ++ generative_descendants(branch))
 
-  defp shape_conflict?(_class, _known_shape), do: false
+  defp related?(a, b, branch) do
+    b in AL.Dispatch.MethodOrder.super_chain([a], branch, :dfs) or
+      a in AL.Dispatch.MethodOrder.super_chain([b], branch, :dfs)
+  end
 
   # method must be ground to check tracepoints — a var selector has nothing
   # to look up yet.

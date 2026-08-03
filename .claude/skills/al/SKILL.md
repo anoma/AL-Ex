@@ -81,9 +81,18 @@ transactions, durable + replayable state, Git-like branching.
   construction — before its goals ever run, so it's live for the whole call
   including nested sends, not a goal spliced to run afterward (see `AL.Var`,
   below, and al-clp-for-objects memory for why the timing has to be this way
-  round). `dispatch/5` also won't offer `:number`/`:list`/`:map` as sibling
-  candidates once `self` already carries one of them — they're mutually
-  exclusive by construction (`shape_conflict?/2`).
+  round). `dispatch/5` also won't offer a candidate class that conflicts with
+  `self`'s already-known isa set — any two distinct `super: :value` classes
+  are mutually exclusive unless one is an ancestor of the other, generalizing
+  the old `:number`/`:list`/`:map`-only check (`AL.Dispatch.isa_conflict?/3`,
+  `exclusive_classes/1`). `AL.Relations.GetClass`'s no-witness isa fast path
+  (see below) calls the same predicate before registering a new isa — it used
+  to union in a conflicting class with no check at all; see
+  al-clp-for-objects memory and [[feedback-ergonomic-wrappers-need-dispatch-reachability]]
+  for the concrete bug this closed (an ergonomic wrapper like `class/2`,
+  inherited from `:object`, gets offered on every generative candidate for an
+  open receiver — the wrong candidates used to "succeed" vacuously instead of
+  being excluded or failing).
 - **`AL.Dispatch.MethodOrder` (lib/AL/dispatch/method_order.ex)** — the
   resolution-order topological sort (`method_scopes/2`, `super_chain/3`, Kahn's
   algorithm). Pure functions of a receiver/class and a branch, no choicepoint or

@@ -210,6 +210,55 @@ defmodule Examples.ALGenerative do
     assert AL.Var.var?(Map.get(bindings, :"$y"))
   end
 
+  # Two unrelated `super: :value` classes are mutually exclusive on the same
+  # var -- a value is single-classed by construction, the same invariant that
+  # already ruled out :number/:list/:map coexisting. `class/2` (the ergonomic
+  # `vm_class` wrapper, inherited from :object) used to let this slip through:
+  # `GetClass`'s no-witness-needed isa fast path unioned in a second,
+  # contradictory class with no check at all.
+  example unrelated_value_classes_conflict_on_the_same_var() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :left_value_class, super: :value, ivars: [] do
+        end
+
+        defclass :right_value_class, super: :value, ivars: [] do
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        vm_class(x, :left_value_class)
+        vm_class(x, :right_value_class)
+      end
+
+    :ok
+  end
+
+  # `:class` is inherited from :object, so an unbound receiver's dispatch
+  # offers it from every generative candidate -- here, both the unrelated
+  # value classes above. Before the fix, the wrong candidate's `class/2` call
+  # silently succeeded (contradictory isa unioned in, no witness ever
+  # constructed), so `findall` reported the same fact once per candidate
+  # instead of once. Bug found via AL.Package.Blackjack's :card class.
+  example class_dispatch_does_not_report_ghost_duplicates() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :ghost_left, super: :value, ivars: [] do
+        end
+
+        defclass :ghost_right, super: :value, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall(x, [class(x, :ghost_right)], xs)
+      end
+
+    assert length(Map.get(bindings, :"$xs")) == 1
+  end
+
   # :value classes construct through the real new pipeline
   # (construct/allocate/init), not special-cased -- init discards the
   # scaffold, result stays as open as it started. No durable object created.
