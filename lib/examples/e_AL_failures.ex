@@ -15,11 +15,9 @@ defmodule Examples.ALFailures do
     {:aborted, reason} =
       run branch: :examples do
         defclass :failgreeter, super: :value do
-          defmethod(:init, [self, _, self]) do
-          end
+          defmethod(:init, [self, _, self])
 
-          defmethod(:greet, [self, _name]) do
-          end
+          defmethod(:greet, [self, _name])
         end
 
         new(:failgreeter, g)
@@ -101,11 +99,9 @@ defmodule Examples.ALFailures do
     {:atomic, _} =
       run branch: :examples do
         defclass :failquiet, super: :value do
-          defmethod(:init, [self, _, self]) do
-          end
+          defmethod(:init, [self, _, self])
 
-          defmethod(:does_not_understand, [self, _m, _a]) do
-          end
+          defmethod(:does_not_understand, [self, _m, _a])
         end
 
         new(:failquiet, q)

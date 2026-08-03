@@ -16,8 +16,9 @@ defmodule AL.Var.ConstraintSet do
           dif: [{AL.Var.t(), AL.Var.t()}],
           isa: MapSet.t(atom()),
           bounds: {bound(), bound()},
-          props: [propagator()]
+          props: [propagator()],
+          domain: MapSet.t(AL.Var.t()) | nil
         }
 
-  defstruct dif: [], isa: MapSet.new(), bounds: {nil, nil}, props: []
+  defstruct dif: [], isa: MapSet.new(), bounds: {nil, nil}, props: [], domain: nil
 end

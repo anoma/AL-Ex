@@ -11,11 +11,9 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :greeter, super: :value do
-          defmethod(:init, [self, _, self]) do
-          end
+          defmethod(:init, [self, _, self])
 
-          defmethod(:greet, [self, name]) do
-          end
+          defmethod(:greet, [self, name])
         end
 
         new(:greeter, instance)
@@ -436,16 +434,14 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :mix_super_3, super: :object, ivars: [] do
-          defmethod(:flavour, [self, :lavender]) do
-          end
+          defmethod(:flavour, [self, :lavender])
         end
 
         defclass :mix_super_1, super: :mix_super_3, ivars: [] do
         end
 
         defclass :mix_super_2, super: :mix_super_3, ivars: [] do
-          defmethod(:flavour, [self, :chocolate]) do
-          end
+          defmethod(:flavour, [self, :chocolate])
         end
 
         defclass :mix_class, super: :mix_super_1, ivars: [] do
@@ -487,8 +483,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :class_scope_probe, super: :object, ivars: [] do
-          defmethod(:probe, [self, :hit]) do
-          end
+          defmethod(:probe, [self, :hit])
         end
 
         new(:class_scope_probe, instance)

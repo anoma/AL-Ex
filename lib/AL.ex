@@ -184,10 +184,54 @@ defmodule AL do
 
     rewrite_unbound = fn resolved -> Map.get(display_names, resolved, resolved) end
 
-    sorted_vars
-    |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, store, rewrite_unbound)} end)
-    |> Map.new()
+    bindings =
+      sorted_vars
+      |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, store, rewrite_unbound)} end)
+      |> Map.new()
+
+    # An unbound-but-constrained var (e.g. `vm_class(o, :class)` leaving `o`
+    # open with an isa constraint) otherwise prints identically to a
+    # genuinely free one -- surface real constraints under a reserved key,
+    # keyed by the same display name shown in `bindings` itself, omitted
+    # entirely when nothing has anything to say.
+    constraints = constraint_summary(canonical_names, store)
+
+    if map_size(constraints) == 0, do: bindings, else: Map.put(bindings, :"$constraints", constraints)
   end
+
+  defp constraint_summary(canonical_names, store) do
+    Enum.reduce(canonical_names, %{}, fn {resolved, display_name}, acc ->
+      case AL.Var.constraint_set(store, resolved) do
+        %AL.Var.ConstraintSet{} = set ->
+          case summarize_constraints(resolved, set) do
+            empty when map_size(empty) == 0 -> acc
+            summary -> Map.put(acc, display_name, summary)
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp summarize_constraints(self, %AL.Var.ConstraintSet{dif: dif, isa: isa, bounds: bounds}) do
+    %{}
+    |> maybe_put_isa(isa)
+    |> maybe_put_dif(self, dif)
+    |> maybe_put_bounds(bounds)
+  end
+
+  defp maybe_put_isa(map, isa) do
+    if MapSet.size(isa) > 0, do: Map.put(map, :isa, MapSet.to_list(isa)), else: map
+  end
+
+  defp maybe_put_dif(map, _self, []), do: map
+
+  defp maybe_put_dif(map, self, dif),
+    do: Map.put(map, :dif, Enum.map(dif, fn {a, b} -> if a == self, do: b, else: a end))
+
+  defp maybe_put_bounds(map, {nil, nil}), do: map
+  defp maybe_put_bounds(map, bounds), do: Map.put(map, :bounds, bounds)
 
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
@@ -679,6 +723,38 @@ defmodule AL do
     end
   end
 
+  # in_domain/2: "var must end up being one of these" — a real constraint
+  # (AL.Var.add_domain), narrows/intersects across repeated posts, checked at
+  # bind time thereafter (find_violation) — not a class with a :domain
+  # method. Ground var -> direct membership check, no constraint touched.
+  def interp(%Goal.InDomain{var: var, values: values}, state) do
+    store = store(state)
+    resolved = AL.Var.deref(store, var)
+    values = AL.Var.subst(values, store)
+
+    if AL.Var.var?(resolved) do
+      {new_store, narrowed} = AL.Var.add_domain(store, resolved, values)
+
+      cond do
+        MapSet.size(narrowed) == 0 ->
+          backtrack(state)
+
+        MapSet.size(narrowed) == 1 ->
+          [only] = MapSet.to_list(narrowed)
+
+          case AL.Var.bind(new_store, resolved, only, state.branch) do
+            nil -> backtrack(state)
+            bound_store -> put_bindings(state, bound_store, [var])
+          end
+
+        true ->
+          put_bindings(state, new_store, [])
+      end
+    else
+      if resolved in values, do: state, else: backtrack(state)
+    end
+  end
+
   # `< > <= >= eq` rely on constraint intervals (see AL.Var.Bounds).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     store = state.active_choicepoint.store
@@ -720,9 +796,10 @@ defmodule AL do
   # CLP(FD) labeling. Ground = no-op. Numeric bounds -> :object's between/4,
   # not fan_out (eager — catastrophic on a wide domain, e.g. factorial's
   # ~3.6M-wide bound); between is lazy, ordinary recursion. No numeric
-  # bounds -> fall back to the var's own isa'd class advertising a domain
-  # (see label_from_class_domain/3 below). Neither -> fail, same as an
-  # unbounded numeric domain always has.
+  # bounds -> an explicit in_domain/2 constraint, if any (see
+  # label_from_domain_constraint/3), else the var's own isa'd class
+  # advertising a domain (see label_from_class_domain/3 below). None of the
+  # three -> fail, same as an unbounded numeric domain always has.
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
 
@@ -737,7 +814,10 @@ defmodule AL do
             splice_and_run(state, [goal])
 
           _ ->
-            label_from_class_domain(v, store, state)
+            case AL.Var.domain_of(store, v) do
+              nil -> label_from_class_domain(v, store, state)
+              domain -> label_from_domain_constraint(v, domain, state)
+            end
         end
     end
   end
@@ -1069,8 +1149,18 @@ defmodule AL do
       "class #{inspect(class)}."
   end
 
+  defp constraint_violation_message({:bounds, {lo, hi}}) do
+    "Constraint violated: value was required to stay within bounds [#{inspect(lo)}, #{inspect(hi)}]."
+  end
+
+  defp constraint_violation_message({:domain, domain}) do
+    "Constraint violated: value was required to be one of #{inspect(MapSet.to_list(domain))}."
+  end
+
   defp pretty_violation({:dif, a, b}), do: {:dif, AL.Trace.pretty(a), AL.Trace.pretty(b)}
   defp pretty_violation({:isa, var, class}), do: {:isa, AL.Trace.pretty(var), class}
+  defp pretty_violation({:bounds, bounds}), do: {:bounds, bounds}
+  defp pretty_violation({:domain, domain}), do: {:domain, MapSet.to_list(domain)}
 
   defp trace_call(state, method_id, bind_head) do
     {receiver, args} =
@@ -1209,6 +1299,13 @@ defmodule AL do
       [] ->
         backtrack(state)
     end
+  end
+
+  # A real in_domain/2 constraint, not a class -- no SendAsValue, no class
+  # lookup at all, just member/2 over the narrowed set directly.
+  defp label_from_domain_constraint(v, domain, state) do
+    goal = %Goal.Send{object: MapSet.to_list(domain), method: :member, args: [v]}
+    splice_and_run(state, [goal])
   end
 
   defp splice_and_run(state, goals) do

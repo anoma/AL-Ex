@@ -94,23 +94,51 @@ defmodule Examples.ALGenerative do
 
   # value leg isn't :number-specific -- any class opts in via super: :value.
   # letter_chain has no durable instances, only passes if dispatch tries its
-  # clauses directly.
+  # clauses directly. Map-wrapped, not a bare atom -- a durable identity is
+  # always a bare atom, so a map-shaped member can never collide with one
+  # (see durably_classifying_a_value_classs_own_literal_member_fails below
+  # for what does).
   example custom_class_opts_into_value_dispatch() do
     {:atomic, _} =
       run branch: :examples do
-        new(:class, %{name: :letter_chain, super: :value, ivars: []}, _)
+        defclass :letter_chain, super: :value do
+          defmethod(:next, [
+            %{class: :letter_chain, letter: :a},
+            %{class: :letter_chain, letter: :b}
+          ])
 
-        defmethod(:letter_chain, :next, [:a, :b])
-
-        defmethod(:letter_chain, :next, [:b, :c])
+          defmethod(:next, [
+            %{class: :letter_chain, letter: :b},
+            %{class: :letter_chain, letter: :c}
+          ])
+        end
       end
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        next(x, :b)
+        next(x, %{class: :letter_chain, letter: :b})
       end
 
-    assert Map.get(bindings, :"$x") == :a
+    assert Map.get(bindings, :"$x") == %{class: :letter_chain, letter: :a}
+  end
+
+  # A bare atom in a value class's own literal clause and then also durably
+  # classified into that same class is reachable both ways for the same
+  # fact -- AL.Store rejects it rather than let findall silently double it.
+  example durably_classifying_a_value_classs_own_literal_member_fails() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :letter_chain_antipattern, super: :value do
+          defmethod(:a, [:a])
+        end
+      end
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        vm_set_class(:a, :letter_chain_antipattern)
+      end
+
+    :ok
   end
 
   # reaching the value leg pins self to that class -- not :number-specific.
@@ -120,8 +148,7 @@ defmodule Examples.ALGenerative do
     {:atomic, _} =
       run branch: :examples do
         defclass :letter_word, super: :value, ivars: [] do
-          defmethod(:letter_word_stays_open, [self]) do
-          end
+          defmethod(:letter_word_stays_open, [self])
         end
 
         vm_set_class(:letter_word_real_instance, :letter_word)
@@ -145,11 +172,22 @@ defmodule Examples.ALGenerative do
   # value candidate's isa constraint attaches before its clause runs, live for
   # the clause body, nested sends included: chain_from can call next while
   # self is still open, and confirm_class can ask self's class while
-  # undetermined and get a real answer, no durable-table scan.
+  # undetermined and get a real answer, no durable-table scan. Map-wrapped
+  # members again, same reasoning as custom_class_opts_into_value_dispatch.
   example value_clause_body_sees_its_own_isa_constraint() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :letter_chain_reflective, super: :value, ivars: [] do
+        defclass :letter_chain_reflective, super: :value do
+          defmethod(:next, [
+            %{class: :letter_chain_reflective, letter: :a},
+            %{class: :letter_chain_reflective, letter: :b}
+          ])
+
+          defmethod(:next, [
+            %{class: :letter_chain_reflective, letter: :b},
+            %{class: :letter_chain_reflective, letter: :c}
+          ])
+
           defmethod(:chain_from, [self, first]) do
             next(self, first)
           end
@@ -158,18 +196,14 @@ defmodule Examples.ALGenerative do
             vm_class(self, result)
           end
         end
-
-        defmethod(:letter_chain_reflective, :next, [:a, :b])
-
-        defmethod(:letter_chain_reflective, :next, [:b, :c])
       end
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        chain_from(x, :b)
+        chain_from(x, %{class: :letter_chain_reflective, letter: :b})
       end
 
-    assert Map.get(bindings, :"$x") == :a
+    assert Map.get(bindings, :"$x") == %{class: :letter_chain_reflective, letter: :a}
 
     {:atomic, {bindings, _}} =
       run branch: :examples do

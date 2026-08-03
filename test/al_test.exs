@@ -126,6 +126,6 @@ defmodule ALSudokuTest do
   use ExExample.ExUnit, for: Examples.ALSudoku
 end
 
-defmodule ALDomainLabelTest do
-  use ExExample.ExUnit, for: Examples.ALDomainLabel
+defmodule ALInDomainTest do
+  use ExExample.ExUnit, for: Examples.ALInDomain
 end

@@ -15,8 +15,7 @@ defmodule Examples.ALCategories do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :greeter_behaviour, metaclass: :category, super: :object do
-          defmethod(:greet, [self, :hello]) do
-          end
+          defmethod(:greet, [self, :hello])
         end
 
         defclass :cat_a, super: :object, ivars: [], categories: [:greeter_behaviour] do
@@ -41,8 +40,7 @@ defmodule Examples.ALCategories do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :shared_behaviour, metaclass: :category, super: :object do
-          defmethod(:trait, [self, :shared_trait]) do
-          end
+          defmethod(:trait, [self, :shared_trait])
         end
 
         defclass :import_a, super: :object, ivars: [], categories: [:shared_behaviour] do
@@ -83,8 +81,7 @@ defmodule Examples.ALCategories do
     {:atomic, {b1, _}} =
       run branch: :examples do
         defclass :counts_behaviour, metaclass: :category, super: :object do
-          defmethod(:count, [self, 0]) do
-          end
+          defmethod(:count, [self, 0])
         end
 
         defclass :countable, super: :object, ivars: [], categories: [:counts_behaviour] do

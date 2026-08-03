@@ -49,8 +49,7 @@ defmodule Examples.ALTrace do
     {:atomic, _} =
       run branch: :examples do
         defclass :trace_leg_class, super: :value, ivars: [] do
-          defmethod(:trace_next, [:a, :b]) do
-          end
+          defmethod(:trace_next, [:a, :b])
         end
       end
 

@@ -35,6 +35,7 @@ defmodule AL.Goal do
           | Equal.t()
           | Dif.t()
           | Compare.t()
+          | InDomain.t()
           | Ground.t()
           | Label.t()
           | IsVar.t()
@@ -213,6 +214,14 @@ defmodule AL.Goal do
     field(:op, atom())
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
+  end
+
+  # "var must end up being one of these" — a real constraint on the var
+  # (narrows/intersects across repeated posts, checked at bind time), not a
+  # class with a :domain method. Runtime-only, like Label, not in @forms.
+  typedstruct enforce: true, module: InDomain do
+    field(:var, AL.Var.t())
+    field(:values, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Ground do

@@ -224,18 +224,18 @@ defmodule AL.Package.Bootstrap do
         import(name, category)
       end
 
-      # A method here overriding one a category import copied on needs its
-      # own fresh id, not another clause appended onto the shared one every
-      # other importer's own override would also land on (see mapset.ex).
-      # Retract whatever `name` currently resolves this selector to first —
-      # empty/no-op if nothing does.
-      forall([member(methods, [method_name, head, body])]) do
+      # Retract pass runs to completion *before* any defmethod call, so two
+      # methods-list entries sharing a selector (a genuinely multi-clause
+      # method) don't retract each other's freshly-added clause.
+      forall([member(methods, [method_name, _head, _body])]) do
         findall(id, [vm_method(name, method_name, id)], existing_ids)
 
         forall([member(existing_ids, id)]) do
           vm_retract_method(name, method_name, id)
         end
+      end
 
+      forall([member(methods, [method_name, head, body])]) do
         defmethod(name, method_name, head, body)
       end
     end
@@ -309,8 +309,7 @@ defmodule AL.Package.Bootstrap do
       eq(x, x1 + x2)
     end
 
-    defmethod(:number, :count_to, [n, n]) do
-    end
+    defmethod(:number, :count_to, [n, n])
 
     # Linear recursion, one reduction per step — deliberately the opposite
     # shape from fibonacci's naive-exponential one, for isolating raw
@@ -340,8 +339,7 @@ defmodule AL.Package.Bootstrap do
       vm_oapply(id, [n, target, id])
     end
 
-    defmethod(:number, :count_to_oapply_loop, [n, n, _id]) do
-    end
+    defmethod(:number, :count_to_oapply_loop, [n, n, _id])
 
     defmethod(:number, :count_to_oapply_loop, [n, target, id]) do
       n < target

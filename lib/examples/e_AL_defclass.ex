@@ -63,8 +63,7 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :singleton_thing, metaclass: :object, super: :object do
-          defmethod(:ping, [self, :pong]) do
-          end
+          defmethod(:ping, [self, :pong])
         end
 
         ping(:singleton_thing, reply)
@@ -86,6 +85,47 @@ defmodule Examples.ALDefclass do
       end
 
     assert Map.get(bindings, :"$class") == :bare_thing
+    :ok
+  end
+
+  # Regression: two methods-list entries sharing a selector used to have the
+  # second's retract-before-define step wipe out the first's fresh clause --
+  # defclass now retracts every entry's prior clauses in one pass before
+  # defining any of them, so both survive.
+  example defclass_supports_multiple_clauses_on_one_selector() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :multi_clause_thing, super: :object do
+          defmethod(:pick, [self, :a, :first])
+
+          defmethod(:pick, [self, :b, :second])
+        end
+
+        new(:multi_clause_thing, instance)
+        pick(instance, :a, r1)
+        pick(instance, :b, r2)
+      end
+
+    assert Map.get(bindings, :"$r1") == :first
+    assert Map.get(bindings, :"$r2") == :second
+    :ok
+  end
+
+  # Regression: a bodyless defmethod(name, head) entry inside defclass used
+  # to crash lowering (methods-list extraction only matched the 3-element
+  # with-body shape).
+  example defclass_supports_bodyless_methods() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :bodyless_thing, super: :value do
+          defmethod(:known, [:known])
+        end
+
+        new(:bodyless_thing, x)
+        unify(x, :known)
+      end
+
+    assert Map.get(bindings, :"$x") == :known
     :ok
   end
 end

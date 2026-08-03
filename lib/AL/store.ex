@@ -12,7 +12,26 @@ defmodule AL.Store do
   alias AL.Goal
 
   def interp(%Goal.SetClass{object: object}, state) when is_map(object), do: state
-  def interp(%Goal.SetClass{object: o, class: c}, state), do: write(state, :set_class, [o, c])
+
+  # Durably classifying an atom into a `super: :value` class is only a
+  # conflict when the class also has a discriminating literal clause the
+  # atom already satisfies (`value_member?/3` — the same check `isa?/3`
+  # uses, deliberately excluding bare-variable self patterns) — that's the
+  # one case where the durable leg and the generative leg would each
+  # separately prove the same fact, so `findall` reports it twice. A durable
+  # instance of a value class whose clauses never specify a literal (e.g.
+  # one that just leaves `self` open) is a different, legal situation and
+  # must not be rejected.
+  def interp(%Goal.SetClass{object: o, class: c}, state) do
+    if generative_value_class?(c, state.branch) and AL.Dispatch.value_member?(o, c, state.branch) do
+      raise "cannot durably classify #{inspect(o)} as #{inspect(c)}: #{inspect(o)} already " <>
+              "matches one of #{inspect(c)}'s own literal clauses, so it's reachable both as a " <>
+              "durable object and as a generative candidate for the same fact -- findall would " <>
+              "report it twice. Use in_domain/2 or a map-wrapped value instead."
+    else
+      write(state, :set_class, [o, c])
+    end
+  end
 
   def interp(%Goal.SetSuper{object: object}, state) when is_map(object), do: state
   def interp(%Goal.SetSuper{object: o, super: s}, state), do: write(state, :set_super, [o, s])
@@ -74,4 +93,6 @@ defmodule AL.Store do
 
   defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
   defp store_body(body), do: body
+
+  defp generative_value_class?(class, branch), do: AL.Object.scan_super(class, :value, branch) != []
 end

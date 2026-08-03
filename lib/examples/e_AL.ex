@@ -47,15 +47,13 @@ defmodule Examples.AL do
     {:atomic, {b, _}} =
       run branch: :examples do
         defclass :gadget, super: :value do
-          defmethod(:init, [self, _, self]) do
-          end
+          defmethod(:init, [self, _, self])
 
           defmethod(:poke, [self, x]) do
             unify(x, :ok)
           end
 
-          defmethod(:does_not_understand, [self, _m, _a]) do
-          end
+          defmethod(:does_not_understand, [self, _m, _a])
         end
 
         new(:gadget, g)
@@ -480,6 +478,30 @@ defmodule Examples.AL do
 
     assert tx_of.(a) != nil
     assert tx_of.(a) != tx_of.(b)
+    :ok
+  end
+
+  # an unbound-but-constrained var used to print identically to a genuinely
+  # free one -- real isa/dif/bounds constraints now surface under a
+  # reserved $constraints key, keyed by the same display name.
+  example unbound_but_constrained_vars_surface_in_constraints() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(o, :class)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$o"))
+    assert Map.get(bindings, :"$constraints") == %{"$o": %{isa: [:class]}}
+    :ok
+  end
+
+  example unconstrained_vars_have_no_constraints_entry() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        unify(x, 5)
+      end
+
+    refute Map.has_key?(bindings, :"$constraints")
     :ok
   end
 end

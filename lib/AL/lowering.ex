@@ -190,6 +190,9 @@ defmodule AL.Lowering do
   def ast_to_pattern({:dif, _, [a, b]}),
     do: %Goal.Dif{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
+  def ast_to_pattern({:in_domain, _, [var, values]}),
+    do: %Goal.InDomain{var: ast_to_pattern(var), values: ast_to_pattern(values)}
+
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
     do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
@@ -264,8 +267,12 @@ defmodule AL.Lowering do
     methods =
       do_block
       |> unwrap_do_block()
-      |> Enum.map(fn {:defmethod, _, [method_name, head, method_body]} ->
-        [ast_to_pattern(method_name), ast_to_pattern(head), ast_to_pattern(method_body)]
+      |> Enum.map(fn
+        {:defmethod, _, [method_name, head, method_body]} ->
+          [ast_to_pattern(method_name), ast_to_pattern(head), ast_to_pattern(method_body)]
+
+        {:defmethod, _, [method_name, head]} ->
+          [ast_to_pattern(method_name), ast_to_pattern(head), []]
       end)
 
     %Goal.OApply{

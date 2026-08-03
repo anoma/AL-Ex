@@ -236,8 +236,13 @@ defmodule AL.Var do
       dif: a.dif ++ b.dif,
       isa: MapSet.union(a.isa, b.isa),
       bounds: merge_bounds(a.bounds, b.bounds),
-      props: a.props ++ b.props
+      props: a.props ++ b.props,
+      domain: merge_domains(a.domain, b.domain)
     }
+
+  defp merge_domains(nil, d), do: d
+  defp merge_domains(d, nil), do: d
+  defp merge_domains(d1, d2), do: MapSet.intersection(d1, d2)
 
   defp merge_bounds({lo1, hi1}, {lo2, hi2}), do: {tighten_max(lo1, lo2), tighten_min(hi1, hi2)}
 
@@ -287,6 +292,42 @@ defmodule AL.Var do
     end
   end
 
+  # `in_domain/2`'s constraint: "var must end up being one of these" — same
+  # slot as isa/dif/bounds, intersects with whatever's already there rather
+  # than replacing, so two `in_domain` posts on the same var narrow together
+  # instead of only the second one counting. Returns the narrowed domain
+  # alongside the store so the caller (Goal.InDomain's interp) can tell empty
+  # (infeasible) apart from singleton (auto-bind) apart from still-open.
+  @spec add_domain(store(), variable(), [t()]) :: {store(), MapSet.t(t())}
+  def add_domain(store, var, values) do
+    new_values = MapSet.new(values)
+
+    narrowed =
+      case constraint_set(store, var) do
+        %ConstraintSet{domain: nil} -> new_values
+        %ConstraintSet{domain: existing} -> MapSet.intersection(existing, new_values)
+        nil -> new_values
+      end
+
+    new_store =
+      Map.update(store, var, %ConstraintSet{domain: narrowed}, fn
+        %ConstraintSet{} = set -> %{set | domain: narrowed}
+        other -> other
+      end)
+
+    {new_store, narrowed}
+  end
+
+  # Read side of `add_domain/3` — `nil` (no explicit domain) is distinct from
+  # an empty set (domain narrowed to nothing, infeasible).
+  @spec domain_of(store(), variable()) :: MapSet.t(t()) | nil
+  def domain_of(store, var) do
+    case constraint_set(store, var) do
+      nil -> nil
+      set -> set.domain
+    end
+  end
+
   defp violated?(nil, _store, _term, _branch), do: false
   defp violated?(set, store, term, branch), do: find_violation(set, store, term, branch) != nil
 
@@ -297,7 +338,12 @@ defmodule AL.Var do
   # overwrites the var's entry (a bound term and a `ConstraintSet` are the
   # same store slot), so callers always pass the set they already found
   # separately, not re-derive it from `store` here.
-  defp find_violation(%ConstraintSet{dif: dif, isa: isa, bounds: bounds}, store, term, branch) do
+  defp find_violation(
+         %ConstraintSet{dif: dif, isa: isa, bounds: bounds, domain: domain},
+         store,
+         term,
+         branch
+       ) do
     case Enum.find(dif, fn {a, b} -> subst(a, store) == subst(b, store) end) do
       {a, b} ->
         {:dif, a, b}
@@ -310,6 +356,9 @@ defmodule AL.Var do
 
             (class = Enum.find(isa, &(not isa?(term, &1, branch)))) != nil ->
               {:isa, class}
+
+            domain != nil and not MapSet.member?(domain, term) ->
+              {:domain, domain}
 
             true ->
               nil

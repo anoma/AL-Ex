@@ -69,21 +69,21 @@ transactions, durable + replayable state, Git-like branching.
   kept as a `defdelegate` so the public API and the `run` macro don't need to
   change.
 - **`AL.Dispatch` (lib/AL/dispatch.ex)** — resolves a `send` into a concrete
-  method application: candidate generation (ephemeral/value/durable legs —
-  ephemeral and value share one mechanism, `generative_candidate/6`, no
-  separate structural leg), the selector query, grounded application
-  (`do_send`/`run_providers`), and DNU. See "How a `send` evaluates" below —
-  that whole section now lives here. Public entry points `dispatch/5`,
-  `do_send_as/6`, `force_durable_candidates/4`, `run_providers/6`, `dnu/4`
-  are what `AL`'s `interp/2` calls into; everything else is private. Every
-  generative candidate's `isa` pinning is attached directly to the
-  choicepoint `generative_candidate/6` builds, at construction — before its
-  goals ever run, so it's live for the whole call including nested sends,
-  not a goal spliced to run afterward (see `AL.Var`, below, and
-  al-clp-for-objects memory for why the timing has to be this way round).
-  `dispatch/5` also won't offer `:number`/`:list`/`:map` as sibling candidates
-  once `self` already carries one of them — they're mutually exclusive by
-  construction (`shape_conflict?/2`).
+  method application: candidate generation (generative/durable legs — no
+  ephemeral/value split, `generative_candidate/5` always runs the class's
+  real `new`, one mechanism, no strategy argument at all), the selector
+  query, grounded application (`do_send`/`run_providers`), and DNU. See "How
+  a `send` evaluates" below — that whole section now lives here. Public
+  entry points `dispatch/5`, `do_send_as/6`, `force_durable_candidates/4`,
+  `run_providers/6`, `dnu/4` are what `AL`'s `interp/2` calls into; everything
+  else is private. Every generative candidate's `isa` pinning is attached
+  directly to the choicepoint `generative_candidate/5` builds, at
+  construction — before its goals ever run, so it's live for the whole call
+  including nested sends, not a goal spliced to run afterward (see `AL.Var`,
+  below, and al-clp-for-objects memory for why the timing has to be this way
+  round). `dispatch/5` also won't offer `:number`/`:list`/`:map` as sibling
+  candidates once `self` already carries one of them — they're mutually
+  exclusive by construction (`shape_conflict?/2`).
 - **`AL.Dispatch.MethodOrder` (lib/AL/dispatch/method_order.ex)** — the
   resolution-order topological sort (`method_scopes/2`, `super_chain/3`, Kahn's
   algorithm). Pure functions of a receiver/class and a branch, no choicepoint or
@@ -110,8 +110,8 @@ transactions, durable + replayable state, Git-like branching.
   al-dif-constraints memory for why that's sound. The reverse direction (`object`
   unbound, `class` *also* unbound — querying self's class, not asserting it)
   has its own fast path too: if `object` already carries a known `isa` domain,
-  `GetClass` answers from it directly instead of scanning a durable table an
-  ephemeral/value receiver was never going to have a row in.
+  `GetClass` answers from it directly instead of scanning a durable table a
+  value receiver was never going to have a row in.
 - **`AL.ControlFlow` (lib/AL/control_flow.ex)** — the choicepoint-stack control
   goals: `Cut`, `Implies`, `Or`, `Then`. Each is entirely about which
   alternatives stay on `state.choicepoint_stack`, never about producing a
@@ -205,51 +205,66 @@ how far to reach:
 Lives in `AL.Dispatch` (+ `AL.Dispatch.MethodOrder` for resolution order); `AL`
 just delegates to it from `interp/2`.
 
-**The three candidate families (durable/ephemeral/value) answer one question
-differently: does this class have a construction step whose behavior isn't
-fully readable off the clause heads?** (See "Known gaps" for the domain +
-labeling framing this decomposes into, and where it's headed next.) Ephemeral
-and value are both instances of one shared mechanism, `AL.Dispatch.generative_candidate/6`
-— one function, a `:ephemeral`/`:value` strategy argument picks which goals to
-try — not two parallel code paths; durable stays genuinely separate (below).
+**Two candidate families, not three — there is no `:ephemeral`/`:value`
+strategy split anymore.** `generative_candidate/5` always runs the same
+recipe regardless of class: call the class's real `new` (fresh vars for its
+declared ivars), unify `self` with whatever `new` produces, then
+`SendAsValue` the actual requested method against `self`. Whether that
+leaves `self` genuinely open (for value-leg-style clause matching, e.g.
+`:number`'s `factorial`, `:letter_chain`'s literal clauses) or grounds it to
+a real constructed map (e.g. `:interval`, `:square`) depends entirely on
+whether the class's own `:init` discards the constructed scaffold or builds
+something real — `:value`'s default `:init` (bootstrap.ex) is what makes the
+"stays open" case happen, not a VM-level branch. So a class opts into being a
+generative candidate at all just by declaring `super: :value`
+(`generative_descendants/1` scans exactly that), and what its instances look
+like afterward is entirely up to its own `:init`, not a strategy flag chosen
+at dispatch time.
 - **Durable** — real identity; must retrieve an existing object
-  (`durable_candidates`), never fabricate one.
-- **Ephemeral** (`strategy: :ephemeral`) — has real construction behavior
-  (`construct`/`allocate`/`init`, possibly with defaults/validation/side
-  effects beyond what a clause head literally mentions) — must actually run
-  `new` to get a faithful shape, or a hand-assumed shape risks drifting from
-  what `init` really builds.
-- **Value** (`strategy: :value`) — no construction step at all; the clause
-  heads *are* the complete, authoritative spec of a valid instance
-  (`:number`: `1`, `n`; `:list`: `[]`, `[h|t]` — nothing else could be true of
-  an instance). Unifying an unbound `self` straight against the class's own
-  clauses is safe precisely because there's no hidden constructor behavior to
-  skip — routing an *ephemeral* class through this strategy instead would
-  silently fabricate instances that bypass `init`. `:list`'s `[]`/cons
-  hypothesis used to be a fourth, hardcoded "structural" leg — folded into
-  value (`import(:list, :value)`) once `:list`'s own clause heads turned out
-  to already satisfy exactly this leg's requirement, with no VM-level special
-  case needed at all.
+  (`durable_candidates`), never fabricate one. Stays genuinely separate from
+  the generative leg below (a different resource, not a construction
+  strategy).
+- **Generative** (any `super: :value` class) — always constructs via the
+  class's real `new`, so there's never a hand-assumed shape that could drift
+  from what `init` actually builds. `:list`'s `[]`/cons hypothesis used to be
+  a fourth, hardcoded "structural" leg — folded into this one mechanism
+  (`import(:list, :value)`) once `:list`'s own clause heads turned out to
+  already satisfy exactly this leg's requirement, no VM-level special case
+  needed.
 
-Orthogonal to strategy: an **`isa` constraint** (`AL.Var.add_isa`) pins a var
-to a class the moment a generative candidate's choicepoint is *constructed* —
-before any of its own goals run, ephemeral and value alike — even if the
-matched clause leaves the var open. Registering it that early (not after the
-match, as an earlier version of this did) is sound because the isa violation
-check only ever fires on a bind to a *concrete* term: a clause that leaves
-`self` open (`:number`'s backward-search `factorial`, `:object`'s inherited
-`:examine`) never trips it during its own match, and a clause that *does*
-ground `self` to one of the class's own literals (`:letter_chain`'s `:a`/`:b`)
-is accepted by `AL.Var.isa?/3` as membership evidence for a value class, so it
-doesn't self-violate the constraint it's the proof of — see al-clp-for-objects
-memory for the two wrong turns before landing here. Attaching `isa` to an
-ephemeral candidate is a no-op in practice (it always grounds `self`
-immediately to a real instance, which trivially satisfies the check) but
-keeps the mechanism uniform rather than "value attaches isa, ephemeral
-doesn't." `dispatch/5` also won't offer `:number`/`:list`/`:map` as sibling
-candidates once `self` already carries one of them — they're mutually
-exclusive by construction (`shape_conflict?/2`), and ephemeral construction
-is `:map`-shaped for this purpose too.
+**Correct usage, not a VM constraint but a real convention this repo learned
+the hard way:** a value class's instances should be a self-describing map
+(a `:class` field, like `:interval`/`:square`/`:card` — works as both a
+ground and an open receiver for free, since `Goal.GetClass`'s `is_map`
+clause reads the class straight off the map, no durable lookup either way)
+or left as a constrained-but-open var (`isa`, or the `in_domain/2` constraint
+— see "Tables"/Conventions below), not bound to a bare atom unless that atom
+is *also* durably classified. A bare atom only gets symmetric dispatch
+through the durable class/super graph — `next(x, :b)` finding `x = :a` via
+`:letter_chain`'s literal clauses works (generative leg, no durable identity
+needed at all), but `next(:a, y)` fails with `does_not_understand`, because
+ground dispatch on a plain atom only ever consults the durable graph, never
+a value class's own clause heads, and `:a` was never durably classified.
+Durably classifying it too (the fix that looks obvious) creates a second,
+independent proof of membership alongside the generative one, so `findall`
+reports every fact twice, one per leg. Don't chase that fix — use a map, or
+don't materialize a bare atom at all.
+
+An **`isa` constraint** (`AL.Var.add_isa`) pins a var to a class the moment a
+generative candidate's choicepoint is *constructed* — before any of its own
+goals run, even if the matched clause leaves the var open. Registering it
+that early (not after the match, as an earlier version of this did) is sound
+because the isa violation check only ever fires on a bind to a *concrete*
+term: a clause that leaves `self` open (`:number`'s backward-search
+`factorial`, `:object`'s inherited `:examine`) never trips it during its own
+match, and a clause that *does* ground `self` to one of the class's own
+literals (`:letter_chain`'s `:a`/`:b`) is accepted by `AL.Var.isa?/3` as
+membership evidence for a value class, so it doesn't self-violate the
+constraint it's the proof of — see al-clp-for-objects memory for the two
+wrong turns before landing here. `dispatch/5` also won't offer
+`:number`/`:list`/`:map` as sibling candidates once `self` already carries
+one of them — they're mutually exclusive by construction
+(`shape_conflict?/2`).
 
 1. **Lowering (`AL.Lowering.ast_to_pattern`).** `send(recv, sel, args)` and implicit
    `sel(recv, …)` (any atom head with ≥1 arg) become `{:send, recv, sel, args}`.
@@ -260,30 +275,29 @@ is `:map`-shaped for this purpose too.
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
 3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
    `on_miss = backtrack`):
-   - **var receiver** (not `:"$_"`) → generative dispatch over three candidate
-     kinds, each pushed as a choicepoint (current frame `Fail`s to force entry,
-     LIFO try order): durable objects (`durable_candidates`, deferred behind a
-     placeholder choicepoint — see `AL.Dispatch`, above — filtered by
-     `answers_selector?` — not an unconditional class-table scan) → ephemeral
-     classes → value classes, both drawn from one shared scan
-     (`generative_descendants/2`, also selector-filtered; any class that
-     `import`s `:ephemeral` and/or `:value` — `:number`/`:list` import `:value`
-     in bootstrap.ex today) and pushed through one shared candidate builder
-     (`generative_candidate/6`) parameterized by strategy: `:ephemeral` runs
-     `new`-based construction for classes with declared ivars (e.g.
-     `single`/`union`/`set`); `:value` tries the class directly against `self`
-     via its own clause heads, no construction/retrieval at all. `AL.ResolutionCache`
-     (per-branch, flush-on-write Mnesia tables) memoizes `providers/3`,
-     `generative_descendants/2` (one relation for both strategies — `AL.Object`'s
-     writers always invalidate it as a whole, so splitting it in two bought
-     nothing), `durable_classes/1`, and `answers_selector?` — all pure
-     functions of durable state otherwise re-derived on every open dispatch.
-     Every generative candidate — ephemeral or value — gets an `isa`
-     constraint pinning `self` to that class attached to its own choicepoint
-     at construction, before any of its goals run (`AL.Var.add_isa`); see
-     al-clp-for-objects memory for why the timing has to be this early
-     (not after the match, which an earlier version did) without breaking a
-     value class's own literal-clause matches.
+   - **var receiver** (not `:"$_"`) → generative dispatch over two candidate
+     kinds, each pushed as a choicepoint (current frame `Fail`s to force
+     entry, LIFO try order — generative candidates are pushed *after* the
+     durable placeholder, so they're tried first): `generative_descendants/1`
+     scans every class with `super: :value`, `filter_by_selector` prunes to
+     ones that actually answer the selector, `shape_conflict?` drops
+     `:number`/`:list`/`:map` siblings once `self`'s `known_shape` already
+     picked one — each survivor becomes a `generative_candidate/5`
+     choicepoint (always: real `new`, unify `self` with the result,
+     `SendAsValue` the requested method). Durable objects
+     (`durable_candidates`, deferred behind a placeholder choicepoint — see
+     `AL.Dispatch`, above — filtered by `answers_selector?`, not an
+     unconditional class-table scan) are tried last, only if backtracking
+     gets that far. `AL.ResolutionCache` (per-branch, flush-on-write Mnesia
+     tables) memoizes `providers/3`, `generative_descendants/1`,
+     `durable_classes/1`, and `answers_selector?` — all pure functions of
+     durable state otherwise re-derived on every open dispatch. Every
+     generative candidate gets an `isa` constraint pinning `self` to that
+     class attached to its own choicepoint at construction, before any of its
+     goals run (`AL.Var.add_isa`); see al-clp-for-objects memory for why the
+     timing has to be this early (not after the match, which an earlier
+     version did) without breaking a value class's own literal-clause
+     matches.
    - **var selector** (not `:"$_"`) → query over the receiver's methods:
      `understood_method_names` walks `self` then its class/super chain (deduped); a
      choicepoint per name binds `sel`, then re-dispatches. Arg shape decides which
@@ -320,8 +334,8 @@ is `:map`-shaped for this purpose too.
 Edge cases: a query with no candidates fails, never DNUs; only fully-ground sends
 DNU; `:"$_"` in receiver/selector is the match-anything wildcard, not a slot to
 ground (falls to `do_send`, takes the first method — use a real var for a query);
-of the three var-receiver candidate kinds, only durable objects require a class
-row — ephemeral/value candidates are offered regardless.
+of the two var-receiver candidate kinds, only durable objects require a class
+row — generative candidates are offered regardless.
 
 ## Tables
 
@@ -403,15 +417,14 @@ Example: `unify_failure_names_the_violated_constraint` in `e_AL_failures.ex`.
 `AL.Trace.call/4`/`fail/3` (`trace(:selector)`) only fire once a clause is
 actually applied — they say nothing about *which candidate legs an unbound
 receiver had to try* to get there. `AL.Dispatch.dispatch/5`'s var-receiver
-branch calls `AL.Trace.dispatch/4` when the selector is a tracepoint, printing
-the legs being offered *before* any of them run: structural (always
-`[cons, []]`), `ephemeral=[...]`/`value=[...]` (the actual selector-filtered
-class lists — already computed either way, free to report), and
-`durable=deferred` — deliberately not a candidate count, since the durable
-leg's whole point is not scanning until backtracking actually reaches it
-(`AL.Dispatch.force_durable_candidates/4`); reporting a count here would force
-that scan just to trace it. Example: `trace_shows_dispatch_legs` in
-`e_AL_trace.ex`.
+branch calls `AL.Trace.dispatch/3` when the selector is a tracepoint, printing
+the legs being offered *before* any of them run: `value=[...]` (the actual
+selector-filtered `super: :value` class list, already computed either way,
+free to report) and `durable=deferred` — deliberately not a candidate count,
+since the durable leg's whole point is not scanning until backtracking
+actually reaches it (`AL.Dispatch.force_durable_candidates/4`); reporting a
+count here would force that scan just to trace it. Example:
+`trace_shows_dispatch_legs` in `e_AL_trace.ex`.
 
 ## Adding a goal
 
@@ -434,10 +447,11 @@ that scan just to trace it. Example: `trace_shows_dispatch_legs` in
   mechanism in AL sits at a real tradeoff point, not a strictly-better move — ask
   what capability is being traded away before adopting a change, not just what it
   unlocks. Concrete instance: durability-by-default is AL's actual differentiator
-  over Logtalk, but it's *why* ephemeral construction has to exist as a separate,
-  deliberately non-durable path — removing that distinction wouldn't be a
-  simplification, it would silently foreclose either cheap backtracking-driven
-  generation or durability-by-default, not both. Same reasoning applies to
+  over Logtalk, but it's *why* generative construction has to exist as a
+  separate, deliberately non-durable path — removing that distinction
+  wouldn't be a simplification, it would silently foreclose either cheap
+  backtracking-driven generation or durability-by-default, not both. Same
+  reasoning applies to
   `super` vs. flat `import`: `super` is *already* a live, transitive form of
   import (dispatch re-derives it fresh every call, per
   [[al-commitment-machine]]) — collapsing to "just import" doesn't eliminate a
@@ -571,16 +585,16 @@ that scan just to trace it. Example: `trace_shows_dispatch_legs` in
   `AL_MNESIA_DIR` env var (`AL_MNESIA_DIR=/tmp/foo mix test`, no config file
   needed) → `.mnesiastore/` in the cwd, the default. Single source of truth:
   `AL.Command.mnesia_dir/0`, which `setup/0` and `mix al.reset` both read.
-- **An ephemeral class's `:init` must `unify` its output with a freshly
-  literal-constructed map, not `set_slot`/`vm_set_slots` the input scaffold**
-  (`:interval`'s own `:init`, `AL/package/interval.ex`, is the reference
-  pattern). Durable objects can `set_slot` because `self` is a stable atom id
-  and slots live in a separate keyed table — growing them is just another row.
-  An ephemeral `self` *is* the map itself, already a concrete value by the
-  time `:init` runs; `set_slot`/`vm_set_slots` on it routes through durable
-  `SetSlots` semantics and silently does nothing observable to the actual
-  returned instance. Build the whole map and `unify(new, %{class: ..., ...})`
-  instead.
+- **A map-shaped value class's `:init` must `unify` its output with a
+  freshly literal-constructed map, not `set_slot`/`vm_set_slots` the input
+  scaffold** (`:interval`'s own `:init`, `AL/package/interval.ex`, is the
+  reference pattern). Durable objects can `set_slot` because `self` is a
+  stable atom id and slots live in a separate keyed table — growing them is
+  just another row. A map-shaped `self` *is* the map itself, already a
+  concrete value by the time `:init` runs; `set_slot`/`vm_set_slots` on it
+  routes through durable `SetSlots` semantics and silently does nothing
+  observable to the actual returned instance. Build the whole map and
+  `unify(new, %{class: ..., ...})` instead.
 - **A relation used by foundational/early bootstrap code must not depend on
   another class's method defined later in the same file.** `:object`'s
   `:import` used to walk its copied-methods list via
@@ -673,51 +687,92 @@ diff/merge and valid-time queries are unbuilt.
   that skip `dispatch`/`send` entirely today, so this would be a real
   `:number`/`:bits` behaviour with its own recursive clauses, coexisting with
   (not replacing) native-integer `is`.
-- **The dispatch legs are converging toward one domain-constraint
-  mechanism — mechanically unified, semantically still in progress.** Every
-  leg answers the same question — "self is unbound; what's its domain of
-  possible values, and how do we get a concrete one when forced (`labeling`,
-  in CLP(FD) terms)?" — differing only in how the domain is represented:
-  value is a predicate domain ("unifies with one of class C's clause heads"),
-  ephemeral is a shape domain ("a map with these keys, satisfying these
-  invariants"), durable is an explicit finite set (ids read from the log).
-  `isa` already stores a predicate domain (a class name, checked via
-  `isa?/3`); the generalization is letting that stored domain be richer — a
-  shape description, or an explicit id set.
-  - **Structural folded into value with no caveats** — `:list`'s cons/`[]`
-    hypothesis *is* a value-leg case (a list's shape is its complete spec);
-    the hardcoded special case predating `:value`'s existence is gone.
-  - **Ephemeral and value now share one mechanism at the code level, fully —
-    no strategy branch left.** `AL.Dispatch.generative_candidate/5` always
-    calls the class's real `new` (`construct`/`allocate`/`init`), then
-    reaches the method via `send_as_value`; only `:value`'s own category
-    `allocate`/`init` (bootstrap.ex) differ from `:ephemeral`'s — `init`
-    discards the constructed scaffold instead of keeping it, so `new` on a
-    value class comes back exactly as open as it started, ready for
-    `send_as_value` to unify directly against the class's own clause heads.
-    This replaced what used to be two parallel candidate-builders (one ending
-    in `send_as_value`, the other in a plain re-dispatching `send_query`), two
-    parallel descendant scans, and two `ResolutionCache` relations (now one
-    `generative_descendants/2`, since `AL.Object`'s writers always
-    invalidated both together anyway — they were never actually independent
-    caches). `isa` is attached uniformly at choicepoint construction for both
-    categories, not just value's. A value class's `new`/`init` can still be
-    overridden per-class with real logic (narrowing/rejecting during
-    construction, not just at the end) if a concrete need shows up — not
-    built, since no current value class needs it, but the mechanism doesn't
-    block it.
-  - **Semantic collapse for ephemeral is still open**, separate from the
-    mechanical one above: its validation/defaults/invariants (e.g. a
-    `union`'s left/right disjointness) need to be expressible as constraints,
-    not imperative checks — this is exactly what `absento` (miniKanren's
-    structural disequality: "X never appears anywhere inside Term", even as
-    Term grows through still-open sub-parts — `dif`'s `migrate_constraints`
-    re-attach trick, generalized to recurse into revealed structure) is for;
-    not built. Ephemeral construction already never touches anything durable
-    or external (`AL.Store`'s goals no-op when `object` is a live map;
-    `:ephemeral`'s own `allocate`/`init` are identity) — an invariant to keep
-    honoring as classes gain real `init` logic, not something `absento` needs
-    to newly establish.
+- **`in_domain/2`** — "this var is one of these", a real constraint (a
+  fourth `ConstraintSet` field, `domain :: MapSet.t() | nil`, alongside
+  `dif`/`isa`/`bounds`) rather than a class with a `:domain` method.
+  `AL.Var.add_domain/3` intersects across repeated posts the same way bounds
+  narrow across repeated compares; `find_violation/4` checks it at bind time
+  the same as the other three, so `unify(x, :not_in_the_set)` correctly fails
+  for a domain-constrained var. `vm_label`'s fallback chain
+  (`Goal.Label`'s interp) gained a tier for it, between numeric bounds and
+  the class-`:domain`-method fallback: no class or `SendAsValue` involved at
+  all, just `member/2` over the narrowed set. Deliberately *not* eager
+  cross-narrowing with `dif` (posting `dif(x, :a)` doesn't proactively shrink
+  an existing domain constraint) — labeling enumerates candidates via
+  ordinary backtracking, and each one still passes through the normal
+  bind-time check, so a `dif`'d value gets skipped there instead; sound, just
+  not maximally tight. Built specifically to replace the
+  `super: :value` + `:domain` method + one bodyless clause per literal atom
+  pattern (`:suit`/`:card_rank`/`:letter_chain`) for the common case where
+  the "enum" doesn't need any actual per-instance behavior — see the
+  map-wrapper-vs-bare-atom convention above for why that pattern has a real,
+  hard-to-notice asymmetry bug (`next(:a, y)` fails ground dispatch even
+  though `next(x, :b)` finds `x = :a` fine) that `in_domain` sidesteps
+  entirely, since it never involves a class or dispatch either direction.
+  Examples in `e_AL_in_domain.ex`.
+
+  **Prefer non-atom domain values where practical, even though `in_domain`
+  has no dispatch-level duplication risk.** Unlike the value-class case,
+  nothing about `in_domain` scans the durable graph or registers a global
+  candidate, so an atom used as a domain value can't create the "findall
+  reports it twice" bug even if that same atom happens to be a real durable
+  object elsewhere. But "see a bare atom, know it's durable" is a real,
+  useful invariant elsewhere in AL, and a bare atom sitting in an
+  `in_domain` result quietly breaks it with nothing marking the difference —
+  `examine(:two, info)` on an `in_domain`-only symbol returns nothing,
+  which reads as broken rather than "this was never durable to begin
+  with." Prefer a tagged/map shape for domain values when the domain is
+  conceptually closer to "real things" than "plain symbols" (the way
+  `:square`/`:card` already are), reserving bare-atom domain values for
+  cases as unambiguously symbolic as `:hearts`/`:diamonds` always were.
+- **The dispatch legs converged to one domain-constraint mechanism —
+  mechanically done, semantically still in progress.** Every leg answers the
+  same question — "self is unbound; what's its domain of possible values,
+  and how do we get a concrete one when forced (`labeling`, in CLP(FD)
+  terms)?" — differing only in how the domain is represented: a generative
+  (`super: :value`) class is a predicate domain ("unifies with one of class
+  C's clause heads, or with whatever its own `new`/`init` actually builds"),
+  durable is an explicit finite set (ids read from the log), and `in_domain/2`
+  (`AL.Var.ConstraintSet`'s `domain` field) is now a third, explicit-set
+  domain living directly on the var itself, no class involved at all — the
+  generalization this section used to describe as "not built" for isa. `isa`
+  stores a predicate domain (a class name, checked via `isa?/3`); `in_domain`
+  is the richer case that follows from it, an explicit value set rather than
+  a class-membership predicate.
+  - **Structural folded into the generative leg with no caveats** — `:list`'s
+    cons/`[]` hypothesis *is* a generative case (a list's shape is its
+    complete spec); the hardcoded special case predating `:value`'s
+    existence is gone.
+  - **No `:ephemeral`/`:value` strategy split at all anymore — fully
+    merged, not just sharing a mechanism.** `AL.Dispatch.generative_candidate/5`
+    always calls the class's real `new` (`construct`/`allocate`/`init`), then
+    reaches the method via `send_as_value` — there is no strategy argument,
+    no second code path. Whether the resulting `self` stays open (ready for
+    `send_as_value` to unify directly against the class's own clause heads,
+    e.g. `:number`/`:letter_chain`) or comes back a real constructed map
+    (e.g. `:interval`/`:mapset`) is entirely up to whether the class's own
+    `:init` discards the constructed scaffold or keeps it — `:value`'s
+    default `:init` (bootstrap.ex) is what makes the "stays open" case
+    happen, not a VM-level branch. This replaced what used to be two
+    parallel candidate-builders, two parallel descendant scans, and two
+    `ResolutionCache` relations (now one `generative_descendants/1`, since
+    `AL.Object`'s writers always invalidated both together anyway — they
+    were never actually independent caches). A value class's `new`/`init`
+    can still be overridden per-class with real logic (narrowing/rejecting
+    during construction, not just at the end) if a concrete need shows up —
+    not built, since no current value class needs it, but the mechanism
+    doesn't block it.
+  - **Semantic collapse for classes with real construction logic is still
+    open**: validation/defaults/invariants (e.g. a `union`'s left/right
+    disjointness) need to be expressible as constraints, not imperative
+    checks — this is exactly what `absento` (miniKanren's structural
+    disequality: "X never appears anywhere inside Term", even as Term grows
+    through still-open sub-parts — `dif`'s `migrate_constraints` re-attach
+    trick, generalized to recurse into revealed structure) is for; not
+    built. A generative candidate's construction already never touches
+    anything durable or external (`AL.Store`'s goals no-op when `object` is
+    a live map) — an invariant to keep honoring as classes gain real `init`
+    logic, not something `absento` needs to newly establish.
   - **Durable does not collapse into the others — a different resource, not
     a different amount of laziness.** Its domain is real, mutable, external,
     persistent state; producing a witness (`labeling`) means an actual scan,
@@ -735,7 +790,38 @@ diff/merge and valid-time queries are unbuilt.
     special case per leg — consistent with "package means defpackage"),
     with durable staying the sole leg whose *labeling* is genuinely
     expensive and lazy, not because it's special-cased but because it's
-    touching a different kind of resource than the other two.
+    touching a different kind of resource than the other two. Sharper
+    framing: durable vs. generative isn't two kinds of thing, it's one
+    mechanism with two orthogonal strategies plugged in — an *allocation*
+    strategy (how a new instance comes to exist: durable writes the log and
+    mints an identity; generative constructs in-memory, possibly staying
+    open) and a *domain-read* strategy (how existing candidates get
+    enumerated: durable scans the log; generative tries the class's own
+    clause heads, or, for `in_domain`, a fixed literal set). Once both axes
+    are just parameters of the same mechanism rather than two dispatch legs,
+    the double-proof conflict below isn't a special case to guard against,
+    it's what happens when the same var's domain gets computed by two
+    different strategies at once instead of one.
+  - **Concrete motivating case for that end state, found this session**: a
+    bare atom durably classified into a `super: :value` class whose own
+    clause literally matches it (`vm_set_class(:two, :card_rank)` where
+    `:card_rank` has `defmethod(:two, [:two])`) is reachable both as a
+    durable object *and* as a generative candidate for the exact same fact
+    — `findall` reports it twice, one proof per leg. Fixed reactively for
+    now (`AL.Store`'s `SetClass` rejects the combination via
+    `AL.Dispatch.value_member?/3`), but the *principled* fix is exactly the
+    unification above: if durable candidacy were expressed as a lazily-
+    computed domain (same `ConstraintSet.domain` slot `in_domain/2` already
+    uses, just computed from a durable scan instead of a fixed literal set),
+    a var would have *one* domain, not two independent legs that can
+    coincidentally agree on the same fact — the conflict dissolves
+    structurally instead of needing a guard to catch it after the fact.
+    `send`'s agnosticism about *which candidate kind will pan out* during
+    search isn't the problem (that's ordinary backtracking, same as Prolog
+    not knowing in advance which clause will match) — once something is
+    concrete, durable or generative, it's never ambiguous; the guard exists
+    for the narrower case of one *fact* being provable twice, not one
+    *object* being unclear what it is.
 - **Durable candidate generation doesn't consult `isa`/`dif` before scanning.**
   `AL.Var.bind/4` being the one choke point means a wrong-class durable
   candidate is always *rejected* correctly (see al-clp-for-objects memory),

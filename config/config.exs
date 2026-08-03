@@ -15,7 +15,8 @@ config :al,
     AL.Package.Interval,
     AL.Package.Constraints,
     AL.Package.Equations,
-    AL.Package.Sudoku
+    AL.Package.Sudoku,
+    AL.Package.Blackjack
   ]
 
 # Import environment specific config. This must remain at the bottom
