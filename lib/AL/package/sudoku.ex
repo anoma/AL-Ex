@@ -12,7 +12,7 @@ defmodule AL.Package.Sudoku do
       # givens: 9x9 list of 0..9, 0 = blank. Blanks come out open via
       # ordinary unification against build_row's fresh output list.
       defmethod(:init, [self, args, new]) do
-        vm_map_get(args, :givens, givens)
+        slot_get(args, :givens, givens)
         build_rows(givens, rows)
         constrain_rows(rows)
         unify(new, %{class: :sudoku_puzzle, rows: rows})

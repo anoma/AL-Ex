@@ -9,7 +9,7 @@ defmodule AL.Package.Mapset do
     end
 
     defmethod(:mapset_value, :init, [self, args, new]) do
-      vm_map_get(args, :elems, list)
+      slot_get(args, :elems, list)
 
       implies do
         [vm_ground(list)] ->
@@ -23,8 +23,8 @@ defmodule AL.Package.Mapset do
 
     defmethod(:mapset_value, :elem, [self, e]) do
       vm_ground(self)
-      vm_map_get(self, :elems, elems)
-      vm_map_get(elems, e, _)
+      slot_get(self, :elems, elems)
+      slot_get(elems, e, _)
     end
 
     defmethod(:mapset_value, :elem, [self, e]) do
@@ -35,8 +35,8 @@ defmodule AL.Package.Mapset do
 
     defmethod(:mapset_value, :members, [self, list]) do
       vm_ground(self)
-      vm_map_get(self, :elems, elems)
-      findall(k, [vm_map_get(elems, k, _)], list)
+      slot_get(self, :elems, elems)
+      findall(k, [slot_get(elems, k, _)], list)
     end
 
     defmethod(:mapset_value, :members, [self, list]) do
@@ -46,36 +46,36 @@ defmodule AL.Package.Mapset do
     end
 
     defmethod(:mapset_value, :insert, [self, x, new]) do
-      vm_map_get(self, :elems, elems)
-      vm_map_put(elems, x, true, new_elems)
+      slot_get(self, :elems, elems)
+      put(elems, x, true, new_elems)
       unify(new, %{class: :mapset_value, elems: new_elems})
     end
 
     defmethod(:mapset_value, :union, [self, s, new]) do
-      vm_map_get(self, :elems, elems1)
-      vm_map_get(s, :elems, elems2)
-      findall(k, [vm_map_get(elems2, k, _)], list2)
+      slot_get(self, :elems, elems1)
+      slot_get(s, :elems, elems2)
+      findall(k, [slot_get(elems2, k, _)], list2)
       fold_left(list2, :map_insert, elems1, merged)
       unify(new, %{class: :mapset_value, elems: merged})
     end
 
     defmethod(:mapset_value, :intersection, [self, s, new]) do
-      vm_map_get(self, :elems, elems1)
-      vm_map_get(s, :elems, elems2)
-      findall(k, [vm_map_get(elems1, k, _), vm_map_get(elems2, k, _)], common)
+      slot_get(self, :elems, elems1)
+      slot_get(s, :elems, elems2)
+      findall(k, [slot_get(elems1, k, _), slot_get(elems2, k, _)], common)
       list_to_elems(common, merged)
       unify(new, %{class: :mapset_value, elems: merged})
     end
 
     defmethod(:map, :map_insert, [self, k, new_self]) do
-      vm_map_put(self, k, true, new_self)
+      put(self, k, true, new_self)
     end
 
     defmethod(:list, :list_to_elems, [[], %{}])
 
     defmethod(:list, :list_to_elems, [[x | xs], elems]) do
       list_to_elems(xs, rest)
-      vm_map_put(rest, x, true, elems)
+      put(rest, x, true, elems)
     end
   end
 end

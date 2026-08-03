@@ -46,9 +46,9 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         defclass :durable_meta, super: :object do
           defmethod(:allocate, [self, args, name]) do
-            vm_map_get(args, :name, name)
+            slot_get(args, :name, name)
 
-            vm_class(self, meta)
+            class(self, meta)
 
             vm_set_class(name, meta)
             vm_set_super(name, :object)
@@ -57,7 +57,7 @@ defmodule Examples.ALObjects do
 
         new(:durable_meta, %{name: :alloc_overriden}, obj)
 
-        vm_class(obj, obj_class)
+        class(obj, obj_class)
       end
 
     assert is_atom(Map.get(b, :"$obj"))
@@ -104,9 +104,9 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, program_state}} =
       run branch: :examples do
         examine(:class, info)
-        vm_map_get(info, :methods, methods)
-        vm_map_get(info, :classes, classes)
-        vm_map_get(info, :supers, supers)
+        slot_get(info, :methods, methods)
+        slot_get(info, :classes, classes)
+        slot_get(info, :supers, supers)
       end
 
     assert Map.get(bindings, :"$classes") == [:class]
@@ -117,14 +117,14 @@ defmodule Examples.ALObjects do
         defclass :examine_slot_class, super: :object, ivars: [:legs] do
         end
 
-        vm_set_slots(:examine_slot_class, %{legs: 4})
+        set_slots(:examine_slot_class, %{legs: 4})
 
         new(:examine_slot_class, obj)
-        vm_set_slots(obj, %{name: :rex})
+        set_slots(obj, %{name: :rex})
 
         examine(obj, obj_info)
 
-        vm_map_get(obj_info, :direct_slots, direct_slots)
+        slot_get(obj_info, :direct_slots, direct_slots)
       end
 
     assert Map.get(slot_bindings, :"$direct_slots") == [[:name, :rex]]
@@ -269,10 +269,10 @@ defmodule Examples.ALObjects do
         vm_set_class(:real_pinger, :real_pinger_class)
 
         vm_set_class(:tripwire, :object)
-        vm_set_slots(:tripwire, %{tripped: :no})
+        set_slots(:tripwire, %{tripped: :no})
 
         defmethod(:tripwire, :does_not_understand, [self, _m, _a]) do
-          vm_set_slots(self, %{tripped: :yes})
+          set_slots(self, %{tripped: :yes})
         end
       end
 
@@ -289,7 +289,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        vm_get_slot(:tripwire, :tripped, t)
+        get_slot(:tripwire, :tripped, t)
       end
 
     assert Map.get(b2, :"$t") == :no
@@ -302,7 +302,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b3, _}} =
       run branch: :examples do
-        vm_get_slot(:tripwire, :tripped, t)
+        get_slot(:tripwire, :tripped, t)
       end
 
     assert Map.get(b3, :"$t") == :yes
@@ -358,7 +358,7 @@ defmodule Examples.ALObjects do
         defclass :multislots, super: :object, ivars: [] do
         end
 
-        vm_set_slots(:multislots, %{x: 1, y: 2, z: 3})
+        set_slots(:multislots, %{x: 1, y: 2, z: 3})
         slots(:multislots, [:x, :z], m)
       end
 
@@ -373,7 +373,7 @@ defmodule Examples.ALObjects do
         defclass :slot_inherit_class, super: :object, ivars: [:legs] do
         end
 
-        vm_set_slots(:slot_inherit_class, %{legs: 4})
+        set_slots(:slot_inherit_class, %{legs: 4})
 
         new(:slot_inherit_class, obj)
 

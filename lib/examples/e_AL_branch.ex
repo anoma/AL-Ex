@@ -25,18 +25,18 @@ defmodule Examples.ALBranch do
     # the tip fork sees :tt_thing; the past fork does not
     {:atomic, _} =
       run branch: tip.id do
-        vm_class(^sym, :object)
+        class(^sym, :object)
       end
 
     {:aborted, _} =
       run branch: past.id do
-        vm_class(^sym, :object)
+        class(^sym, :object)
       end
 
     # both forks still carry the bootstrap
     {:atomic, _} =
       run branch: past.id do
-        vm_class(:object, :class)
+        class(:object, :class)
       end
 
     AL.Branch.discard(past)
@@ -93,7 +93,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run do
-        vm_class(:on_branch, :object)
+        class(:on_branch, :object)
       end
 
     # back on main, the branch's write is invisible
@@ -101,7 +101,7 @@ defmodule Examples.ALBranch do
 
     {:aborted, _} =
       run do
-        vm_class(:on_branch, :object)
+        class(:on_branch, :object)
       end
 
     AL.Branch.discard(branch)
@@ -122,7 +122,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run branch: child.id do
-        vm_class(:on_parent, :object)
+        class(:on_parent, :object)
       end
 
     # writes to the parent after the child forked don't reach the child
@@ -133,13 +133,13 @@ defmodule Examples.ALBranch do
 
     {:aborted, _} =
       run branch: child.id do
-        vm_class(:later_on_parent, :object)
+        class(:later_on_parent, :object)
       end
 
     # main never saw any of it
     {:aborted, _} =
       run do
-        vm_class(:on_parent, :object)
+        class(:on_parent, :object)
       end
 
     AL.Branch.discard(child)
@@ -161,7 +161,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run branch: child.id do
-        vm_class(:on_head, :object)
+        class(:on_head, :object)
       end
 
     # main, which was never checked out, has no such object to fork
@@ -170,7 +170,7 @@ defmodule Examples.ALBranch do
 
     {:aborted, _} =
       run branch: fresh.id do
-        vm_class(:on_head, :object)
+        class(:on_head, :object)
       end
 
     AL.Branch.discard(fresh)
@@ -196,7 +196,7 @@ defmodule Examples.ALBranch do
 
         defmethod(:fork_worker, :handle, [self, object]) do
           vm_set_slots(object, %{processed: true})
-          vm_get_slot(:fork_worker_subscriber, :pid, p)
+          get_slot(:fork_worker_subscriber, :pid, p)
           vm_functor(message, :handled, [object])
           send_elixir(p, message)
         end
@@ -252,7 +252,7 @@ defmodule Examples.ALBranch do
 
     {:atomic, _} =
       run branch: child.id do
-        vm_class(:survivor, :object)
+        class(:survivor, :object)
       end
 
     AL.Branch.discard(child)

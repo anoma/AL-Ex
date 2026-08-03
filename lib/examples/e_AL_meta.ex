@@ -74,8 +74,8 @@ defmodule Examples.ALMeta do
         vm_set_super(:forall_test, :class)
         vm_set_super(:forall_test, :behaviour)
 
-        forall([vm_super(forall_test, s)]) do
-          vm_set_slots(s, %{forall_visited: true})
+        forall([vm_super(:forall_test, s)]) do
+          set_slots(s, %{forall_visited: true})
         end
       end
 
@@ -93,7 +93,7 @@ defmodule Examples.ALMeta do
   example not_succeeds_when_goal_fails() do
     {:atomic, {_bindings, _}} =
       run branch: :examples do
-        not [vm_class(:nonexistent_xyz, c)]
+        not [class(:nonexistent_xyz, c)]
       end
 
     :ok
@@ -102,7 +102,7 @@ defmodule Examples.ALMeta do
   example not_fails_when_goal_succeeds() do
     {:aborted, _} =
       run branch: :examples do
-        not [vm_class(:object, c)]
+        not [class(:object, c)]
       end
 
     :ok

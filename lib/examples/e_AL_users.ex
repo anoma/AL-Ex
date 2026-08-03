@@ -12,8 +12,8 @@ defmodule Examples.ALUsers do
       run branch: :examples do
         new(:user, %{name: :alice}, alice)
         new(:owned, %{owner: alice, label: :thing}, obj)
-        vm_get_slot(obj, :owner, owner)
-        vm_class(obj, c)
+        get_slot(obj, :owner, owner)
+        class(obj, c)
       end
 
     assert Map.get(b, :"$owner") == Map.get(b, :"$alice")
@@ -40,7 +40,7 @@ defmodule Examples.ALUsers do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        vm_get_slot(^obj, :label, l)
+        get_slot(^obj, :label, l)
       end
 
     assert Map.get(b2, :"$l") == :updated
@@ -71,7 +71,7 @@ defmodule Examples.ALUsers do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        vm_get_slot(^obj, :label, l)
+        get_slot(^obj, :label, l)
       end
 
     assert Map.get(b2, :"$l") == :guarded

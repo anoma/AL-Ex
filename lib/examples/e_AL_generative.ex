@@ -237,7 +237,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         defclass :square, super: :value, ivars: [:side] do
           defmethod(:init, [self, args, new]) do
-            vm_map_get(args, :side, side)
+            slot_get(args, :side, side)
             unify(new, %{class: :square, side: side})
           end
 

@@ -22,12 +22,12 @@ defmodule Examples.ALDefclass do
           ivars: [:label],
           categories: [:widget_behaviour] do
           defmethod(:init, [self, args, new]) do
-            vm_map_get(args, :label, l)
+            slot_get(args, :label, l)
             unify(new, %{class: :widget, label: l})
           end
 
           defmethod(:label, [self, l]) do
-            vm_map_get(self, :label, l)
+            slot_get(self, :label, l)
           end
         end
 
@@ -49,7 +49,7 @@ defmodule Examples.ALDefclass do
         end
 
         new(:durable_thing, instance)
-        vm_class(instance, class)
+        class(instance, class)
       end
 
     assert Map.get(bindings, :"$class") == :durable_thing
@@ -81,7 +81,7 @@ defmodule Examples.ALDefclass do
         end
 
         new(:bare_thing, instance)
-        vm_class(instance, class)
+        class(instance, class)
       end
 
     assert Map.get(bindings, :"$class") == :bare_thing

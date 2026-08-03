@@ -89,9 +89,9 @@ end
 run do
   defclass :rectangle, super: :value, ivars: [:width, :height, :perimeter] do
     defmethod(:init, [self, args, new]) do
-      vm_map_get(args, :width, w)
-      vm_map_get(args, :height, h)
-      vm_map_get(args, :perimeter, p)
+      slot_get(args, :width, w)
+      slot_get(args, :height, h)
+      slot_get(args, :perimeter, p)
       eq(p, 2 * w + 2 * h)
       unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
     end
@@ -128,9 +128,9 @@ run do
   defclass :fire_hydrant, super: :object do
   end
 
-  vm_set_slots(:car, %{color: :red})
-  vm_set_slots(:bicycle, %{color: :blue})
-  vm_set_slots(:fire_hydrant, %{color: :red})
+  set_slots(:car, %{color: :red})
+  set_slots(:bicycle, %{color: :blue})
+  set_slots(:fire_hydrant, %{color: :red})
 
   new(:car, my_car)
   new(:bicycle, my_bike)

@@ -49,12 +49,12 @@ defmodule AL.Package.Constraints do
 
     defmethod(:cell, :dependents, [self, acc, dependents]) do
       implies do
-        [vm_map_get(acc, self, seen)] ->
+        [slot_get(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
           get_slot(self, :subscribers, subscribers)
-          vm_map_put(acc, self, subscribers, new_acc)
+          put(acc, self, subscribers, new_acc)
           dependents(self, new_acc, subscribers, dependents)
       end
     end
@@ -75,8 +75,8 @@ defmodule AL.Package.Constraints do
     )
 
     defmethod(:propagator, :init, [self, args, self]) do
-      vm_map_get(args, :input_cells, input_cells)
-      vm_map_get(args, :output_cell, output_cell)
+      slot_get(args, :input_cells, input_cells)
+      slot_get(args, :output_cell, output_cell)
 
       set_slots(self, %{input_cells: input_cells, output_cell: output_cell, name: self})
 
@@ -107,7 +107,7 @@ defmodule AL.Package.Constraints do
 
     # interval domains: no enumeration, straight to constrain
     defmethod(:propagator, :narrow_output, [self, [first | rest], candidate]) do
-      vm_class(first, :interval_value)
+      class(first, :interval_value)
       constrain(self, [first | rest], candidate)
     end
 
@@ -136,12 +136,12 @@ defmodule AL.Package.Constraints do
 
     defmethod(:propagator, :dependents, [self, acc, dependents]) do
       implies do
-        [vm_map_get(acc, self, seen)] ->
+        [slot_get(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
           get_slot(self, :output_cell, output_cell)
-          vm_map_put(acc, self, [output_cell], new_acc)
+          put(acc, self, [output_cell], new_acc)
           dependents(output_cell, new_acc, dependents)
       end
     end

@@ -9,8 +9,8 @@ defmodule AL.Package.Interval do
 
       # lo/hi :empty = bottom, not failure -- propagates as data, not a crash.
       defmethod(:init, [self, args, new]) do
-        vm_map_get(args, :lo, lo)
-        vm_map_get(args, :hi, hi)
+        slot_get(args, :lo, lo)
+        slot_get(args, :hi, hi)
 
         implies do
           [lo > hi] -> unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
@@ -19,16 +19,16 @@ defmodule AL.Package.Interval do
       end
 
       defmethod(:elem, [self, x]) do
-        vm_map_get(self, :lo, lo)
+        slot_get(self, :lo, lo)
         not [lo == :empty]
-        vm_map_get(self, :hi, hi)
+        slot_get(self, :hi, hi)
         lo <= x
         x <= hi
       end
 
       defmethod(:intersection, [self, other, new]) do
-        vm_map_get(self, :lo, lo1)
-        vm_map_get(other, :lo, lo2)
+        slot_get(self, :lo, lo1)
+        slot_get(other, :lo, lo2)
 
         implies do
           [lo1 == :empty] ->
@@ -38,8 +38,8 @@ defmodule AL.Package.Interval do
             unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
 
           :else ->
-            vm_map_get(self, :hi, hi1)
-            vm_map_get(other, :hi, hi2)
+            slot_get(self, :hi, hi1)
+            slot_get(other, :hi, hi2)
 
             implies do
               [lo1 >= lo2] -> unify(lo, lo1)
