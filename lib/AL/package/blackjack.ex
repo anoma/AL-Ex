@@ -33,13 +33,3 @@ defmodule AL.Package.Blackjack do
     end
   end
 end
-
-# new(:card, _, c) <- should return a card
-# new(:card, c); slot_get(c, :rank, 100) <- should fail, outside of domain
-# card_value(c, 7) <- should return a card
-# card_value(c, 29) <- should fail, outside of domain
-# new(:card, %{rank: 29}, c) <- should fail, outside of domain
-# new(:card, %{rank: 7}, c) <- should return a card
-# new(:card, %{rank: 7}, c); slot_get(c, :rank, 2) <- should fail, constraint violation
-
-# Idea: Make this into an article, use it to show off live programming capabilities, forking, time travel. Prob

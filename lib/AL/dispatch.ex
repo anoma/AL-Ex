@@ -21,13 +21,6 @@ defmodule AL.Dispatch do
 
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
-  # number/list/map: mutually exclusive by construction (is_number/is_list/is_map
-  # can't both hold) even though they're not scanned via generative_descendants
-  # (:map's own super is :object, not :value) -- folded into exclusive_classes/1
-  # below alongside every real `super: :value` class, since the same "a value
-  # is single-classed by construction" invariant covers both.
-  @shape_classes [:number, :list, :map]
-
   # A var receiver or selector makes the send a query: enumerate candidates, ground
   # the hole, re-dispatch as a query (misses backtrack, not DNU). Only a fully ground
   # send is directed and uses `on_miss`. `:"$_"` is the wildcard, not a hole.
@@ -57,27 +50,36 @@ defmodule AL.Dispatch do
     end
   end
 
-  # A value is single-classed by construction: it can't simultaneously be an
-  # instance of two distinct value classes (`:number`/`:list`/`:map`'s own
-  # is_number/is_list/is_map, or any two unrelated `super: :value` classes,
-  # e.g. `:card` vs `:number`) unless one is an ancestor of the other (a
-  # genuine mixin/inheritance relationship, not a coincidence). Used both to
-  # filter which candidates dispatch offers (here) and by `GetClass`'s
+  # An object is single-classed, period -- the same invariant `AL.Store`'s
+  # `SetClass` already enforces for a durable atom's direct class. Two
+  # distinct classes on the same var only coexist when one is an ancestor of
+  # the other (real inheritance, not a coincidence): `:number`/`:list`/`:map`
+  # can't overlap, no two unrelated `super: :value` classes can (`:card` vs
+  # `:number`), and neither can a value class and an unrelated durable one
+  # (`:number` vs `:package`) -- there's no special "exclusive" subset, every
+  # class is exclusive of every other unrelated class. Used both to filter
+  # which candidates dispatch offers (here) and by `GetClass`'s
   # no-witness-needed isa fast path (`AL.Relations`), which used to be able to
   # union in a conflicting class with no check at all.
+  #
+  # An isa entry that's still an open var (`vm_class(x, y)` with both sides
+  # open posts `y` onto `x`) hasn't resolved to a class yet, so it can't
+  # conflict with anything -- a var is a superset of any atom until it
+  # resolves, not a competing class. Same for `{:object_link, _}` (posted on
+  # the *class* side of that same pending `vm_class` -- see
+  # `AL.Relations.GetClass`): it's a directional marker, never a class atom,
+  # so `not AL.Var.var?/1` alone would wrongly treat it as one (a 2-tuple
+  # isn't a var, but it isn't a resolved class either). Only a genuinely
+  # resolved atom -- not a var, not a link marker -- ever gets the real
+  # `related?` check.
   @spec isa_conflict?(Enumerable.t(atom()), atom(), AL.Branch.t()) :: boolean()
   def isa_conflict?(known_isa, class, branch) do
-    exclusive = exclusive_classes(branch)
-
-    MapSet.member?(exclusive, class) and
-      Enum.any?(known_isa, fn existing ->
-        existing != class and MapSet.member?(exclusive, existing) and
-          not related?(class, existing, branch)
-      end)
+    Enum.any?(known_isa, fn existing ->
+      resolved_isa_class?(existing) and existing != class and not related?(class, existing, branch)
+    end)
   end
 
-  defp exclusive_classes(branch),
-    do: MapSet.new(@shape_classes ++ generative_descendants(branch))
+  defp resolved_isa_class?(existing), do: is_atom(existing) and not AL.Var.var?(existing)
 
   defp related?(a, b, branch) do
     b in AL.Dispatch.MethodOrder.super_chain([a], branch, :dfs) or
@@ -143,6 +145,15 @@ defmodule AL.Dispatch do
   end
 
   defp strategy_goals(state, self, method, args, class) do
+    witness_goals(state, self, class) ++ requery_goals(self, class, method, args)
+  end
+
+  # The part of `generative_candidate/5` that has nothing to do with which
+  # method was asked for: call the class's own `new` with a fresh var per
+  # declared ivar, unify `self` against whatever it builds. Shared with
+  # `witness_choicepoints/3` (below), which needs exactly this and nothing
+  # else — labeling an isa-constrained var has no selector in hand at all.
+  defp witness_goals(state, self, class) do
     scope = AL.fresh_scope()
     shape = AL.Var.var("candidate_shape_#{scope}")
 
@@ -155,7 +166,124 @@ defmodule AL.Dispatch do
     [
       %Goal.Send{object: class, method: :new, args: [fresh_args, shape]},
       %Goal.Unify{a: self, b: shape}
-    ] ++ requery_goals(self, class, method, args)
+    ]
+  end
+
+  # `class/2` is a typed relation over two different domains, the same way
+  # `parent(X, Y)` ranges over "people" in both positions but *means*
+  # something different per slot -- position 1 ranges over objects,
+  # position 2 over classes, and forcing a var open means something
+  # different depending which slot it's standing in. An isa entry records
+  # which slot a var plays: a bare class atom/still-open var means "I'm an
+  # object, this is my class" (`object_witness_choicepoints/4` below); an
+  # `{:object_link, x}` marker means "I'm a class, `x` is my object"
+  # (`class_domain_choicepoints/3`). Both are `Goal.Label`'s fallback for an
+  # isa-constrained var with no numeric bounds/`in_domain` set, and both are
+  # exactly what `send` dispatch already forces implicitly on an open
+  # receiver -- labeling is the same forcing with no method in mind.
+
+  # The object slot: reuses the exact construction dispatch already runs
+  # for a var receiver -- one choicepoint per candidate class (construction
+  # only, no method to run after) plus one per matching durable object.
+  # `candidate_classes` is `:any` when nothing is known yet (`vm_class(x,
+  # y)` posted a pending link, no filter to narrow by) or a concrete list
+  # once isa has narrowed it; `pending_links` are extra vars (`y`, when
+  # still open) that also get unified to the class a candidate turns out to
+  # be, so the far end of a pending link resolves too. No compatibility
+  # check needed beyond the cheap membership filter below: whichever
+  # candidate gets tried still unifies `self` through `AL.Var.bind`, which
+  # validates against *every* constraint already on `self` -- a candidate
+  # that only satisfies part of a multi-class isa (e.g. an ancestor's own
+  # `new` when a more specific descendant is also required) simply fails
+  # there and backtracking moves on, the same way any other wrong candidate
+  # already does.
+  @spec object_witness_choicepoints(AL.t(), AL.Var.t(), :any | [atom()], [AL.Var.t()]) ::
+          [AL.Choicepoint.t()]
+  def object_witness_choicepoints(state, self, candidate_classes, pending_links \\ []) do
+    generative_classes =
+      case candidate_classes do
+        :any -> generative_descendants(state.branch)
+        list -> Enum.filter(list, &(&1 in generative_descendants(state.branch)))
+      end
+
+    generative = Enum.map(generative_classes, &generative_witness(state, self, &1, pending_links))
+
+    durable =
+      state.branch
+      |> durable_classes()
+      |> Enum.flat_map(fn {object, obj_classes} ->
+        obj_classes
+        |> Enum.filter(&candidate_class?(candidate_classes, &1))
+        |> Enum.map(&durable_witness(state, self, object, &1, pending_links))
+      end)
+      |> Enum.reject(&(&1.store == nil))
+
+    generative ++ durable
+  end
+
+  defp candidate_class?(:any, _class), do: true
+  defp candidate_class?(list, class), do: class in list
+
+  defp generative_witness(state, self, class, pending_links) do
+    extra = Enum.map(pending_links, &%Goal.Unify{a: &1, b: class})
+    goals = AL.splice_goals(state, witness_goals(state, self, class) ++ extra)
+
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: goals,
+        store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
+    }
+  end
+
+  # No requery, no method -- self is already unified to a real object, so
+  # there's nothing left to run beyond any pending links.
+  defp durable_witness(state, self, object, class, pending_links) do
+    new_store = AL.Var.unify(self, object, state.active_choicepoint.store, state.branch)
+    extra = Enum.map(pending_links, &%Goal.Unify{a: &1, b: class})
+
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: AL.splice_goals(state, extra),
+        store: new_store
+    }
+  end
+
+  # The class slot (`{:object_link, x}`, posted on the *class* position of a
+  # still-open `vm_class(x, y)` -- see `AL.Relations.GetClass`) is a
+  # fundamentally different labeling question than the object slot: an
+  # object needs a real witness constructed or found; a class already
+  # exists as a declared entity, so labeling one just needs to name it, not
+  # construct anything -- reusing `object_witness_choicepoints/4` here would
+  # wrongly force a concrete instance of `x` into existence just to name
+  # `x`'s class. So this enumerates every class in the system (every
+  # generative descendant, every class that already classifies some durable
+  # object) and, for each, splices `GetClass`'s *own* branch-1 goal
+  # (`vm_class(x, class)`) rather than re-deriving its isa-conflict check
+  # here -- a conflicting candidate simply fails when its spliced goal runs,
+  # same as any other wrong choicepoint, not something pre-filtered before
+  # the choicepoint exists. A class with zero existing instances still gets
+  # listed by name; `x` ends up isa-tagged and open, not witnessed --
+  # ordinary `GetClass` branch-1 semantics, same as `vm_class(x,
+  # :known_class)` alone always leaves it.
+  @spec class_domain_choicepoints(AL.t(), AL.Var.t(), AL.Var.t()) :: [AL.Choicepoint.t()]
+  def class_domain_choicepoints(state, self, object_var) do
+    every_class(state.branch)
+    |> Enum.map(&class_domain_witness(state, self, object_var, &1))
+  end
+
+  defp every_class(branch) do
+    durable = branch |> durable_classes() |> Enum.flat_map(fn {_object, classes} -> classes end)
+    Enum.uniq(generative_descendants(branch) ++ durable)
+  end
+
+  defp class_domain_witness(state, self, object_var, class) do
+    goals =
+      AL.splice_goals(state, [
+        %Goal.GetClass{object: object_var, class: class},
+        %Goal.Unify{a: self, b: class}
+      ])
+
+    %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
 
   # Choicepoint stack is LIFO — last pushed, first tried — so `classes` is

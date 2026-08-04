@@ -13,10 +13,17 @@ defmodule Examples.AL do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
   end
 
+  # `vm_class(a, b)` alone (both sides open) no longer scans -- it posts `b`
+  # as a pending isa link on `a` and succeeds once, both still open (see
+  # AL.Relations.GetClass's third branch). `vm_label` is what forces the
+  # real scan and offers every `(object, class)` pair as a choicepoint, so
+  # it's the label call, not the bare `vm_class`, that makes this example's
+  # backtracking meaningful.
   example get_class_command() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
         vm_class(a, b)
+        vm_label(a)
       end
 
     assert bindings != nil

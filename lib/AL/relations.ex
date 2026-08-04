@@ -31,8 +31,10 @@ defmodule AL.Relations do
   # value dispatch leg does (see al-dif-constraints memory) and leaves `object`
   # open, instead of scanning every durable object of every class for one that
   # happens to already carry this row (`:number`'s case: guaranteed empty, since
-  # numbers are never durable). `object` already ground, or `class_pattern` also
-  # unbound (no class to constrain against), still need the real scan.
+  # numbers are never durable). `object` already ground still needs the real
+  # scan (a real durable lookup, not something isa constraints know about) --
+  # `object` *and* `class_pattern` both open is the third case below, and
+  # doesn't need a scan either.
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     known_isa = AL.Var.isa_of(store(state), object)
 
@@ -54,6 +56,30 @@ defmodule AL.Relations do
           not Enum.empty?(known_isa) ->
         rows = for class <- known_isa, do: {:class, object, :isa, class}
         scan_relation(state, rows, {:class, object, :"$seq", class_pattern})
+
+      # Neither side carries any information at all yet -- not "no answer",
+      # but nothing to search for one *now* either. `object` gets the
+      # ordinary isa entry ("class_pattern is my class", same as any other
+      # isa post, just still open) so labeling *it* is exactly the existing
+      # "self is the object" case. `class_pattern` is not symmetric with
+      # that -- "object isa class_pattern" does NOT mean "class_pattern isa
+      # object" (that would be the false claim "the class is an instance of
+      # its own instance"), so it gets a distinct, directional marker
+      # instead: `{:object_link, object}`, "I'm not an instance of anything
+      # yet, but I *am* the pending class of `object`". Labeling
+      # `class_pattern` reads that marker and redirects to labeling `object`
+      # (see `AL.label_from_class_domain/3`) rather than mistakenly
+      # constructing itself as an object. No choicepoint, no scan --
+      # forcing either side later (ordinary `send` dispatch on `object`, or
+      # an explicit `vm_label` on either) is what actually enumerates real
+      # matches.
+      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) ->
+        new_store =
+          store(state)
+          |> AL.Var.add_isa(object, class_pattern)
+          |> AL.Var.add_isa(class_pattern, {:object_link, object})
+
+        AL.put_bindings(state, new_store, [])
 
       true ->
         scan_relation(

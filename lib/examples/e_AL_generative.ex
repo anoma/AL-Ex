@@ -235,6 +235,32 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
+  # `isa_conflict?/3` used to only fire when the *incoming* class was itself
+  # exclusive (a `:number`/`:list`/`:map`/`super: :value` shape class) --
+  # pinning an unrelated, non-exclusive durable class (`super: :object`, not
+  # `:value`) on top of an already shape-committed var sailed through
+  # unchecked, producing an unsatisfiable isa set like `{:number,
+  # :some_durable_class}` (nothing can be both a generative number-value and
+  # a durable object). Found via `class(x, :package)` on the AL.Package.
+  example exclusive_class_conflicts_with_unrelated_durable_class() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :ghost_value_class, super: :value, ivars: [] do
+        end
+
+        defclass :ghost_durable_class, super: :object, ivars: [] do
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        vm_class(x, :ghost_value_class)
+        vm_class(x, :ghost_durable_class)
+      end
+
+    :ok
+  end
+
   # `:class` is inherited from :object, so an unbound receiver's dispatch
   # offers it from every generative candidate -- here, both the unrelated
   # value classes above. Before the fix, the wrong candidate's `class/2` call
@@ -257,6 +283,221 @@ defmodule Examples.ALGenerative do
       end
 
     assert length(Map.get(bindings, :"$xs")) == 1
+  end
+
+  # `vm_label` on an isa-constrained var with no numeric bounds/in_domain set
+  # reuses the exact construction dispatch already runs for a var receiver
+  # (AL.Dispatch.witness_choicepoints/3) -- no separate `:domain`-method
+  # convention needed (nothing in this codebase ever defined one). `:card`
+  # (AL.Package.Blackjack) is a real `super: :value` class with ivar specs,
+  # so the witness comes back a genuine constructed map, ivars left open
+  # (further labeling, same as `new(:card, _, c)` already leaves them).
+  example labeling_an_isa_constrained_var_constructs_a_real_witness() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, :card)
+        vm_label(x)
+        slot_get(x, :suit, suit)
+      end
+
+    assert %{class: :card} = Map.get(bindings, :"$x")
+    assert AL.Var.var?(Map.get(bindings, :"$suit"))
+    :ok
+  end
+
+  # A durable (non-`:value`) class has no generative leg at all -- `new`
+  # doesn't leave a fresh scaffold to unify against, it mints a real durable
+  # identity. `witness_choicepoints/3`'s durable leg still labels it, by
+  # picking an *already-existing* instance rather than constructing one --
+  # the same "durable is a finite set of real ids, not a constructible
+  # domain" distinction dispatch's own durable leg already relies on. Also
+  # covers why the real `class`/`:package` relation always labels: every
+  # installed package, every `defmethod`'s own method object, etc. are all
+  # exactly this shape (durable-only, no `super: :value`).
+  example labeling_an_isa_with_only_a_durable_witness_finds_it() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :durable_witness_class, super: :object, ivars: [] do
+        end
+
+        new(:durable_witness_class, %{}, obj)
+      end
+
+    obj = Map.get(bindings, :"$obj")
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, :durable_witness_class)
+        vm_label(x)
+      end
+
+    assert Map.get(bindings, :"$x") == obj
+    :ok
+  end
+
+  # No generative descendant and no durable object satisfy the isa -- fails
+  # exactly like an unbounded numeric domain always has, not a crash.
+  example labeling_an_isa_with_no_witness_fails() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :witnessless_durable_class, super: :object, ivars: [] do
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        vm_class(x, :witnessless_durable_class)
+        vm_label(x)
+      end
+
+    :ok
+  end
+
+  # `vm_class(x, y)` with both sides open no longer scans the whole `class`
+  # relation eagerly -- it posts `y` as a pending isa link on `x` (and `x`
+  # back on `y`) and succeeds once, both still open. No choicepoint, no
+  # table read.
+  example vm_class_with_both_sides_open_posts_a_pending_link() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, y)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    assert AL.Var.var?(Map.get(bindings, :"$y"))
+    :ok
+  end
+
+  # `vm_label` is what actually forces the pending link open -- with no
+  # resolved class on either side, there's nothing to filter by, so every
+  # generative descendant and every durable object is a candidate
+  # (`AL.Dispatch.object_witness_choicepoints/4` with `candidate_classes:
+  # :any`), each one unifying *both* `x` and `y` consistently, not just `x`.
+  example labeling_a_pending_class_link_finds_a_real_witness() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, y)
+        vm_label(x)
+      end
+
+    refute AL.Var.var?(Map.get(bindings, :"$y"))
+    :ok
+  end
+
+  # Binding the class side independently, *after* the pending link was
+  # posted, still resolves correctly -- `partition_isa/2` derefs each isa
+  # entry against the current store every time it's consulted (same posture
+  # `dif`'s own check already takes), so this isn't a special case, just an
+  # isa entry that happened to resolve before anyone asked. Labeling then
+  # narrows to exactly that one class instead of falling back to the
+  # unfiltered link search, and the resulting isa pin is real: an unrelated
+  # class afterward is rejected, not silently unioned in.
+  example binding_the_class_side_later_still_resolves_the_link() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :link_reactive_class, super: :value, ivars: [] do
+        end
+
+        defclass :link_reactive_other, super: :value, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, y)
+        unify(y, :link_reactive_class)
+        vm_label(x)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    assert Map.get(bindings, :"$y") == :link_reactive_class
+
+    {:aborted, _} =
+      run branch: :examples do
+        vm_class(x, y)
+        unify(y, :link_reactive_class)
+        vm_label(x)
+        vm_class(x, :link_reactive_other)
+      end
+
+    :ok
+  end
+
+  # The other direction of the same pending link: labeling `y` (the class
+  # side) instead of `x`. This is the case `class_domain_choicepoints/3`
+  # exists for, and it must NOT behave like labeling `x` would -- it names a
+  # class, it doesn't construct an instance. `x` comes back isa-tagged but
+  # still open (ordinary `GetClass` branch-1 semantics, same as
+  # `vm_class(x, :known_class)` alone always leaves it), not witnessed.
+  example labeling_the_class_side_names_a_class_without_constructing_an_object() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, y)
+        vm_label(y)
+      end
+
+    refute AL.Var.var?(Map.get(bindings, :"$y"))
+    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    :ok
+  end
+
+  # Labeling `y` first still isa-pins `x` for real, not just superficially --
+  # a subsequent unrelated `vm_class` on `x` is rejected exactly like the
+  # `x`-first direction already is above.
+  example labeling_the_class_side_still_pins_a_real_isa_on_the_object() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :class_side_a, super: :value, ivars: [] do
+        end
+
+        defclass :class_side_b, super: :value, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, y)
+        vm_label(y)
+        unify(y, :class_side_a)
+      end
+
+    assert Map.get(bindings, :"$y") == :class_side_a
+
+    {:aborted, _} =
+      run branch: :examples do
+        vm_class(x, y)
+        vm_label(y)
+        unify(y, :class_side_a)
+        vm_class(x, :class_side_b)
+      end
+
+    :ok
+  end
+
+  # Full round trip: label the class side first (names a class, leaves `x`
+  # open-but-tagged), then label the object side -- `x`'s isa is by then a
+  # single resolved class, so this goes through the ordinary, already-known
+  # `object_witness_choicepoints/4` path (not the unfiltered `:any` one, and
+  # not the class-domain one either), constructing a real witness consistent
+  # with whichever class `y` was labeled to.
+  example labeling_the_class_side_then_the_object_side_is_consistent() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :roundtrip_class, super: :value, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_class(x, y)
+        vm_label(y)
+        unify(y, :roundtrip_class)
+        vm_label(x)
+      end
+
+    assert Map.get(bindings, :"$y") == :roundtrip_class
+    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    :ok
   end
 
   # :value classes construct through the real new pipeline

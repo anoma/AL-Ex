@@ -817,9 +817,9 @@ defmodule AL do
   # not fan_out (eager — catastrophic on a wide domain, e.g. factorial's
   # ~3.6M-wide bound); between is lazy, ordinary recursion. No numeric
   # bounds -> an explicit in_domain/2 constraint, if any (see
-  # label_from_domain_constraint/3), else the var's own isa'd class
-  # advertising a domain (see label_from_class_domain/3 below). None of the
-  # three -> fail, same as an unbounded numeric domain always has.
+  # label_from_domain_constraint/3), else the var's own known isa classes
+  # (see label_from_class_domain/3 below). None of the three -> fail, same
+  # as an unbounded numeric domain always has.
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
 
@@ -1288,37 +1288,70 @@ defmodule AL do
   defp compare(:>=, x, y), do: x >= y
   defp compare(:eq, x, y), do: x == y
 
-  # A class-level `:domain` method is the symbolic counterpart to a numeric
-  # interval: not reached by sending to the bare class atom (its own class
-  # is :class, so method_scopes drops it from its own search — the same
-  # rule a category can't answer its own imported methods under), so this
-  # goes through the same class-seeded lookup value dispatch itself uses
-  # (Goal.SendAsValue/do_send_as), with `v` as self — matching how
-  # mapset's own backward-mode :elem/:members clauses use self as the var
-  # being determined, not a separate receiver. The returned list is
-  # enumerated via ordinary member/2 (lazy, real choicepoints — not
-  # fan_out), so each candidate still passes through AL.Var.bind's own isa
-  # check same as any other bind: `:domain`'s candidates only stick if the
-  # class also has literal per-value clause heads proving membership (see
-  # value_member?/3) — the same shape :letter_chain already uses, `:domain`
-  # doesn't grant membership on its own. No isa, or the class defines no
-  # :domain: still fails, same as an unbounded domain always did.
+  # `class/2` relates two different domains (objects, classes) -- a var's
+  # isa entries record which slot it plays, and labeling expands it
+  # according to that role (see `AL.Dispatch`'s moduledoc-level comment
+  # above `object_witness_choicepoints/4` for the full model). Both roles
+  # are `Goal.Label`'s fallback for an isa-constrained var with no numeric
+  # bounds/`in_domain` set, reusing the exact construction dispatch already
+  # runs for a var receiver instead of a separate hand-authored
+  # `:domain`-method convention -- labeling is the same forcing `send`
+  # already does implicitly, just with no method in mind.
+  #
+  # An isa entry can itself still be an open var (`vm_class(x, y)` with both
+  # sides open posts `y` onto `x` this way) -- resolved entries narrow the
+  # object search as usual; *only* pending links (nothing resolved) means
+  # no class to filter by, so every generative descendant and every durable
+  # object is a candidate (`candidate_classes: :any`), each one also
+  # unifying the link var(s) to the class it turned out to be.
+  #
+  # An entry can also be `{:object_link, x}` -- this var is the *class*
+  # side of a pending `vm_class(x, y)`, not the object side, so it takes
+  # the other role entirely (`AL.Dispatch.class_domain_choicepoints/3`).
+  #
+  # No isa at all, or no candidate produces a witness: fails, same as an
+  # unbounded domain always did.
   defp label_from_class_domain(v, store, state) do
     case MapSet.to_list(AL.Var.isa_of(store, v)) do
-      [class | _] ->
-        scope = fresh_scope()
-        domain = AL.Var.var("label_domain_#{scope}")
-
-        goals = [
-          %Goal.SendAsValue{class: class, object: v, method: :domain, args: [domain]},
-          %Goal.Send{object: domain, method: :member, args: [v]}
-        ]
-
-        splice_and_run(state, goals)
-
       [] ->
         backtrack(state)
+
+      known_isa ->
+        choicepoints =
+          case Enum.find_value(known_isa, &object_link_target/1) do
+            nil ->
+              {classes, pending_links} = partition_isa(known_isa, store)
+
+              case classes do
+                [] -> AL.Dispatch.object_witness_choicepoints(state, v, :any, pending_links)
+                _ -> AL.Dispatch.object_witness_choicepoints(state, v, classes)
+              end
+
+            object_var ->
+              AL.Dispatch.class_domain_choicepoints(state, v, object_var)
+          end
+
+        case choicepoints do
+          [] ->
+            backtrack(state)
+
+          [first | rest] ->
+            %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
+        end
     end
+  end
+
+  defp object_link_target({:object_link, obj}), do: obj
+  defp object_link_target(_), do: nil
+
+  defp partition_isa(known_isa, store) do
+    Enum.reduce(known_isa, {[], []}, fn raw, {classes, pending} ->
+      value = AL.Var.deref(store, raw)
+
+      if AL.Var.var?(value),
+        do: {classes, [value | pending]},
+        else: {[value | classes], pending}
+    end)
   end
 
   # A real in_domain/2 constraint, not a class -- no SendAsValue, no class

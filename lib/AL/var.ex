@@ -271,7 +271,15 @@ defmodule AL.Var do
   # necessarily grounded (see `AL.Dispatch.generative_candidate`) — a var
   # routed through `:number`'s value leg shouldn't be bindable to a durable
   # object just because it's still open when that leg returns.
-  @spec add_isa(store(), variable(), atom()) :: store()
+  #
+  # `class` doesn't have to be resolved yet -- `vm_class(x, y)` with both
+  # sides open posts `y` itself as an isa entry on `x` (and symmetrically `x`
+  # on `y`), the same way `dif/2` already stores a pair that may still
+  # contain open vars on either side. Every reader of `isa` (the bind-time
+  # violation check, `isa_conflict?/3`, labeling) treats a still-open entry
+  # as "not resolved yet, imposes nothing until it is" rather than assuming
+  # every entry is already a usable class atom.
+  @spec add_isa(store(), variable(), atom() | variable()) :: store()
   def add_isa(store, var, class) do
     Map.update(store, var, %ConstraintSet{isa: MapSet.new([class])}, fn
       %ConstraintSet{} = set -> %{set | isa: MapSet.put(set.isa, class)}
@@ -354,7 +362,7 @@ defmodule AL.Var do
             not in_bounds?(bounds, term) ->
               {:bounds, bounds}
 
-            (class = Enum.find(isa, &(not isa?(term, &1, branch)))) != nil ->
+            (class = Enum.find_value(isa, &isa_violation_class(&1, term, store, branch))) != nil ->
               {:isa, class}
 
             domain != nil and not MapSet.member?(domain, term) ->
@@ -417,6 +425,29 @@ defmodule AL.Var do
 
   defp tag_isa({:isa, class}, var), do: {:isa, var, class}
   defp tag_isa(other, _var), do: other
+
+  # `{:object_link, obj}` (posted on the *class* side of a still-open
+  # `vm_class(x, y)`, see `AL.Relations.GetClass`) never asserts "I belong
+  # to a class" at all -- it's a directional marker, not an isa claim, so it
+  # can never be violated. Without this clause, once `obj` (or whatever it
+  # gets bound to) derefs to something concrete, the fallback clause below
+  # would wrongly treat *that* as a class name to check membership against
+  # (e.g. "is `:package` an instance of `:bootstrap`") and reject an
+  # otherwise-valid bind.
+  defp isa_violation_class({:object_link, _obj}, _term, _store, _branch), do: nil
+
+  # An isa entry that's still an open var (`vm_class(x, y)` with both sides
+  # open posts `y` onto `x` this way) hasn't resolved to a class yet, so it
+  # can't be violated one way or the other -- same posture `dif` already
+  # takes toward a still-open counterpart. Deref first in case it resolved
+  # in the meantime some other way (e.g. `y` bound directly, independent of
+  # `x`), only a genuinely resolved entry gets the real membership check.
+  # Returns the *resolved* class (not the raw, possibly-var entry) so a
+  # reported violation names the actual class, not the link var.
+  defp isa_violation_class(raw_class, term, store, branch) do
+    class = deref(store, raw_class)
+    if not var?(class) and not isa?(term, class, branch), do: class
+  end
 
   # `:number`/`:list`/`:map` are decidable from `term`'s own shape — no
   # lookup. A value class beyond those three is provable by matching one of
