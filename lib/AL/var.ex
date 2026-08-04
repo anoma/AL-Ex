@@ -178,17 +178,119 @@ defmodule AL.Var do
       old_constraints = constraint_set(store, var)
       new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
 
-      case propagate(old_constraints, new_store, branch) do
-        nil ->
+      with propagated_store when not is_nil(propagated_store) <-
+             propagate(old_constraints, new_store, branch),
+           linked_store when not is_nil(linked_store) <-
+             propagate_links(old_constraints, term, propagated_store, branch) do
+        if violated?(old_constraints, linked_store, term, branch) do
           nil
-
-        propagated_store ->
-          if violated?(old_constraints, propagated_store, term, branch) do
-            nil
-          else
-            propagated_store
-          end
+        else
+          linked_store
+        end
+      else
+        nil -> nil
       end
+    end
+  end
+
+  # `var`'s own `super_link`/`slot_link` (captured in `old_constraints`,
+  # before this bind overwrote its entry) may have a partner that's now
+  # cheaply resolvable -- one side just became concrete (`term`), so what
+  # used to require a full scan (both sides open) is now a targeted lookup
+  # (`AL.Relations.GetSuper`/`GetSlots` already treat exactly this as
+  # cheap). Only auto-binds when that lookup is genuinely unique; several
+  # matches leave the partner exactly as open as it was -- not a failure,
+  # it just isn't determined yet. Recurses through `bind/4` itself when it
+  # *does* propagate, so a chain of links cascades for free, no explicit
+  # worklist needed the way `AL.Var.Bounds`'s numeric fixpoint requires for
+  # its own, structurally different (affine-sum) propagators. A bind with
+  # neither link set (the overwhelming majority) costs two no-op pattern
+  # matches, no scan.
+  @spec propagate_links(ConstraintSet.t() | nil, t(), store(), AL.Branch.t()) :: store() | nil
+  defp propagate_links(nil, _term, store, _branch), do: store
+
+  defp propagate_links(%ConstraintSet{} = old, term, store, branch) do
+    case propagate_super_link(old.super_link, term, store, branch) do
+      nil -> nil
+      store1 -> propagate_slot_link(old.slot_link, term, store1, branch)
+    end
+  end
+
+  defp propagate_super_link(nil, _term, store, _branch), do: store
+
+  defp propagate_super_link({:super, z}, object_value, store, branch),
+    do: resolve_super_link(store, object_value, z, branch)
+
+  defp propagate_super_link({:object, y}, super_value, store, branch),
+    do: resolve_super_link(store, y, super_value, branch)
+
+  defp resolve_super_link(store, object, super_, branch) do
+    object_pat = deref(store, object)
+    super_pat = deref(store, super_)
+
+    case {var?(object_pat), var?(super_pat)} do
+      {true, false} -> resolve_unique_super(store, object_pat, super_pat, branch)
+      {false, true} -> resolve_unique_super(store, object_pat, super_pat, branch)
+      _ -> store
+    end
+  end
+
+  defp resolve_unique_super(store, object_pat, super_pat, branch) do
+    case AL.Object.scan_super(object_pat, super_pat, branch) do
+      [{:super, obj, _seq, sup}] ->
+        {target_var, target_val} =
+          if var?(object_pat), do: {object_pat, obj}, else: {super_pat, sup}
+
+        bind(store, target_var, target_val, branch)
+
+      _ ->
+        store
+    end
+  end
+
+  defp propagate_slot_link(nil, _term, store, _branch), do: store
+
+  defp propagate_slot_link({:slot, key, value_var}, object_value, store, branch),
+    do: resolve_slot_link(store, object_value, key, value_var, branch)
+
+  defp propagate_slot_link({:slot_value, key, object_var}, value_value, store, branch),
+    do: resolve_slot_link(store, object_var, key, value_value, branch)
+
+  defp resolve_slot_link(store, object, key, value, branch) do
+    object_pat = deref(store, object)
+    value_pat = deref(store, value)
+
+    case {var?(object_pat), var?(value_pat)} do
+      # The value just became known -- several objects can share it, so
+      # only auto-bind the object side if exactly one real object does.
+      {true, false} -> resolve_unique_slot_value(store, object_pat, key, value_pat, branch)
+      # The object just became known -- its slots row is a single, keyed
+      # lookup, always resolvable outright if the key is set at all.
+      {false, true} -> resolve_slot_from_object(store, object_pat, key, value_pat, branch)
+      _ -> store
+    end
+  end
+
+  defp resolve_slot_from_object(store, object, key, value_var, branch) do
+    case AL.Object.read_slots(object, branch) do
+      [{:slots, ^object, m}] when is_map(m) ->
+        case Map.fetch(m, key) do
+          {:ok, v} -> bind(store, value_var, v, branch)
+          :error -> store
+        end
+
+      _ ->
+        store
+    end
+  end
+
+  defp resolve_unique_slot_value(store, object_var, key, value, branch) do
+    object_var
+    |> AL.Object.scan_slots(:"$slot_propagate_scan", branch)
+    |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.get(m, key) == value end)
+    |> case do
+      [{:slots, object, _m}] -> bind(store, object_var, object, branch)
+      _ -> store
     end
   end
 

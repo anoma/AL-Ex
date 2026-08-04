@@ -772,6 +772,148 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
+  # Propagation, not just labeling: once one side of a pending `super_link`
+  # becomes concrete *by any means* -- an ordinary `unify`, not `vm_label`
+  # -- and the other side has exactly one possible match, `AL.Var.bind`'s
+  # own `propagate_links/4` binds it automatically, with no explicit
+  # `vm_label` call on it at all.
+  example binding_one_side_of_a_super_link_auto_propagates_the_other() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :propagate_super_parent, super: :object, ivars: [] do
+        end
+
+        defclass :propagate_super_only_child, super: :propagate_super_parent, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_super(y, z)
+        unify(y, :propagate_super_only_child)
+      end
+
+    assert Map.get(bindings, :"$z") == :propagate_super_parent
+    :ok
+  end
+
+  # Same propagation from the other direction -- binding the super side
+  # auto-resolves the child, since this parent has exactly one.
+  example binding_the_super_side_auto_propagates_the_unique_child() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :propagate_super_parent2, super: :object, ivars: [] do
+        end
+
+        defclass :propagate_super_only_child2, super: :propagate_super_parent2, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_super(y, z)
+        unify(z, :propagate_super_parent2)
+      end
+
+    assert Map.get(bindings, :"$y") == :propagate_super_only_child2
+    :ok
+  end
+
+  # Not unique -- two children share this parent, so binding the super
+  # side must NOT guess which child, propagation leaves it open.
+  example binding_the_super_side_does_not_auto_propagate_when_not_unique() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :propagate_super_parent3, super: :object, ivars: [] do
+        end
+
+        defclass :propagate_super_child3_a, super: :propagate_super_parent3, ivars: [] do
+        end
+
+        defclass :propagate_super_child3_b, super: :propagate_super_parent3, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_super(y, z)
+        unify(z, :propagate_super_parent3)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$y"))
+    :ok
+  end
+
+  # Same propagation for `slot_link` -- binding the object side always
+  # auto-resolves the value (a single, keyed lookup, never ambiguous).
+  example binding_the_object_side_of_a_slot_link_auto_propagates_the_value() do
+    {:atomic, {setup_bindings, _}} =
+      run branch: :examples do
+        defclass :propagate_slot_class, super: :object, ivars: [] do
+        end
+
+        new(:propagate_slot_class, %{}, obj)
+        vm_set_slots(obj, %{propagate_slot_probe: 55})
+      end
+
+    obj = Map.get(setup_bindings, :"$obj")
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_get_slot(x, :propagate_slot_probe, v)
+        unify(x, ^obj)
+      end
+
+    assert Map.get(bindings, :"$v") == 55
+    :ok
+  end
+
+  # Binding the value side auto-propagates the object side too, as long as
+  # exactly one real object carries it.
+  example binding_the_value_side_of_a_slot_link_auto_propagates_a_unique_object() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :propagate_slot_class2, super: :object, ivars: [] do
+        end
+
+        new(:propagate_slot_class2, %{}, obj)
+        vm_set_slots(obj, %{propagate_slot_probe2: 77})
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_get_slot(x, :propagate_slot_probe2, v)
+        unify(v, 77)
+      end
+
+    refute AL.Var.var?(Map.get(bindings, :"$x"))
+    :ok
+  end
+
+  # Not unique -- two objects share this value, so binding it must NOT
+  # guess which object, propagation leaves the object side open.
+  example binding_the_value_side_does_not_auto_propagate_when_not_unique() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :propagate_slot_class3, super: :object, ivars: [] do
+        end
+
+        new(:propagate_slot_class3, %{}, obj_a)
+        new(:propagate_slot_class3, %{}, obj_b)
+        vm_set_slots(obj_a, %{propagate_slot_probe3: 88})
+        vm_set_slots(obj_b, %{propagate_slot_probe3: 88})
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_get_slot(x, :propagate_slot_probe3, v)
+        unify(v, 88)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    :ok
+  end
+
   # :value classes construct through the real new pipeline
   # (construct/allocate/init), not special-cased -- init discards the
   # scaffold, result stays as open as it started. No durable object created.
