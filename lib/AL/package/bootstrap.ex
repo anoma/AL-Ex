@@ -676,6 +676,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:list, :sum, [[], 0])
+
     defmethod(:list, :sum, [[h | t], n]) do
       sum(t, n1)
       eq(n, n1 + h)

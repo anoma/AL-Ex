@@ -36,6 +36,7 @@ defmodule AL.Goal do
           | Equal.t()
           | Dif.t()
           | Compare.t()
+          | Either.t()
           | InDomain.t()
           | Ground.t()
           | Label.t()
@@ -227,6 +228,17 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  # `left or right` (CLP(FD) `#\/`) — the constraint that *at least one*
+  # side holds, held and propagated directly (`AL.Var.Bounds.either/4`): no
+  # boolean anywhere, surface or internal, just the two sides themselves.
+  # Resolves by elimination once one side is provably infeasible; the other
+  # then gets applied for real. `left`/`right` are themselves `Compare`
+  # goals (already-lowered `eq`/`< > <= >=` expressions).
+  typedstruct enforce: true, module: Either do
+    field(:left, Compare.t())
+    field(:right, Compare.t())
+  end
+
   # "var must end up being one of these" — a real constraint on the var
   # (narrows/intersects across repeated posts, checked at bind time), not a
   # class with a :domain method. Runtime-only, like Label, not in @forms.
@@ -383,6 +395,7 @@ defmodule AL.Goal do
     {Unify, :unify, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
+    {Either, :either, [left: :term, right: :term]},
     {Ground, :ground, [term: :term]},
     {IsVar, :var, [term: :term]},
     {Freeze, :freeze, [var: :term, goals: :goals]},

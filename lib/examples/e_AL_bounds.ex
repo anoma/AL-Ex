@@ -399,4 +399,90 @@ defmodule Examples.ALBounds do
 
     :ok
   end
+
+  # `either` is a real constraint (`AL.Var.Bounds.either/4`), not
+  # `alternative`'s backtracking choicepoint -- resolves by elimination:
+  # here the left side is refuted outright (4 != 5), so the right side gets
+  # applied for real.
+  example either_commits_to_the_surviving_side_when_the_other_is_refuted() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        unify(a, 4)
+        eq(a, 5) or eq(b, 7)
+      end
+
+    assert Map.get(bindings, :"$b") == 7
+    :ok
+  end
+
+  example either_fails_when_both_sides_are_refuted() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        unify(a, 4)
+        unify(b, 4)
+        eq(a, 5) or eq(b, 6)
+      end
+
+    :ok
+  end
+
+  # Neither side decidable yet -- stays parked, undetermined, rather than
+  # guessing (same posture `dif`/`isa` take toward a still-open
+  # counterpart). Succeeds because nothing has refuted either side.
+  example either_stays_undetermined_when_neither_side_is_decidable_yet() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        eq(a, 5) or eq(b, 6)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$a"))
+    assert AL.Var.var?(Map.get(bindings, :"$b"))
+    :ok
+  end
+
+  # Reactive: `either` is posted *before* `a` is ground, same declarative
+  # ordering `eq`/`< > <= >=` already allow -- refuting the left side
+  # happens later, once `a` narrows, not at post time.
+  example either_resolves_reactively_once_a_side_is_refuted_later() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        eq(a, 5) or eq(b, 7)
+        unify(a, 4)
+      end
+
+    assert Map.get(bindings, :"$b") == 7
+    :ok
+  end
+
+  # The euler_1 shape, stripped to its essence: "multiple of 3 or 5" as a
+  # direct disjunction of the two relational equations (no `vm_is`/`rem`,
+  # no boolean anywhere), label last -- `either` uses the exact same
+  # `add_compare` a plain `eq` would, integer-consistency check included,
+  # so a non-multiple refutes a side outright instead of leaving it
+  # ambiguous. No `alternative`/choicepoint over which divisor at all, so
+  # `vm_label(candidate)` stays the only source of backtracking and every
+  # candidate is visited exactly once. 15 is a multiple of both 3 and 5 --
+  # the case that would show up twice under an eager `alternative`-based
+  # OR (one success per divisor branch) -- it doesn't here.
+  example either_finds_multiples_of_3_or_5_with_no_duplicates() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        findall(
+          candidate,
+          [
+            candidate < 20,
+            candidate > 0,
+            eq(candidate, x * 5) or eq(candidate, y * 3),
+            vm_label(candidate)
+          ],
+          candidates
+        )
+      end
+
+    values = Map.get(bindings, :"$candidates")
+
+    assert values == Enum.uniq(values)
+    assert Enum.sort(values) == [3, 5, 6, 9, 10, 12, 15, 18]
+    :ok
+  end
 end

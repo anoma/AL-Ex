@@ -16,7 +16,8 @@ config :al,
     AL.Package.Constraints,
     AL.Package.Equations,
     AL.Package.Sudoku,
-    AL.Package.Blackjack
+    AL.Package.Blackjack,
+    AL.Package.Euler
   ]
 
 # Import environment specific config. This must remain at the bottom

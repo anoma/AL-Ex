@@ -122,6 +122,10 @@ defmodule ALBoundsTest do
   use ExExample.ExUnit, for: Examples.ALBounds
 end
 
+defmodule ALEulerTest do
+  use ExExample.ExUnit, for: Examples.ALEuler
+end
+
 defmodule ALSudokuTest do
   use ExExample.ExUnit, for: Examples.ALSudoku
 end

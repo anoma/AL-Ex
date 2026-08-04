@@ -207,6 +207,14 @@ defmodule AL.Lowering do
   def ast_to_pattern({:eq, _, [a, b]}),
     do: %Goal.Compare{op: :eq, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
+  # `left or right` (CLP(FD) `#\/`) — Elixir's own `or`, reused directly
+  # since `alternative` (not `or`) already owns the backtracking
+  # choicepoint form. A real disjunctive constraint, not a choicepoint:
+  # both sides are ordinary comparison expressions (`eq`/`< > <= >=`),
+  # lowered the same way they'd be on their own.
+  def ast_to_pattern({:or, _, [left, right]}),
+    do: %Goal.Either{left: ast_to_pattern(left), right: ast_to_pattern(right)}
+
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: %Goal.Call{
       head: ast_to_pattern(head),

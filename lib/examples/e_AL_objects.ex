@@ -391,7 +391,8 @@ defmodule Examples.ALObjects do
   example durable_construction_respects_explicit_ivar_args() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :durable_ivar_a, super: :object,
+        defclass :durable_ivar_a,
+          super: :object,
           ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
         end
       end
@@ -413,7 +414,8 @@ defmodule Examples.ALObjects do
   example durable_construction_labels_unspecified_domain_ivars() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :durable_ivar_b, super: :object,
+        defclass :durable_ivar_b,
+          super: :object,
           ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
         end
       end
@@ -436,7 +438,8 @@ defmodule Examples.ALObjects do
   example durable_construction_rejects_out_of_domain_args() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :durable_ivar_c, super: :object,
+        defclass :durable_ivar_c,
+          super: :object,
           ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
         end
       end

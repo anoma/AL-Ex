@@ -139,12 +139,20 @@ defmodule AL.Var.Bounds do
   # touches it) — otherwise a var bound via plain head unification (e.g. a
   # recursive clause's own base case) would leave stale propagators
   # unchecked until something else happened to touch it later.
-  @spec run_fixpoint(AL.Var.store(), MapSet.t(propagator()), AL.Branch.t()) ::
+  @spec run_fixpoint(AL.Var.store(), MapSet.t(propagator() | either_propagator()), AL.Branch.t()) ::
           AL.Var.store() | nil
   def run_fixpoint(store, worklist, branch) do
     case Enum.at(worklist, 0) do
       nil ->
         store
+
+      {:either, left, right} = t ->
+        rest = MapSet.delete(worklist, t)
+
+        case resolve_either(store, left, right, branch) do
+          nil -> nil
+          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+        end
 
       {lo_aff, hi_aff, strict} = t ->
         rest = MapSet.delete(worklist, t)
@@ -154,6 +162,123 @@ defmodule AL.Var.Bounds do
           {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
         end
     end
+  end
+
+  # `either({op1, a1, b1}, {op2, a2, b2})` — CLP(FD) `#\/`: the constraint
+  # that *at least one* side holds, kept and propagated directly (no
+  # reified boolean, no separate `#/\`-composition layer) — parked on
+  # every var either side mentions, same `props`/worklist mechanism `eq`/
+  # `< > <= >=` already use, so it's re-checked whenever any of them
+  # narrow (label included, since a bind re-triggers `props` the same way
+  # any other propagator does). Only ever resolves by *elimination*: once
+  # one side is provably infeasible (`add_compare` on it returns `nil`),
+  # the constraint collapses to "the other side must hold," and that side
+  # gets applied for real (a genuine commit, not just a check). Neither
+  # side provably dead yet -> stays parked, undetermined either way. Both
+  # dead -> the whole disjunction fails.
+  @type either_propagator() :: {:either, compare_triple(), compare_triple()}
+  @typep compare_triple() :: {atom(), AL.Var.t(), AL.Var.t()}
+
+  @spec either(AL.Var.store(), compare_triple(), compare_triple(), AL.Branch.t()) ::
+          AL.Var.store() | nil
+  def either(store, left, right, branch) do
+    prop = {:either, left, right}
+    vars = either_vars(left, right)
+
+    store
+    |> register_either_propagator(vars, prop)
+    |> run_fixpoint(MapSet.new([prop]), branch)
+  end
+
+  defp either_vars({_op1, a1, b1}, {_op2, a2, b2}),
+    do: [a1, b1, a2, b2] |> Enum.flat_map(&AL.Var.find_vars/1) |> Enum.uniq()
+
+  # `either_vars` returns the *original* atoms captured when `:either` was
+  # posted (a pure syntactic scan, no store involved) -- but once one of
+  # them (`candidate`, say) gets aliased forward through an unrelated
+  # unification (e.g. `between`'s recursive dispatch aliasing it to a fresh
+  # var at every recursion level), the *live* `ConstraintSet` actually
+  # carrying this propagator's `props` entry migrates with it
+  # (`AL.Var.migrate_constraints`) -- so the original atom's own store slot
+  # is just a stale alias pointer, not a `ConstraintSet` anymore.
+  # `strip_either_prop` keyed on the unresolved atoms silently no-ops on
+  # that stale slot and never reaches the var that actually holds the
+  # propagator now, so the "probe" a speculative narrowing runs against
+  # still carries it live -- a bind inside that narrowing re-triggers this
+  # exact propagator, recursing into itself. Following each var through
+  # `AL.Var.deref` first finds today's actual representative before
+  # stripping.
+  defp either_vars_live(store, left, right),
+    do: either_vars(left, right) |> Enum.map(&AL.Var.deref(store, &1)) |> Enum.uniq()
+
+  defp register_either_propagator(store, vars, prop) do
+    Enum.reduce(vars, store, fn v, acc ->
+      Map.update(acc, v, %ConstraintSet{props: [prop]}, fn
+        %ConstraintSet{} = set -> %{set | props: [prop | set.props]}
+        other -> other
+      end)
+    end)
+  end
+
+  # Speculative: run each side's real narrowing (the exact same
+  # `add_compare` a plain, unreified `eq`/`< > <= >=` call would run,
+  # integer-consistency check included) on a probe copy with *this same*
+  # `{:either, left, right}` propagator stripped from every var it's parked
+  # on first -- otherwise a bind inside the speculative narrowing (e.g. one
+  # side collapsing a var to a singleton) re-triggers this exact
+  # propagator on the still-live copy, recursing into itself. Stripping
+  # has to go through `either_vars_live/3` (deref each var first), not the
+  # raw post-time atoms `either_vars/2` returns: once one of them (e.g. a
+  # `vm_label`'d var passed through a recursive method like `between`,
+  # which re-aliases it to a fresh var at every recursion level) gets
+  # aliased elsewhere, the *live* `ConstraintSet` holding this propagator
+  # migrates with it (`AL.Var.migrate_constraints`) -- the original atom's
+  # own store slot is left as a stale alias pointer. Stripping by the
+  # unresolved atom silently no-ops on that stale slot, leaves the
+  # propagator live on the probe under its new address, and a bind inside
+  # the "speculative" narrowing re-enters this exact function -- which is
+  # genuinely reentrant (not just slow) since each reentry can again bind
+  # the shared var and trigger another.
+  defp resolve_either(store, {op1, a1, b1} = left, {op2, a2, b2} = right, branch) do
+    probe = strip_either_prop(store, either_vars_live(store, left, right), {:either, left, right})
+    left_result = add_compare(probe, op1, a1, b1, branch)
+    right_result = add_compare(probe, op2, a2, b2, branch)
+
+    case {left_result, right_result} do
+      {nil, nil} ->
+        nil
+
+      {nil, r} ->
+        {r, MapSet.new()}
+
+      {l, nil} ->
+        {l, MapSet.new()}
+
+      {_, _} ->
+        # Both sides currently have a witness -- can't eliminate either one
+        # yet. If the side each expression shares (`a1`/`a2`, e.g.
+        # `candidate` in `eq(candidate, x*5) or eq(candidate, y*3)`) is
+        # already ground, it can never narrow further in this branch, so
+        # re-checking later will always reach this exact "both survive"
+        # answer again -- discharge for good (`probe`, propagator already
+        # stripped) instead of re-parking on `store` and paying full
+        # re-resolution on every future touch of a var either side
+        # mentions. If `a1`/`a2` can still change, stay reactive.
+        if AL.Var.var?(AL.Var.deref(store, a1)) or AL.Var.var?(AL.Var.deref(store, a2)) do
+          {store, MapSet.new()}
+        else
+          {probe, MapSet.new()}
+        end
+    end
+  end
+
+  defp strip_either_prop(store, vars, prop) do
+    Enum.reduce(vars, store, fn v, acc ->
+      Map.update(acc, v, %ConstraintSet{}, fn
+        %ConstraintSet{} = set -> %{set | props: List.delete(set.props, prop)}
+        other -> other
+      end)
+    end)
   end
 
   # `lo <= hi` (or `lo < hi` if `strict`): narrow `hi`'s floor from `lo`'s

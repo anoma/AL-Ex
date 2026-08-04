@@ -75,7 +75,8 @@ defmodule AL.Dispatch do
   @spec isa_conflict?(Enumerable.t(atom()), atom(), AL.Branch.t()) :: boolean()
   def isa_conflict?(known_isa, class, branch) do
     Enum.any?(known_isa, fn existing ->
-      resolved_isa_class?(existing) and existing != class and not related?(class, existing, branch)
+      resolved_isa_class?(existing) and existing != class and
+        not related?(class, existing, branch)
     end)
   end
 

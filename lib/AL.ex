@@ -791,6 +791,25 @@ defmodule AL do
     end
   end
 
+  # `left or right` (CLP(FD) `#\/`) — a real disjunctive constraint held
+  # and propagated directly (AL.Var.Bounds.either/4), not `alternative`'s
+  # backtracking choicepoint: resolves by elimination once one side is
+  # provably infeasible, the other then applied for real.
+  def interp(
+        %Goal.Either{
+          left: %Goal.Compare{op: op1, a: a1, b: b1},
+          right: %Goal.Compare{op: op2, a: a2, b: b2}
+        },
+        state
+      ) do
+    store = state.active_choicepoint.store
+
+    case AL.Var.Bounds.either(store, {op1, a1, b1}, {op2, a2, b2}, state.branch) do
+      nil -> backtrack(state)
+      new_store -> put_bindings(state, new_store, [a1, b1, a2, b2])
+    end
+  end
+
   # freeze/2: the goals run now if the variable is bound, and park on
   # it otherwise; whoever binds it wakes them in place.
   def interp(%Goal.Freeze{var: var, goals: goals}, state) do
@@ -1491,7 +1510,11 @@ defmodule AL do
             backtrack(state)
 
           [first | rest] ->
-            %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
+            %AL{
+              state
+              | active_choicepoint: first,
+                choicepoint_stack: rest ++ state.choicepoint_stack
+            }
         end
     end
   end
