@@ -4,7 +4,7 @@ defmodule Examples.ALSudoku do
   `new(:sudoku_puzzle, %{givens: rows}, puzzle)` builds the cell grid and posts
   every row/column/3x3-box `all_dif` (pairwise `dif`, no dedicated global
   all-different propagator) plus each cell's `[1,9]` domain; `solve(puzzle,
-  solved)` runs `vm_label` per row to search the remainder. `puzzle` is a
+  solved)` runs `label` per row to search the remainder. `puzzle` is a
   `:value` instance (`%{class: :sudoku_puzzle, rows: ...}`), not a durable object —
   a puzzle is scratch, and being a map means it already carries its own
   printable/reified form, nothing separate to build for that. Sudoku

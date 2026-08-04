@@ -453,7 +453,7 @@ defmodule Examples.ALObjects do
   end
 
   # A *bare* ivar (no domain/type spec) with no explicit arg has nothing
-  # for `vm_label` to search -- rather than fail construction over it,
+  # for `label` to search -- rather than fail construction over it,
   # `build_durable_slots` just omits it from the durable row entirely
   # (confirmed directly here, complementing `get_slot_inherits_from_class`
   # above, which only observes the class-level fallback `get_slot` provides

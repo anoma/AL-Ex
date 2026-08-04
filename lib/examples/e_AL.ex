@@ -15,7 +15,7 @@ defmodule Examples.AL do
 
   # `vm_class(a, b)` alone (both sides open) no longer scans -- it posts `b`
   # as a pending isa link on `a` and succeeds once, both still open (see
-  # AL.Relations.GetClass's third branch). `vm_label` is what forces the
+  # AL.Relations.GetClass's third branch). `label` is what forces the
   # real scan and offers every `(object, class)` pair as a choicepoint, so
   # it's the label call, not the bare `vm_class`, that makes this example's
   # backtracking meaningful.
@@ -23,7 +23,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, result}} =
       run branch: :examples do
         vm_class(a, b)
-        vm_label(a)
+        label(a)
       end
 
     assert bindings != nil

@@ -229,7 +229,7 @@ defmodule AL.Var.Bounds do
   # propagator on the still-live copy, recursing into itself. Stripping
   # has to go through `either_vars_live/3` (deref each var first), not the
   # raw post-time atoms `either_vars/2` returns: once one of them (e.g. a
-  # `vm_label`'d var passed through a recursive method like `between`,
+  # `label`'d var passed through a recursive method like `between`,
   # which re-aliases it to a fresh var at every recursion level) gets
   # aliased elsewhere, the *live* `ConstraintSet` holding this propagator
   # migrates with it (`AL.Var.migrate_constraints`) -- the original atom's

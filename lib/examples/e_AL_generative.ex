@@ -285,7 +285,7 @@ defmodule Examples.ALGenerative do
     assert length(Map.get(bindings, :"$xs")) == 1
   end
 
-  # `vm_label` on an isa-constrained var with no numeric bounds/in_domain set
+  # `label` on an isa-constrained var with no numeric bounds/in_domain set
   # reuses the exact construction dispatch already runs for a var receiver
   # (AL.Dispatch.witness_choicepoints/3) -- no separate `:domain`-method
   # convention needed (nothing in this codebase ever defined one). `:card`
@@ -296,7 +296,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_class(x, :card)
-        vm_label(x)
+        label(x)
         slot_get(x, :suit, suit)
       end
 
@@ -328,7 +328,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_class(x, :durable_witness_class)
-        vm_label(x)
+        label(x)
       end
 
     assert Map.get(bindings, :"$x") == obj
@@ -347,7 +347,7 @@ defmodule Examples.ALGenerative do
     {:aborted, _} =
       run branch: :examples do
         vm_class(x, :witnessless_durable_class)
-        vm_label(x)
+        label(x)
       end
 
     :ok
@@ -368,7 +368,7 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
-  # `vm_label` is what actually forces the pending link open -- with no
+  # `label` is what actually forces the pending link open -- with no
   # resolved class on either side, there's nothing to filter by, so every
   # generative descendant and every durable object is a candidate
   # (`AL.Dispatch.object_witness_choicepoints/4` with `candidate_classes:
@@ -377,7 +377,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_class(x, y)
-        vm_label(x)
+        label(x)
       end
 
     refute AL.Var.var?(Map.get(bindings, :"$y"))
@@ -406,7 +406,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         vm_class(x, y)
         unify(y, :link_reactive_class)
-        vm_label(x)
+        label(x)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$x"))
@@ -416,7 +416,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         vm_class(x, y)
         unify(y, :link_reactive_class)
-        vm_label(x)
+        label(x)
         vm_class(x, :link_reactive_other)
       end
 
@@ -433,7 +433,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_class(x, y)
-        vm_label(y)
+        label(y)
       end
 
     refute AL.Var.var?(Map.get(bindings, :"$y"))
@@ -457,7 +457,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_class(x, y)
-        vm_label(y)
+        label(y)
         unify(y, :class_side_a)
       end
 
@@ -466,7 +466,7 @@ defmodule Examples.ALGenerative do
     {:aborted, _} =
       run branch: :examples do
         vm_class(x, y)
-        vm_label(y)
+        label(y)
         unify(y, :class_side_a)
         vm_class(x, :class_side_b)
       end
@@ -490,9 +490,9 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_class(x, y)
-        vm_label(y)
+        label(y)
         unify(y, :roundtrip_class)
-        vm_label(x)
+        label(x)
       end
 
     assert Map.get(bindings, :"$y") == :roundtrip_class
@@ -518,7 +518,7 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
-  # `vm_label` on either side forces the real `AL.Object.scan_super` scan
+  # `label` on either side forces the real `AL.Object.scan_super` scan
   # (`AL.label_from_super_link/3`) and binds both sides consistently from a
   # real edge -- labeling `y` (the subclass slot).
   example labeling_the_subclass_side_of_a_pending_super_link_finds_a_real_edge() do
@@ -535,7 +535,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         vm_super(y, z)
         unify(y, :super_link_child)
-        vm_label(z)
+        label(z)
       end
 
     assert Map.get(bindings, :"$z") == :super_link_parent
@@ -560,7 +560,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         vm_super(y, z)
         unify(z, :super_link_parent2)
-        vm_label(y)
+        label(y)
       end
 
     assert Map.get(bindings, :"$y") == :super_link_child2
@@ -576,7 +576,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         vm_super(y, z)
         unify(y, :not_a_registered_class_at_all)
-        vm_label(z)
+        label(z)
       end
 
     :ok
@@ -607,7 +607,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall([y, z], [vm_super(y, z), vm_label(z)], pairs)
+        findall([y, z], [vm_super(y, z), label(z)], pairs)
       end
 
     pairs = Map.get(bindings, :"$pairs")
@@ -637,7 +637,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall(y, [vm_super(y, z), unify(z, :dedup_super_parent2), vm_label(y)], ys)
+        findall(y, [vm_super(y, z), unify(z, :dedup_super_parent2), label(y)], ys)
       end
 
     assert Enum.sort(Map.get(bindings, :"$ys")) == [:dedup_super_child2_a, :dedup_super_child2_b]
@@ -660,7 +660,7 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
-  # `vm_label` on the object side forces the real `AL.Object.scan_slots`
+  # `label` on the object side forces the real `AL.Object.scan_slots`
   # scan (`AL.label_from_slot_link/3`) and binds both sides from a real row.
   example labeling_the_object_side_of_a_pending_slot_link_finds_a_real_row() do
     {:atomic, _} =
@@ -675,7 +675,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         vm_get_slot(x, :slot_link_probe, v)
-        vm_label(x)
+        label(x)
       end
 
     assert Map.get(bindings, :"$v") == 42
@@ -700,7 +700,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         vm_get_slot(x, :slot_link_probe2, v)
         unify(x, ^obj)
-        vm_label(v)
+        label(v)
       end
 
     assert Map.get(bindings, :"$v") == 7
@@ -713,7 +713,7 @@ defmodule Examples.ALGenerative do
     {:aborted, _} =
       run branch: :examples do
         vm_get_slot(x, :a_key_nobody_ever_sets, v)
-        vm_label(x)
+        label(x)
       end
 
     :ok
@@ -739,7 +739,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall([x, v], [vm_get_slot(x, :dedup_slot_probe, v), vm_label(v)], pairs)
+        findall([x, v], [vm_get_slot(x, :dedup_slot_probe, v), label(v)], pairs)
       end
 
     assert [[x, 99]] = Map.get(bindings, :"$pairs")
@@ -765,7 +765,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall(x, [vm_get_slot(x, :dedup_slot_probe2, v), unify(v, 7), vm_label(x)], xs)
+        findall(x, [vm_get_slot(x, :dedup_slot_probe2, v), unify(v, 7), label(x)], xs)
       end
 
     assert length(Map.get(bindings, :"$xs")) == 2
@@ -773,10 +773,10 @@ defmodule Examples.ALGenerative do
   end
 
   # Propagation, not just labeling: once one side of a pending `super_link`
-  # becomes concrete *by any means* -- an ordinary `unify`, not `vm_label`
+  # becomes concrete *by any means* -- an ordinary `unify`, not `label`
   # -- and the other side has exactly one possible match, `AL.Var.bind`'s
   # own `propagate_links/4` binds it automatically, with no explicit
-  # `vm_label` call on it at all.
+  # `label` call on it at all.
   example binding_one_side_of_a_super_link_auto_propagates_the_other() do
     {:atomic, _} =
       run branch: :examples do

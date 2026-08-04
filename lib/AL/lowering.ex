@@ -142,7 +142,7 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:vm_ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
-  def ast_to_pattern({:vm_label, _, [term]}), do: %Goal.Label{term: ast_to_pattern(term)}
+  def ast_to_pattern({:label, _, [term]}), do: %Goal.Label{term: ast_to_pattern(term)}
 
   def ast_to_pattern({:vm_functor, _, [term, name, args]}),
     do: %Goal.Functor{

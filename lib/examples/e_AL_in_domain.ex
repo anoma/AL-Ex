@@ -17,7 +17,7 @@ defmodule Examples.ALInDomain do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         in_domain(x, [:a, :b, :c])
-        findall(x, [vm_label(x)], all)
+        findall(x, [label(x)], all)
       end
 
     assert Enum.sort(Map.get(bindings, :"$all")) == [:a, :b, :c]
@@ -29,7 +29,7 @@ defmodule Examples.ALInDomain do
       run branch: :examples do
         in_domain(y, [:a, :b, :c, :d])
         in_domain(y, [:c, :d, :e])
-        findall(y, [vm_label(y)], all)
+        findall(y, [label(y)], all)
       end
 
     assert Enum.sort(Map.get(bindings, :"$all")) == [:c, :d]
@@ -63,7 +63,7 @@ defmodule Examples.ALInDomain do
       run branch: :examples do
         dif(v, :a)
         in_domain(v, [:a, :b])
-        vm_label(v)
+        label(v)
       end
 
     assert Map.get(bindings, :"$v") == :b

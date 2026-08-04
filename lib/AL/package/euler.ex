@@ -10,7 +10,7 @@ defmodule AL.Package.Euler do
           candidate < n,
           candidate > 0,
           eq(candidate, x * 5) or eq(candidate, y * 3),
-          vm_label(candidate)
+          label(candidate)
         ],
         candidates
       )

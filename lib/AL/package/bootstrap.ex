@@ -171,10 +171,10 @@ defmodule AL.Package.Bootstrap do
     # `init`'s job is to *fill in* its ivars, not construct anything.
     # `apply_ivar_spec` posts each ivar's domain/type constraint and applies
     # any caller-supplied `args` value; whatever's still open after that
-    # (no explicit arg) gets `vm_label`'d right here, before the durable
+    # (no explicit arg) gets `label`'d right here, before the durable
     # write -- a slots row can't hold an unresolved var the way an
     # ephemeral `:value` map can (see `:value`'s own `:init` below, which
-    # leaves an unsupplied ivar open on purpose). `vm_label` on an
+    # leaves an unsupplied ivar open on purpose). `label` on an
     # already-ground value (the explicit-arg case) is a no-op.
     # `implies`, not `alternative` -- `alternative` lowers to a plain
     # `Goal.Or` (an ordinary backtracking disjunction, both sides stay live
@@ -206,7 +206,7 @@ defmodule AL.Package.Bootstrap do
     defmethod(:object, :build_durable_slots, [_self, _class, _args, [], %{}])
 
     # A bare ivar (no `domain:`/`type:` spec) with no explicit `args` value
-    # has nothing for `vm_label` to search -- `apply_ivar_spec` leaves
+    # has nothing for `label` to search -- `apply_ivar_spec` leaves
     # `value` completely unconstrained in that case (see its own comment),
     # and a totally unconstrained var can't be forced any more than an
     # unbounded numeric one can. Rather than fail the whole construction
@@ -214,14 +214,14 @@ defmodule AL.Package.Bootstrap do
     # entirely (an existing, legitimate pattern: `get_slot_inherits_from_class`
     # in e_AL_objects.ex relies on an unset instance slot falling back to
     # the class's own slot value). A spec'd-but-unsupplied ivar, or an
-    # explicitly-supplied one (already ground, `vm_label` a no-op), both
+    # explicitly-supplied one (already ground, `label` a no-op), both
     # succeed here and get included as usual.
     defmethod(:object, :build_durable_slots, [self, class, args, [spec | rest], output]) do
       build_durable_slots(self, class, args, rest, partial)
       apply_ivar_spec(self, args, spec, name, value)
 
       implies do
-        [vm_label(value)] -> vm_map_put(partial, name, value, output)
+        [label(value)] -> vm_map_put(partial, name, value, output)
         :else -> unify(output, partial)
       end
     end
@@ -293,7 +293,7 @@ defmodule AL.Package.Bootstrap do
     # attaches the same tag externally, before a candidate's own goals run,
     # when an open var reaches a class through `send` instead of `new`) —
     # one mechanism, not two. A class with its own :domain method can rely
-    # on `output` already being isa-tagged and ready for `vm_label` right
+    # on `output` already being isa-tagged and ready for `label` right
     # after `new` returns, no separate `class(output, name)` call needed.
     #
     # `ivars: []` (every value class that predates ivar specs -- :number,
@@ -448,7 +448,7 @@ defmodule AL.Package.Bootstrap do
       factorial >= 1
       n <= factorial
 
-      vm_label(n)
+      label(n)
 
       vm_is(n1, n - 1)
       factorial(n1, factorial1)
@@ -692,7 +692,7 @@ defmodule AL.Package.Bootstrap do
     defmethod(:list, :label_range, [[h | t], lo, hi]) do
       h >= lo
       h <= hi
-      vm_label(h)
+      label(h)
       label_range(t, lo, hi)
     end
 

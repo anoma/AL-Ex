@@ -135,13 +135,13 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  # `vm_label/1` is the one place a bounded-but-still-open var actually
+  # `label/1` is the one place a bounded-but-still-open var actually
   # becomes concrete — inequalities alone only ever narrow an interval, they
   # never enumerate it. Already-ground is a no-op: no extra choicepoint.
   example label_is_a_noop_on_an_already_ground_term() do
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        vm_label(5)
+        label(5)
         unify(x, 5)
       end
 
@@ -160,7 +160,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         unify(x, :already_ground_atom)
-        vm_label(x)
+        label(x)
       end
 
     assert Map.get(bindings, :"$x") == :already_ground_atom
@@ -174,7 +174,7 @@ defmodule Examples.ALBounds do
       run branch: :examples do
         x >= 3
         x <= 5
-        vm_label(x)
+        label(x)
       end
 
     assert Map.get(bindings, :"$x") == 3
@@ -183,7 +183,7 @@ defmodule Examples.ALBounds do
       run branch: :examples do
         x >= 3
         x <= 5
-        vm_label(x)
+        label(x)
         x == 5
       end
 
@@ -196,7 +196,7 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: :examples do
         x >= 3
-        vm_label(x)
+        label(x)
       end
 
     :ok
@@ -460,7 +460,7 @@ defmodule Examples.ALBounds do
   # `add_compare` a plain `eq` would, integer-consistency check included,
   # so a non-multiple refutes a side outright instead of leaving it
   # ambiguous. No `alternative`/choicepoint over which divisor at all, so
-  # `vm_label(candidate)` stays the only source of backtracking and every
+  # `label(candidate)` stays the only source of backtracking and every
   # candidate is visited exactly once. 15 is a multiple of both 3 and 5 --
   # the case that would show up twice under an eager `alternative`-based
   # OR (one success per divisor branch) -- it doesn't here.
@@ -473,7 +473,7 @@ defmodule Examples.ALBounds do
             candidate < 20,
             candidate > 0,
             eq(candidate, x * 5) or eq(candidate, y * 3),
-            vm_label(candidate)
+            label(candidate)
           ],
           candidates
         )

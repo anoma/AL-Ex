@@ -24,7 +24,7 @@ defmodule Examples.ALBlackjack do
   end
 
   # r3's rank is never supplied -- ivar specs leave it open but
-  # domain-constrained, so vm_label enumerates it directly. Ace backtracks
+  # domain-constrained, so label enumerates it directly. Ace backtracks
   # over both its legal values too; king(10) + ace(11) already hits 21, so
   # ace = 11 never leaves room for a third card -- only ace = 1 survives,
   # same reasoning the original durable-instance version relied on.
@@ -35,7 +35,7 @@ defmodule Examples.ALBlackjack do
         new(:card, %{suit: :hearts, rank: :ace}, ace)
         new(:card, %{suit: :clubs}, c3)
         slot_get(c3, :rank, r3)
-        findall(r3, [vm_label(r3), hand_total([king, ace, c3], 21)], completions)
+        findall(r3, [label(r3), hand_total([king, ace, c3], 21)], completions)
       end
 
     assert Enum.sort(Map.get(bindings, :"$completions")) == [10, :jack, :king, :queen]

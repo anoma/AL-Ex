@@ -71,7 +71,7 @@ defmodule AL.Relations do
       # (see `AL.label_from_class_domain/3`) rather than mistakenly
       # constructing itself as an object. No choicepoint, no scan --
       # forcing either side later (ordinary `send` dispatch on `object`, or
-      # an explicit `vm_label` on either) is what actually enumerates real
+      # an explicit `label` on either) is what actually enumerates real
       # matches.
       AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) ->
         new_store =
@@ -150,7 +150,7 @@ defmodule AL.Relations do
   # so an open `object` can't answer it at all today, and the real
   # alternative (`AL.Object.scan_slots/3`, a full table scan) shouldn't run
   # eagerly either. Post a pending link on `object` (and on `value` too, if
-  # it's also open) instead -- resolved by `vm_label` on either side
+  # it's also open) instead -- resolved by `label` on either side
   # (`AL.label_from_slot_link/3`), which does the real scan.
   def interp(%Goal.GetSlots{object: object, key: key, value: value}, state)
       when key != :"$_" do
