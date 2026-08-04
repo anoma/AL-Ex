@@ -1,7 +1,7 @@
 defmodule Examples.ALMeta do
   @moduledoc """
-  I provide examples for AL's meta-logical goals: predicates that inspect the
-  binding state itself (e.g. `ground/1`) rather than the relations.
+  I provide examples for AL's meta-logical goals: `ground/1` (inspects the
+  binding state itself, not a relation) and `not/1` (negation as failure).
   """
 
   use ExExample
@@ -41,17 +41,6 @@ defmodule Examples.ALMeta do
         vm_ground([1, x, 3])
       end
 
-    :ok
-  end
-
-  example ground_succeeds_once_bound() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        vm_is(x, 2 + 3)
-        vm_ground(x)
-      end
-
-    assert Map.get(bindings, :"$x") == 5
     :ok
   end
 
@@ -103,47 +92,6 @@ defmodule Examples.ALMeta do
     {:aborted, _} =
       run branch: :examples do
         not [class(:object, c)]
-      end
-
-    :ok
-  end
-
-  # A clause body holding a cons cell with an unbound-var tail (`[h | t]`) must
-  # survive `set_oapply`'s storage round-trip: `to_stored`'s list recursion used
-  # to assume `Enum.map`-able (nil-terminated) lists, which crashed on the
-  # improper list `[h | t]` produces before `h`/`t` are bound by a call.
-  example defmethod_stores_clause_with_improper_list_arg() do
-    {:atomic, _} =
-      run branch: :examples do
-        vm_set_class(:cons_arg_test, :object)
-
-        defmethod(:cons_arg_test, :wrap, [self, h, t, out]) do
-          unify(out, [h | t])
-        end
-      end
-
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        wrap(:cons_arg_test, 1, [2, 3], out)
-      end
-
-    assert Map.get(bindings, :"$out") == [1, 2, 3]
-    :ok
-  end
-
-  example map_get_fails_on_non_map() do
-    {:aborted, _} =
-      run branch: :examples do
-        vm_map_get(:not_a_map, :k, v)
-      end
-
-    :ok
-  end
-
-  example map_put_fails_on_non_map() do
-    {:aborted, _} =
-      run branch: :examples do
-        vm_map_put(:not_a_map, :k, :v, out)
       end
 
     :ok

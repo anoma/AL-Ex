@@ -1,7 +1,3 @@
-defmodule AlTest do
-  use ExExample.ExUnit, for: Examples.AL
-end
-
 defmodule AlBootstrapTest do
   use ExExample.ExUnit, for: Examples.ALBootstrap
 end
@@ -110,6 +106,10 @@ defmodule ALVarTest do
   use ExExample.ExUnit, for: Examples.ALVar
 end
 
+defmodule ALVarSubstrateTest do
+  use ExExample.ExUnit, for: Examples.ALVarSubstrate
+end
+
 defmodule ALFresheningTest do
   use ExExample.ExUnit, for: Examples.ALFreshening
 end
@@ -136,4 +136,28 @@ end
 
 defmodule ALBlackjackTest do
   use ExExample.ExUnit, for: Examples.ALBlackjack
+end
+
+defmodule ALMapsTest do
+  use ExExample.ExUnit, for: Examples.ALMaps
+end
+
+defmodule ALControlFlowTest do
+  use ExExample.ExUnit, for: Examples.ALControlFlow
+end
+
+defmodule ALTransactionsTest do
+  use ExExample.ExUnit, for: Examples.ALTransactions
+end
+
+defmodule ALOutputBindingsTest do
+  use ExExample.ExUnit, for: Examples.ALOutputBindings
+end
+
+defmodule ALPendingLinksTest do
+  use ExExample.ExUnit, for: Examples.ALPendingLinks
+end
+
+defmodule ALPackagesTest do
+  use ExExample.ExUnit, for: Examples.ALPackages
 end

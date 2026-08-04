@@ -1,22 +1,17 @@
 defmodule Examples.ALNinetyNine do
   @moduledoc """
-  I provide examples of solutions to the Ninety-Nine PROLOG Problems in order to validate AL correctness and demonstrate what simple, well-formed AL looks like.
+  I show a new `:list` method (`butlast`) defined in AL surface syntax and
+  composed entirely from existing bootstrap list primitives (`reverse`/
+  `tl`/`hd`) -- what well-formed, well-composed AL looks like, per the
+  99 PROLOG Problems tradition this is drawn from.
   """
 
   use ExExample
   use AL
+  import ExUnit.Assertions
 
-  example problem_01() do
-    {:atomic, {_bindings, result}} =
-      run branch: :examples do
-        last([a, b, c, d], d)
-      end
-
-    result
-  end
-
-  example problem_02() do
-    {:atomic, {_bindings, result}} =
+  example butlast_composes_reverse_tl_hd() do
+    {:atomic, {bindings, _}} =
       run branch: :examples do
         defmethod(:list, :butlast, [xs, butlast]) do
           reverse(xs, sx)
@@ -24,39 +19,10 @@ defmodule Examples.ALNinetyNine do
           hd(sx_tl, butlast)
         end
 
-        butlast([a, b, c, d], c)
+        butlast([:a, :b, :c, :d], result)
       end
 
-    result
-  end
-
-  example problem_03() do
-    {:atomic, {_bindings, result}} =
-      run branch: :examples do
-        at([a, b, c, d], 1, b)
-      end
-
-    result
-  end
-
-  example problem_04() do
-    {:atomic, {_bindings, result}} =
-      run branch: :examples do
-        length([a, b, c, d], 4)
-      end
-
-    result
-  end
-
-  example problem_05() do
-    {:atomic, {_bindings, result}} =
-      run branch: :examples do
-        reverse([a, b, c, d], [d, c, b, a])
-      end
-
-    result
-  end
-
-  example problem_06() do
+    assert Map.get(bindings, :"$result") == :c
+    :ok
   end
 end

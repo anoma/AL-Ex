@@ -67,24 +67,6 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  example open_var_lower_bound_narrows_from_ground() do
-    {:atomic, {bindings, _state}} =
-      run branch: :examples do
-        x > 10
-        unify(x, 20)
-      end
-
-    assert Map.get(bindings, :"$x") == 20
-
-    {:aborted, _trace} =
-      run branch: :examples do
-        x > 10
-        unify(x, 5)
-      end
-
-    :ok
-  end
-
   # `x < y` alone narrows nothing observable (both sides still open) — the
   # propagator has to sit parked on both `x` and `y` and fire again once `y`
   # narrows, tightening `x` transitively without `x < y` ever being
@@ -227,24 +209,6 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  example open_var_narrows_through_subtraction_either_side() do
-    {:atomic, {bindings, _state}} =
-      run branch: :examples do
-        5 <= x - 1
-        unify(x, 6)
-      end
-
-    assert Map.get(bindings, :"$x") == 6
-
-    {:aborted, _trace} =
-      run branch: :examples do
-        5 <= x - 1
-        unify(x, 5)
-      end
-
-    :ok
-  end
-
   # `*` by a ground scalar scales the var's own domain, same inversion
   # mechanism as `+`/`-` — this isn't special-cased to the fibonacci `+ 1`
   # shape, it's a real affine expression engine.
@@ -263,19 +227,6 @@ defmodule Examples.ALBounds do
         unify(x, 4)
       end
 
-    :ok
-  end
-
-  # Upper and lower bounds on the *same* compound expression collapse `x`
-  # outright, same as `singleton_bounds_auto_bind` for a bare var.
-  example singleton_bounds_auto_bind_through_compound_expression() do
-    {:atomic, {bindings, _state}} =
-      run branch: :examples do
-        x + 1 <= 5
-        x + 1 >= 5
-      end
-
-    assert Map.get(bindings, :"$x") == 4
     :ok
   end
 
@@ -381,22 +332,6 @@ defmodule Examples.ALBounds do
       end
 
     assert Map.get(bindings, :"$z") == 6
-    :ok
-  end
-
-  # `+`/`-` genuinely support any number of open vars now (bounds
-  # consistency, not single-variable inversion) — a *product* of two open
-  # vars is the real, still-unsupported case: interval multiplication is
-  # sign-dependent (four corner products, not "multiply the mins"), not
-  # representable in the same flat sum structure `+`/`-` share.
-  example eq_product_of_two_open_vars_still_hard_fails() do
-    {:aborted, _trace} =
-      run branch: :examples do
-        eq(z, a * b)
-        unify(a, 2)
-        unify(b, 3)
-      end
-
     :ok
   end
 

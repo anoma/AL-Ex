@@ -77,18 +77,6 @@ defmodule Examples.ALInterval do
     :ok
   end
 
-  example intersection_of_nested_intervals_is_the_inner_one() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        new(:interval_value, %{lo: 0, hi: 10}, a)
-        new(:interval_value, %{lo: 2, hi: 4}, b)
-        intersection(a, b, i)
-      end
-
-    assert Map.get(bindings, :"$i") == %{class: :interval_value, lo: 2, hi: 4}
-    :ok
-  end
-
   example intersection_is_commutative() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

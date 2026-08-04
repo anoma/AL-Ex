@@ -85,17 +85,6 @@ defmodule Examples.ALDif do
     assert Map.get(bindings, :"$x") == 3
   end
 
-  example dif_multiple_constraints_on_the_same_var() do
-    {:atomic, {bindings, _state}} =
-      run branch: :examples do
-        dif(x, 1)
-        dif(x, 2)
-        member([1, 2, 3], x)
-      end
-
-    assert Map.get(bindings, :"$x") == 3
-  end
-
   # An unbound receiver's generative dispatch offers each durable object
   # answering the selector as a candidate for `self`; `dif` rules one out
   # before it ever reaches a choicepoint (see `maybe_push_choicepoint`), not

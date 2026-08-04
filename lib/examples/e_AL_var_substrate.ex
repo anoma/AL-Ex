@@ -1,6 +1,10 @@
-defmodule Examples.AL.Var do
+defmodule Examples.ALVarSubstrate do
   @moduledoc """
-  I provide examples for AL.Var
+  I test `AL.Var` directly -- calling `unify`/`subst`/`freshen`/`find_vars`/
+  `occurs?` on a plain store map, with no `run`/`interp`/dispatch involved.
+  Every other example file in this suite exercises AL.Var only indirectly,
+  through the language surface; this one is substrate-level, pinning the
+  store/unification primitives everything else is built on.
   """
 
   use ExExample
@@ -24,13 +28,26 @@ defmodule Examples.AL.Var do
     bindings
   end
 
+  # `x` appears twice in the left list (once ground-bound via position 2,
+  # once still-open in position 3) -- both derefs to the one value regardless
+  # of which side did the binding.
   example unification_two() do
-    AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
+    store = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
+    assert AL.Var.deref(store, :"$x") == 3
+    assert AL.Var.deref(store, :"$y") == 3
+    store
   end
 
+  # Two open vars aliased first, then one of them bound -- which one ends up
+  # holding the concrete value vs. pointing at an alias is an internal
+  # choice (see `dif_survives_var_to_var_aliasing` below), so this asserts
+  # via `deref` on both names rather than the raw store shape.
   example unification_three() do
     inner_store = AL.Var.unify(:"$y", :"$x")
-    AL.Var.unify(:"$x", 3, inner_store)
+    store = AL.Var.unify(:"$x", 3, inner_store)
+    assert AL.Var.deref(store, :"$x") == 3
+    assert AL.Var.deref(store, :"$y") == 3
+    store
   end
 
   example substitution() do
@@ -43,15 +60,31 @@ defmodule Examples.AL.Var do
     substitution
   end
 
+  # `:"$_"` is itself a `$`-prefixed atom, so `find_vars` (a plain structural
+  # scan) reports it same as any other var -- the wildcard's "matches
+  # anything, binds nothing" behavior is a dispatch-time convention, not
+  # something `find_vars` itself special-cases.
   example find_vars() do
-    AL.Var.find_vars([:"$self", %{name: :"$name"}, {:"$_", 3}])
+    vars = AL.Var.find_vars([:"$self", %{name: :"$name"}, {:"$_", 3}])
+    assert vars == MapSet.new([:"$self", :"$name", :"$_"])
+    vars
   end
 
+  # Unlike `find_vars`, `freshen` *does* special-case `:"$_"` -- it passes
+  # through unchanged instead of being wrapped, since freshening exists to
+  # keep two calls' vars from colliding, and the wildcard never binds
+  # anything for a collision to happen to.
   example freshen_vars() do
-    AL.Var.freshen(
-      [:"$self", %{name: :"$name"}, {:"$_", 3}],
-      Base.encode16(:crypto.strong_rand_bytes(2))
-    )
+    suffix = Base.encode16(:crypto.strong_rand_bytes(2))
+    freshened = AL.Var.freshen([:"$self", %{name: :"$name"}, {:"$_", 3}], suffix)
+
+    assert freshened == [
+             {:"$fresh", :"$self", suffix},
+             %{name: {:"$fresh", :"$name", suffix}},
+             {:"$_", 3}
+           ]
+
+    freshened
   end
 
   example occurs_check_rejects_cycle() do

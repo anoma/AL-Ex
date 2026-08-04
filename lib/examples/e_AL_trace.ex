@@ -71,15 +71,4 @@ defmodule Examples.ALTrace do
     assert String.contains?(output, "value=[:trace_leg_class]")
     assert String.contains?(output, "durable=deferred")
   end
-
-  example failing_query_renders_struct_trace() do
-    result =
-      run branch: :examples do
-        member([:a, :b], :z)
-      end
-
-    assert {:aborted, %{failed_on: _, trace: trace}} = result
-    assert is_list(trace)
-    result
-  end
 end

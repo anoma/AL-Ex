@@ -160,6 +160,16 @@ defmodule Examples.ALNumbers do
   # one — so it registers the same `isa` constraint the value leg does above
   # and leaves `x` open, rather than scanning the (always-empty, for
   # `:number`) durable object table for one.
+  example between_enumerates() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        findall([v], [between(:object, 2, 5, v)], values)
+      end
+
+    assert AL.Var.subst(Map.get(bindings, :"$values"), bindings) == [[2], [3], [4], [5]]
+    :ok
+  end
+
   example class_of_an_open_var_registers_isa_without_scanning() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

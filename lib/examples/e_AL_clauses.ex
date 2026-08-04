@@ -214,6 +214,29 @@ defmodule Examples.ALClauses do
     :ok
   end
 
+  # A clause body holding a cons cell with an unbound-var tail (`[h | t]`) must
+  # survive `set_oapply`'s storage round-trip: `to_stored`'s list recursion used
+  # to assume `Enum.map`-able (nil-terminated) lists, which crashed on the
+  # improper list `[h | t]` produces before `h`/`t` are bound by a call.
+  example defmethod_stores_clause_with_improper_list_arg() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:cons_arg_test, :object)
+
+        defmethod(:cons_arg_test, :wrap, [self, h, t, out]) do
+          unify(out, [h | t])
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        wrap(:cons_arg_test, 1, [2, 3], out)
+      end
+
+    assert Map.get(bindings, :"$out") == [1, 2, 3]
+    :ok
+  end
+
   defp at_clause_arities() do
     {:atomic, {b, _}} =
       run branch: :examples do

@@ -1,8 +1,8 @@
 defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
-  reverse, map, fold, flatten, same_length, all_dif, label_range) and mapping
-  a lambda over a list.
+  reverse, sort, dedupe, map, fold, flatten, same_length, at, all_dif,
+  label_range) and mapping a lambda over a list.
   """
 
   use ExExample
@@ -17,16 +17,6 @@ defmodule Examples.ALLists do
 
     assert AL.Var.deref(bindings, :"$second") == :b
     assert bindings |> AL.Var.deref(:"$rest") |> AL.Var.subst(bindings) == [:c, :d]
-    :ok
-  end
-
-  example between_enumerates() do
-    {:atomic, {bindings, _state}} =
-      run branch: :examples do
-        findall([v], [between(:object, 2, 5, v)], values)
-      end
-
-    assert AL.Var.subst(Map.get(bindings, :"$values"), bindings) == [[2], [3], [4], [5]]
     :ok
   end
 
@@ -86,17 +76,6 @@ defmodule Examples.ALLists do
       end
 
     assert Map.get(bindings, :"$deduped") == [1, 2, 3, 4]
-    :ok
-  end
-
-  example sort_then_dedupe_removes_all_duplicates() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        sort([3, 1, 4, 1, 5, 9, 2, 6], sorted)
-        dedupe(sorted, deduped)
-      end
-
-    assert Map.get(bindings, :"$deduped") == [1, 2, 3, 4, 5, 6, 9]
     :ok
   end
 

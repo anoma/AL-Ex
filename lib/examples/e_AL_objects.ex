@@ -24,6 +24,147 @@ defmodule Examples.ALObjects do
     :ok
   end
 
+  example metaclass() do
+    {:atomic, {bindings, result}} =
+      run branch: :examples do
+        vm_method(:object, :init, init_method)
+        class(init_method, b)
+        class(b, :class)
+      end
+
+    assert Map.get(bindings, :"$b") == :behaviour
+
+    result
+  end
+
+  # Same fact as `metaclass` above (a method object's class is `:behaviour`,
+  # `:behaviour`'s class is `:class`), reached through `meta/3` (derives both
+  # levels in one call) instead of chaining `class/2` twice by hand.
+  example execute_metaclass_method() do
+    {:atomic, {bindings, result}} =
+      run branch: :examples do
+        vm_method(:object, :init, init_method)
+        meta(init_method, :"$class", :"$metaclass")
+      end
+
+    assert Map.get(bindings, :"$class") == :behaviour
+    assert Map.get(bindings, :"$metaclass") == :class
+    result
+  end
+
+  example does_not_understand_dispatch() do
+    {:atomic, {b, _}} =
+      run branch: :examples do
+        defclass :gadget, super: :value do
+          defmethod(:init, [self, _, self])
+
+          defmethod(:poke, [self, x]) do
+            unify(x, :ok)
+          end
+
+          defmethod(:does_not_understand, [self, _m, _a])
+        end
+
+        new(:gadget, g)
+      end
+
+    g = Map.get(b, :"$g")
+
+    # head matches, body succeeds -> runs
+    {:atomic, _} =
+      run branch: :examples do
+        poke(^g, :ok)
+      end
+
+    # head matches, body fails -> plain failure, not DNU
+    {:aborted, _} =
+      run branch: :examples do
+        poke(^g, :bad)
+      end
+
+    # absent selector -> DNU (override succeeds)
+    {:atomic, _} =
+      run branch: :examples do
+        zap(^g)
+      end
+
+    # wrong arity, no clause head matches -> DNU
+    {:atomic, _} =
+      run branch: :examples do
+        poke(^g, :a, :b)
+      end
+
+    :ok
+  end
+
+  # A durable object has exactly one direct class (AL.Store's SetClass
+  # guard) -- reclassifying means retract first, not accreting a second one.
+  example retractall_class() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:retract_test, :foo)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall(c, [class(:retract_test, c)], before_retract)
+      end
+
+    assert Map.get(bindings, :"$before_retract") == [:foo]
+
+    {:atomic, _} =
+      run branch: :examples do
+        vm_retract_class(:retract_test, c)
+      end
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        findall(c, [class(:retract_test, c)], after_retract)
+      end
+
+    assert Map.get(bindings2, :"$after_retract") == []
+
+    # retracted, so reclassifying is legal again -- not a permanent lock.
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:retract_test, :bar)
+      end
+
+    {:atomic, {bindings3, _}} =
+      run branch: :examples do
+        findall(c, [class(:retract_test, c)], reclassified)
+      end
+
+    assert Map.get(bindings3, :"$reclassified") == [:bar]
+    :ok
+  end
+
+  example slot_merge_semantics() do
+    {:atomic, _} =
+      run branch: :examples do
+        set_slots(:slot_test, %{a: 1})
+        set_slots(:slot_test, %{b: 2})
+        set_slots(:slot_test, %{a: 99})
+      end
+
+    {:atomic, [{:slots, :slot_test, slots}]} =
+      :mnesia.transaction(fn -> AL.Object.read_slots(:slot_test, %AL.Branch{id: :examples}) end)
+
+    assert slots == %{a: 99, b: 2}
+    slots
+  end
+
+  example vm_gensym() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_gensym(a)
+        vm_gensym(b)
+      end
+
+    assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")
+    :ok
+  end
+
   example make_point_object() do
     {:atomic, {bindings, result}} =
       run branch: :examples do

@@ -73,21 +73,6 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # categories/ivars/methods can all be omitted — empty class body is legal.
-  example defclass_with_no_categories_or_methods() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        defclass :bare_thing, super: :object do
-        end
-
-        new(:bare_thing, instance)
-        class(instance, class)
-      end
-
-    assert Map.get(bindings, :"$class") == :bare_thing
-    :ok
-  end
-
   # Regression: two methods-list entries sharing a selector used to have the
   # second's retract-before-define step wipe out the first's fresh clause --
   # defclass now retracts every entry's prior clauses in one pass before

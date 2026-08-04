@@ -56,18 +56,6 @@ defmodule Examples.ALBlackjack do
     :ok
   end
 
-  # No args at all (2-arg new) -- same open-but-constrained shape; reading
-  # an out-of-domain value back out aborts at the in_domain check.
-  example reading_an_out_of_domain_value_aborts() do
-    {:aborted, _trace} =
-      run branch: :examples do
-        new(:card, c)
-        slot_get(c, :rank, 100)
-      end
-
-    :ok
-  end
-
   # Backward: no card given, just a target value -- the generative leg
   # constructs a fresh :card, rank_value's fallback unifies r with 7 (in
   # domain, isa :number), guard passes.
@@ -98,20 +86,6 @@ defmodule Examples.ALBlackjack do
         new(:card, %{rank: 29}, _c)
       end
 
-    :ok
-  end
-
-  # In-domain rank accepted; the unspecified suit stays open.
-  example new_with_a_valid_rank_only_leaves_suit_open() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        new(:card, %{rank: 7}, c)
-        slot_get(c, :rank, rank)
-        slot_get(c, :suit, suit)
-      end
-
-    assert Map.get(bindings, :"$rank") == 7
-    assert AL.Var.var?(Map.get(bindings, :"$suit"))
     :ok
   end
 

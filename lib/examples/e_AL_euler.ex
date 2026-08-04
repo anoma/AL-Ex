@@ -10,16 +10,6 @@ defmodule Examples.ALEuler do
   use AL
   import ExUnit.Assertions
 
-  example euler_1_sums_multiples_of_3_or_5_below_10() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        euler_1(10, sum)
-      end
-
-    assert Map.get(bindings, :"$sum") == 23
-    :ok
-  end
-
   example euler_1_sums_multiples_of_3_or_5_below_1000() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

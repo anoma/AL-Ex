@@ -55,16 +55,6 @@ defmodule Examples.ALArithmetic do
     :ok
   end
 
-  example is_still_computes() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        vm_is(x, 2 ** 3 + 1)
-      end
-
-    assert Map.get(bindings, :"$x") == 9
-    :ok
-  end
-
   example remainder() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

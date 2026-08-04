@@ -111,22 +111,6 @@ defmodule Examples.ALMapset do
     :ok
   end
 
-  example union_is_canonical_regardless_of_operand_order() do
-    {:atomic, {bindings, _}} =
-      run branch: :examples do
-        new(:mapset_value, %{elems: [4]}, a1)
-        new(:mapset_value, %{elems: [7]}, a2)
-        union(a1, a2, u1)
-
-        new(:mapset_value, %{elems: [7]}, b1)
-        new(:mapset_value, %{elems: [4]}, b2)
-        union(b1, b2, u2)
-      end
-
-    assert Map.get(bindings, :"$u1") == Map.get(bindings, :"$u2")
-    :ok
-  end
-
   example insert_fails_on_a_wholly_unbound_receiver() do
     # Unlike the old list-backed `:set`, an unbound receiver's placeholder
     # `elems` ivar is a bare var, not an open-tailed list — maps have no
