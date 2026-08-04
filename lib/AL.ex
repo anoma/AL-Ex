@@ -817,9 +817,10 @@ defmodule AL do
   # not fan_out (eager — catastrophic on a wide domain, e.g. factorial's
   # ~3.6M-wide bound); between is lazy, ordinary recursion. No numeric
   # bounds -> an explicit in_domain/2 constraint, if any (see
-  # label_from_domain_constraint/3), else the var's own known isa classes
-  # (see label_from_class_domain/3 below). None of the three -> fail, same
-  # as an unbounded numeric domain always has.
+  # label_from_domain_constraint/3); no domain constraint -> a pending
+  # `super_link`, if any (see label_from_super_link/3 below); else the
+  # var's own known isa classes (see label_from_class_domain/3 below). None
+  # of the four -> fail, same as an unbounded numeric domain always has.
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
 
@@ -835,8 +836,14 @@ defmodule AL do
 
           _ ->
             case AL.Var.domain_of(store, v) do
-              nil -> label_from_class_domain(v, store, state)
-              domain -> label_from_domain_constraint(v, domain, state)
+              nil ->
+                case AL.Var.super_link_of(store, v) do
+                  nil -> label_from_class_domain(v, store, state)
+                  link -> label_from_super_link(v, link, state)
+                end
+
+              domain ->
+                label_from_domain_constraint(v, domain, state)
             end
         end
     end
@@ -1287,6 +1294,54 @@ defmodule AL do
   defp compare(:<=, x, y), do: x <= y
   defp compare(:>=, x, y), do: x >= y
   defp compare(:eq, x, y), do: x == y
+
+  # `super/2`'s two slots are the same domain (a superclass is still just a
+  # class), so unlike `class/2` there's no object/class asymmetry -- both
+  # slots just need *naming*, no construction. The pending link (posted by
+  # `AL.Relations.GetSuper`'s both-open branch) records which slot `v`
+  # occupies; splicing the same `GetSuper` goal again would just re-post the
+  # same pending state (`other` is still open too), so this does the real
+  # `AL.Object.scan_super` scan directly -- both patterns can be open,
+  # `to_mnesia_pattern` treats an open one as a wildcard -- and offers each
+  # real edge as a choicepoint, binding both `v` and `other` per row.
+  defp label_from_super_link(v, link, state) do
+    store = state.active_choicepoint.store
+
+    {object_var, super_var} =
+      case link do
+        {:super, other} -> {v, other}
+        {:object, other} -> {other, v}
+      end
+
+    # Deref before scanning -- either side may have been bound directly
+    # (e.g. a plain `unify`, bypassing `GetSuper` entirely) since the link
+    # was posted, and a since-resolved value must filter the scan, not be
+    # passed through as if still open (`to_mnesia_pattern` would otherwise
+    # treat the raw var as a wildcard regardless of what it's since become).
+    AL.Var.deref(store, object_var)
+    |> AL.Object.scan_super(AL.Var.deref(store, super_var), state.branch)
+    |> Enum.map(&super_edge_witness(state, object_var, super_var, &1))
+    |> Enum.reject(&(&1.store == nil))
+    |> case do
+      [] ->
+        backtrack(state)
+
+      [first | rest] ->
+        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
+    end
+  end
+
+  defp super_edge_witness(state, object_var, super_var, {:super, object, _seq, super_class}) do
+    branch = state.branch
+
+    new_store =
+      case AL.Var.unify(object_var, object, state.active_choicepoint.store, branch) do
+        nil -> nil
+        store1 -> AL.Var.unify(super_var, super_class, store1, branch)
+      end
+
+    %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
+  end
 
   # `class/2` relates two different domains (objects, classes) -- a var's
   # isa entries record which slot it plays, and labeling expands it

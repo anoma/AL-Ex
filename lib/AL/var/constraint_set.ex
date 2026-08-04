@@ -12,13 +12,29 @@ defmodule AL.Var.ConstraintSet do
   @type bound() :: integer() | nil
   @type propagator() :: AL.Var.Bounds.propagator()
 
+  # A pending `vm_super(y, z)` with both sides open (`AL.Relations.GetSuper`)
+  # posts one of these on each side instead of scanning -- `super/2`'s two
+  # slots are the *same* domain (a superclass is still just a class), unlike
+  # `class/2`'s object/class asymmetry, so a plain `isa`-style entry would be
+  # a category error either way round (neither slot is "an instance of" the
+  # other -- that's a different relation, subclass-of vs instance-of). The
+  # tag records which slot the var carrying it occupies, so labeling either
+  # one can reconstruct the correct `GetSuper{object:, super:}` goal.
+  @type super_link() :: {:object, AL.Var.t()} | {:super, AL.Var.t()}
+
   @type t() :: %__MODULE__{
           dif: [{AL.Var.t(), AL.Var.t()}],
           isa: MapSet.t(atom()),
           bounds: {bound(), bound()},
           props: [propagator()],
-          domain: MapSet.t(AL.Var.t()) | nil
+          domain: MapSet.t(AL.Var.t()) | nil,
+          super_link: super_link() | nil
         }
 
-  defstruct dif: [], isa: MapSet.new(), bounds: {nil, nil}, props: [], domain: nil
+  defstruct dif: [],
+            isa: MapSet.new(),
+            bounds: {nil, nil},
+            props: [],
+            domain: nil,
+            super_link: nil
 end

@@ -237,7 +237,8 @@ defmodule AL.Var do
       isa: MapSet.union(a.isa, b.isa),
       bounds: merge_bounds(a.bounds, b.bounds),
       props: a.props ++ b.props,
-      domain: merge_domains(a.domain, b.domain)
+      domain: merge_domains(a.domain, b.domain),
+      super_link: a.super_link || b.super_link
     }
 
   defp merge_domains(nil, d), do: d
@@ -297,6 +298,29 @@ defmodule AL.Var do
     case constraint_set(store, var) do
       nil -> MapSet.new()
       set -> set.isa
+    end
+  end
+
+  # `vm_super(y, z)` with both sides open (`AL.Relations.GetSuper`) posts one
+  # of these on each side instead of scanning -- see `ConstraintSet.super_link/0`
+  # for why this can't just reuse `isa` the way `class/2` does (the two
+  # slots are the same domain, so there's no asymmetric "instance of" claim
+  # to make on either side, just "which slot am I").
+  @spec add_super_link(store(), variable(), ConstraintSet.super_link()) :: store()
+  def add_super_link(store, var, link) do
+    Map.update(store, var, %ConstraintSet{super_link: link}, fn
+      %ConstraintSet{} = set -> %{set | super_link: link}
+      other -> other
+    end)
+  end
+
+  # The read side of `add_super_link/3` -- `nil` if this var was never one
+  # end of a pending `vm_super(y, z)`.
+  @spec super_link_of(store(), variable()) :: ConstraintSet.super_link() | nil
+  def super_link_of(store, var) do
+    case constraint_set(store, var) do
+      nil -> nil
+      set -> set.super_link
     end
   end
 

@@ -90,6 +90,33 @@ defmodule AL.Relations do
     end
   end
 
+  # Both sides open, nothing ground to key a lookup on -- same shape as
+  # `GetClass`'s third branch, but `super/2`'s two slots are the *same*
+  # domain (a superclass is still just a class), so there's no `isa`-style
+  # asymmetric claim to post: neither slot is "an instance of" the other,
+  # that's a different relation. Each side gets a `super_link` tagged with
+  # which slot it occupies (see `ConstraintSet.super_link/0`), and succeeds
+  # once with both still open, no scan. Either side already ground is a
+  # targeted lookup, not a full scan, same as `GetClass` already treats a
+  # ground side as cheap -- that path stays eager below.
+  def interp(%Goal.GetSuper{object: object, super: super_pattern}, state)
+      when object != :"$_" and super_pattern != :"$_" do
+    if AL.Var.var?(object) and AL.Var.var?(super_pattern) do
+      new_store =
+        store(state)
+        |> AL.Var.add_super_link(object, {:super, super_pattern})
+        |> AL.Var.add_super_link(super_pattern, {:object, object})
+
+      AL.put_bindings(state, new_store, [])
+    else
+      scan_relation(
+        state,
+        AL.Object.scan_super(object, super_pattern, state.branch),
+        {:super, object, :"$seq", super_pattern}
+      )
+    end
+  end
+
   def interp(%Goal.GetSuper{object: object, super: super_pattern}, state),
     do:
       scan_relation(

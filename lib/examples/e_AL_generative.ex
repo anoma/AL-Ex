@@ -500,6 +500,88 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
+  # `vm_super(y, z)` gets the same "post a pending link, don't scan" treatment
+  # as `vm_class/2`, but `super/2`'s two slots are the *same* domain (a
+  # superclass is still just a class) -- neither side needs constructing,
+  # both just need naming. `AL.Var.ConstraintSet.super_link/0` records which
+  # slot each side occupies instead of reusing `isa` (a bare isa entry here
+  # would falsely claim one side is "an instance of" the other, when the
+  # real relation is subclass-of).
+  example vm_super_with_both_sides_open_posts_a_pending_link() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_super(y, z)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$y"))
+    assert AL.Var.var?(Map.get(bindings, :"$z"))
+    :ok
+  end
+
+  # `vm_label` on either side forces the real `AL.Object.scan_super` scan
+  # (`AL.label_from_super_link/3`) and binds both sides consistently from a
+  # real edge -- labeling `y` (the subclass slot).
+  example labeling_the_subclass_side_of_a_pending_super_link_finds_a_real_edge() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :super_link_parent, super: :object, ivars: [] do
+        end
+
+        defclass :super_link_child, super: :super_link_parent, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_super(y, z)
+        unify(y, :super_link_child)
+        vm_label(z)
+      end
+
+    assert Map.get(bindings, :"$z") == :super_link_parent
+    :ok
+  end
+
+  # Same edge, found from the other side -- labeling `z` (the superclass
+  # slot) after `z` is independently ground still resolves `y` correctly,
+  # confirming the link isn't direction-locked to whichever side was bound
+  # first.
+  example labeling_the_superclass_side_of_a_pending_super_link_finds_a_real_edge() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :super_link_parent2, super: :object, ivars: [] do
+        end
+
+        defclass :super_link_child2, super: :super_link_parent2, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_super(y, z)
+        unify(z, :super_link_parent2)
+        vm_label(y)
+      end
+
+    assert Map.get(bindings, :"$y") == :super_link_child2
+    :ok
+  end
+
+  # No real edge satisfies the link -- fails, same as an unsatisfiable
+  # numeric/isa domain always has, not a crash. `:defclass` requires a
+  # `super:`, so every real class has at least one edge -- an atom that was
+  # never registered as a class at all is the genuine no-edge case.
+  example labeling_a_pending_super_link_with_no_real_edge_fails() do
+    {:aborted, _} =
+      run branch: :examples do
+        vm_super(y, z)
+        unify(y, :not_a_registered_class_at_all)
+        vm_label(z)
+      end
+
+    :ok
+  end
+
   # :value classes construct through the real new pipeline
   # (construct/allocate/init), not special-cased -- init discards the
   # scaffold, result stays as open as it started. No durable object created.
