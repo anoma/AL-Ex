@@ -805,6 +805,7 @@ defmodule AL do
     end
   end
 
+  # Assert var is ground
   def interp(%Goal.Ground{term: term}, state) do
     if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.store))) == 0 do
       state
@@ -813,17 +814,7 @@ defmodule AL do
     end
   end
 
-  # CLP(FD) labeling. Ground = no-op, for *any* term, not just numbers -- a
-  # var that's already been bound some other way (e.g. an explicit caller-
-  # supplied ivar arg) has nothing left to search for. Numeric bounds ->
-  # :object's between/4, not fan_out (eager — catastrophic on a wide
-  # domain, e.g. factorial's ~3.6M-wide bound); between is lazy, ordinary
-  # recursion. No numeric bounds -> an explicit in_domain/2 constraint, if
-  # any (see label_from_domain_constraint/3); no domain constraint -> a
-  # pending `super_link`, if any (see label_from_super_link/3 below), else
-  # a pending `slot_link`, if any (see label_from_slot_link/3 below); else
-  # the var's own known isa classes (see label_from_class_domain/3 below).
-  # None of the five -> fail, same as an unbounded numeric domain always has.
+  # CLP(FD) labeling
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
     v = AL.Var.deref(store, term)
@@ -845,6 +836,7 @@ defmodule AL do
     end
   end
 
+  # De/Re-construct a term into/from a list 
   def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
     store = store(state)
     resolved_term = AL.Var.subst(term, store)

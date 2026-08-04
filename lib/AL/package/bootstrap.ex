@@ -675,6 +675,12 @@ defmodule AL.Package.Bootstrap do
       dif_from_all(t, x)
     end
 
+    defmethod(:list, :sum, [[], 0])
+    defmethod(:list, :sum, [[h | t], n]) do
+      sum(t, n1)
+      eq(n, n1 + h)
+    end
+
     # Recurses via clause-head matching, not forall/member — a still-open
     # shared element gets bound through ordinary unification this way
     # (thread back to the caller's own var); forall's own
