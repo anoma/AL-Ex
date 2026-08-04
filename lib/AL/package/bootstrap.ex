@@ -67,14 +67,6 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
-    defmethod(:object, :class, [self, class]) do
-      vm_class(self, class)
-    end
-
-    defmethod(:object, :super, [self, super]) do
-      vm_super(self, super)
-    end
-
     defmethod(:object, :get_slot, [self, key, value]) do
       vm_get_slot(self, key, value)
     end
@@ -87,15 +79,7 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:object, :set_slot, [self, key, value]) do
-      vm_set_slots(self, %{key => value})
-    end
-
-    defmethod(:object, :set_slots, [self, slots]) do
-      findall([key, value], [vm_map_get(slots, key, value)], pairs)
-
-      forall([member(pairs, [key, value])]) do
-        set_slot(self, key, value)
-      end
+      set_slots(self, %{key => value})
     end
 
     defmethod(:object, :slots, [self, [], %{}])
@@ -157,7 +141,7 @@ defmodule AL.Package.Bootstrap do
       # The declared instance-var names are reflective metadata about the class,
       # held under `:ivars` in the class object's own slot map — so they sit
       # alongside any class-side slot values rather than overwriting them.
-      vm_set_slots(name, %{ivars: ivars})
+      set_slots(name, %{ivars: ivars})
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
@@ -191,12 +175,12 @@ defmodule AL.Package.Bootstrap do
     # ...)`. That's the `:else` case, same default allocate_class itself
     # already applies for its own `:ivars` read.
     defmethod(:object, :init, [self, args, self]) do
-      vm_class(self, class)
+      class(self, class)
 
       implies do
         [vm_get_slot(class, :ivars, ivar_specs)] ->
           build_durable_slots(self, class, args, ivar_specs, slots)
-          vm_set_slots(self, slots)
+          set_slots(self, slots)
 
         :else ->
           unify(self, self)
@@ -307,7 +291,7 @@ defmodule AL.Package.Bootstrap do
       vm_get_slot(class, :ivars, ivar_specs)
 
       implies do
-        [unify(ivar_specs, [])] -> vm_class(output, class)
+        [unify(ivar_specs, [])] -> class(output, class)
         :else -> build_from_ivar_specs(self, class, args, ivar_specs, output)
       end
     end
@@ -341,7 +325,7 @@ defmodule AL.Package.Bootstrap do
           end
 
           implies do
-            [member(opts, {:type, type})] -> vm_class(value, type)
+            [member(opts, {:type, type})] -> class(value, type)
           end
 
         :else ->

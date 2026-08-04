@@ -12,7 +12,7 @@ defmodule AL.Var.ConstraintSet do
   @type bound() :: integer() | nil
   @type propagator() :: AL.Var.Bounds.propagator()
 
-  # A pending `vm_super(y, z)` with both sides open (`AL.Relations.GetSuper`)
+  # A pending `super(y, z)` with both sides open (`AL.Relations.GetSuper`)
   # posts one of these on each side instead of scanning -- `super/2`'s two
   # slots are the *same* domain (a superclass is still just a class), unlike
   # `class/2`'s object/class asymmetry, so a plain `isa`-style entry would be

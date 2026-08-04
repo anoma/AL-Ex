@@ -376,7 +376,7 @@ defmodule AL.Var do
   # routed through `:number`'s value leg shouldn't be bindable to a durable
   # object just because it's still open when that leg returns.
   #
-  # `class` doesn't have to be resolved yet -- `vm_class(x, y)` with both
+  # `class` doesn't have to be resolved yet -- `class(x, y)` with both
   # sides open posts `y` itself as an isa entry on `x` (and symmetrically `x`
   # on `y`), the same way `dif/2` already stores a pair that may still
   # contain open vars on either side. Every reader of `isa` (the bind-time
@@ -404,7 +404,7 @@ defmodule AL.Var do
     end
   end
 
-  # `vm_super(y, z)` with both sides open (`AL.Relations.GetSuper`) posts one
+  # `super(y, z)` with both sides open (`AL.Relations.GetSuper`) posts one
   # of these on each side instead of scanning -- see `ConstraintSet.super_link/0`
   # for why this can't just reuse `isa` the way `class/2` does (the two
   # slots are the same domain, so there's no asymmetric "instance of" claim
@@ -418,7 +418,7 @@ defmodule AL.Var do
   end
 
   # The read side of `add_super_link/3` -- `nil` if this var was never one
-  # end of a pending `vm_super(y, z)`.
+  # end of a pending `super(y, z)`.
   @spec super_link_of(store(), variable()) :: ConstraintSet.super_link() | nil
   def super_link_of(store, var) do
     case constraint_set(store, var) do
@@ -577,7 +577,7 @@ defmodule AL.Var do
   defp tag_isa(other, _var), do: other
 
   # `{:object_link, obj}` (posted on the *class* side of a still-open
-  # `vm_class(x, y)`, see `AL.Relations.GetClass`) never asserts "I belong
+  # `class(x, y)`, see `AL.Relations.GetClass`) never asserts "I belong
   # to a class" at all -- it's a directional marker, not an isa claim, so it
   # can never be violated. Without this clause, once `obj` (or whatever it
   # gets bound to) derefs to something concrete, the fallback clause below
@@ -586,7 +586,7 @@ defmodule AL.Var do
   # otherwise-valid bind.
   defp isa_violation_class({:object_link, _obj}, _term, _store, _branch), do: nil
 
-  # An isa entry that's still an open var (`vm_class(x, y)` with both sides
+  # An isa entry that's still an open var (`class(x, y)` with both sides
   # open posts `y` onto `x` this way) hasn't resolved to a class yet, so it
   # can't be violated one way or the other -- same posture `dif` already
   # takes toward a still-open counterpart. Deref first in case it resolved

@@ -62,11 +62,11 @@ defmodule AL.Dispatch do
   # no-witness-needed isa fast path (`AL.Relations`), which used to be able to
   # union in a conflicting class with no check at all.
   #
-  # An isa entry that's still an open var (`vm_class(x, y)` with both sides
+  # An isa entry that's still an open var (`class(x, y)` with both sides
   # open posts `y` onto `x`) hasn't resolved to a class yet, so it can't
   # conflict with anything -- a var is a superset of any atom until it
   # resolves, not a competing class. Same for `{:object_link, _}` (posted on
-  # the *class* side of that same pending `vm_class` -- see
+  # the *class* side of that same pending `class` -- see
   # `AL.Relations.GetClass`): it's a directional marker, never a class atom,
   # so `not AL.Var.var?/1` alone would wrongly treat it as one (a 2-tuple
   # isn't a var, but it isn't a resolved class either). Only a genuinely
@@ -186,7 +186,7 @@ defmodule AL.Dispatch do
   # The object slot: reuses the exact construction dispatch already runs
   # for a var receiver -- one choicepoint per candidate class (construction
   # only, no method to run after) plus one per matching durable object.
-  # `candidate_classes` is `:any` when nothing is known yet (`vm_class(x,
+  # `candidate_classes` is `:any` when nothing is known yet (`class(x,
   # y)` posted a pending link, no filter to narrow by) or a concrete list
   # once isa has narrowed it; `pending_links` are extra vars (`y`, when
   # still open) that also get unified to the class a candidate turns out to
@@ -250,7 +250,7 @@ defmodule AL.Dispatch do
   end
 
   # The class slot (`{:object_link, x}`, posted on the *class* position of a
-  # still-open `vm_class(x, y)` -- see `AL.Relations.GetClass`) is a
+  # still-open `class(x, y)` -- see `AL.Relations.GetClass`) is a
   # fundamentally different labeling question than the object slot: an
   # object needs a real witness constructed or found; a class already
   # exists as a declared entity, so labeling one just needs to name it, not
@@ -259,12 +259,12 @@ defmodule AL.Dispatch do
   # `x`'s class. So this enumerates every class in the system (every
   # generative descendant, every class that already classifies some durable
   # object) and, for each, splices `GetClass`'s *own* branch-1 goal
-  # (`vm_class(x, class)`) rather than re-deriving its isa-conflict check
+  # (`class(x, class)`) rather than re-deriving its isa-conflict check
   # here -- a conflicting candidate simply fails when its spliced goal runs,
   # same as any other wrong choicepoint, not something pre-filtered before
   # the choicepoint exists. A class with zero existing instances still gets
   # listed by name; `x` ends up isa-tagged and open, not witnessed --
-  # ordinary `GetClass` branch-1 semantics, same as `vm_class(x,
+  # ordinary `GetClass` branch-1 semantics, same as `class(x,
   # :known_class)` alone always leaves it.
   @spec class_domain_choicepoints(AL.t(), AL.Var.t(), AL.Var.t()) :: [AL.Choicepoint.t()]
   def class_domain_choicepoints(state, self, object_var) do

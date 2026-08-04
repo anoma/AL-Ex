@@ -189,7 +189,7 @@ defmodule AL do
       |> Enum.map(fn variable -> {variable, AL.Var.subst(variable, store, rewrite_unbound)} end)
       |> Map.new()
 
-    # An unbound-but-constrained var (e.g. `vm_class(o, :class)` leaving `o`
+    # An unbound-but-constrained var (e.g. `class(o, :class)` leaving `o`
     # open with an isa constraint) otherwise prints identically to a
     # genuinely free one -- surface real constraints under a reserved key,
     # keyed by the same display name shown in `bindings` itself, omitted
@@ -1472,7 +1472,7 @@ defmodule AL do
   # `:domain`-method convention -- labeling is the same forcing `send`
   # already does implicitly, just with no method in mind.
   #
-  # An isa entry can itself still be an open var (`vm_class(x, y)` with both
+  # An isa entry can itself still be an open var (`class(x, y)` with both
   # sides open posts `y` onto `x` this way) -- resolved entries narrow the
   # object search as usual; *only* pending links (nothing resolved) means
   # no class to filter by, so every generative descendant and every durable
@@ -1480,7 +1480,7 @@ defmodule AL do
   # unifying the link var(s) to the class it turned out to be.
   #
   # An entry can also be `{:object_link, x}` -- this var is the *class*
-  # side of a pending `vm_class(x, y)`, not the object side, so it takes
+  # side of a pending `class(x, y)`, not the object side, so it takes
   # the other role entirely (`AL.Dispatch.class_domain_choicepoints/3`).
   #
   # No isa at all, or no candidate produces a witness: fails, same as an

@@ -41,7 +41,7 @@ defmodule Examples.ALFailures do
   example plain_failure_trace_omits_backtracks() do
     {:aborted, reason} =
       run branch: :examples do
-        vm_class(:no_such_object_al_failures, c)
+        class(:no_such_object_al_failures, c)
       end
 
     refute :backtrack in reason.trace
@@ -76,7 +76,7 @@ defmodule Examples.ALFailures do
 
     {:aborted, isa_reason} =
       run branch: :examples do
-        vm_class(y, :number)
+        class(y, :number)
         unify(y, :not_a_number)
       end
 

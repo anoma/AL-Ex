@@ -509,7 +509,7 @@ defmodule Examples.ALObjects do
     # ancestor
     {:atomic, _} =
       run branch: :examples do
-        vm_set_slots(:dsp_leaf, %{dispatch_strategy: :bfs})
+        set_slots(:dsp_leaf, %{dispatch_strategy: :bfs})
       end
 
     {:atomic, {b2, _}} =
@@ -653,13 +653,13 @@ defmodule Examples.ALObjects do
 
     {:aborted, _trace} =
       run branch: :examples do
-        vm_class(x, :isa_durable_class_a)
+        class(x, :isa_durable_class_a)
         unify(x, :isa_durable_instance_b)
       end
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, :isa_durable_class_a)
+        class(x, :isa_durable_class_a)
         unify(x, :isa_durable_instance_a)
       end
 
@@ -667,7 +667,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings2, _}} =
       run branch: :examples do
-        vm_class(o, :isa_durable_class_a)
+        class(o, :isa_durable_class_a)
         findall(o, [isa_durable_probe(o, o)], os)
       end
 

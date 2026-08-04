@@ -13,16 +13,16 @@ defmodule Examples.AL do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
   end
 
-  # `vm_class(a, b)` alone (both sides open) no longer scans -- it posts `b`
+  # `class(a, b)` alone (both sides open) no longer scans -- it posts `b`
   # as a pending isa link on `a` and succeeds once, both still open (see
   # AL.Relations.GetClass's third branch). `label` is what forces the
   # real scan and offers every `(object, class)` pair as a choicepoint, so
-  # it's the label call, not the bare `vm_class`, that makes this example's
+  # it's the label call, not the bare `class`, that makes this example's
   # backtracking meaningful.
   example get_class_command() do
     {:atomic, {bindings, result}} =
       run branch: :examples do
-        vm_class(a, b)
+        class(a, b)
         label(a)
       end
 
@@ -41,8 +41,8 @@ defmodule Examples.AL do
     {:atomic, {bindings, result}} =
       run branch: :examples do
         vm_method(:object, :init, init_method)
-        vm_class(init_method, b)
-        vm_class(b, :class)
+        class(init_method, b)
+        class(b, :class)
       end
 
     assert Map.get(bindings, :"$b") == :behaviour
@@ -117,7 +117,7 @@ defmodule Examples.AL do
   example cut() do
     {:atomic, {_bindings, result}} =
       run branch: :examples do
-        vm_class(object, class)
+        class(object, class)
         cut
       end
 
@@ -129,7 +129,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, result}} =
       run branch: :examples do
         implies do
-          [vm_class(object, class)] -> vm_class(class, metaclass)
+          [class(object, class)] -> class(class, metaclass)
         end
       end
 
@@ -142,8 +142,8 @@ defmodule Examples.AL do
     {:atomic, {_bindings, result}} =
       run branch: :examples do
         implies do
-          [vm_class(:blah, class)] -> vm_class(class, metaclass)
-          :else -> vm_class(metaclass, class)
+          [class(:blah, class)] -> class(class, metaclass)
+          :else -> class(metaclass, class)
         end
       end
 
@@ -160,7 +160,7 @@ defmodule Examples.AL do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall(c, [vm_class(:retract_test, c)], before_retract)
+        findall(c, [class(:retract_test, c)], before_retract)
       end
 
     assert Map.get(bindings, :"$before_retract") == [:foo]
@@ -172,7 +172,7 @@ defmodule Examples.AL do
 
     {:atomic, {bindings2, _}} =
       run branch: :examples do
-        findall(c, [vm_class(:retract_test, c)], after_retract)
+        findall(c, [class(:retract_test, c)], after_retract)
       end
 
     assert Map.get(bindings2, :"$after_retract") == []
@@ -185,7 +185,7 @@ defmodule Examples.AL do
 
     {:atomic, {bindings3, _}} =
       run branch: :examples do
-        findall(c, [vm_class(:retract_test, c)], reclassified)
+        findall(c, [class(:retract_test, c)], reclassified)
       end
 
     assert Map.get(bindings3, :"$reclassified") == [:bar]
@@ -195,7 +195,7 @@ defmodule Examples.AL do
   example vm_get_slot() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_set_slots(:slot_get_test, %{name: :alice, age: 42})
+        set_slots(:slot_get_test, %{name: :alice, age: 42})
         vm_get_slot(:slot_get_test, :name, name)
       end
 
@@ -215,9 +215,9 @@ defmodule Examples.AL do
   example slot_merge_semantics() do
     {:atomic, _} =
       run branch: :examples do
-        vm_set_slots(:slot_test, %{a: 1})
-        vm_set_slots(:slot_test, %{b: 2})
-        vm_set_slots(:slot_test, %{a: 99})
+        set_slots(:slot_test, %{a: 1})
+        set_slots(:slot_test, %{b: 2})
+        set_slots(:slot_test, %{a: 99})
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
@@ -305,7 +305,7 @@ defmodule Examples.AL do
       run branch: :examples do
         vm_set_super(:next_sol_test, :alpha)
         vm_set_super(:next_sol_test, :beta)
-        vm_super(:next_sol_test, s)
+        super(:next_sol_test, s)
         unify(pair, [s, s])
       end
 
@@ -403,7 +403,7 @@ defmodule Examples.AL do
           r,
           [
             implies do
-              [vm_super(:ite_test, x)] -> unify(r, x)
+              [super(:ite_test, x)] -> unify(r, x)
               :else -> unify(r, :none)
             end
           ],
@@ -433,7 +433,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         implies do
-          [vm_class(:object, c)] -> unify(out, :then_ran)
+          [class(:object, c)] -> unify(out, :then_ran)
           :else -> unify(out, :else_ran)
         end
       end
@@ -446,7 +446,7 @@ defmodule Examples.AL do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         implies do
-          [vm_class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
+          [class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
           :else -> unify(out, :else_ran)
         end
       end
@@ -461,8 +461,8 @@ defmodule Examples.AL do
         vm_set_class(:branch_pick, :widget)
 
         implies do
-          [vm_class(:branch_pick, :gadget)] -> unify(out, :first)
-          [vm_class(:branch_pick, :widget)] -> unify(out, :second)
+          [class(:branch_pick, :gadget)] -> unify(out, :first)
+          [class(:branch_pick, :widget)] -> unify(out, :second)
           :else -> unify(out, :none)
         end
       end
@@ -508,7 +508,7 @@ defmodule Examples.AL do
   example unbound_but_constrained_vars_surface_in_constraints() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(o, :class)
+        class(o, :class)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$o"))

@@ -154,29 +154,29 @@ defmodule Examples.ALNumbers do
       end
   end
 
-  # `vm_class(x, :number)` (the raw primitive `class/2` sugars to — see
+  # `class(x, :number)` (the raw primitive `class/2` sugars to — see
   # `:object`'s `:class` method in bootstrap.ex) with `x` still open doesn't
   # need a witness to succeed — it's declaring an invariant, not asking for
   # one — so it registers the same `isa` constraint the value leg does above
   # and leaves `x` open, rather than scanning the (always-empty, for
   # `:number`) durable object table for one.
-  example vm_class_of_an_open_var_registers_isa_without_scanning() do
+  example class_of_an_open_var_registers_isa_without_scanning() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, :number)
+        class(x, :number)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$x"))
 
     {:aborted, _trace} =
       run branch: :examples do
-        vm_class(x, :number)
+        class(x, :number)
         unify(x, :not_a_number)
       end
 
     {:atomic, {bindings2, _}} =
       run branch: :examples do
-        vm_class(x, :number)
+        class(x, :number)
         unify(x, 7)
       end
 

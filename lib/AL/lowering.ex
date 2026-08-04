@@ -33,10 +33,10 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
-  def ast_to_pattern({:vm_class, _, [object, class]}),
+  def ast_to_pattern({:class, _, [object, class]}),
     do: %Goal.GetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 
-  def ast_to_pattern({:vm_super, _, [object, super]}),
+  def ast_to_pattern({:super, _, [object, super]}),
     do: %Goal.GetSuper{object: ast_to_pattern(object), super: ast_to_pattern(super)}
 
   def ast_to_pattern({:vm_assert_valid_clause_self, _, [class, head]}),
@@ -106,7 +106,7 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:vm_set_slots, _, [object, slots]}),
+  def ast_to_pattern({:set_slots, _, [object, slots]}),
     do: %Goal.SetSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
   def ast_to_pattern({:vm_get_slot, _, [object, key, value]}),

@@ -136,7 +136,7 @@ run do
   new(:bicycle, my_bike)
   new(:fire_hydrant, hydrant)
 
-  vm_class(x, :vehicle)
+  class(x, :vehicle)
   get_slot(x, :color, :red)
 end
 ```

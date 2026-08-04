@@ -60,7 +60,7 @@ defmodule Examples.ALMeta do
       run branch: :examples do
         vm_set_super(:findall_test, :a)
         vm_set_super(:findall_test, :b)
-        findall(s, [vm_super(:findall_test, s)], supers)
+        findall(s, [super(:findall_test, s)], supers)
       end
 
     assert Enum.sort(Map.get(bindings, :"$supers")) == [:a, :b]
@@ -74,7 +74,7 @@ defmodule Examples.ALMeta do
         vm_set_super(:forall_test, :class)
         vm_set_super(:forall_test, :behaviour)
 
-        forall([vm_super(:forall_test, s)]) do
+        forall([super(:forall_test, s)]) do
           set_slots(s, %{forall_visited: true})
         end
       end

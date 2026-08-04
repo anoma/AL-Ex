@@ -189,7 +189,7 @@ defmodule Examples.ALGenerative do
           end
 
           defmethod(:confirm_class, [self, result]) do
-            vm_class(self, result)
+            class(self, result)
           end
         end
       end
@@ -213,7 +213,7 @@ defmodule Examples.ALGenerative do
   # Two unrelated `super: :value` classes are mutually exclusive on the same
   # var -- a value is single-classed by construction, the same invariant that
   # already ruled out :number/:list/:map coexisting. `class/2` (the ergonomic
-  # `vm_class` wrapper, inherited from :object) used to let this slip through:
+  # `class` wrapper, inherited from :object) used to let this slip through:
   # `GetClass`'s no-witness-needed isa fast path unioned in a second,
   # contradictory class with no check at all.
   example unrelated_value_classes_conflict_on_the_same_var() do
@@ -228,8 +228,8 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: :examples do
-        vm_class(x, :left_value_class)
-        vm_class(x, :right_value_class)
+        class(x, :left_value_class)
+        class(x, :right_value_class)
       end
 
     :ok
@@ -254,8 +254,8 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: :examples do
-        vm_class(x, :ghost_value_class)
-        vm_class(x, :ghost_durable_class)
+        class(x, :ghost_value_class)
+        class(x, :ghost_durable_class)
       end
 
     :ok
@@ -295,7 +295,7 @@ defmodule Examples.ALGenerative do
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, :card)
+        class(x, :card)
         label(x)
         slot_get(x, :suit, suit)
       end
@@ -327,7 +327,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, :durable_witness_class)
+        class(x, :durable_witness_class)
         label(x)
       end
 
@@ -346,21 +346,21 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: :examples do
-        vm_class(x, :witnessless_durable_class)
+        class(x, :witnessless_durable_class)
         label(x)
       end
 
     :ok
   end
 
-  # `vm_class(x, y)` with both sides open no longer scans the whole `class`
+  # `class(x, y)` with both sides open no longer scans the whole `class`
   # relation eagerly -- it posts `y` as a pending isa link on `x` (and `x`
   # back on `y`) and succeeds once, both still open. No choicepoint, no
   # table read.
-  example vm_class_with_both_sides_open_posts_a_pending_link() do
+  example class_with_both_sides_open_posts_a_pending_link() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$x"))
@@ -376,7 +376,7 @@ defmodule Examples.ALGenerative do
   example labeling_a_pending_class_link_finds_a_real_witness() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         label(x)
       end
 
@@ -404,7 +404,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         unify(y, :link_reactive_class)
         label(x)
       end
@@ -414,10 +414,10 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         unify(y, :link_reactive_class)
         label(x)
-        vm_class(x, :link_reactive_other)
+        class(x, :link_reactive_other)
       end
 
     :ok
@@ -428,11 +428,11 @@ defmodule Examples.ALGenerative do
   # exists for, and it must NOT behave like labeling `x` would -- it names a
   # class, it doesn't construct an instance. `x` comes back isa-tagged but
   # still open (ordinary `GetClass` branch-1 semantics, same as
-  # `vm_class(x, :known_class)` alone always leaves it), not witnessed.
+  # `class(x, :known_class)` alone always leaves it), not witnessed.
   example labeling_the_class_side_names_a_class_without_constructing_an_object() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         label(y)
       end
 
@@ -442,7 +442,7 @@ defmodule Examples.ALGenerative do
   end
 
   # Labeling `y` first still isa-pins `x` for real, not just superficially --
-  # a subsequent unrelated `vm_class` on `x` is rejected exactly like the
+  # a subsequent unrelated `class` on `x` is rejected exactly like the
   # `x`-first direction already is above.
   example labeling_the_class_side_still_pins_a_real_isa_on_the_object() do
     {:atomic, _} =
@@ -456,7 +456,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         label(y)
         unify(y, :class_side_a)
       end
@@ -465,10 +465,10 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         label(y)
         unify(y, :class_side_a)
-        vm_class(x, :class_side_b)
+        class(x, :class_side_b)
       end
 
     :ok
@@ -489,7 +489,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_class(x, y)
+        class(x, y)
         label(y)
         unify(y, :roundtrip_class)
         label(x)
@@ -500,17 +500,17 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
-  # `vm_super(y, z)` gets the same "post a pending link, don't scan" treatment
-  # as `vm_class/2`, but `super/2`'s two slots are the *same* domain (a
+  # `super(y, z)` gets the same "post a pending link, don't scan" treatment
+  # as `class/2`, but `super/2`'s two slots are the *same* domain (a
   # superclass is still just a class) -- neither side needs constructing,
   # both just need naming. `AL.Var.ConstraintSet.super_link/0` records which
   # slot each side occupies instead of reusing `isa` (a bare isa entry here
   # would falsely claim one side is "an instance of" the other, when the
   # real relation is subclass-of).
-  example vm_super_with_both_sides_open_posts_a_pending_link() do
+  example super_with_both_sides_open_posts_a_pending_link() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$y"))
@@ -533,7 +533,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
         unify(y, :super_link_child)
         label(z)
       end
@@ -558,7 +558,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
         unify(z, :super_link_parent2)
         label(y)
       end
@@ -574,7 +574,7 @@ defmodule Examples.ALGenerative do
   example labeling_a_pending_super_link_with_no_real_edge_fails() do
     {:aborted, _} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
         unify(y, :not_a_registered_class_at_all)
         label(z)
       end
@@ -607,7 +607,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall([y, z], [vm_super(y, z), label(z)], pairs)
+        findall([y, z], [super(y, z), label(z)], pairs)
       end
 
     pairs = Map.get(bindings, :"$pairs")
@@ -637,7 +637,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        findall(y, [vm_super(y, z), unify(z, :dedup_super_parent2), label(y)], ys)
+        findall(y, [super(y, z), unify(z, :dedup_super_parent2), label(y)], ys)
       end
 
     assert Enum.sort(Map.get(bindings, :"$ys")) == [:dedup_super_child2_a, :dedup_super_child2_b]
@@ -669,7 +669,7 @@ defmodule Examples.ALGenerative do
         end
 
         new(:slot_link_class, %{}, obj)
-        vm_set_slots(obj, %{slot_link_probe: 42})
+        set_slots(obj, %{slot_link_probe: 42})
       end
 
     {:atomic, {bindings, _}} =
@@ -691,7 +691,7 @@ defmodule Examples.ALGenerative do
         end
 
         new(:slot_link_class2, %{}, obj)
-        vm_set_slots(obj, %{slot_link_probe2: 7})
+        set_slots(obj, %{slot_link_probe2: 7})
       end
 
     obj = Map.get(bindings, :"$obj")
@@ -732,9 +732,9 @@ defmodule Examples.ALGenerative do
         new(:dedup_slot_class, %{}, obj_a)
         new(:dedup_slot_class, %{}, obj_b)
         new(:dedup_slot_class, %{}, obj_c)
-        vm_set_slots(obj_a, %{dedup_slot_probe: 99})
-        vm_set_slots(obj_b, %{dedup_slot_probe: 99})
-        vm_set_slots(obj_c, %{dedup_slot_probe: 99})
+        set_slots(obj_a, %{dedup_slot_probe: 99})
+        set_slots(obj_b, %{dedup_slot_probe: 99})
+        set_slots(obj_c, %{dedup_slot_probe: 99})
       end
 
     {:atomic, {bindings, _}} =
@@ -759,8 +759,8 @@ defmodule Examples.ALGenerative do
 
         new(:dedup_slot_class2, %{}, obj_a)
         new(:dedup_slot_class2, %{}, obj_b)
-        vm_set_slots(obj_a, %{dedup_slot_probe2: 7})
-        vm_set_slots(obj_b, %{dedup_slot_probe2: 7})
+        set_slots(obj_a, %{dedup_slot_probe2: 7})
+        set_slots(obj_b, %{dedup_slot_probe2: 7})
       end
 
     {:atomic, {bindings, _}} =
@@ -789,7 +789,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
         unify(y, :propagate_super_only_child)
       end
 
@@ -811,7 +811,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
         unify(z, :propagate_super_parent2)
       end
 
@@ -836,7 +836,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_super(y, z)
+        super(y, z)
         unify(z, :propagate_super_parent3)
       end
 
@@ -853,7 +853,7 @@ defmodule Examples.ALGenerative do
         end
 
         new(:propagate_slot_class, %{}, obj)
-        vm_set_slots(obj, %{propagate_slot_probe: 55})
+        set_slots(obj, %{propagate_slot_probe: 55})
       end
 
     obj = Map.get(setup_bindings, :"$obj")
@@ -877,7 +877,7 @@ defmodule Examples.ALGenerative do
         end
 
         new(:propagate_slot_class2, %{}, obj)
-        vm_set_slots(obj, %{propagate_slot_probe2: 77})
+        set_slots(obj, %{propagate_slot_probe2: 77})
       end
 
     {:atomic, {bindings, _}} =
@@ -900,8 +900,8 @@ defmodule Examples.ALGenerative do
 
         new(:propagate_slot_class3, %{}, obj_a)
         new(:propagate_slot_class3, %{}, obj_b)
-        vm_set_slots(obj_a, %{propagate_slot_probe3: 88})
-        vm_set_slots(obj_b, %{propagate_slot_probe3: 88})
+        set_slots(obj_a, %{propagate_slot_probe3: 88})
+        set_slots(obj_b, %{propagate_slot_probe3: 88})
       end
 
     {:atomic, {bindings, _}} =
