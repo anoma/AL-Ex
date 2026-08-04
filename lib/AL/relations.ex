@@ -145,7 +145,39 @@ defmodule AL.Relations do
     end)
   end
 
-  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state) do
+  # `object` open with `key` ground (not `:"$_"`) is the same shape as
+  # `class`/`super`'s pending-link cases: `read_slots/2` is a keyed lookup,
+  # so an open `object` can't answer it at all today, and the real
+  # alternative (`AL.Object.scan_slots/3`, a full table scan) shouldn't run
+  # eagerly either. Post a pending link on `object` (and on `value` too, if
+  # it's also open) instead -- resolved by `vm_label` on either side
+  # (`AL.label_from_slot_link/3`), which does the real scan.
+  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state)
+      when key != :"$_" do
+    if AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(key) do
+      new_store =
+        store(state)
+        |> AL.Var.add_slot_link(object, {:slot, key, value})
+        |> maybe_add_value_slot_link(value, key, object)
+
+      AL.put_bindings(state, new_store, [])
+    else
+      scan_slots_directly(state, object, key, value)
+    end
+  end
+
+  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state),
+    do: scan_slots_directly(state, object, key, value)
+
+  defp maybe_add_value_slot_link(store, value, key, object) do
+    if AL.Var.var?(value) and value != :"$_" do
+      AL.Var.add_slot_link(store, value, {:slot_value, key, object})
+    else
+      store
+    end
+  end
+
+  defp scan_slots_directly(state, object, key, value) do
     entries =
       case AL.Object.read_slots(object, state.branch) do
         [{:slots, ^object, m}] when is_map(m) ->

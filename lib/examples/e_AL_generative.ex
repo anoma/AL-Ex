@@ -582,6 +582,196 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
+  # `y` genuinely still open when `z` gets labeled -- three children share
+  # one parent here, so a naive per-edge scan would report the parent once
+  # per child (verified against real CLP(FD): a var derived via `element/3`
+  # propagation gets a domain that's already a deduplicated set, so
+  # `label/1` on it alone gives distinct values, not one per contributing
+  # fact). `y` must stay untouched, not arbitrarily pinned to whichever
+  # child happened to produce the value first.
+  example labeling_a_super_link_with_both_sides_open_deduplicates_the_super() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :dedup_super_parent, super: :object, ivars: [] do
+        end
+
+        defclass :dedup_super_child_a, super: :dedup_super_parent, ivars: [] do
+        end
+
+        defclass :dedup_super_child_b, super: :dedup_super_parent, ivars: [] do
+        end
+
+        defclass :dedup_super_child_c, super: :dedup_super_parent, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall([y, z], [vm_super(y, z), vm_label(z)], pairs)
+      end
+
+    pairs = Map.get(bindings, :"$pairs")
+    dedup_parent_rows = Enum.filter(pairs, fn [_y, z] -> z == :dedup_super_parent end)
+
+    assert length(dedup_parent_rows) == 1
+    assert Enum.all?(dedup_parent_rows, fn [y, _z] -> AL.Var.var?(y) end)
+    :ok
+  end
+
+  # Once the super side is concrete (however it got that way), labeling the
+  # object side is a properly filtered, targeted scan -- every real child
+  # comes back, no deduplication needed (durable objects are already
+  # unique), confirming the fix above didn't over-correct.
+  example labeling_the_object_side_after_the_super_is_known_finds_every_real_child() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :dedup_super_parent2, super: :object, ivars: [] do
+        end
+
+        defclass :dedup_super_child2_a, super: :dedup_super_parent2, ivars: [] do
+        end
+
+        defclass :dedup_super_child2_b, super: :dedup_super_parent2, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall(y, [vm_super(y, z), unify(z, :dedup_super_parent2), vm_label(y)], ys)
+      end
+
+    assert Enum.sort(Map.get(bindings, :"$ys")) == [:dedup_super_child2_a, :dedup_super_child2_b]
+    :ok
+  end
+
+  # `vm_get_slot(object, key, value)` gets the same treatment -- `object`
+  # open with `key` ground posts a pending link (`AL.Var.ConstraintSet.slot_link/0`)
+  # instead of failing outright (`read_slots/2` is a keyed lookup, so an
+  # open object can't answer today without this). Alone, no forcing: both
+  # sides stay open.
+  example vm_get_slot_with_open_object_posts_a_pending_link() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_get_slot(x, :slot_link_probe, v)
+      end
+
+    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    assert AL.Var.var?(Map.get(bindings, :"$v"))
+    :ok
+  end
+
+  # `vm_label` on the object side forces the real `AL.Object.scan_slots`
+  # scan (`AL.label_from_slot_link/3`) and binds both sides from a real row.
+  example labeling_the_object_side_of_a_pending_slot_link_finds_a_real_row() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :slot_link_class, super: :object, ivars: [] do
+        end
+
+        new(:slot_link_class, %{}, obj)
+        vm_set_slots(obj, %{slot_link_probe: 42})
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_get_slot(x, :slot_link_probe, v)
+        vm_label(x)
+      end
+
+    assert Map.get(bindings, :"$v") == 42
+    :ok
+  end
+
+  # Same row, found from the other side -- labeling `v` (the value slot)
+  # after `x` is independently ground still resolves `v` correctly.
+  example labeling_the_value_side_of_a_pending_slot_link_finds_a_real_row() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :slot_link_class2, super: :object, ivars: [] do
+        end
+
+        new(:slot_link_class2, %{}, obj)
+        vm_set_slots(obj, %{slot_link_probe2: 7})
+      end
+
+    obj = Map.get(bindings, :"$obj")
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        vm_get_slot(x, :slot_link_probe2, v)
+        unify(x, ^obj)
+        vm_label(v)
+      end
+
+    assert Map.get(bindings, :"$v") == 7
+    :ok
+  end
+
+  # No real row satisfies the link -- fails, same as an unsatisfiable
+  # numeric/isa/super domain always has, not a crash.
+  example labeling_a_pending_slot_link_with_no_real_row_fails() do
+    {:aborted, _} =
+      run branch: :examples do
+        vm_get_slot(x, :a_key_nobody_ever_sets, v)
+        vm_label(x)
+      end
+
+    :ok
+  end
+
+  # Same deduplication fix as `super_link` -- several objects share the
+  # same slot value here, so labeling the value with the object side still
+  # open must give that value once, not once per object that happens to
+  # carry it.
+  example labeling_a_slot_link_with_both_sides_open_deduplicates_the_value() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :dedup_slot_class, super: :object, ivars: [] do
+        end
+
+        new(:dedup_slot_class, %{}, obj_a)
+        new(:dedup_slot_class, %{}, obj_b)
+        new(:dedup_slot_class, %{}, obj_c)
+        vm_set_slots(obj_a, %{dedup_slot_probe: 99})
+        vm_set_slots(obj_b, %{dedup_slot_probe: 99})
+        vm_set_slots(obj_c, %{dedup_slot_probe: 99})
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall([x, v], [vm_get_slot(x, :dedup_slot_probe, v), vm_label(v)], pairs)
+      end
+
+    assert [[x, 99]] = Map.get(bindings, :"$pairs")
+    assert AL.Var.var?(x)
+    :ok
+  end
+
+  # Once the value side is concrete, labeling the object side is a
+  # properly filtered scan -- every real object sharing that value comes
+  # back, no deduplication needed (objects are already unique), confirming
+  # the fix above didn't over-correct.
+  example labeling_the_object_side_after_the_value_is_known_finds_every_real_object() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :dedup_slot_class2, super: :object, ivars: [] do
+        end
+
+        new(:dedup_slot_class2, %{}, obj_a)
+        new(:dedup_slot_class2, %{}, obj_b)
+        vm_set_slots(obj_a, %{dedup_slot_probe2: 7})
+        vm_set_slots(obj_b, %{dedup_slot_probe2: 7})
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall(x, [vm_get_slot(x, :dedup_slot_probe2, v), unify(v, 7), vm_label(x)], xs)
+      end
+
+    assert length(Map.get(bindings, :"$xs")) == 2
+    :ok
+  end
+
   # :value classes construct through the real new pipeline
   # (construct/allocate/init), not special-cased -- init discards the
   # scaffold, result stays as open as it started. No durable object created.

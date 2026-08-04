@@ -813,39 +813,35 @@ defmodule AL do
     end
   end
 
-  # CLP(FD) labeling. Ground = no-op. Numeric bounds -> :object's between/4,
-  # not fan_out (eager — catastrophic on a wide domain, e.g. factorial's
-  # ~3.6M-wide bound); between is lazy, ordinary recursion. No numeric
-  # bounds -> an explicit in_domain/2 constraint, if any (see
-  # label_from_domain_constraint/3); no domain constraint -> a pending
-  # `super_link`, if any (see label_from_super_link/3 below); else the
-  # var's own known isa classes (see label_from_class_domain/3 below). None
-  # of the four -> fail, same as an unbounded numeric domain always has.
+  # CLP(FD) labeling. Ground = no-op, for *any* term, not just numbers -- a
+  # var that's already been bound some other way (e.g. an explicit caller-
+  # supplied ivar arg) has nothing left to search for. Numeric bounds ->
+  # :object's between/4, not fan_out (eager — catastrophic on a wide
+  # domain, e.g. factorial's ~3.6M-wide bound); between is lazy, ordinary
+  # recursion. No numeric bounds -> an explicit in_domain/2 constraint, if
+  # any (see label_from_domain_constraint/3); no domain constraint -> a
+  # pending `super_link`, if any (see label_from_super_link/3 below), else
+  # a pending `slot_link`, if any (see label_from_slot_link/3 below); else
+  # the var's own known isa classes (see label_from_class_domain/3 below).
+  # None of the five -> fail, same as an unbounded numeric domain always has.
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
+    v = AL.Var.deref(store, term)
 
-    case AL.Var.deref(store, term) do
-      n when is_number(n) ->
-        state
+    if not AL.Var.var?(v) do
+      state
+    else
+      case AL.Var.Bounds.bounds_of(store, v) do
+        {lo, hi} when is_integer(lo) and is_integer(hi) ->
+          goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
+          splice_and_run(state, [goal])
 
-      v ->
-        case AL.Var.Bounds.bounds_of(store, v) do
-          {lo, hi} when is_integer(lo) and is_integer(hi) ->
-            goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
-            splice_and_run(state, [goal])
-
-          _ ->
-            case AL.Var.domain_of(store, v) do
-              nil ->
-                case AL.Var.super_link_of(store, v) do
-                  nil -> label_from_class_domain(v, store, state)
-                  link -> label_from_super_link(v, link, state)
-                end
-
-              domain ->
-                label_from_domain_constraint(v, domain, state)
-            end
-        end
+        _ ->
+          case AL.Var.domain_of(store, v) do
+            nil -> label_from_link_or_isa(v, store, state)
+            domain -> label_from_domain_constraint(v, domain, state)
+          end
+      end
     end
   end
 
@@ -1304,6 +1300,19 @@ defmodule AL do
   # `AL.Object.scan_super` scan directly -- both patterns can be open,
   # `to_mnesia_pattern` treats an open one as a wildcard -- and offers each
   # real edge as a choicepoint, binding both `v` and `other` per row.
+  defp label_from_link_or_isa(v, store, state) do
+    case AL.Var.super_link_of(store, v) do
+      nil ->
+        case AL.Var.slot_link_of(store, v) do
+          nil -> label_from_class_domain(v, store, state)
+          link -> label_from_slot_link(v, link, state)
+        end
+
+      link ->
+        label_from_super_link(v, link, state)
+    end
+  end
+
   defp label_from_super_link(v, link, state) do
     store = state.active_choicepoint.store
 
@@ -1318,9 +1327,23 @@ defmodule AL do
     # was posted, and a since-resolved value must filter the scan, not be
     # passed through as if still open (`to_mnesia_pattern` would otherwise
     # treat the raw var as a wildcard regardless of what it's since become).
-    AL.Var.deref(store, object_var)
-    |> AL.Object.scan_super(AL.Var.deref(store, super_var), state.branch)
-    |> Enum.map(&super_edge_witness(state, object_var, super_var, &1))
+    object_pattern = AL.Var.deref(store, object_var)
+    super_pattern = AL.Var.deref(store, super_var)
+    rows = AL.Object.scan_super(object_pattern, super_pattern, state.branch)
+
+    choicepoints =
+      if AL.Var.var?(object_pattern) and AL.Var.var?(super_pattern) do
+        distinct_link_witnesses(state, v, rows, fn {:super, object, _seq, super_class} ->
+          if v == object_var, do: object, else: super_class
+        end)
+      else
+        # One side is already concrete, so the scan above is already a
+        # targeted lookup, not a wide-open one -- bind both from each real
+        # row same as before.
+        Enum.map(rows, &super_edge_witness(state, object_var, super_var, &1))
+      end
+
+    choicepoints
     |> Enum.reject(&(&1.store == nil))
     |> case do
       [] ->
@@ -1331,6 +1354,27 @@ defmodule AL do
     end
   end
 
+  # Both sides of the link are still fully open: labeling `v` alone must
+  # not also pin the *other* side to whichever row happens to produce a
+  # given value first -- verified against genuine CLP(FD): a var derived
+  # via `element/3`-style relational propagation gets a domain that's
+  # already a deduplicated *set* (`fd_dom/2`), so `label/1` on it alone
+  # enumerates distinct values, not one solution per underlying fact. A
+  # raw table scan has no such domain, so this computes the set by hand
+  # (`Enum.uniq/1`) and offers one choicepoint per distinct value of `v`,
+  # leaving the other var's own link untouched for its own, separately
+  # resolvable labeling later -- which will then scan already filtered by
+  # whatever `v` resolved to, via the same deref-before-scan path above.
+  defp distinct_link_witnesses(state, v, rows, extract) do
+    rows
+    |> Enum.map(extract)
+    |> Enum.uniq()
+    |> Enum.map(fn value ->
+      new_store = AL.Var.unify(v, value, state.active_choicepoint.store, state.branch)
+      %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
+    end)
+  end
+
   defp super_edge_witness(state, object_var, super_var, {:super, object, _seq, super_class}) do
     branch = state.branch
 
@@ -1338,6 +1382,70 @@ defmodule AL do
       case AL.Var.unify(object_var, object, state.active_choicepoint.store, branch) do
         nil -> nil
         store1 -> AL.Var.unify(super_var, super_class, store1, branch)
+      end
+
+    %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
+  end
+
+  # `vm_get_slot(object, key, value)` with `object` open, `key` ground
+  # (`AL.Relations.GetSlots`'s pending-link branch) -- `key` isn't a var to
+  # resolve, it's fixed context carried in the tag, so the real work is
+  # finding which durable object(s) have that key set at all.
+  # `AL.Object.scan_slots/3` returns one row per object holding its *whole*
+  # slots map (Mnesia can't partially match one key out of it), so this
+  # reads every row for the (possibly still-open, i.e. wildcard) object
+  # pattern and filters for the key in Elixir -- same "full read, filter
+  # after" shape `every_class/1` already uses for `class`.
+  defp label_from_slot_link(v, link, state) do
+    store = state.active_choicepoint.store
+
+    {object_var, key, value_var} =
+      case link do
+        {:slot, key, other} -> {v, key, other}
+        {:slot_value, key, other} -> {other, key, v}
+      end
+
+    object_pattern = AL.Var.deref(store, object_var)
+    slots_scope = AL.Var.var("slot_link_scan_#{AL.fresh_scope()}")
+
+    rows =
+      object_pattern
+      |> AL.Object.scan_slots(slots_scope, state.branch)
+      |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.has_key?(m, key) end)
+
+    # Labeling the object side is never over-eager -- the slots table is
+    # keyed by object, so each row's object is already unique, no
+    # deduplication needed. Labeling the *value* side while object is
+    # still open is exactly the same shape `label_from_super_link/3` had
+    # to fix: several objects can share the same value for `key`, so this
+    # must offer one choicepoint per distinct value (leaving object
+    # untouched), not one per object that happens to share it.
+    choicepoints =
+      if v == value_var and AL.Var.var?(object_pattern) do
+        distinct_link_witnesses(state, v, rows, fn {:slots, _object, m} -> Map.fetch!(m, key) end)
+      else
+        Enum.map(rows, &slot_edge_witness(state, object_var, value_var, key, &1))
+      end
+
+    choicepoints
+    |> Enum.reject(&(&1.store == nil))
+    |> case do
+      [] ->
+        backtrack(state)
+
+      [first | rest] ->
+        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
+    end
+  end
+
+  defp slot_edge_witness(state, object_var, value_var, key, {:slots, object, m}) do
+    branch = state.branch
+    value = Map.fetch!(m, key)
+
+    new_store =
+      case AL.Var.unify(object_var, object, state.active_choicepoint.store, branch) do
+        nil -> nil
+        store1 -> AL.Var.unify(value_var, value, store1, branch)
       end
 
     %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}

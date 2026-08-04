@@ -149,6 +149,24 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  # Ground = no-op for *any* term, not just numbers -- before this, only the
+  # numeric case short-circuited (`is_number/1`); an already-bound
+  # non-numeric term (an atom here) fell through bounds/domain/isa, found
+  # nothing at any of them, and incorrectly backtracked instead of
+  # succeeding. Matters once something (e.g. a class's own construction
+  # logic) unconditionally labels a value that might already be
+  # caller-supplied.
+  example label_is_a_noop_on_an_already_ground_non_numeric_term() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        unify(x, :already_ground_atom)
+        vm_label(x)
+      end
+
+    assert Map.get(bindings, :"$x") == :already_ground_atom
+    :ok
+  end
+
   # A bounded-but-open var enumerates every value in its domain as ordinary
   # backtracking alternatives, cheapest first.
   example label_enumerates_a_bounded_domain() do

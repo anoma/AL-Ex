@@ -166,7 +166,76 @@ defmodule AL.Package.Bootstrap do
       vm_set_class(name, meta)
     end
 
-    defmethod(:object, :init, [self, _, self])
+    # `self` here is already the real durable atom (`:object`'s own
+    # `:allocate`, above, already minted it and durably set its class) --
+    # `init`'s job is to *fill in* its ivars, not construct anything.
+    # `apply_ivar_spec` posts each ivar's domain/type constraint and applies
+    # any caller-supplied `args` value; whatever's still open after that
+    # (no explicit arg) gets `vm_label`'d right here, before the durable
+    # write -- a slots row can't hold an unresolved var the way an
+    # ephemeral `:value` map can (see `:value`'s own `:init` below, which
+    # leaves an unsupplied ivar open on purpose). `vm_label` on an
+    # already-ground value (the explicit-arg case) is a no-op.
+    # `implies`, not `alternative` -- `alternative` lowers to a plain
+    # `Goal.Or` (an ordinary backtracking disjunction, both sides stay live
+    # choicepoints), so a *later* failure inside `build_durable_slots`
+    # would backtrack into the `unify(ivar_specs, [])` fallback instead of
+    # genuinely failing, silently building an empty slots map instead of
+    # reporting the real problem. `implies` commits once its condition
+    # succeeds -- exactly what's needed here.
+    #
+    # `:class`/`:object`/`:behaviour` are hand-bootstrapped via raw
+    # vm_set_class at the top of this file, bypassing allocate_class
+    # entirely -- they never get an :ivars slot at all (not even an empty
+    # one), unlike every class actually created through `new(:class,
+    # ...)`. That's the `:else` case, same default allocate_class itself
+    # already applies for its own `:ivars` read.
+    defmethod(:object, :init, [self, args, self]) do
+      vm_class(self, class)
+
+      implies do
+        [vm_get_slot(class, :ivars, ivar_specs)] ->
+          build_durable_slots(self, class, args, ivar_specs, slots)
+          vm_set_slots(self, slots)
+
+        :else ->
+          unify(self, self)
+      end
+    end
+
+    defmethod(:object, :build_durable_slots, [_self, _class, _args, [], %{}])
+
+    # A bare ivar (no `domain:`/`type:` spec) with no explicit `args` value
+    # has nothing for `vm_label` to search -- `apply_ivar_spec` leaves
+    # `value` completely unconstrained in that case (see its own comment),
+    # and a totally unconstrained var can't be forced any more than an
+    # unbounded numeric one can. Rather than fail the whole construction
+    # over it, this ivar is just omitted from the durable slots map
+    # entirely (an existing, legitimate pattern: `get_slot_inherits_from_class`
+    # in e_AL_objects.ex relies on an unset instance slot falling back to
+    # the class's own slot value). A spec'd-but-unsupplied ivar, or an
+    # explicitly-supplied one (already ground, `vm_label` a no-op), both
+    # succeed here and get included as usual.
+    defmethod(:object, :build_durable_slots, [self, class, args, [spec | rest], output]) do
+      build_durable_slots(self, class, args, rest, partial)
+      apply_ivar_spec(self, args, spec, name, value)
+
+      implies do
+        [vm_label(value)] -> vm_map_put(partial, name, value, output)
+        :else -> unify(output, partial)
+      end
+    end
+
+    # A *class* object being created (`new(:class, ...)`, what every
+    # `defclass`/category declaration is under the hood) is not an instance
+    # of its own `:ivars` spec -- that spec describes its future instances,
+    # not itself. `method_scopes` special-cases a class-object receiver to
+    # search from `:class` itself rather than the new class's own super
+    # chain (it has none yet), so this override -- not `:object`'s ivar-
+    # filling one above -- is what every class creation throughout the rest
+    # of this file (and every `defclass` anywhere) actually goes through.
+    # Plain identity, same as `:object`'s default used to be unconditionally.
+    defmethod(:class, :init, [self, _, self])
 
     defmethod(:class, :new, [self, args, new]) do
       # class -> construct

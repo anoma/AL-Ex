@@ -22,13 +22,21 @@ defmodule AL.Var.ConstraintSet do
   # one can reconstruct the correct `GetSuper{object:, super:}` goal.
   @type super_link() :: {:object, AL.Var.t()} | {:super, AL.Var.t()}
 
+  # A pending `vm_get_slot(object, key, value)` with `object` still open and
+  # `key` ground (`AL.Relations.GetSlots`) -- same shape as `super_link`, one
+  # slot each. `key` isn't itself a var here (it's the fixed context, not a
+  # domain to enumerate), so it just rides along in the tag rather than
+  # needing its own marker.
+  @type slot_link() :: {:slot, atom(), AL.Var.t()} | {:slot_value, atom(), AL.Var.t()}
+
   @type t() :: %__MODULE__{
           dif: [{AL.Var.t(), AL.Var.t()}],
           isa: MapSet.t(atom()),
           bounds: {bound(), bound()},
           props: [propagator()],
           domain: MapSet.t(AL.Var.t()) | nil,
-          super_link: super_link() | nil
+          super_link: super_link() | nil,
+          slot_link: slot_link() | nil
         }
 
   defstruct dif: [],
@@ -36,5 +44,6 @@ defmodule AL.Var.ConstraintSet do
             bounds: {nil, nil},
             props: [],
             domain: nil,
-            super_link: nil
+            super_link: nil,
+            slot_link: nil
 end

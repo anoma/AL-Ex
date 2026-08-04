@@ -384,6 +384,94 @@ defmodule Examples.ALObjects do
     bindings
   end
 
+  # `:object`'s `:init` now fills in ivars the same way `:value`'s already
+  # does (`AL.Package.Blackjack`'s `:card`), reusing the exact same
+  # `apply_ivar_spec` -- an explicit `args` value is validated against the
+  # domain and durably persisted as-is.
+  example durable_construction_respects_explicit_ivar_args() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_a, super: :object,
+          ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:durable_ivar_a, %{suit: :hearts}, obj)
+        vm_get_slot(obj, :suit, suit)
+      end
+
+    assert Map.get(bindings, :"$suit") == :hearts
+    :ok
+  end
+
+  # No explicit arg -- unlike `:value` (which leaves the ivar open, fine for
+  # an ephemeral map), a durable slots row can't hold an unresolved var, so
+  # `:init` labels it to a real, concrete in-domain value before the
+  # durable write (`build_durable_slots`, bootstrap.ex).
+  example durable_construction_labels_unspecified_domain_ivars() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_b, super: :object,
+          ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:durable_ivar_b, %{}, obj)
+        vm_get_slot(obj, :suit, suit)
+      end
+
+    suit = Map.get(bindings, :"$suit")
+    refute AL.Var.var?(suit)
+    assert suit in [:hearts, :diamonds, :clubs, :spades]
+    :ok
+  end
+
+  # Out-of-domain rejected at construction time, same as `:value`'s already
+  # is (in_domain posted before the value is applied, so a bad explicit arg
+  # fails the bind, not a later check).
+  example durable_construction_rejects_out_of_domain_args() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_c, super: :object,
+          ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        new(:durable_ivar_c, %{suit: :not_a_real_suit}, _obj)
+      end
+
+    :ok
+  end
+
+  # A *bare* ivar (no domain/type spec) with no explicit arg has nothing
+  # for `vm_label` to search -- rather than fail construction over it,
+  # `build_durable_slots` just omits it from the durable row entirely
+  # (confirmed directly here, complementing `get_slot_inherits_from_class`
+  # above, which only observes the class-level fallback `get_slot` provides
+  # -- this checks the instance's own row has no such key at all).
+  example durable_construction_leaves_unspecified_bare_ivars_unset() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_bare, super: :object, ivars: [:legs] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:durable_ivar_bare, %{}, obj)
+        findall([k, v], [vm_get_slot(obj, k, v)], slots)
+      end
+
+    assert Map.get(bindings, :"$slots") == []
+    :ok
+  end
+
   # dispatch_strategy: :bfs slot opts a class into breadth-first resolution;
   # default depth-first. Live -- flipping the slot changes resolution
   # immediately, no restart.

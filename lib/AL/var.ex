@@ -238,7 +238,8 @@ defmodule AL.Var do
       bounds: merge_bounds(a.bounds, b.bounds),
       props: a.props ++ b.props,
       domain: merge_domains(a.domain, b.domain),
-      super_link: a.super_link || b.super_link
+      super_link: a.super_link || b.super_link,
+      slot_link: a.slot_link || b.slot_link
     }
 
   defp merge_domains(nil, d), do: d
@@ -321,6 +322,29 @@ defmodule AL.Var do
     case constraint_set(store, var) do
       nil -> nil
       set -> set.super_link
+    end
+  end
+
+  # `vm_get_slot(object, key, value)` with `object` open and `key` ground
+  # (`AL.Relations.GetSlots`) posts one of these -- `{:slot, key, value}` on
+  # `object`, `{:slot_value, key, object}` on `value` if it's also open.
+  # Same shape as `super_link` (a directional tag, not an isa claim), `key`
+  # just rides along as fixed context rather than needing its own slot.
+  @spec add_slot_link(store(), variable(), ConstraintSet.slot_link()) :: store()
+  def add_slot_link(store, var, link) do
+    Map.update(store, var, %ConstraintSet{slot_link: link}, fn
+      %ConstraintSet{} = set -> %{set | slot_link: link}
+      other -> other
+    end)
+  end
+
+  # The read side of `add_slot_link/3` -- `nil` if this var was never one
+  # end of a pending `vm_get_slot(object, key, value)`.
+  @spec slot_link_of(store(), variable()) :: ConstraintSet.slot_link() | nil
+  def slot_link_of(store, var) do
+    case constraint_set(store, var) do
+      nil -> nil
+      set -> set.slot_link
     end
   end
 
