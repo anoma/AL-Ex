@@ -251,10 +251,12 @@ defmodule AL.Trace do
     {rest, nodes, aliases, roots}
   end
 
+  # A redo resumes the box's interior choicepoint: the body does not
+  # restart, so committed children stay -- the ones the resumption
+  # abandons emit their own Fail and prune themselves.
   defp tree_step({tag, scope}, {stack, nodes, aliases, roots})
        when tag in [:method_redo, :clause_redo] do
     resolved = Map.get(aliases, scope, scope)
-    nodes = Map.update!(nodes, resolved, &%{&1 | child_scopes: []})
     {[resolved | stack], nodes, aliases, roots}
   end
 
