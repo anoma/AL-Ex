@@ -57,10 +57,11 @@ defmodule Examples.ALTrace do
 
     assert Map.get(bindings, :"$x") == 2
 
-    kinds = Enum.map(state.domino.trace, fn
-      entry when is_tuple(entry) -> elem(entry, 0)
-      entry -> entry
-    end)
+    kinds =
+      Enum.map(state.domino.trace, fn
+        entry when is_tuple(entry) -> elem(entry, 0)
+        entry -> entry
+      end)
 
     assert :method_call in kinds
     assert :method_exit in kinds
@@ -92,16 +93,15 @@ defmodule Examples.ALTrace do
     assert derived == %{x2 => {:bound, 1}}
   end
 
-  # Forces genuine method-level Redo/Fail (not just clause-level): a var
-  # receiver with exactly one generative candidate class means the *other*
-  # candidate every open dispatch always offers -- the durable leg -- is
-  # what backtracking reaches next once the generative candidate's own
-  # answer (already exited once) turns out not to satisfy the caller.
+  # A var receiver with exactly one generative candidate class means the
+  # *other* candidate every open dispatch always offers -- the durable leg
+  # -- is what backtracking reaches next once the generative candidate's
+  # own clause (already exited once) turns out not to satisfy the caller.
   # No durable instance of the class exists, so the durable leg finds
-  # nothing and the whole send is exhausted: method_redo (trying the
-  # durable leg after the generative candidate already exited) followed by
-  # method_fail (the durable leg itself comes up empty).
-  example dispatch_trace_shows_method_level_redo_and_fail() do
+  # nothing and the whole send is exhausted: clause_redo (retrying the
+  # generative candidate's own clause box) then method_fail (every
+  # candidate, generative and durable alike, is exhausted).
+  example dispatch_trace_shows_clause_level_redo_and_method_level_fail() do
     {:atomic, _} =
       run branch: :examples do
         defclass :redo_probe_class, super: :value, ivars: [] do
@@ -115,12 +115,13 @@ defmodule Examples.ALTrace do
         eq(tag, :not_a)
       end
 
-    kinds = Enum.map(reason.trace, fn
-      entry when is_tuple(entry) -> elem(entry, 0)
-      entry -> entry
-    end)
+    kinds =
+      Enum.map(reason.trace, fn
+        entry when is_tuple(entry) -> elem(entry, 0)
+        entry -> entry
+      end)
 
-    assert :method_redo in kinds
+    assert :clause_redo in kinds
     assert :method_fail in kinds
   end
 
@@ -149,11 +150,123 @@ defmodule Examples.ALTrace do
 
     output =
       capture_io(fn ->
-        traced_state.domino.trace |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1) |> AL.Trace.render()
+        traced_state.domino.trace
+        |> Enum.reverse()
+        |> Enum.map(&AL.Trace.pretty/1)
+        |> AL.Trace.render()
       end)
 
     assert String.contains?(output, "Method Call:")
     assert String.contains?(output, "Send")
+  end
+
+  # `AL.Trace.derivation_tree/1` is the complementary view to `render/1`:
+  # only the surviving derivation, as real nested nodes, not just indented
+  # text. fibonacci(3, x)'s two recursive calls are both plain ground
+  # dispatch (self already concrete by the time the recursive send fires),
+  # so each method-box collapses cleanly into its clause-box -- one node
+  # per `fibonacci` call, not two.
+  example fibonacci_derivation_tree_collapses_and_nests() do
+    {:atomic, {_bindings, state}} =
+      run branch: :examples do
+        fibonacci(3, x)
+      end
+
+    [root] = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+
+    assert root.kind == :method
+    assert {3, :fibonacci, _args} = root.label
+    assert [{_var, {:bound, 2}}] = Map.to_list(root.derived)
+    assert length(root.children) == 2
+
+    selves = Enum.map(root.children, fn %{label: {self, :fibonacci, _}} -> self end)
+    assert Enum.sort(selves) == [1, 2]
+    assert Enum.all?(root.children, &(&1.kind == :method and &1.children == []))
+  end
+
+  # Backward search: self starts open, so this goes through the generative
+  # candidate leg (construct a :number, then match fibonacci's own clauses
+  # against it) rather than plain ground dispatch. A single root -- not one
+  # per candidate attempt -- proves the candidate's construction sends and
+  # its eventual clause match both nest correctly under the one send that
+  # opened them, with the final bound answer on the root itself.
+  example fibonacci_backward_search_derivation_tree_is_one_root() do
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        fibonacci(x, 8)
+      end
+
+    assert Map.get(bindings, :"$x") == 6
+
+    [root] = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+
+    assert root.kind == :method
+    assert {_self, :fibonacci, _args} = root.label
+    assert [{_var, {:bound, 6}}] = Map.to_list(root.derived)
+
+    assert all_nodes_derived?(root)
+  end
+
+  defp all_nodes_derived?(%{derived: nil}), do: false
+  defp all_nodes_derived?(node), do: Enum.all?(node.children, &all_nodes_derived?/1)
+
+  # AL.Trace.method_values/2 doesn't care which position was open at call
+  # time -- it just resolves self/args through each node's own `derived`, so
+  # the same call against a forward-search tree (self ground) and a
+  # backward-search tree (self open) both surface the identical intermediate
+  # Fibonacci sequence up to their own target.
+  example method_values_reads_intermediate_calls_either_direction() do
+    {:atomic, {_bindings, forward_state}} =
+      run branch: :examples do
+        fibonacci(3, x)
+      end
+
+    {:atomic, {_bindings, backward_state}} =
+      run branch: :examples do
+        fibonacci(x, 8)
+      end
+
+    forward_roots = forward_state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+    backward_roots = backward_state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+
+    forward_values = AL.Trace.method_values(forward_roots, :fibonacci) |> Enum.sort()
+    backward_values = AL.Trace.method_values(backward_roots, :fibonacci) |> Enum.sort()
+
+    assert forward_values == [{1, [1]}, {2, [1]}, {3, [2]}]
+    assert backward_values == [{1, [1]}, {2, [1]}, {3, [2]}, {4, [3]}, {5, [5]}, {6, [8]}]
+  end
+
+  # Redo-reset: `pick`'s two clauses both structurally match a durable
+  # instance (unlike fibonacci's self-selecting heads) -- the first exits
+  # with :first, `unify(result, :second)` rejects it, backtracking redoes the
+  # SAME clause scope into the second clause, which exits with :second.
+  # The tree shows exactly one `pick` node carrying the winning (second)
+  # derived value, not the abandoned first one -- proof tree_step's redo
+  # handling (reset children, keep the node) is correct, not just Call/Exit.
+  example derivation_tree_keeps_only_the_winning_redo_attempt() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redo_demo, super: :object, ivars: [] do
+        end
+
+        defmethod(:redo_demo, :pick, [self, :first])
+        defmethod(:redo_demo, :pick, [self, :second])
+      end
+
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        new(:redo_demo, %{}, obj)
+        pick(obj, result)
+        unify(result, :second)
+      end
+
+    assert Map.get(bindings, :"$result") == :second
+
+    roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+    pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
+
+    assert pick_node.children == []
+    assert [{_var, {:bound, :second}}] = Map.to_list(pick_node.derived)
   end
 
   # Call/Fail only fires once a clause applies -- says nothing about which

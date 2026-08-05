@@ -48,13 +48,16 @@ defmodule AL.Trace do
   end
 
   @spec exit(atom(), non_neg_integer(), term(), term()) :: :ok
-  def exit(level, depth, receiver, method), do: port_line(level, depth, "Exit: ", receiver, method)
+  def exit(level, depth, receiver, method),
+    do: port_line(level, depth, "Exit: ", receiver, method)
 
   @spec redo(atom(), non_neg_integer(), term(), term()) :: :ok
-  def redo(level, depth, receiver, method), do: port_line(level, depth, "Redo: ", receiver, method)
+  def redo(level, depth, receiver, method),
+    do: port_line(level, depth, "Redo: ", receiver, method)
 
   @spec fail(atom(), non_neg_integer(), term(), term()) :: :ok
-  def fail(level, depth, receiver, method), do: port_line(level, depth, "Fail: ", receiver, method)
+  def fail(level, depth, receiver, method),
+    do: port_line(level, depth, "Fail: ", receiver, method)
 
   defp port_line(level, depth, tag, receiver, method) do
     IO.puts([
@@ -109,7 +112,8 @@ defmodule AL.Trace do
     {depth + 1, Map.put(seen, scope, {receiver, method_id})}
   end
 
-  defp render_step({tag, scope, derived}, {depth, seen}) when tag in [:method_exit, :clause_exit] do
+  defp render_step({tag, scope, derived}, {depth, seen})
+       when tag in [:method_exit, :clause_exit] do
     level = if tag == :method_exit, do: :method, else: :clause
     {receiver, method} = Map.get(seen, scope, {nil, nil})
     exit(level, depth - 1, receiver, method)
@@ -141,6 +145,237 @@ defmodule AL.Trace do
   defp print_vars(depth, descriptions) do
     IO.puts([String.duplicate("  ", depth + 1), inspect(descriptions)])
   end
+
+  # `render/1` shows everything, including redo/fail churn -- good for "what
+  # did the search actually try." This is the complementary view: only the
+  # surviving derivation, as a real nested tree (not just indentation), one
+  # node per logical send where possible. A method-box collapses into its
+  # immediate clause-box when they're 1:1 (plain ground dispatch -- the
+  # clause_call is the very next event after its method_call, nothing else
+  # has happened yet); a method-box whose own resolution needs other sends
+  # first (generative candidate construction, e.g. `:new`) shows those as
+  # real, separate `:clause`-tagged children instead of being force-collapsed.
+  #
+  # Built flat (nodes keyed by scope, children referenced by scope id) and
+  # materialized into real nesting in a final pass, since a parent's
+  # children can't be mutated in place once created. `aliases` maps a
+  # collapsed clause's own scope back to the method node it merged into, so
+  # its own Exit/Fail still resolves to the right (shared) node. A Fail
+  # splices its scope out of its parent's children outright, regardless of
+  # what it built up across however many Redo attempts; a Redo resets a
+  # node's children (that attempt is abandoned) but keeps the node itself,
+  # to be repopulated by whatever runs next. `steps` is chronological, same
+  # as `render/1` expects.
+  @spec derivation_tree([term()]) :: [map()]
+  def derivation_tree(steps) do
+    {_stack, nodes, _aliases, roots} = Enum.reduce(steps, {[], %{}, %{}, []}, &tree_step/2)
+    roots |> Enum.reverse() |> Enum.map(&materialize(&1, nodes))
+  end
+
+  @doc """
+  I collect every `method` call in a derivation tree (one or more roots, as
+  returned by `derivation_tree/1`), resolving `self` and each arg through
+  that node's own `derived` -- a var that stayed a var (never in `derived`)
+  is returned as-is, so a literal receiver/arg (already ground at call time)
+  and a resolved one both come out the same way.
+  """
+  @spec method_values(map() | [map()], atom()) :: [{term(), [term()]}]
+  def method_values(roots, method) do
+    roots
+    |> List.wrap()
+    |> Enum.flat_map(&method_nodes(&1, method))
+    |> Enum.map(fn %{label: {self, ^method, args}, derived: derived} ->
+      {resolve_derived(self, derived), Enum.map(args, &resolve_derived(&1, derived))}
+    end)
+    |> Enum.uniq()
+  end
+
+  defp method_nodes(%{label: {_, method, _}} = node, method),
+    do: [node | Enum.flat_map(node.children, &method_nodes(&1, method))]
+
+  defp method_nodes(node, method), do: Enum.flat_map(node.children, &method_nodes(&1, method))
+
+  defp resolve_derived(term, derived) do
+    case derived && Map.get(derived, term) do
+      {:bound, val} -> val
+      _ -> term
+    end
+  end
+
+  # `stack` always holds *resolved* scope keys (post-alias), never a raw
+  # collapsed clause scope -- `nodes` only has entries under resolved keys,
+  # so a grandchild's parent lookup (`open_node`, via `hd(stack)`) would
+  # miss entirely if a raw aliased scope were sitting on top instead. A
+  # collapsed clause_call still needs to push *something*, since its own
+  # later Exit/Fail has to pop a frame -- it pushes the resolved (method)
+  # key again, which is safe: two pushes of the same resolved key exactly
+  # match the two real events (clause_exit then method_exit) that will each
+  # pop one off in turn. Pops themselves don't re-verify the popped value
+  # against the firing event's own scope -- domino's Call/Exit nesting is
+  # already guaranteed correct by construction (see AL.ex's begin_method_scope/
+  # mark_exited/fail_scope), so this only ever needs to resolve-and-pop, not
+  # cross-check.
+  defp tree_step({:method_call, scope, self, method, args, constraints_in}, acc) do
+    open_node(acc, scope, scope, %{
+      kind: :method,
+      label: {self, method, args},
+      constraints_in: constraints_in,
+      derived: nil,
+      parent: nil,
+      child_scopes: []
+    })
+  end
+
+  defp tree_step(
+         {:clause_call, scope, method_id, call_args, constraints_in},
+         {stack, nodes, aliases, roots} = acc
+       ) do
+    collapse? =
+      case stack do
+        [top | _] -> match?(%{kind: :method, child_scopes: []}, Map.get(nodes, top))
+        [] -> false
+      end
+
+    if collapse? do
+      [top | _] = stack
+      {[top | stack], nodes, Map.put(aliases, scope, top), roots}
+    else
+      open_node(acc, scope, scope, clause_node(method_id, call_args, constraints_in))
+    end
+  end
+
+  defp tree_step({tag, scope, derived}, {[_ | rest], nodes, aliases, roots})
+       when tag in [:method_exit, :clause_exit] do
+    resolved = Map.get(aliases, scope, scope)
+    nodes = Map.update!(nodes, resolved, &%{&1 | derived: derived})
+    {rest, nodes, aliases, roots}
+  end
+
+  defp tree_step({tag, scope}, {stack, nodes, aliases, roots})
+       when tag in [:method_redo, :clause_redo] do
+    resolved = Map.get(aliases, scope, scope)
+    nodes = Map.update!(nodes, resolved, &%{&1 | child_scopes: []})
+    {[resolved | stack], nodes, aliases, roots}
+  end
+
+  defp tree_step({tag, scope}, {[_ | rest], nodes, aliases, roots})
+       when tag in [:method_fail, :clause_fail] do
+    resolved = Map.get(aliases, scope, scope)
+    node = Map.fetch!(nodes, resolved)
+
+    {nodes, roots} =
+      case node.parent do
+        nil ->
+          {nodes, List.delete(roots, resolved)}
+
+        parent ->
+          nodes =
+            Map.update!(
+              nodes,
+              parent,
+              &%{&1 | child_scopes: List.delete(&1.child_scopes, resolved)}
+            )
+
+          {nodes, roots}
+      end
+
+    {rest, nodes, aliases, roots}
+  end
+
+  # A raw goal, `:backtrack`, `:flounder` (vm_trace was on) -- not part of
+  # the derivation tree at all, only `render/1`'s job.
+  defp tree_step(_other, acc), do: acc
+
+  # `push` is the resolved key to leave on `stack` for future children to
+  # parent under (always the node's own resolved key -- see tree_step's
+  # method_call/clause_call clauses for why this can differ from `scope`
+  # itself in the collapse case).
+  defp open_node({stack, nodes, aliases, roots}, scope, push, node) do
+    case stack do
+      [] ->
+        {[push | stack], Map.put(nodes, scope, node), aliases, [scope | roots]}
+
+      [parent | _] ->
+        nodes =
+          nodes
+          |> Map.update!(parent, &%{&1 | child_scopes: &1.child_scopes ++ [scope]})
+          |> Map.put(scope, %{node | parent: parent})
+
+        {[push | stack], nodes, aliases, roots}
+    end
+  end
+
+  defp clause_node(method_id, call_args, constraints_in) do
+    {self, args} =
+      case call_args do
+        [r | rest] -> {r, rest}
+        other -> {other, []}
+      end
+
+    %{
+      kind: :clause,
+      label: {self, method_id, args},
+      constraints_in: constraints_in,
+      derived: nil,
+      parent: nil,
+      child_scopes: []
+    }
+  end
+
+  defp materialize(scope, nodes) do
+    node = Map.fetch!(nodes, scope)
+
+    %{
+      kind: node.kind,
+      label: node.label,
+      constraints_in: node.constraints_in,
+      derived: node.derived,
+      children: Enum.map(node.child_scopes, &materialize(&1, nodes))
+    }
+  end
+
+  @spec render_tree([map()]) :: :ok
+  def render_tree(roots) do
+    count = length(roots)
+
+    roots
+    |> Enum.with_index(1)
+    |> Enum.each(fn {node, idx} -> render_tree_node(node, "", idx == count) end)
+
+    :ok
+  end
+
+  defp render_tree_node(node, prefix, last?) do
+    connector = if last?, do: "└─ ", else: "├─ "
+    {self, method, args} = node.label
+
+    IO.puts([
+      prefix,
+      connector,
+      tree_kind_label(node.kind),
+      inspect(pretty(self)),
+      " <- ",
+      inspect(pretty(method)),
+      "(",
+      args |> Enum.map(&inspect(pretty(&1))) |> Enum.join(", "),
+      ")",
+      tree_derived_suffix(node.derived)
+    ])
+
+    child_prefix = prefix <> if last?, do: "   ", else: "│  "
+    child_count = length(node.children)
+
+    node.children
+    |> Enum.with_index(1)
+    |> Enum.each(fn {child, idx} -> render_tree_node(child, child_prefix, idx == child_count) end)
+  end
+
+  defp tree_kind_label(:clause), do: "[clause] "
+  defp tree_kind_label(:method), do: ""
+
+  defp tree_derived_suffix(nil), do: ""
+  defp tree_derived_suffix(derived) when map_size(derived) == 0, do: ""
+  defp tree_derived_suffix(derived), do: [" => ", inspect(pretty(derived))]
 
   # Method-level `call/4`/`fail/3` only fire once a clause is actually applied
   # — nothing says *which candidate legs an unbound receiver had to try* to

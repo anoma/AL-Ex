@@ -12,7 +12,8 @@ defmodule AL do
   # A resolution cursor: Necessary for `call_next_method`
   @type cursor() :: {term(), atom(), [{term(), AL.Var.t()}], scope()}
 
-  @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | {:method_mark, scope()} | :implies_mark
+  @type stack_entry() ::
+          AL.Choicepoint.t() | {:mark, scope()} | {:method_mark, scope()} | :implies_mark
 
   typedstruct enforce: true do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
@@ -305,15 +306,28 @@ defmodule AL do
     do: %AL{state | domino: %AL.Domino{state.domino | trace: [event | state.domino.trace]}}
 
   defp put_scope(state, scope, info),
-    do: %AL{state | domino: %AL.Domino{state.domino | scopes: Map.put(state.domino.scopes, scope, info)}}
+    do: %AL{
+      state
+      | domino: %AL.Domino{state.domino | scopes: Map.put(state.domino.scopes, scope, info)}
+    }
 
   defp delete_scope(state, scope),
-    do: %AL{state | domino: %AL.Domino{state.domino | scopes: Map.delete(state.domino.scopes, scope)}}
+    do: %AL{
+      state
+      | domino: %AL.Domino{state.domino | scopes: Map.delete(state.domino.scopes, scope)}
+    }
 
   defp unmark_exited(state, scope) do
     case Map.get(state.domino.scopes, scope) do
       nil -> state
       info -> put_scope(state, scope, %{info | exited: false})
+    end
+  end
+
+  defp caller_scope_pointer(state) do
+    case Map.get(state.domino.scopes, state.active_choicepoint.scope_pointer) do
+      %{kind: :method, parent: parent} when parent != nil -> parent
+      _ -> state.active_choicepoint.scope_pointer
     end
   end
 
@@ -601,7 +615,7 @@ defmodule AL do
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
           done: state.active_choicepoint.done,
-          scope_pointer: state.active_choicepoint.scope_pointer
+          scope_pointer: caller_scope_pointer(state)
         }
 
         alternative_choicepoints =
@@ -645,12 +659,14 @@ defmodule AL do
         open = open_positions(call_positions(call_receiver, call_args), pre_store)
         parent = state.active_choicepoint.scope_pointer
 
-        state = trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
+        state =
+          trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
 
         state =
           state
           |> push_trace(
-            {:clause_call, scope, method_id_pattern, bind_head_pattern, describe_positions(open, pre_store)}
+            {:clause_call, scope, method_id_pattern, bind_head_pattern,
+             describe_positions(open, pre_store)}
           )
           |> put_scope(scope, %{parent: parent, kind: :clause, open_vars: open, exited: false})
 
@@ -1039,8 +1055,17 @@ defmodule AL do
   # Value dispatch leg: unify self directly against class's own clauses, no
   # construction/retrieval. Sound only when clause heads fully spec an
   # instance — not durable classes, which have real identity to retrieve.
-  def interp(%Goal.SendAsValue{class: class, object: self, method: method, args: args}, state),
-    do: AL.Dispatch.do_send_as(class, self, method, args, state, &backtrack/1)
+  def interp(
+        %Goal.SendAsValue{
+          class: class,
+          object: self,
+          method: method,
+          args: args,
+          method_scope: method_scope
+        },
+        state
+      ),
+      do: AL.Dispatch.do_send_as(class, self, method, args, method_scope, state, &backtrack/1)
 
   # Durable leg's placeholder entered: real scan_class/choicepoint expansion
   # happens now (see dispatch.ex).
@@ -1234,7 +1259,11 @@ defmodule AL do
       reason: {:resource_limit_exceeded, limit},
       failed_on: List.last(steps),
       trace: steps,
-      state: %AL{state | domino: %AL.Domino{state.domino | trace: raw_tail}, choicepoint_stack: []}
+      state: %AL{
+        state
+        | domino: %AL.Domino{state.domino | trace: raw_tail},
+          choicepoint_stack: []
+      }
     }
   end
 
@@ -1346,11 +1375,47 @@ defmodule AL do
       |> push_trace({:method_call, scope, self, method, args, describe_positions(open, store)})
       |> put_scope(scope, %{parent: parent, kind: :method, open_vars: open, exited: false})
 
-    state = %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: scope}}
+    state = %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: scope}
+    }
 
     wrapped_miss = fn s -> on_miss.(fail_scope(s, scope, :method_fail)) end
 
     {state, scope, wrapped_miss}
+  end
+
+  @spec wrap_clause_scope(t(), scope(), AL.Var.t(), AL.Var.t(), [AL.Var.t()], [AL.Goal.t()]) ::
+          {AL.Choicepoint.t(), t()}
+  def wrap_clause_scope(state, method_scope, receiver, method, args, goals) do
+    scope = fresh_scope()
+    store = state.active_choicepoint.store
+    open = open_positions(call_positions(receiver, args), store)
+
+    state = trace_port_call(state, :clause, scope, receiver, method, args)
+
+    state =
+      state
+      |> push_trace(
+        {:clause_call, scope, method, [receiver | args], describe_positions(open, store)}
+      )
+      |> put_scope(scope, %{parent: method_scope, kind: :clause, open_vars: open, exited: false})
+
+    continuation = %AL.Continuation{
+      goals: state.active_choicepoint.goals,
+      done: state.active_choicepoint.done,
+      scope_pointer: caller_scope_pointer(state)
+    }
+
+    choicepoint = %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: AL.splice_goals(state, goals),
+        continuations: [continuation | state.active_choicepoint.continuations],
+        done: [],
+        scope_pointer: scope
+    }
+
+    {choicepoint, state}
   end
 
   defp trace_port_call(state, level, scope, receiver, method, args) do
@@ -1366,7 +1431,8 @@ defmodule AL do
         state
         | domino: %AL.Domino{
             state.domino
-            | traced_calls: Map.put(state.domino.traced_calls, scope, {level, depth, receiver, method})
+            | traced_calls:
+                Map.put(state.domino.traced_calls, scope, {level, depth, receiver, method})
           }
       }
     else
@@ -1400,36 +1466,38 @@ defmodule AL do
     end
   end
 
-  # A clause-level box exits natively (this is called from continue/1's own
-  # continuation-pop). A method-level box has no continuation of its own to
-  # pop -- dispatch splices straight into the caller's frame -- so its Exit
-  # only exists by propagation: whenever the scope that just exited turns
-  # out to be some method-box's immediate spawn (its own `parent` field),
-  # that method-box exits too, recursively, for as long as the chain of
-  # parents keeps landing on method-scopes (a real clause-scope parent
-  # stops the walk -- that scope will trigger its own propagation
-  # independently, once it exits).
   defp mark_exited(state, scope) do
     case Map.get(state.domino.scopes, scope) do
       nil ->
         state
 
-      %{exited: true} ->
-        propagate_exit(state, scope)
-
-      %{kind: kind, open_vars: open} = info ->
+      %{kind: kind, open_vars: open, exited: already_exited?} = info ->
         tag = if kind == :method, do: :method_exit, else: :clause_exit
         derived = describe_positions(open, state.active_choicepoint.store)
 
-        state = trace_port_event(state, scope, :exit)
-
         state =
-          state
-          |> push_trace({tag, scope, derived})
-          |> put_scope(scope, %{info | exited: true})
+          if already_exited? do
+            update_trace_derived(state, tag, scope, derived)
+          else
+            state = trace_port_event(state, scope, :exit)
+
+            state
+            |> push_trace({tag, scope, derived})
+            |> put_scope(scope, %{info | exited: true})
+          end
 
         propagate_exit(state, scope)
     end
+  end
+
+  defp update_trace_derived(state, tag, scope, derived) do
+    trace =
+      Enum.map(state.domino.trace, fn
+        {^tag, ^scope, _old} -> {tag, scope, derived}
+        other -> other
+      end)
+
+    %AL{state | domino: %AL.Domino{state.domino | trace: trace}}
   end
 
   defp propagate_exit(state, scope) do
@@ -1468,7 +1536,10 @@ defmodule AL do
     state = state |> push_trace({tag, scope}) |> delete_scope(scope)
 
     if parent != nil and state.active_choicepoint.scope_pointer == scope do
-      %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: parent}}
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: parent}
+      }
     else
       state
     end

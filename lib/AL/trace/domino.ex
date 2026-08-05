@@ -44,7 +44,8 @@ defmodule AL.Domino do
   # means this call only narrowed it rather than fully deciding it. Redo/
   # Fail stay bare: nothing new is known at either of those points.
   @type domino_event() ::
-          {:method_call, scope(), term(), term(), [term()], %{optional(term()) => var_description()}}
+          {:method_call, scope(), term(), term(), [term()],
+           %{optional(term()) => var_description()}}
           | {:method_exit, scope(), %{optional(term()) => var_description()}}
           | {:method_redo | :method_fail, scope()}
           | {:clause_call, scope(), term(), [term()], %{optional(term()) => var_description()}}

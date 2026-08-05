@@ -309,6 +309,7 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:method, AL.Var.t())
     field(:args, AL.Var.t())
+    field(:method_scope, AL.scope())
   end
 
   # Internal, dispatch-only: the durable leg's placeholder — one choicepoint

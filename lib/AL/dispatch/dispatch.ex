@@ -39,9 +39,12 @@ defmodule AL.Dispatch do
 
         maybe_trace_dispatch(state, self, method, value_classes)
 
-        candidates =
-          Enum.map(value_classes, &generative_candidate(state, self, method, args, &1)) ++
-            [durable_placeholder(state, self, method, args)]
+        {generative_candidates, state} =
+          Enum.map_reduce(value_classes, state, fn class, acc_state ->
+            generative_candidate(acc_state, self, method, args, class, method_scope)
+          end)
+
+        candidates = generative_candidates ++ [durable_placeholder(state, self, method, args)]
 
         install_method_choicepoints(state, method_scope, candidates)
 
@@ -124,11 +127,19 @@ defmodule AL.Dispatch do
   # an Elixir-level branch decided up front. One Implies/IsVar fragment
   # covers both — for durable it's a no-op (the condition is already
   # settled), for generative it's the actual decision.
-  defp requery_goals(self, class, method, args) do
+  defp requery_goals(self, class, method, args, method_scope) do
     [
       %Goal.Implies{
         condition: [%Goal.IsVar{term: self}],
-        then: [%Goal.SendAsValue{class: class, object: self, method: method, args: args}],
+        then: [
+          %Goal.SendAsValue{
+            class: class,
+            object: self,
+            method: method,
+            args: args,
+            method_scope: method_scope
+          }
+        ],
         otherwise: [%Goal.SendQuery{object: self, method: method, args: args}]
       }
     ]
@@ -141,8 +152,21 @@ defmodule AL.Dispatch do
   # (bootstrap.ex) discards the scaffold, so self stays open for
   # send_as_value to unify against class's own clause heads directly (sound
   # only when clause heads fully spec an instance — super: :value opts in).
-  defp generative_candidate(state, self, method, args, class),
-    do: generative_choicepoint(state, self, class, requery_goals(self, class, method, args))
+  defp generative_candidate(state, self, method, args, class, method_scope) do
+    state =
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint
+            | store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
+          }
+      }
+
+    goals =
+      witness_goals(state, self, class) ++ requery_goals(self, class, method, args, method_scope)
+
+    AL.wrap_clause_scope(state, method_scope, self, method, args, goals)
+  end
 
   # Shared by generative_candidate/5 (a send's own generative leg) and
   # generative_witness/4 (Goal.Label's isa-fallback leg, below) -- both
@@ -306,7 +330,7 @@ defmodule AL.Dispatch do
     # `class` here is never actually read -- durable_choicepoint/4 unifies
     # self with a real, already-existing id before this ever runs, so the
     # IsVar check inside requery_goals/4 always takes the SendQuery branch.
-    requery = AL.splice_goals(state, requery_goals(self, self, method, args))
+    requery = AL.splice_goals(state, requery_goals(self, self, method, args, nil))
     known_isa = AL.Var.isa_of(state.active_choicepoint.store, self)
 
     candidates =
@@ -544,9 +568,7 @@ defmodule AL.Dispatch do
   # Like do_send, but scope chain is seeded from an explicit class, not
   # derived from self's shape (an unbound self has none to derive from).
   # self is constrained to class by the caller, not here.
-  def do_send_as(class, self, method, args, state, on_miss) do
-    {state, method_scope, on_miss} = AL.begin_method_scope(state, self, method, args, on_miss)
-
+  def do_send_as(class, self, method, args, method_scope, state, on_miss) do
     candidates =
       providers_for(class, method, state.branch, fn ->
         AL.Dispatch.MethodOrder.super_chain([class], state.branch, :dfs)
@@ -565,7 +587,15 @@ defmodule AL.Dispatch do
   def run_providers([], _self, _selector, _call_args, _method_scope, state, on_miss),
     do: on_miss.(state)
 
-  def run_providers([{_scope, id} | rest], self, selector, call_args, method_scope, state, on_miss) do
+  def run_providers(
+        [{_scope, id} | rest],
+        self,
+        selector,
+        call_args,
+        method_scope,
+        state,
+        on_miss
+      ) do
     if has_matching_clause?(id, call_args, state.active_choicepoint.store, state.branch) do
       state =
         if id in @primitive_methods,
