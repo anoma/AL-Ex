@@ -84,8 +84,9 @@ defmodule AL do
   - `oapply`: bidirectional — head-var bindings from the body flow back to caller.
   - `cut`: prunes choicepoints in call scope, not a Mnesia commit.
 
-  `heap: words` runs in a capped process, returns bindings only (state shares
-  heap structure; copying it out as a message would flatten it):
+  `heap: words` runs in a capped process, returns bindings plus the domino
+  event log under `%{domino: ...}` (the full state shares heap structure;
+  copying it out as a message would flatten it):
 
       AL.eval(goals, nil, branch, heap: 256_000_000)
   """
@@ -1134,9 +1135,10 @@ defmodule AL do
     end
   end
 
-  # Only bindings may leave the capped process, and a refusal's goal
-  # crosses as bounded text.
-  defp shed({:atomic, {bindings, _state}}), do: {:atomic, {bindings, nil}}
+  # Bindings and the domino trace leave the capped process; a refusal's
+  # goal crosses as bounded text.
+  defp shed({:atomic, {bindings, state}}),
+    do: {:atomic, {bindings, %{domino: %AL.Domino{trace: state.domino.trace}}}}
 
   defp shed({:aborted, %{failed_on: goal} = reason}) do
     {:aborted,

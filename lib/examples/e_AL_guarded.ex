@@ -12,9 +12,11 @@ defmodule Examples.ALGuarded do
     branch = AL.Branch.fork()
     goal = AL.ast_to_pattern(quote do: unify(x, 42))
 
-    {:atomic, {bindings, nil}} = AL.eval([goal], nil, branch, heap: 2_000_000)
+    {:atomic, {bindings, shed}} = AL.eval([goal], nil, branch, heap: 2_000_000)
 
     assert AL.Var.deref(bindings, :"$x") == 42
+    assert %{domino: %AL.Domino{trace: trace}} = shed
+    assert is_list(trace)
     AL.Branch.discard(branch)
     bindings
   end
