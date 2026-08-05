@@ -18,9 +18,9 @@ defmodule AL.Package.Euler do
       sum(candidates, sum)
     end
 
-    defmethod(:number, :euler_2, [limit, candidates, sum]) do
-      findall(candidate, [candidate <= limit, fibonacci(_x, candidate)], candidates)
-      sum(candidates, sum)
-    end
+    # defmethod(:number, :euler_2, [limit, candidates, sum]) do
+    #   findall(candidate, [candidate <= limit, fibonacci(_x, candidate)], candidates)
+    #   sum(candidates, sum)
+    # end
   end
 end

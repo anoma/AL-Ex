@@ -24,10 +24,19 @@ defmodule AL.Trace do
     Application.get_env(:al, :tracepoints, MapSet.new())
   end
 
-  @spec call(non_neg_integer(), term(), term(), [term()]) :: :ok
-  def call(depth, receiver, method, args) do
+  # Domino tracing model: two stacked Byrd boxes sharing an edge. `level` is `:method`
+  # (dispatch's own provider/candidate search) or `:clause` (which clause of
+  # the chosen provider runs) -- the same Call/Exit/Redo/Fail ports at both
+  # levels, just printed with a prefix so a traced line always says which
+  # box it's reporting on. These render exactly the port tuples already
+  # appended to `state.domino.trace` (see `AL.begin_method_scope/5`,
+  # `mark_exited/2`, `fail_scope/3` in `AL.ex`) -- no separate decision
+  # logic, just formatting.
+  @spec call(atom(), non_neg_integer(), term(), term(), [term()]) :: :ok
+  def call(level, depth, receiver, method, args) do
     IO.puts([
       String.duplicate("  ", depth),
+      level_label(level),
       "Call: ",
       inspect(pretty(receiver)),
       " <- ",
@@ -38,15 +47,99 @@ defmodule AL.Trace do
     ])
   end
 
-  @spec fail(non_neg_integer(), term(), term()) :: :ok
-  def fail(depth, receiver, method) do
+  @spec exit(atom(), non_neg_integer(), term(), term()) :: :ok
+  def exit(level, depth, receiver, method), do: port_line(level, depth, "Exit: ", receiver, method)
+
+  @spec redo(atom(), non_neg_integer(), term(), term()) :: :ok
+  def redo(level, depth, receiver, method), do: port_line(level, depth, "Redo: ", receiver, method)
+
+  @spec fail(atom(), non_neg_integer(), term(), term()) :: :ok
+  def fail(level, depth, receiver, method), do: port_line(level, depth, "Fail: ", receiver, method)
+
+  defp port_line(level, depth, tag, receiver, method) do
     IO.puts([
       String.duplicate("  ", depth),
-      "Fail: ",
+      level_label(level),
+      tag,
       inspect(pretty(receiver)),
       " ",
       inspect(pretty(method))
     ])
+  end
+
+  defp level_label(:method), do: "Method "
+  defp level_label(:clause), do: "Clause "
+
+  # Post-hoc readable rendering of a completed run's `trace` -- domino
+  # events always, a raw goal or `:backtrack`/`:flounder` interleaved in
+  # only when the run opted in (`run vm_trace: true do ... end`). One
+  # walk, one function: depth is reconstructed as it goes (Call opens a
+  # level, Exit/Fail closes it back to its own Call's depth, Redo doesn't
+  # change depth -- it's a sibling attempt, not a new level), and anything
+  # that isn't a domino tuple (a raw goal, `:backtrack`, `:flounder`) just
+  # prints inline at whatever depth the walk has reached so far -- no
+  # cross-referencing needed, it's already sitting next to the Call that's
+  # its context. `seen` remembers each open scope's receiver/method (only
+  # Call carries that -- Exit/Redo/Fail are just a scope id) so those can
+  # still print something meaningful instead of a bare scope number.
+  # `steps` is chronological (already `Enum.reverse`d, e.g. `reason.trace`
+  # from `format_failure/1`, or `state.domino.trace` on a success reversed
+  # by the caller).
+  @spec render([term()]) :: :ok
+  def render(steps) do
+    Enum.reduce(steps, {0, %{}}, &render_step/2)
+    :ok
+  end
+
+  defp render_step({:method_call, scope, self, method, args, constraints_in}, {depth, seen}) do
+    call(:method, depth, self, method, args)
+    print_vars(depth, constraints_in)
+    {depth + 1, Map.put(seen, scope, {self, method})}
+  end
+
+  defp render_step({:clause_call, scope, method_id, call_args, constraints_in}, {depth, seen}) do
+    {receiver, args} =
+      case call_args do
+        [r | rest] -> {r, rest}
+        other -> {other, []}
+      end
+
+    call(:clause, depth, receiver, method_id, args)
+    print_vars(depth, constraints_in)
+    {depth + 1, Map.put(seen, scope, {receiver, method_id})}
+  end
+
+  defp render_step({tag, scope, derived}, {depth, seen}) when tag in [:method_exit, :clause_exit] do
+    level = if tag == :method_exit, do: :method, else: :clause
+    {receiver, method} = Map.get(seen, scope, {nil, nil})
+    exit(level, depth - 1, receiver, method)
+    print_vars(depth - 1, derived)
+    {depth - 1, seen}
+  end
+
+  defp render_step({tag, scope}, {depth, seen}) when tag in [:method_redo, :clause_redo] do
+    level = if tag == :method_redo, do: :method, else: :clause
+    {receiver, method} = Map.get(seen, scope, {nil, nil})
+    redo(level, depth - 1, receiver, method)
+    {depth, seen}
+  end
+
+  defp render_step({tag, scope}, {depth, seen}) when tag in [:method_fail, :clause_fail] do
+    level = if tag == :method_fail, do: :method, else: :clause
+    {receiver, method} = Map.get(seen, scope, {nil, nil})
+    fail(level, depth - 1, receiver, method)
+    {depth - 1, seen}
+  end
+
+  defp render_step(entry, {depth, seen}) do
+    IO.puts([String.duplicate("  ", depth), inspect(entry)])
+    {depth, seen}
+  end
+
+  defp print_vars(_depth, descriptions) when map_size(descriptions) == 0, do: :ok
+
+  defp print_vars(depth, descriptions) do
+    IO.puts([String.duplicate("  ", depth + 1), inspect(descriptions)])
   end
 
   # Method-level `call/4`/`fail/3` only fire once a clause is actually applied

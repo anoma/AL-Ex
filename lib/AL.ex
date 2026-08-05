@@ -3,29 +3,23 @@ defmodule AL do
   I am the top-level interpreter for AL
 
   I define the state of an AL program
-
-  active_choicepoint: Current choicepoint under execution
-  choicepoint_stack: Stack of most recent choicepoints discovered (thus reflecting DFS)
   """
   use TypedStruct
   alias AL.Goal
 
   @type scope() :: non_neg_integer()
 
-  # A resolution cursor: the receiver, the selector it was dispatched under, and
-  # the providers left to try — what `call_next_method` walks.
-  @type cursor() :: {term(), atom(), [{term(), AL.Var.t()}]}
+  # A resolution cursor: Necessary for `call_next_method`
+  @type cursor() :: {term(), atom(), [{term(), AL.Var.t()}], scope()}
 
-  @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | :implies_mark
+  @type stack_entry() :: AL.Choicepoint.t() | {:mark, scope()} | {:method_mark, scope()} | :implies_mark
 
   typedstruct enforce: true do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
     field(:choicepoint_stack, [stack_entry()], default: [])
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
-    field(:trace, [AL.Goal.t()], enforce: true, default: [])
+    field(:domino, AL.Domino.t(), default: %AL.Domino{})
     field(:program, [AL.Goal.t()], enforce: true, default: [])
-    field(:tracepoints, MapSet.t(), enforce: true, default: %MapSet{})
-    field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
     field(:call_cursors, %{optional(scope()) => cursor()}, default: %{})
     field(:pending_cursor, cursor() | nil, default: nil)
     field(:diagnostics, [term()], default: [])
@@ -51,7 +45,11 @@ defmodule AL do
 
   @doc """
   I provide the DSL for the AL interpreter. I run against the live branch by
-  default; `run branch: s do ... end` runs against branch `s` (e.g. a `fork`).
+  default; `run branch: s do ... end` runs against branch `s` (e.g. a
+  `fork`). `run vm_trace: true do ... end` additionally interleaves the raw
+  goal-by-goal trail into `state.domino.trace` (off by default — one entry
+  per reduction, most callers only want the always-on domino events
+  `state.domino.trace` already carries).
   """
   defmacro run(opts \\ [], do: program) do
     goals =
@@ -61,12 +59,16 @@ defmodule AL do
       end
 
     escaped = Macro.escape(goals, unquote: true)
+    vm_trace? = Keyword.get(opts, :vm_trace, false)
 
-    if Keyword.has_key?(opts, :branch) do
-      quote do: AL.eval(unquote(escaped), nil, %AL.Branch{id: unquote(opts[:branch])})
-    else
-      quote do: AL.eval(unquote(escaped), nil, AL.Branch.head())
-    end
+    branch_ast =
+      if Keyword.has_key?(opts, :branch) do
+        quote do: %AL.Branch{id: unquote(opts[:branch])}
+      else
+        quote do: AL.Branch.head()
+      end
+
+    quote do: AL.eval(unquote(escaped), nil, unquote(branch_ast), vm_trace: unquote(vm_trace?))
   end
 
   @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
@@ -106,9 +108,10 @@ defmodule AL do
     end
   end
 
-  def eval(program, initial_store, branch, _opts) do
+  def eval(program, initial_store, branch, opts) do
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
+    vm_trace? = Keyword.get(opts, :vm_trace, false)
 
     :mnesia.transaction(fn ->
       tx_id = AL.Command.system_time(branch)
@@ -125,9 +128,8 @@ defmodule AL do
           choicepoint_stack: [{:mark, 0}],
           tx_id: tx_id,
           branch: branch,
-          trace: [],
-          program: program,
-          tracepoints: AL.Trace.tracepoints()
+          domino: %AL.Domino{vm_trace_enabled?: vm_trace?, tracepoints: AL.Trace.tracepoints()},
+          program: program
         })
 
       if result.active_choicepoint.store == nil do
@@ -252,6 +254,69 @@ defmodule AL do
   defp maybe_put_domain(map, domain),
     do: Map.put(map, :domain, Enum.sort(MapSet.to_list(domain)))
 
+  # A domino Call/Exit's "what's known about this position" -- reuses the
+  # exact same constraint_set/summarize_constraints machinery
+  # format_output_vars/2 already uses for `$constraints`, just per-var
+  # rather than across a whole result map. `{:bound, v}` for a term with no
+  # open vars left (subst'd as far as the given store can take it --
+  # covers a compound arg like a constructed map, not just a bare var);
+  # `{:open, summary}` (possibly `%{}`, meaning genuinely unconstrained)
+  # for a term that's still an open var at top level.
+  defp describe_var(term, store) do
+    resolved = AL.Var.deref(store, term)
+
+    if AL.Var.var?(resolved) do
+      constraints =
+        case AL.Var.constraint_set(store, resolved) do
+          %AL.Var.ConstraintSet{} = set -> summarize_constraints(resolved, set)
+          _ -> %{}
+        end
+
+      {:open, constraints}
+    else
+      {:bound, AL.Var.subst(term, store)}
+    end
+  end
+
+  # `self`, plus each top-level element of `args` -- *not* `[self | args]`
+  # itself, since `args` isn't always a proper list: `send([], :concat, z)`
+  # is valid AL (z stays open, letting :list's own clause heads decompose
+  # it), and `[self | z]` for an open var z is an *improper* list Enum.*
+  # can't walk. When args isn't a list, it's one position in its own
+  # right instead of a spine to walk.
+  defp call_positions(self, args) when is_list(args), do: [self | args]
+  defp call_positions(self, args), do: [self, args]
+
+  # Only the positions still open at `store`-time are worth describing at
+  # all -- a ground term is already fully legible sitting in the Call's own
+  # `self`/`args`, no separate entry needed. Returns the *terms* (not their
+  # descriptions) that qualify, so the caller can remember exactly which
+  # ones to re-describe later, at Exit, against a different store.
+  defp open_positions(terms, store) do
+    Enum.filter(terms, fn t -> AL.Var.var?(AL.Var.deref(store, t)) end)
+  end
+
+  defp describe_positions(vars, store), do: Map.new(vars, fn v -> {v, describe_var(v, store)} end)
+
+  # Small helpers so every domino/vm_trace call site reads/writes
+  # `state.domino.*` through one line instead of a nested struct update --
+  # see AL.Domino's moduledoc for why these 5 fields live together.
+  defp push_trace(state, event),
+    do: %AL{state | domino: %AL.Domino{state.domino | trace: [event | state.domino.trace]}}
+
+  defp put_scope(state, scope, info),
+    do: %AL{state | domino: %AL.Domino{state.domino | scopes: Map.put(state.domino.scopes, scope, info)}}
+
+  defp delete_scope(state, scope),
+    do: %AL{state | domino: %AL.Domino{state.domino | scopes: Map.delete(state.domino.scopes, scope)}}
+
+  defp unmark_exited(state, scope) do
+    case Map.get(state.domino.scopes, scope) do
+      nil -> state
+      info -> put_scope(state, scope, %{info | exited: false})
+    end
+  end
+
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
     case state.choicepoint_stack do
@@ -265,19 +330,38 @@ defmodule AL do
         }
 
       [{:mark, f} | rest_choices] ->
-        backtrack(%AL{trace_fail(state, f) | choicepoint_stack: rest_choices})
+        backtrack(%AL{fail_scope(state, f, :clause_fail) | choicepoint_stack: rest_choices})
+
+      [{:method_mark, f} | rest_choices] ->
+        backtrack(%AL{fail_scope(state, f, :method_fail) | choicepoint_stack: rest_choices})
 
       [:implies_mark | rest_choices] ->
         backtrack(%AL{state | choicepoint_stack: rest_choices})
 
       [choice | rest_choices] ->
-        continue(%AL{
-          state
-          | active_choicepoint: choice,
-            choicepoint_stack: rest_choices,
-            trace: [:backtrack | state.trace]
-        })
+        redo? = match?(%{exited: true}, Map.get(state.domino.scopes, choice.scope_pointer))
+
+        state =
+          if redo? do
+            %{kind: level} = Map.get(state.domino.scopes, choice.scope_pointer)
+            tag = if level == :method, do: :method_redo, else: :clause_redo
+            state = trace_port_event(state, choice.scope_pointer, :redo)
+            push_trace(state, {tag, choice.scope_pointer})
+          else
+            state
+          end
+
+        state = log_vm_trace(state, :backtrack)
+        state = unmark_exited(state, choice.scope_pointer)
+
+        continue(%AL{state | active_choicepoint: choice, choicepoint_stack: rest_choices})
     end
+  end
+
+  defp log_vm_trace(state, entry) do
+    if state.domino.vm_trace_enabled?,
+      do: push_trace(state, entry),
+      else: state
   end
 
   @spec continue(t()) :: t() | nil
@@ -300,10 +384,11 @@ defmodule AL do
           if state.active_choicepoint.suspensions == %{} do
             state
           else
-            backtrack(%AL{state | trace: [:flounder | state.trace]})
+            backtrack(log_vm_trace(state, :flounder))
           end
         else
           [continuation | rest_continuations] = state.active_choicepoint.continuations
+          state = mark_exited(state, state.active_choicepoint.scope_pointer)
 
           continue(%AL{
             state
@@ -321,6 +406,7 @@ defmodule AL do
       true ->
         [raw | ahead] = state.active_choicepoint.goals
         goal = AL.Var.subst(raw, state.active_choicepoint.store)
+        state = log_vm_trace(state, goal)
 
         next_frame = %AL{
           state
@@ -329,7 +415,6 @@ defmodule AL do
               | goals: ahead,
                 done: [raw | state.active_choicepoint.done]
             },
-            trace: [goal | state.trace],
             reductions: state.reductions + 1
         }
 
@@ -502,8 +587,6 @@ defmodule AL do
   end
 
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
-    trace_info = trace_call(state, method_id_pattern, bind_head_pattern)
-
     case cached_scan_clauses(method_id_pattern, state.branch) do
       [] ->
         backtrack(state)
@@ -552,6 +635,25 @@ defmodule AL do
             state.branch
           )
 
+        {call_receiver, call_args} =
+          case bind_head_pattern do
+            [r | rest] -> {r, rest}
+            other -> {other, []}
+          end
+
+        pre_store = state.active_choicepoint.store
+        open = open_positions(call_positions(call_receiver, call_args), pre_store)
+        parent = state.active_choicepoint.scope_pointer
+
+        state = trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
+
+        state =
+          state
+          |> push_trace(
+            {:clause_call, scope, method_id_pattern, bind_head_pattern, describe_positions(open, pre_store)}
+          )
+          |> put_scope(scope, %{parent: parent, kind: :clause, open_vars: open, exited: false})
+
         %AL{
           state
           | active_choicepoint:
@@ -566,7 +668,6 @@ defmodule AL do
                 },
                 [{bind_head_pattern, method_id_pattern}]
               ),
-            traced_calls: record_traced_call(state.traced_calls, scope, trace_info),
             call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
             pending_cursor: nil,
             choicepoint_stack:
@@ -948,10 +1049,29 @@ defmodule AL do
 
   # Run the next provider of the same selector, from this frame's cursor. No cursor
   # (called outside a resolved method) or none left → fail.
+  # Reports against the *original* send's method_scope (carried in the
+  # cursor since AL.begin_method_scope/5 first opened it), not a fresh one
+  # -- this is still resolving the one original selector request, just
+  # explicitly asking for the next candidate rather than via backtracking.
+  # Not a strict Prolog Redo (nothing has necessarily Exited yet -- the
+  # calling clause is still mid-body), but the useful signal is the same:
+  # another provider is being tried under this method box.
   def interp(%Goal.CallNextMethod{self: self, args: args}, state) do
     case Map.get(state.call_cursors, state.active_choicepoint.scope_pointer) do
-      {_self, selector, remaining} ->
-        AL.Dispatch.run_providers(remaining, self, selector, [self | args], state, &backtrack/1)
+      {_self, selector, remaining, method_scope} ->
+        state = trace_port_event(state, method_scope, :redo)
+        state = push_trace(state, {:method_redo, method_scope})
+        on_miss = fn s -> backtrack(fail_scope(s, method_scope, :method_fail)) end
+
+        AL.Dispatch.run_providers(
+          remaining,
+          self,
+          selector,
+          [self | args],
+          method_scope,
+          state,
+          on_miss
+        )
 
       nil ->
         backtrack(state)
@@ -1052,9 +1172,8 @@ defmodule AL do
       choicepoint_stack: [],
       tx_id: tx_id,
       branch: branch,
-      trace: [],
-      program: condition,
-      tracepoints: AL.Trace.tracepoints()
+      domino: %AL.Domino{tracepoints: AL.Trace.tracepoints()},
+      program: condition
     }
 
     do_collect(continue(initial), [])
@@ -1093,15 +1212,19 @@ defmodule AL do
     }
   end
 
-  # Failure reason: unhandled DNU wins, else last goal reached. Trace strips
-  # :backtrack noise. Full state rides along (stripped for heap-capped eval,
-  # see shed/1).
+  # Failure reason: unhandled DNU wins, else last goal reached. `trace`
+  # always carries the domino call-tree; a run that opted in
+  # (`run vm_trace: true do ... end`) also has raw goals and `:backtrack`/
+  # `:flounder` interleaved into the same list, so `failed_on` names the
+  # exact goal when that's available and the coarser last domino event
+  # (which method/clause failed, not which sub-goal) otherwise. Full state
+  # rides along (stripped for heap-capped eval, see shed/1).
   #
-  # Resource-limit clause: trace/stack can be huge (one entry per reduction).
-  # Only builds the last 20 steps shown; drops choicepoint_stack (not
-  # inspectable at that scale anyway).
+  # Resource-limit clause: trace can be huge when vm_trace was on (one
+  # entry per reduction). Only builds the last 20 steps shown; drops
+  # choicepoint_stack (not inspectable at that scale anyway).
   defp format_failure(%AL{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state) do
-    raw_tail = last_raw_steps(state.trace, 20)
+    raw_tail = last_raw_steps(state.domino.trace, 20)
     steps = Enum.map(raw_tail, &AL.Trace.pretty/1)
 
     %{
@@ -1111,16 +1234,13 @@ defmodule AL do
       reason: {:resource_limit_exceeded, limit},
       failed_on: List.last(steps),
       trace: steps,
-      state: %AL{state | trace: raw_tail, choicepoint_stack: []}
+      state: %AL{state | domino: %AL.Domino{state.domino | trace: raw_tail}, choicepoint_stack: []}
     }
   end
 
   defp format_failure(state) do
-    steps =
-      state.trace
-      |> Enum.reverse()
-      |> Enum.reject(&(&1 == :backtrack))
-      |> Enum.map(&AL.Trace.pretty/1)
+    steps = state.domino.trace |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
+    failed_on = List.last(steps)
 
     case Enum.uniq(state.diagnostics) do
       [{receiver, selector, arity, suggestions} | _] ->
@@ -1136,7 +1256,7 @@ defmodule AL do
           message:
             "#{inspect(receiver)} does not understand #{inspect(selector)}/#{arity}." <> hint,
           reason: {:does_not_understand, receiver, selector, arity, suggestions},
-          failed_on: List.last(steps),
+          failed_on: failed_on,
           trace: steps,
           state: state
         }
@@ -1145,14 +1265,12 @@ defmodule AL do
         %{
           message: constraint_violation_message(violation),
           reason: {:constraint_violated, pretty_violation(violation)},
-          failed_on: List.last(steps),
+          failed_on: failed_on,
           trace: steps,
           state: state
         }
 
       [] ->
-        failed_on = List.last(steps)
-
         %{
           message: "Goal failed: #{inspect(failed_on)}",
           reason: {:goal_failed, failed_on},
@@ -1196,42 +1314,163 @@ defmodule AL do
   defp pretty_violation({:bounds, bounds}), do: {:bounds, bounds}
   defp pretty_violation({:domain, domain}), do: {:domain, MapSet.to_list(domain)}
 
-  defp trace_call(state, method_id, bind_head) do
-    {receiver, args} =
-      case bind_head do
-        [r | rest] -> {r, rest}
-        other -> {other, []}
-      end
-
-    traced? =
-      MapSet.member?(state.tracepoints, method_id) or
-        (method_id != :send and MapSet.member?(state.tracepoints, receiver))
-
-    if traced? do
-      depth = length(state.active_choicepoint.continuations)
-      AL.Trace.call(depth, receiver, method_id, args)
-      {depth, receiver, method_id}
-    end
-  end
-
   def fresh_scope(), do: System.unique_integer([:positive, :monotonic])
-
-  defp record_traced_call(traced_calls, _freshener, nil), do: traced_calls
-
-  defp record_traced_call(traced_calls, freshener, info),
-    do: Map.put(traced_calls, freshener, info)
 
   defp record_cursor(cursors, _scope, nil), do: cursors
   defp record_cursor(cursors, scope, cursor), do: Map.put(cursors, scope, cursor)
 
-  defp trace_fail(state, freshener) do
-    case Map.pop(state.traced_calls, freshener) do
-      {nil, _} ->
+  # Domino tracing model: opens a method-level box (dispatch's own
+  # provider/candidate search) wrapping whichever clause-level box the
+  # chosen provider eventually spawns. Retagging the *current*
+  # active_choicepoint's scope_pointer here (rather than only tagging
+  # newly-built candidate choicepoints) is what makes every choicepoint
+  # dispatch subsequently builds inherit `scope` for free -- they're all
+  # struct-copies of `state.active_choicepoint` (see dispatch.ex's
+  # `generative_choicepoint`/`durable_choicepoint`/`enumerate_selectors`),
+  # and the very next `OApply` (ground path) or candidate choicepoint (open
+  # receiver/selector path) captures this same value as its own parent link
+  # (`scope_parents`) either way -- no separate retagging pass needed in
+  # `AL.Dispatch` at all.
+  @spec begin_method_scope(t(), AL.Var.t(), AL.Var.t(), [AL.Var.t()], (t() -> t() | nil)) ::
+          {t(), scope(), (t() -> t() | nil)}
+  def begin_method_scope(state, self, method, args, on_miss) do
+    scope = fresh_scope()
+    parent = state.active_choicepoint.scope_pointer
+    store = state.active_choicepoint.store
+    open = open_positions(call_positions(self, args), store)
+
+    state = trace_port_call(state, :method, scope, self, method, args)
+
+    state =
+      state
+      |> push_trace({:method_call, scope, self, method, args, describe_positions(open, store)})
+      |> put_scope(scope, %{parent: parent, kind: :method, open_vars: open, exited: false})
+
+    state = %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: scope}}
+
+    wrapped_miss = fn s -> on_miss.(fail_scope(s, scope, :method_fail)) end
+
+    {state, scope, wrapped_miss}
+  end
+
+  defp trace_port_call(state, level, scope, receiver, method, args) do
+    traced? =
+      MapSet.member?(state.domino.tracepoints, method) or
+        MapSet.member?(state.domino.tracepoints, receiver)
+
+    if traced? do
+      depth = length(state.active_choicepoint.continuations)
+      AL.Trace.call(level, depth, receiver, method, args)
+
+      %AL{
+        state
+        | domino: %AL.Domino{
+            state.domino
+            | traced_calls: Map.put(state.domino.traced_calls, scope, {level, depth, receiver, method})
+          }
+      }
+    else
+      state
+    end
+  end
+
+  defp trace_port_event(state, scope, kind) do
+    case Map.get(state.domino.traced_calls, scope) do
+      nil ->
         state
 
-      {{depth, receiver, method}, rest} ->
-        AL.Trace.fail(depth, receiver, method)
-        %AL{state | traced_calls: rest}
+      {level, depth, receiver, method} ->
+        case kind do
+          :exit -> AL.Trace.exit(level, depth, receiver, method)
+          :redo -> AL.Trace.redo(level, depth, receiver, method)
+          :fail -> AL.Trace.fail(level, depth, receiver, method)
+        end
+
+        if kind == :fail do
+          %AL{
+            state
+            | domino: %AL.Domino{
+                state.domino
+                | traced_calls: Map.delete(state.domino.traced_calls, scope)
+              }
+          }
+        else
+          state
+        end
+    end
+  end
+
+  # A clause-level box exits natively (this is called from continue/1's own
+  # continuation-pop). A method-level box has no continuation of its own to
+  # pop -- dispatch splices straight into the caller's frame -- so its Exit
+  # only exists by propagation: whenever the scope that just exited turns
+  # out to be some method-box's immediate spawn (its own `parent` field),
+  # that method-box exits too, recursively, for as long as the chain of
+  # parents keeps landing on method-scopes (a real clause-scope parent
+  # stops the walk -- that scope will trigger its own propagation
+  # independently, once it exits).
+  defp mark_exited(state, scope) do
+    case Map.get(state.domino.scopes, scope) do
+      nil ->
+        state
+
+      %{exited: true} ->
+        propagate_exit(state, scope)
+
+      %{kind: kind, open_vars: open} = info ->
+        tag = if kind == :method, do: :method_exit, else: :clause_exit
+        derived = describe_positions(open, state.active_choicepoint.store)
+
+        state = trace_port_event(state, scope, :exit)
+
+        state =
+          state
+          |> push_trace({tag, scope, derived})
+          |> put_scope(scope, %{info | exited: true})
+
+        propagate_exit(state, scope)
+    end
+  end
+
+  defp propagate_exit(state, scope) do
+    case Map.get(state.domino.scopes, scope) do
+      %{parent: parent} when parent != nil ->
+        case Map.get(state.domino.scopes, parent) do
+          %{kind: :method} -> mark_exited(state, parent)
+          _ -> state
+        end
+
+      _ ->
+        state
+    end
+  end
+
+  # Shared Fail cleanup for both port levels: `{:mark, f}`/`{:method_mark,
+  # f}` in backtrack/1, and a ground send's on_miss (wrapped by
+  # begin_method_scope/5) when no provider matches at all. Deletes the
+  # scope's bookkeeping entirely -- a long backtracking search would
+  # otherwise grow `domino.scopes` without limit. Restores
+  # active_choicepoint's scope_pointer to the failed scope's own parent when
+  # it's still the current one (true for the ground on_miss case, where
+  # nothing has retagged it since begin_method_scope set it; a no-op for the
+  # mark-popping cases, where active_choicepoint has already moved on to
+  # some other, unrelated failed attempt) -- otherwise a DNU redispatch
+  # right after would record its parent link against a scope that's already
+  # been deleted, breaking mark_exited/2's upward walk.
+  defp fail_scope(state, scope, tag) do
+    parent =
+      case Map.get(state.domino.scopes, scope) do
+        nil -> nil
+        info -> info.parent
+      end
+
+    state = trace_port_event(state, scope, :fail)
+    state = state |> push_trace({tag, scope}) |> delete_scope(scope)
+
+    if parent != nil and state.active_choicepoint.scope_pointer == scope do
+      %AL{state | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: parent}}
+    else
+      state
     end
   end
 
@@ -1505,17 +1744,7 @@ defmodule AL do
               AL.Dispatch.class_domain_choicepoints(state, v, object_var)
           end
 
-        case choicepoints do
-          [] ->
-            backtrack(state)
-
-          [first | rest] ->
-            %AL{
-              state
-              | active_choicepoint: first,
-                choicepoint_stack: rest ++ state.choicepoint_stack
-            }
-        end
+        AL.Dispatch.install_choicepoints(state, choicepoints)
     end
   end
 

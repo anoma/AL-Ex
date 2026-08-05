@@ -25,6 +25,8 @@ defmodule AL.Dispatch do
   # the hole, re-dispatch as a query (misses backtrack, not DNU). Only a fully ground
   # send is directed and uses `on_miss`. `:"$_"` is the wildcard, not a hole.
   def dispatch(self, method, args, state, on_miss) do
+    {state, method_scope, on_miss} = AL.begin_method_scope(state, self, method, args, on_miss)
+
     cond do
       AL.Var.var?(self) and self != :"$_" ->
         known_isa = AL.Var.isa_of(state.active_choicepoint.store, self)
@@ -37,16 +39,17 @@ defmodule AL.Dispatch do
 
         maybe_trace_dispatch(state, self, method, value_classes)
 
-        state
-        |> splice_into([%Goal.Fail{}])
-        |> push_choicepoint(durable_placeholder(state, self, method, args))
-        |> push_candidates(state, self, method, args, value_classes)
+        candidates =
+          Enum.map(value_classes, &generative_candidate(state, self, method, args, &1)) ++
+            [durable_placeholder(state, self, method, args)]
+
+        install_method_choicepoints(state, method_scope, candidates)
 
       AL.Var.var?(method) and method != :"$_" ->
-        enumerate_selectors(self, method, args, state)
+        enumerate_selectors(self, method, args, state, method_scope)
 
       true ->
-        do_send(self, method, args, state, on_miss)
+        do_send(self, method, args, method_scope, state, on_miss)
     end
   end
 
@@ -90,20 +93,23 @@ defmodule AL.Dispatch do
   # method must be ground to check tracepoints — a var selector has nothing
   # to look up yet.
   defp maybe_trace_dispatch(state, self, method, value_classes) do
-    if not AL.Var.var?(method) and MapSet.member?(state.tracepoints, method) do
+    if not AL.Var.var?(method) and MapSet.member?(state.domino.tracepoints, method) do
       AL.Trace.dispatch(self, method, value_classes)
     end
   end
 
-  # Offers self = shape as one hypothesis, re-querying once grounded. Used
-  # by the durable leg to wrap each real object as a candidate (shape = a
-  # concrete id there).
-  defp structural_candidate(state, requery_goals, self, shape) do
+  # Offers self = shape as one hypothesis, re-querying once grounded. Shared
+  # by force_durable_candidates/4 (a send's own durable leg, wrapping each
+  # real object as a candidate) and durable_witness/5 (Goal.Label's
+  # isa-fallback leg, below) -- both eagerly unify self against a concrete
+  # shape (a real object id either way), differing only in what goals run
+  # afterward.
+  defp durable_choicepoint(state, self, shape, goals) do
     new_store = AL.Var.unify(self, shape, state.active_choicepoint.store, state.branch)
 
     %AL.Choicepoint{
       state.active_choicepoint
-      | goals: requery_goals,
+      | goals: goals,
         store: new_store
     }
   end
@@ -135,18 +141,23 @@ defmodule AL.Dispatch do
   # (bootstrap.ex) discards the scaffold, so self stays open for
   # send_as_value to unify against class's own clause heads directly (sound
   # only when clause heads fully spec an instance — super: :value opts in).
-  defp generative_candidate(state, self, method, args, class) do
-    goals = AL.splice_goals(state, strategy_goals(state, self, method, args, class))
+  defp generative_candidate(state, self, method, args, class),
+    do: generative_choicepoint(state, self, class, requery_goals(self, class, method, args))
+
+  # Shared by generative_candidate/5 (a send's own generative leg) and
+  # generative_witness/4 (Goal.Label's isa-fallback leg, below) -- both
+  # construct a fresh instance via witness_goals/3 and attach isa at
+  # construction, differing only in what extra goals run afterward (a
+  # requery for the send's own method, vs pending-link unifications for a
+  # bare label with no selector in hand).
+  defp generative_choicepoint(state, self, class, extra_goals) do
+    goals = AL.splice_goals(state, witness_goals(state, self, class) ++ extra_goals)
 
     %AL.Choicepoint{
       state.active_choicepoint
       | goals: goals,
         store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
     }
-  end
-
-  defp strategy_goals(state, self, method, args, class) do
-    witness_goals(state, self, class) ++ requery_goals(self, class, method, args)
   end
 
   # The part of `generative_candidate/5` that has nothing to do with which
@@ -227,26 +238,14 @@ defmodule AL.Dispatch do
 
   defp generative_witness(state, self, class, pending_links) do
     extra = Enum.map(pending_links, &%Goal.Unify{a: &1, b: class})
-    goals = AL.splice_goals(state, witness_goals(state, self, class) ++ extra)
-
-    %AL.Choicepoint{
-      state.active_choicepoint
-      | goals: goals,
-        store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
-    }
+    generative_choicepoint(state, self, class, extra)
   end
 
   # No requery, no method -- self is already unified to a real object, so
   # there's nothing left to run beyond any pending links.
   defp durable_witness(state, self, object, class, pending_links) do
-    new_store = AL.Var.unify(self, object, state.active_choicepoint.store, state.branch)
     extra = Enum.map(pending_links, &%Goal.Unify{a: &1, b: class})
-
-    %AL.Choicepoint{
-      state.active_choicepoint
-      | goals: AL.splice_goals(state, extra),
-        store: new_store
-    }
+    durable_choicepoint(state, self, object, AL.splice_goals(state, extra))
   end
 
   # The class slot (`{:object_link, x}`, posted on the *class* position of a
@@ -287,15 +286,6 @@ defmodule AL.Dispatch do
     %AL.Choicepoint{state.active_choicepoint | goals: goals}
   end
 
-  # Choicepoint stack is LIFO — last pushed, first tried — so `classes` is
-  # reversed to preserve its given order as try-order. `generative_descendants/1`
-  # itself carries no cross-class ordering guarantee (see its own comment).
-  defp push_candidates(state, orig_state, self, method, args, classes) do
-    Enum.reduce(Enum.reverse(classes), state, fn class, acc ->
-      push_choicepoint(acc, generative_candidate(orig_state, self, method, args, class))
-    end)
-  end
-
   # Deferred durable candidates. Scanning every durable object of a matching
   # class (`durable_candidates/2`) and building a choicepoint per one is real,
   # immediate work — a full table read — done whether or not backtracking ever
@@ -313,33 +303,62 @@ defmodule AL.Dispatch do
 
   @spec force_durable_candidates(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.t()) :: AL.t()
   def force_durable_candidates(self, method, args, state) do
-    # `class` here is never actually read -- structural_candidate/4 unifies
+    # `class` here is never actually read -- durable_choicepoint/4 unifies
     # self with a real, already-existing id before this ever runs, so the
     # IsVar check inside requery_goals/4 always takes the SendQuery branch.
     requery = AL.splice_goals(state, requery_goals(self, self, method, args))
+    known_isa = AL.Var.isa_of(state.active_choicepoint.store, self)
 
     candidates =
       state.branch
-      |> durable_candidates(method)
-      |> Enum.map(&structural_candidate(state, requery, self, &1))
+      |> durable_candidates(method, known_isa)
+      |> Enum.map(&durable_choicepoint(state, self, &1, requery))
       |> Enum.reject(&(&1.store == nil))
 
-    case candidates do
-      [] ->
-        AL.backtrack(state)
-
-      [first | rest] ->
-        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
-    end
+    install_choicepoints(state, candidates)
   end
 
-  defp durable_candidates(branch, method) do
+  defp durable_candidates(branch, method, known_isa) do
     branch
-    |> durable_classes()
+    |> durable_object_class_pairs(known_isa)
     |> Enum.filter(fn {_object, classes} ->
       AL.Var.var?(method) or Enum.any?(classes, &answers_selector?(&1, method, branch))
     end)
     |> Enum.map(fn {object, _classes} -> object end)
+  end
+
+  # `known_isa` empty -- the common case, most sends have no isa constraint
+  # posted on self before they dispatch -- means the same full, cached scan
+  # as always. Non-empty: narrow to one indexed scan_class call per class in
+  # the isa domain's *descendant* closure (isa is transitive, so a durable
+  # object classed :dog still satisfies isa: [:animal]) instead of reading
+  # every class row in the table and relying on the later bind-time isa
+  # check alone to reject the ones that don't apply. `resolved_isa_class?/1`
+  # (below) excludes anything not yet a real class atom (a still-open
+  # pending-link var, or an `{:object_link, _}` marker) the same way
+  # `isa_conflict?/3` already has to.
+  defp durable_object_class_pairs(branch, known_isa) do
+    case Enum.filter(known_isa, &resolved_isa_class?/1) do
+      [] ->
+        durable_classes(branch)
+
+      classes ->
+        classes
+        |> Enum.flat_map(&AL.Dispatch.MethodOrder.descendants_of(&1, branch))
+        |> Enum.uniq()
+        |> Enum.flat_map(fn class ->
+          AL.Object.scan_class(
+            AL.Var.var("durable_narrow_scan_#{AL.fresh_scope()}"),
+            class,
+            branch
+          )
+        end)
+        |> Enum.group_by(
+          fn {:class, object, _seq, _class} -> object end,
+          fn {:class, _o, _seq, class} -> class end
+        )
+        |> Map.to_list()
+    end
   end
 
   # Every {object, classes} pair with a durable class row. Unbound self/class scan
@@ -434,25 +453,55 @@ defmodule AL.Dispatch do
         do: self_pattern
   end
 
-  defp push_choicepoint(state, choicepoint),
-    do: %AL{state | choicepoint_stack: [choicepoint | state.choicepoint_stack]}
+  # Shared "first candidate becomes active, the rest queue up behind it"
+  # idiom for installing N already-built choicepoint alternatives -- used by
+  # both dispatch legs (via dispatch/5 and force_durable_candidates/4) and
+  # by Goal.Label's isa fallback (label_from_class_domain/3, AL.ex), so
+  # there's exactly one way this happens anywhere in the codebase. Order is
+  # try-order: `candidates`' own order is preserved (the first element is
+  # tried first), not reversed -- unlike a LIFO push loop, this sets the
+  # whole stack in one assignment, so there's no double-reversal to reason
+  # about.
+  @spec install_choicepoints(AL.t(), [AL.Choicepoint.t()]) :: AL.t()
+  def install_choicepoints(state, candidates) do
+    case candidates do
+      [] ->
+        AL.backtrack(state)
 
-  defp splice_into(state, goals) do
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | goals: AL.splice_goals(state, goals)
-        }
-    }
+      [first | rest] ->
+        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
+    end
+  end
+
+  # Same idiom, but for a method-level (dispatch) candidate set rather than
+  # a plain choicepoint list: appends `{:method_mark, method_scope}` below
+  # every candidate, so backtrack/1 can tell "every provider for this send
+  # exhausted" apart from "every alternative some unrelated caller pushed
+  # exhausted" -- exactly what `{:mark, scope}` already does one level down,
+  # for clauses. No retagging needed here: every candidate a caller passes
+  # in is itself a struct-copy of `state.active_choicepoint`
+  # (`generative_choicepoint`/`durable_choicepoint`/`enumerate_selectors`'s
+  # own candidate builder), and `AL.begin_method_scope/5` already retagged
+  # *that* to `method_scope` before any of them were built.
+  @spec install_method_choicepoints(AL.t(), AL.scope(), [AL.Choicepoint.t()]) :: AL.t()
+  def install_method_choicepoints(state, method_scope, candidates) do
+    marked_stack = [{:method_mark, method_scope} | state.choicepoint_stack]
+
+    case candidates do
+      [] ->
+        AL.backtrack(%AL{state | choicepoint_stack: marked_stack})
+
+      [first | rest] ->
+        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ marked_stack}
+    end
   end
 
   # Bind the selector to each method `self` understands and re-dispatch as a query;
   # the call's arg shape selects which match.
-  defp enumerate_selectors(self, method, args, state) do
+  defp enumerate_selectors(self, method, args, state, method_scope) do
     case understood_method_names(self, state.branch) do
       [] ->
-        AL.backtrack(state)
+        install_method_choicepoints(state, method_scope, [])
 
       names ->
         spliced =
@@ -467,13 +516,7 @@ defmodule AL.Dispatch do
           )
         end
 
-        [first | rest] = names
-
-        %AL{
-          state
-          | active_choicepoint: candidate.(first),
-            choicepoint_stack: Enum.map(rest, candidate) ++ state.choicepoint_stack
-        }
+        install_method_choicepoints(state, method_scope, Enum.map(names, candidate))
     end
   end
 
@@ -486,13 +529,14 @@ defmodule AL.Dispatch do
     |> Enum.uniq()
   end
 
-  defp do_send(self, method, args, state, on_miss),
+  defp do_send(self, method, args, method_scope, state, on_miss),
     do:
       run_providers(
         providers(self, method, state.branch),
         self,
         method,
         [self | args],
+        method_scope,
         state,
         on_miss
       )
@@ -501,25 +545,32 @@ defmodule AL.Dispatch do
   # derived from self's shape (an unbound self has none to derive from).
   # self is constrained to class by the caller, not here.
   def do_send_as(class, self, method, args, state, on_miss) do
+    {state, method_scope, on_miss} = AL.begin_method_scope(state, self, method, args, on_miss)
+
     candidates =
       providers_for(class, method, state.branch, fn ->
         AL.Dispatch.MethodOrder.super_chain([class], state.branch, :dfs)
       end)
 
-    run_providers(candidates, self, method, [self | args], state, on_miss)
+    run_providers(candidates, self, method, [self | args], method_scope, state, on_miss)
   end
 
-  # Run the first provider whose clause fits, stashing the rest as a cursor for
-  # `call_next_method`. First match wins (a clause mismatch stays a miss). Primitives
-  # make no frame, so carry no cursor.
-  def run_providers([], _self, _selector, _call_args, state, on_miss), do: on_miss.(state)
+  # Run the first provider whose clause fits, stashing the rest -- plus the
+  # method_scope of the send that started this whole resolution -- as a
+  # cursor for `call_next_method` (AL.ex) to resume from, so a later
+  # explicit next-provider request still reports against the *original*
+  # method-level box rather than opening a fresh one. First match wins (a
+  # clause mismatch stays a miss). Primitives make no frame, so carry no
+  # cursor.
+  def run_providers([], _self, _selector, _call_args, _method_scope, state, on_miss),
+    do: on_miss.(state)
 
-  def run_providers([{_scope, id} | rest], self, selector, call_args, state, on_miss) do
+  def run_providers([{_scope, id} | rest], self, selector, call_args, method_scope, state, on_miss) do
     if has_matching_clause?(id, call_args, state.active_choicepoint.store, state.branch) do
       state =
         if id in @primitive_methods,
           do: state,
-          else: %AL{state | pending_cursor: {self, selector, rest}}
+          else: %AL{state | pending_cursor: {self, selector, rest, method_scope}}
 
       AL.interp(%Goal.OApply{method_id: id, args: call_args}, state)
     else

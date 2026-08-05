@@ -37,6 +37,37 @@ defmodule AL.Dispatch.MethodOrder do
     kahn(ready, edges, in_degree, strategy, [])
   end
 
+  # The reverse of super_chain/3: that walks UP from an instance/class to
+  # its ancestors, this walks DOWN from an ancestor to every class that has
+  # it somewhere in *its own* super chain. Includes `class` itself. Needed
+  # wherever an isa constraint (transitive by definition -- a durable
+  # object classed :dog still satisfies isa: [:animal]) has to become a
+  # concrete set of classes to search, rather than a single equality check.
+  # No ordering guarantee (unlike super_chain, nothing consumes this as a
+  # resolution order) and no dispatch_strategy involved -- this is a plain
+  # membership/enumeration question, not a try-order one.
+  @spec descendants_of(atom(), AL.Branch.t()) :: [atom()]
+  def descendants_of(class, branch), do: descendants_of([class], branch, MapSet.new())
+
+  defp descendants_of([], _branch, seen), do: MapSet.to_list(seen)
+
+  defp descendants_of([class | rest], branch, seen) do
+    if MapSet.member?(seen, class) do
+      descendants_of(rest, branch, seen)
+    else
+      children =
+        for {:super, child, _seq, ^class} <-
+              AL.Object.scan_super(
+                AL.Var.var("descendant_scan_#{AL.fresh_scope()}"),
+                class,
+                branch
+              ),
+            do: child
+
+      descendants_of(children ++ rest, branch, MapSet.put(seen, class))
+    end
+  end
+
   # The strategy is decided once, from the receiver's own immediate classes — a
   # direct slot read, never a search up the hierarchy — and then applied to the
   # whole traversal below. Defaults to `:dfs` if unset or there's no class.

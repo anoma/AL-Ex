@@ -338,6 +338,42 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
+  # Isa is transitive: the only durable object here is classed as a
+  # *descendant* of the isa-constrained class, not the class itself. `x`
+  # stays open through `class/2` (no generative candidate answers this
+  # selector at all, so dispatch falls straight to the durable leg),
+  # forcing `force_durable_candidates/4`'s isa-narrowed scan
+  # (`durable_object_class_pairs/2`, which restricts the table read to the
+  # known isa domain's descendant closure rather than scanning every class
+  # row) -- finding the child-classed object proves that narrowing doesn't
+  # miss a legitimate candidate the way a naive "scan for exactly this
+  # class" narrowing would.
+  example dispatch_finds_a_durable_witness_classed_as_a_descendant_of_a_known_isa() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :isa_descendant_parent, super: :object, ivars: [] do
+          defmethod(:isa_descendant_probe, [self, :hit])
+        end
+
+        defclass :isa_descendant_child, super: :isa_descendant_parent, ivars: [] do
+        end
+
+        new(:isa_descendant_child, %{}, obj)
+      end
+
+    obj = Map.get(bindings, :"$obj")
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        class(x, :isa_descendant_parent)
+        isa_descendant_probe(x, r)
+      end
+
+    assert Map.get(bindings, :"$x") == obj
+    assert Map.get(bindings, :"$r") == :hit
+    :ok
+  end
+
   # No generative descendant and no durable object satisfy the isa -- fails
   # exactly like an unbounded numeric domain always has, not a crash.
   example labeling_an_isa_with_no_witness_fails() do
