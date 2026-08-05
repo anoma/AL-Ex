@@ -1,4 +1,4 @@
-defmodule AL.Relations do
+defmodule AL.Interp.Relations do
   @moduledoc """
   I resolve the relational read goals — `GetClass`/`GetSuper`/`GetMethod`/
   `GetOapply`/`GetSlots` — against `AL.Object`'s projection, each pushing one

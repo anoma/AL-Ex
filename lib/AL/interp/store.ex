@@ -1,4 +1,4 @@
-defmodule AL.Store do
+defmodule AL.Interp.Store do
   @moduledoc """
   I apply object-mutation goals — `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/
   `SetSlots` and their five `Retract*` counterparts — writing both the durable

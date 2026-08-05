@@ -443,7 +443,7 @@ defmodule AL do
 
   defp store(state), do: state.active_choicepoint.store
 
-  # def not defp: AL.Relations/AL.Dispatch use this too (branch threading for
+  # def not defp: AL.Interp.Relations/AL.Dispatch use this too (branch threading for
   # isa, see AL.Var.bind/4, stays invisible at call sites).
   @spec unify(t(), AL.Var.t(), AL.Var.t()) :: AL.Var.store() | nil
   def unify(state, x, y), do: AL.Var.unify(x, y, store(state), state.branch)
@@ -511,7 +511,7 @@ defmodule AL do
   end
 
   # alts -> choicepoints via to_bindings; first = current path, empty = fail.
-  # def not defp: AL.Relations builds every read goal on this.
+  # def not defp: AL.Interp.Relations builds every read goal on this.
   def fan_out(state, alts, to_bindings) do
     base = state.active_choicepoint
 
@@ -534,10 +534,10 @@ defmodule AL do
   end
 
   @spec interp(AL.Goal.t(), t()) :: t() | nil
-  def interp(%Goal.GetClass{} = g, state), do: AL.Relations.interp(g, state)
-  def interp(%Goal.GetSuper{} = g, state), do: AL.Relations.interp(g, state)
-  def interp(%Goal.GetMethod{} = g, state), do: AL.Relations.interp(g, state)
-  def interp(%Goal.GetOapply{} = g, state), do: AL.Relations.interp(g, state)
+  def interp(%Goal.GetClass{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
   def interp(%Goal.OApply{method_id: :fresh_id, args: [result]}, state),
     do: put_bindings(state, unify(state, result, AL.Command.fresh_id(state.branch)), [result])
@@ -676,26 +676,26 @@ defmodule AL do
     end
   end
 
-  def interp(%Goal.Cut{} = g, state), do: AL.ControlFlow.interp(g, state)
-  def interp(%Goal.Implies{} = g, state), do: AL.ControlFlow.interp(g, state)
-  def interp(%Goal.Or{} = g, state), do: AL.ControlFlow.interp(g, state)
-  def interp(%Goal.Then{} = g, state), do: AL.ControlFlow.interp(g, state)
+  def interp(%Goal.Cut{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
+  def interp(%Goal.Implies{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
+  def interp(%Goal.Or{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
+  def interp(%Goal.Then{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
 
-  def interp(%Goal.SetClass{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.AssertValidClauseSelf{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.SetSuper{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.SetMethod{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.SetOapply{} = g, state), do: AL.Store.interp(g, state)
+  def interp(%Goal.SetClass{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.AssertValidClauseSelf{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.SetSuper{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.SetMethod{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.SetOapply{} = g, state), do: AL.Interp.Store.interp(g, state)
 
-  def interp(%Goal.GetSlots{} = g, state), do: AL.Relations.interp(g, state)
+  def interp(%Goal.GetSlots{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
-  def interp(%Goal.SetSlots{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.RetractClass{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.RetractSuper{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.RetractMethod{} = g, state), do: AL.Store.interp(g, state)
-  def interp(%Goal.RetractOapply{} = g, state), do: AL.Store.interp(g, state)
+  def interp(%Goal.SetSlots{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.RetractClass{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.RetractSuper{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.RetractMethod{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.RetractOapply{} = g, state), do: AL.Interp.Store.interp(g, state)
 
-  def interp(%Goal.RetractSlots{} = g, state), do: AL.Store.interp(g, state)
+  def interp(%Goal.RetractSlots{} = g, state), do: AL.Interp.Store.interp(g, state)
 
   def interp(%Goal.SendAsync{object: object, method: method, args: args}, state) do
     AL.Command.send_async(state.tx_id, object, method, args, state.branch)
@@ -1091,7 +1091,7 @@ defmodule AL do
   defp from_stored_body(body), do: body
 
   # Scan clauses with bodies lifted to structs, so stored form never enters the
-  # VM. `def`, not `defp` — `AL.Relations`'s `GetOapply` clause uses this too.
+  # VM. `def`, not `defp` — `AL.Interp.Relations`'s `GetOapply` clause uses this too.
   def scan_clauses(object, seq, head, body, branch) do
     AL.Object.scan_oapply(object, seq, head, body, branch)
     |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
@@ -1544,7 +1544,7 @@ defmodule AL do
   # `super/2`'s two slots are the same domain (a superclass is still just a
   # class), so unlike `class/2` there's no object/class asymmetry -- both
   # slots just need *naming*, no construction. The pending link (posted by
-  # `AL.Relations.GetSuper`'s both-open branch) records which slot `v`
+  # `AL.Interp.Relations.GetSuper`'s both-open branch) records which slot `v`
   # occupies; splicing the same `GetSuper` goal again would just re-post the
   # same pending state (`other` is still open too), so this does the real
   # `AL.Object.scan_super` scan directly -- both patterns can be open,
@@ -1638,7 +1638,7 @@ defmodule AL do
   end
 
   # `vm_get_slot(object, key, value)` with `object` open, `key` ground
-  # (`AL.Relations.GetSlots`'s pending-link branch) -- `key` isn't a var to
+  # (`AL.Interp.Relations.GetSlots`'s pending-link branch) -- `key` isn't a var to
   # resolve, it's fixed context carried in the tag, so the real work is
   # finding which durable object(s) have that key set at all.
   # `AL.Object.scan_slots/3` returns one row per object holding its *whole*

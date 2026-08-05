@@ -53,7 +53,7 @@ defmodule AL.Dispatch do
     end
   end
 
-  # An object is single-classed, period -- the same invariant `AL.Store`'s
+  # An object is single-classed, period -- the same invariant `AL.Interp.Store`'s
   # `SetClass` already enforces for a durable atom's direct class. Two
   # distinct classes on the same var only coexist when one is an ancestor of
   # the other (real inheritance, not a coincidence): `:number`/`:list`/`:map`
@@ -62,7 +62,7 @@ defmodule AL.Dispatch do
   # (`:number` vs `:package`) -- there's no special "exclusive" subset, every
   # class is exclusive of every other unrelated class. Used both to filter
   # which candidates dispatch offers (here) and by `GetClass`'s
-  # no-witness-needed isa fast path (`AL.Relations`), which used to be able to
+  # no-witness-needed isa fast path (`AL.Interp.Relations`), which used to be able to
   # union in a conflicting class with no check at all.
   #
   # An isa entry that's still an open var (`class(x, y)` with both sides
@@ -70,7 +70,7 @@ defmodule AL.Dispatch do
   # conflict with anything -- a var is a superset of any atom until it
   # resolves, not a competing class. Same for `{:object_link, _}` (posted on
   # the *class* side of that same pending `class` -- see
-  # `AL.Relations.GetClass`): it's a directional marker, never a class atom,
+  # `AL.Interp.Relations.GetClass`): it's a directional marker, never a class atom,
   # so `not AL.Var.var?/1` alone would wrongly treat it as one (a 2-tuple
   # isn't a var, but it isn't a resolved class either). Only a genuinely
   # resolved atom -- not a var, not a link marker -- ever gets the real
@@ -249,7 +249,7 @@ defmodule AL.Dispatch do
   end
 
   # The class slot (`{:object_link, x}`, posted on the *class* position of a
-  # still-open `class(x, y)` -- see `AL.Relations.GetClass`) is a
+  # still-open `class(x, y)` -- see `AL.Interp.Relations.GetClass`) is a
   # fundamentally different labeling question than the object slot: an
   # object needs a real witness constructed or found; a class already
   # exists as a declared entity, so labeling one just needs to name it, not
@@ -363,7 +363,7 @@ defmodule AL.Dispatch do
 
   # Every {object, classes} pair with a durable class row. Unbound self/class scan
   # (no key to bind), so cached per branch rather than rescanned per dispatch.
-  # `def`, not `defp` -- `AL.Relations`'s `ClassInstances` also reads this (a
+  # `def`, not `defp` -- `AL.Interp.Relations`'s `ClassInstances` also reads this (a
   # real witness scan for one specific class), so both share the one cached
   # scan rather than each paying for their own.
   def durable_classes(branch) do

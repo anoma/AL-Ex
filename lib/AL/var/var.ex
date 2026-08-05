@@ -156,7 +156,7 @@ defmodule AL.Var do
   # here, however deep. def not defp: AL.Var.Bounds also binds directly
   # through this path — including recursively, from `propagate/3` below
   # (mutual recursion across the two modules, same pattern as
-  # AL/AL.Dispatch/AL.Store elsewhere in this codebase).
+  # AL/AL.Dispatch/AL.Interp.Store elsewhere in this codebase).
   #
   # `term` is resolved here, once, before anything else touches it —
   # `extend/4`'s own branch selection sometimes passes a raw, still-var-shaped
@@ -197,7 +197,7 @@ defmodule AL.Var do
   # before this bind overwrote its entry) may have a partner that's now
   # cheaply resolvable -- one side just became concrete (`term`), so what
   # used to require a full scan (both sides open) is now a targeted lookup
-  # (`AL.Relations.GetSuper`/`GetSlots` already treat exactly this as
+  # (`AL.Interp.Relations.GetSuper`/`GetSlots` already treat exactly this as
   # cheap). Only auto-binds when that lookup is genuinely unique; several
   # matches leave the partner exactly as open as it was -- not a failure,
   # it just isn't determined yet. Recurses through `bind/4` itself when it
@@ -392,7 +392,7 @@ defmodule AL.Var do
   end
 
   # A var's already-known class domain, if any — the read side of `add_isa/3`.
-  # Lets a query (e.g. `AL.Relations`'s `GetClass` asked for self's class with
+  # Lets a query (e.g. `AL.Interp.Relations`'s `GetClass` asked for self's class with
   # the class side still open) answer directly from what's already known
   # instead of falling back to a real scan for a receiver that, as a value
   # candidate, was never durably classified in the first place.
@@ -404,7 +404,7 @@ defmodule AL.Var do
     end
   end
 
-  # `super(y, z)` with both sides open (`AL.Relations.GetSuper`) posts one
+  # `super(y, z)` with both sides open (`AL.Interp.Relations.GetSuper`) posts one
   # of these on each side instead of scanning -- see `ConstraintSet.super_link/0`
   # for why this can't just reuse `isa` the way `class/2` does (the two
   # slots are the same domain, so there's no asymmetric "instance of" claim
@@ -428,7 +428,7 @@ defmodule AL.Var do
   end
 
   # `vm_get_slot(object, key, value)` with `object` open and `key` ground
-  # (`AL.Relations.GetSlots`) posts one of these -- `{:slot, key, value}` on
+  # (`AL.Interp.Relations.GetSlots`) posts one of these -- `{:slot, key, value}` on
   # `object`, `{:slot_value, key, object}` on `value` if it's also open.
   # Same shape as `super_link` (a directional tag, not an isa claim), `key`
   # just rides along as fixed context rather than needing its own slot.
@@ -577,7 +577,7 @@ defmodule AL.Var do
   defp tag_isa(other, _var), do: other
 
   # `{:object_link, obj}` (posted on the *class* side of a still-open
-  # `class(x, y)`, see `AL.Relations.GetClass`) never asserts "I belong
+  # `class(x, y)`, see `AL.Interp.Relations.GetClass`) never asserts "I belong
   # to a class" at all -- it's a directional marker, not an isa claim, so it
   # can never be violated. Without this clause, once `obj` (or whatever it
   # gets bound to) derefs to something concrete, the fallback clause below

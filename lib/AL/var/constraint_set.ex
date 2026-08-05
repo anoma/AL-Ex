@@ -12,7 +12,7 @@ defmodule AL.Var.ConstraintSet do
   @type bound() :: integer() | nil
   @type propagator() :: AL.Var.Bounds.propagator()
 
-  # A pending `super(y, z)` with both sides open (`AL.Relations.GetSuper`)
+  # A pending `super(y, z)` with both sides open (`AL.Interp.Relations.GetSuper`)
   # posts one of these on each side instead of scanning -- `super/2`'s two
   # slots are the *same* domain (a superclass is still just a class), unlike
   # `class/2`'s object/class asymmetry, so a plain `isa`-style entry would be
@@ -23,7 +23,7 @@ defmodule AL.Var.ConstraintSet do
   @type super_link() :: {:object, AL.Var.t()} | {:super, AL.Var.t()}
 
   # A pending `vm_get_slot(object, key, value)` with `object` still open and
-  # `key` ground (`AL.Relations.GetSlots`) -- same shape as `super_link`, one
+  # `key` ground (`AL.Interp.Relations.GetSlots`) -- same shape as `super_link`, one
   # slot each. `key` isn't itself a var here (it's the fixed context, not a
   # domain to enumerate), so it just rides along in the tag rather than
   # needing its own marker.

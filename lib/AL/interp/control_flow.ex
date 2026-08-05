@@ -1,4 +1,4 @@
-defmodule AL.ControlFlow do
+defmodule AL.Interp.ControlFlow do
   @moduledoc """
   I resolve the choicepoint-stack control-flow goals — `Cut`, `Implies`,
   `Or`, `Then` — the ones whose job is entirely about which alternatives

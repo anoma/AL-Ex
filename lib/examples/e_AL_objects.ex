@@ -97,7 +97,7 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # A durable object has exactly one direct class (AL.Store's SetClass
+  # A durable object has exactly one direct class (AL.Interp.Store's SetClass
   # guard) -- reclassifying means retract first, not accreting a second one.
   example retractall_class() do
     {:atomic, _} =
