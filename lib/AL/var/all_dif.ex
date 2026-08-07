@@ -134,7 +134,11 @@ defmodule AL.Var.AllDif do
     var_nodes = domains |> Map.keys() |> Enum.map(&{:var, &1})
 
     val_nodes =
-      domains |> Map.values() |> Enum.flat_map(&MapSet.to_list/1) |> Enum.uniq() |> Enum.map(&{:val, &1})
+      domains
+      |> Map.values()
+      |> Enum.flat_map(&MapSet.to_list/1)
+      |> Enum.uniq()
+      |> Enum.map(&{:val, &1})
 
     edges = build_edges(domains, matching)
 
@@ -228,7 +232,8 @@ defmodule AL.Var.AllDif do
 
   defp apply_prunings(store, prunings, branch) do
     prunings
-    |> Enum.reduce_while({store, MapSet.new()}, fn {{_idx, var}, new_domain}, {acc_store, acc_more} ->
+    |> Enum.reduce_while({store, MapSet.new()}, fn {{_idx, var}, new_domain},
+                                                   {acc_store, acc_more} ->
       case MapSet.size(new_domain) do
         0 ->
           {:halt, :fail}

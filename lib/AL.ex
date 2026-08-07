@@ -133,6 +133,8 @@ defmodule AL do
           program: program
         })
 
+      result = finalize_trace(result)
+
       if result.active_choicepoint.store == nil do
         :mnesia.abort(format_failure(result))
       else
@@ -146,7 +148,7 @@ defmodule AL do
 
     :mnesia.transaction(fn ->
       tx_id = AL.Command.system_time(state.branch)
-      result = backtrack(%AL{state | tx_id: tx_id})
+      result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
 
       if result.active_choicepoint.store == nil do
         :mnesia.abort(format_failure(result))
@@ -668,7 +670,13 @@ defmodule AL do
             {:clause_call, scope, method_id_pattern, bind_head_pattern,
              describe_positions(open, pre_store)}
           )
-          |> put_scope(scope, %{parent: parent, kind: :clause, open_vars: open, exited: false})
+          |> put_scope(scope, %{
+            parent: parent,
+            kind: :clause,
+            open_vars: open,
+            exited: false,
+            derived: nil
+          })
 
         %AL{
           state
@@ -1390,7 +1398,13 @@ defmodule AL do
     state =
       state
       |> push_trace({:method_call, scope, self, method, args, describe_positions(open, store)})
-      |> put_scope(scope, %{parent: parent, kind: :method, open_vars: open, exited: false})
+      |> put_scope(scope, %{
+        parent: parent,
+        kind: :method,
+        open_vars: open,
+        exited: false,
+        derived: nil
+      })
 
     state = %AL{
       state
@@ -1416,7 +1430,13 @@ defmodule AL do
       |> push_trace(
         {:clause_call, scope, method, [receiver | args], describe_positions(open, store)}
       )
-      |> put_scope(scope, %{parent: method_scope, kind: :clause, open_vars: open, exited: false})
+      |> put_scope(scope, %{
+        parent: method_scope,
+        kind: :clause,
+        open_vars: open,
+        exited: false,
+        derived: nil
+      })
 
     continuation = %AL.Continuation{
       goals: state.active_choicepoint.goals,
@@ -1494,24 +1514,39 @@ defmodule AL do
 
         state =
           if already_exited? do
-            update_trace_derived(state, tag, scope, derived)
+            put_scope(state, scope, %{info | derived: derived})
           else
             state = trace_port_event(state, scope, :exit)
 
             state
             |> push_trace({tag, scope, derived})
-            |> put_scope(scope, %{info | exited: true})
+            |> put_scope(scope, %{info | exited: true, derived: derived})
           end
 
         propagate_exit(state, scope)
     end
   end
 
-  defp update_trace_derived(state, tag, scope, derived) do
-    trace =
-      Enum.map(state.domino.trace, fn
-        {^tag, ^scope, _old} -> {tag, scope, derived}
-        other -> other
+  defp finalize_trace(state) do
+    {trace, _patched} =
+      Enum.map_reduce(state.domino.trace, MapSet.new(), fn
+        {tag, scope, _old} = event, patched when tag in [:method_exit, :clause_exit] ->
+          key = {tag, scope}
+
+          if MapSet.member?(patched, key) do
+            {event, patched}
+          else
+            case Map.get(state.domino.scopes, scope) do
+              %{derived: derived} when not is_nil(derived) ->
+                {{tag, scope, derived}, MapSet.put(patched, key)}
+
+              _ ->
+                {event, MapSet.put(patched, key)}
+            end
+          end
+
+        other, patched ->
+          {other, patched}
       end)
 
     %AL{state | domino: %AL.Domino{state.domino | trace: trace}}

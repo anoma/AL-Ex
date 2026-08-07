@@ -60,7 +60,8 @@ defmodule AL.Domino do
           parent: scope() | nil,
           kind: :method | :clause,
           open_vars: [term()],
-          exited: boolean()
+          exited: boolean(),
+          derived: %{optional(term()) => var_description()} | nil
         }
 
   typedstruct enforce: true do
