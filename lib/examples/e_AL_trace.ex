@@ -210,6 +210,34 @@ defmodule Examples.ALTrace do
   defp all_nodes_derived?(%{derived: nil}), do: false
   defp all_nodes_derived?(node), do: Enum.all?(node.children, &all_nodes_derived?/1)
 
+  example fibonacci_deep_backward_search_survives_fail_after_exit() do
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        fibonacci(x, 21)
+      end
+
+    assert Map.get(bindings, :"$x") == 8
+
+    roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+    assert length(roots) == 1
+
+    [root] = roots
+    assert all_nodes_derived?(root)
+
+    values = AL.Trace.method_values(roots, :fibonacci) |> Enum.sort()
+
+    assert values == [
+             {1, [1]},
+             {2, [1]},
+             {3, [2]},
+             {4, [3]},
+             {5, [5]},
+             {6, [8]},
+             {7, [13]},
+             {8, [21]}
+           ]
+  end
+
   # AL.Trace.method_values/2 doesn't care which position was open at call
   # time -- it just resolves self/args through each node's own `derived`, so
   # the same call against a forward-search tree (self ground) and a

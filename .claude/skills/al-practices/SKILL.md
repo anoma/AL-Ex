@@ -118,8 +118,11 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 ## Code style
 
 - Module docs are first-person ("I am …", "I provide …").
-- **No junk comments.** Don't restate code or narrate the obvious; names and types
-  carry meaning. Comment only a non-obvious *why*. Keep docstrings terse.
+- **No comments, period.** Not "terse comments," not "only non-obvious why" — zero.
+  Names and types carry meaning; a comment is never the fix for code that needs
+  explaining. Keep docstrings terse when a moduledoc is genuinely required, but
+  default to none. This applies repo-wide (interpreter code, tests/examples,
+  bug fixes alike), not just AL surface syntax.
 
 ## Mnesia store safety
 

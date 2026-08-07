@@ -146,26 +146,7 @@ defmodule AL.Trace do
     IO.puts([String.duplicate("  ", depth + 1), inspect(descriptions)])
   end
 
-  # `render/1` shows everything, including redo/fail churn -- good for "what
-  # did the search actually try." This is the complementary view: only the
-  # surviving derivation, as a real nested tree (not just indentation), one
-  # node per logical send where possible. A method-box collapses into its
-  # immediate clause-box when they're 1:1 (plain ground dispatch -- the
-  # clause_call is the very next event after its method_call, nothing else
-  # has happened yet); a method-box whose own resolution needs other sends
-  # first (generative candidate construction, e.g. `:new`) shows those as
-  # real, separate `:clause`-tagged children instead of being force-collapsed.
-  #
-  # Built flat (nodes keyed by scope, children referenced by scope id) and
-  # materialized into real nesting in a final pass, since a parent's
-  # children can't be mutated in place once created. `aliases` maps a
-  # collapsed clause's own scope back to the method node it merged into, so
-  # its own Exit/Fail still resolves to the right (shared) node. A Fail
-  # splices its scope out of its parent's children outright, regardless of
-  # what it built up across however many Redo attempts; a Redo resets a
-  # node's children (that attempt is abandoned) but keeps the node itself,
-  # to be repopulated by whatever runs next. `steps` is chronological, same
-  # as `render/1` expects.
+  # Show the successful call in full
   @spec derivation_tree([term()]) :: [map()]
   def derivation_tree(steps) do
     {_stack, nodes, _aliases, roots} = Enum.reduce(steps, {[], %{}, %{}, []}, &tree_step/2)
@@ -175,9 +156,7 @@ defmodule AL.Trace do
   @doc """
   I collect every `method` call in a derivation tree (one or more roots, as
   returned by `derivation_tree/1`), resolving `self` and each arg through
-  that node's own `derived` -- a var that stayed a var (never in `derived`)
-  is returned as-is, so a literal receiver/arg (already ground at call time)
-  and a resolved one both come out the same way.
+  that node's own `derived`
   """
   @spec method_values(map() | [map()], atom()) :: [{term(), [term()]}]
   def method_values(roots, method) do
@@ -202,19 +181,6 @@ defmodule AL.Trace do
     end
   end
 
-  # `stack` always holds *resolved* scope keys (post-alias), never a raw
-  # collapsed clause scope -- `nodes` only has entries under resolved keys,
-  # so a grandchild's parent lookup (`open_node`, via `hd(stack)`) would
-  # miss entirely if a raw aliased scope were sitting on top instead. A
-  # collapsed clause_call still needs to push *something*, since its own
-  # later Exit/Fail has to pop a frame -- it pushes the resolved (method)
-  # key again, which is safe: two pushes of the same resolved key exactly
-  # match the two real events (clause_exit then method_exit) that will each
-  # pop one off in turn. Pops themselves don't re-verify the popped value
-  # against the firing event's own scope -- domino's Call/Exit nesting is
-  # already guaranteed correct by construction (see AL.ex's begin_method_scope/
-  # mark_exited/fail_scope), so this only ever needs to resolve-and-pop, not
-  # cross-check.
   defp tree_step({:method_call, scope, self, method, args, constraints_in}, acc) do
     open_node(acc, scope, scope, %{
       kind: :method,
@@ -258,7 +224,7 @@ defmodule AL.Trace do
     {[resolved | stack], nodes, aliases, roots}
   end
 
-  defp tree_step({tag, scope}, {[_ | rest], nodes, aliases, roots})
+  defp tree_step({tag, scope}, {stack, nodes, aliases, roots})
        when tag in [:method_fail, :clause_fail] do
     resolved = Map.get(aliases, scope, scope)
     node = Map.fetch!(nodes, resolved)
@@ -279,7 +245,13 @@ defmodule AL.Trace do
           {nodes, roots}
       end
 
-    {rest, nodes, aliases, roots}
+    stack =
+      case stack do
+        [^resolved | rest] -> rest
+        other -> other
+      end
+
+    {stack, nodes, aliases, roots}
   end
 
   # A raw goal, `:backtrack`, `:flounder` (vm_trace was on) -- not part of

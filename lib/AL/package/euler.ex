@@ -9,7 +9,7 @@ defmodule AL.Package.Euler do
         [
           candidate < n,
           candidate > 0,
-          eq(candidate, x * 5) or eq(candidate, y * 3),
+          eq(candidate, x * 5) or eq(candidate, x * 3),
           label(candidate)
         ],
         candidates

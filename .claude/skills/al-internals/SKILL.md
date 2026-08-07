@@ -416,6 +416,8 @@ returns `nil` (no diagnosis) rather than guessing. Example:
    pushes choicepoints via `AL.fan_out/3`.
 4. If it mutates, add a case to `AL.Object.hydrate_event/3` so replay/fork works.
 
+No comments — repo-wide ban (al-practices' "Code style"), interpreter code included.
+
 ## Roadmap context
 
 README promises **bitemporality** (valid-time, not just the log's transaction-time
