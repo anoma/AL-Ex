@@ -18,6 +18,15 @@ defmodule AL.Package.Euler do
       sum(candidates, sum)
     end
 
+    # defmethod(:number, :even, [2])
+
+    # defmethod(:number, :even, [n]) do
+    #   n > 0
+    #   eq(x, n - 1)
+    #   eq(y, x - 1)
+    #   even(y)
+    # end
+
     # defmethod(:number, :euler_2, [limit, candidates, sum]) do
     #   findall(candidate, [candidate <= limit, fibonacci(_x, candidate)], candidates)
     #   sum(candidates, sum)

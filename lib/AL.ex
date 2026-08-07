@@ -265,7 +265,7 @@ defmodule AL do
   # covers a compound arg like a constructed map, not just a bare var);
   # `{:open, summary}` (possibly `%{}`, meaning genuinely unconstrained)
   # for a term that's still an open var at top level.
-  defp describe_var(term, store) do
+  def describe_var(term, store) do
     resolved = AL.Var.deref(store, term)
 
     if AL.Var.var?(resolved) do
@@ -375,10 +375,18 @@ defmodule AL do
   end
 
   defp log_vm_trace(state, entry) do
-    if state.domino.vm_trace_enabled?,
-      do: push_trace(state, entry),
-      else: state
+    cond do
+      constraint_goal?(entry) -> push_trace(state, entry)
+      state.domino.vm_trace_enabled? -> push_trace(state, entry)
+      true -> state
+    end
   end
+
+  defp constraint_goal?(%Goal.Compare{}), do: true
+  defp constraint_goal?(%Goal.Dif{}), do: true
+  defp constraint_goal?(%Goal.AllDif{}), do: true
+  defp constraint_goal?(%Goal.InDomain{}), do: true
+  defp constraint_goal?(_), do: false
 
   @spec continue(t()) :: t() | nil
   def continue(nil), do: nil

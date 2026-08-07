@@ -146,10 +146,14 @@ defmodule AL.Trace do
     IO.puts([String.duplicate("  ", depth + 1), inspect(descriptions)])
   end
 
-  # Show the successful call in full
-  @spec derivation_tree([term()]) :: [map()]
-  def derivation_tree(steps) do
-    {_stack, nodes, _aliases, roots} = Enum.reduce(steps, {[], %{}, %{}, []}, &tree_step/2)
+  # Show the successful call in full. `store` (optional) resolves constraint
+  # leaf nodes' `derived` against the run's final store -- omit it and
+  # constraint nodes carry `derived: nil`, same as before this existed.
+  @spec derivation_tree([term()], AL.Var.store() | nil) :: [map()]
+  def derivation_tree(steps, store \\ nil) do
+    {_stack, nodes, _aliases, roots} =
+      Enum.reduce(steps, {[], %{}, %{}, []}, &tree_step(&1, &2, store))
+
     roots |> Enum.reverse() |> Enum.map(&materialize(&1, nodes))
   end
 
@@ -181,7 +185,7 @@ defmodule AL.Trace do
     end
   end
 
-  defp tree_step({:method_call, scope, self, method, args, constraints_in}, acc) do
+  defp tree_step({:method_call, scope, self, method, args, constraints_in}, acc, _store) do
     open_node(acc, scope, scope, %{
       kind: :method,
       label: {self, method, args},
@@ -194,7 +198,8 @@ defmodule AL.Trace do
 
   defp tree_step(
          {:clause_call, scope, method_id, call_args, constraints_in},
-         {stack, nodes, aliases, roots} = acc
+         {stack, nodes, aliases, roots} = acc,
+         _store
        ) do
     collapse? =
       case stack do
@@ -210,21 +215,21 @@ defmodule AL.Trace do
     end
   end
 
-  defp tree_step({tag, scope, derived}, {[_ | rest], nodes, aliases, roots})
+  defp tree_step({tag, scope, derived}, {[_ | rest], nodes, aliases, roots}, _store)
        when tag in [:method_exit, :clause_exit] do
     resolved = Map.get(aliases, scope, scope)
     nodes = Map.update!(nodes, resolved, &%{&1 | derived: derived})
     {rest, nodes, aliases, roots}
   end
 
-  defp tree_step({tag, scope}, {stack, nodes, aliases, roots})
+  defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
        when tag in [:method_redo, :clause_redo] do
     resolved = Map.get(aliases, scope, scope)
     nodes = Map.update!(nodes, resolved, &%{&1 | child_scopes: []})
     {[resolved | stack], nodes, aliases, roots}
   end
 
-  defp tree_step({tag, scope}, {stack, nodes, aliases, roots})
+  defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
        when tag in [:method_fail, :clause_fail] do
     resolved = Map.get(aliases, scope, scope)
     node = Map.fetch!(nodes, resolved)
@@ -254,9 +259,52 @@ defmodule AL.Trace do
     {stack, nodes, aliases, roots}
   end
 
-  # A raw goal, `:backtrack`, `:flounder` (vm_trace was on) -- not part of
-  # the derivation tree at all, only `render/1`'s job.
-  defp tree_step(_other, acc), do: acc
+  defp tree_step(%AL.Goal.Compare{} = goal, acc, store),
+    do: attach_constraint_leaf(goal, acc, store)
+
+  defp tree_step(%AL.Goal.Dif{} = goal, acc, store), do: attach_constraint_leaf(goal, acc, store)
+
+  defp tree_step(%AL.Goal.AllDif{} = goal, acc, store),
+    do: attach_constraint_leaf(goal, acc, store)
+
+  defp tree_step(%AL.Goal.InDomain{} = goal, acc, store),
+    do: attach_constraint_leaf(goal, acc, store)
+
+  # A raw goal (vm_trace was on, not one of the four constraint types above),
+  # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
+  # `render/1`'s job.
+  defp tree_step(_other, acc, _store), do: acc
+
+  defp attach_constraint_leaf(goal, {stack, nodes, aliases, roots}, store) do
+    key = make_ref()
+
+    node = %{
+      kind: :constraint,
+      label: goal,
+      constraints_in: %{},
+      derived: constraint_derived(goal, store),
+      parent: nil,
+      child_scopes: []
+    }
+
+    case stack do
+      [] ->
+        {stack, Map.put(nodes, key, node), aliases, [key | roots]}
+
+      [parent | _] ->
+        nodes =
+          nodes
+          |> Map.update!(parent, &%{&1 | child_scopes: &1.child_scopes ++ [key]})
+          |> Map.put(key, %{node | parent: parent})
+
+        {stack, nodes, aliases, roots}
+    end
+  end
+
+  defp constraint_derived(_goal, nil), do: nil
+
+  defp constraint_derived(goal, store),
+    do: goal |> AL.Var.find_vars() |> Map.new(fn v -> {v, AL.describe_var(v, store)} end)
 
   # `push` is the resolved key to leave on `stack` for future children to
   # parent under (always the node's own resolved key -- see tree_step's
@@ -317,6 +365,20 @@ defmodule AL.Trace do
     :ok
   end
 
+  defp render_tree_node(%{kind: :constraint} = node, prefix, last?) do
+    connector = if last?, do: "└─ ", else: "├─ "
+
+    IO.puts([
+      prefix,
+      connector,
+      "[constraint] ",
+      inspect(pretty(node.label)),
+      tree_derived_suffix(node.derived)
+    ])
+
+    render_tree_children(node, prefix, last?)
+  end
+
   defp render_tree_node(node, prefix, last?) do
     connector = if last?, do: "└─ ", else: "├─ "
     {self, method, args} = node.label
@@ -334,6 +396,10 @@ defmodule AL.Trace do
       tree_derived_suffix(node.derived)
     ])
 
+    render_tree_children(node, prefix, last?)
+  end
+
+  defp render_tree_children(node, prefix, last?) do
     child_prefix = prefix <> if last?, do: "   ", else: "│  "
     child_count = length(node.children)
 
