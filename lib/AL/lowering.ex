@@ -196,6 +196,9 @@ defmodule AL.Lowering do
   def ast_to_pattern({:in_domain, _, [var, values]}),
     do: %Goal.InDomain{var: ast_to_pattern(var), values: ast_to_pattern(values)}
 
+  def ast_to_pattern({:all_dif, _, [vars]}),
+    do: %Goal.AllDif{vars: ast_to_pattern(vars)}
+
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
     do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 

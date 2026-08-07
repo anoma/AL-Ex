@@ -139,8 +139,11 @@ defmodule AL.Var.Bounds do
   # touches it) — otherwise a var bound via plain head unification (e.g. a
   # recursive clause's own base case) would leave stale propagators
   # unchecked until something else happened to touch it later.
-  @spec run_fixpoint(AL.Var.store(), MapSet.t(propagator() | either_propagator()), AL.Branch.t()) ::
-          AL.Var.store() | nil
+  @spec run_fixpoint(
+          AL.Var.store(),
+          MapSet.t(propagator() | either_propagator() | AL.Var.AllDif.propagator()),
+          AL.Branch.t()
+        ) :: AL.Var.store() | nil
   def run_fixpoint(store, worklist, branch) do
     case Enum.at(worklist, 0) do
       nil ->
@@ -150,6 +153,14 @@ defmodule AL.Var.Bounds do
         rest = MapSet.delete(worklist, t)
 
         case resolve_either(store, left, right, branch) do
+          nil -> nil
+          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+        end
+
+      {:all_dif, vars} = t ->
+        rest = MapSet.delete(worklist, t)
+
+        case AL.Var.AllDif.resolve(store, vars, branch) do
           nil -> nil
           {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
         end

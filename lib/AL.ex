@@ -927,6 +927,20 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.AllDif{vars: vars}, state) do
+    store = store(state)
+    resolved = AL.Var.subst(vars, store)
+
+    if is_list(resolved) do
+      case AL.Var.AllDif.post(store, resolved, state.branch) do
+        nil -> backtrack(state)
+        new_store -> put_bindings(state, new_store, resolved)
+      end
+    else
+      backtrack(state)
+    end
+  end
+
   # freeze/2: the goals run now if the variable is bound, and park on
   # it otherwise; whoever binds it wakes them in place.
   def interp(%Goal.Freeze{var: var, goals: goals}, state) do
@@ -958,16 +972,19 @@ defmodule AL do
     if not AL.Var.var?(v) do
       state
     else
-      case AL.Var.Bounds.bounds_of(store, v) do
-        {lo, hi} when is_integer(lo) and is_integer(hi) ->
-          goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
-          splice_and_run(state, [goal])
+      case AL.Var.domain_of(store, v) do
+        nil ->
+          case AL.Var.Bounds.bounds_of(store, v) do
+            {lo, hi} when is_integer(lo) and is_integer(hi) ->
+              goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
+              splice_and_run(state, [goal])
 
-        _ ->
-          case AL.Var.domain_of(store, v) do
-            nil -> label_from_link_or_isa(v, store, state)
-            domain -> label_from_domain_constraint(v, domain, state)
+            _ ->
+              label_from_link_or_isa(v, store, state)
           end
+
+        domain ->
+          label_from_domain_constraint(v, domain, state)
       end
     end
   end

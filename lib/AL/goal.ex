@@ -37,6 +37,7 @@ defmodule AL.Goal do
           | Dif.t()
           | Compare.t()
           | Either.t()
+          | AllDif.t()
           | InDomain.t()
           | Ground.t()
           | Label.t()
@@ -247,6 +248,10 @@ defmodule AL.Goal do
     field(:values, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: AllDif do
+    field(:vars, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Ground do
     field(:term, AL.Var.t())
   end
@@ -397,6 +402,7 @@ defmodule AL.Goal do
     {Equal, :equal, [a: :term, b: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {Either, :either, [left: :term, right: :term]},
+    {AllDif, :all_dif, [vars: :term]},
     {Ground, :ground, [term: :term]},
     {IsVar, :var, [term: :term]},
     {Freeze, :freeze, [var: :term, goals: :goals]},

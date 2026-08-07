@@ -645,20 +645,6 @@ defmodule AL.Package.Bootstrap do
       dedupe([y | rest], result)
     end
 
-    defmethod(:list, :all_dif, [[]])
-
-    defmethod(:list, :all_dif, [[h | t]]) do
-      dif_from_all(t, h)
-      all_dif(t)
-    end
-
-    defmethod(:list, :dif_from_all, [[], _x])
-
-    defmethod(:list, :dif_from_all, [[h | t], x]) do
-      dif(x, h)
-      dif_from_all(t, x)
-    end
-
     defmethod(:list, :sum, [[], 0])
 
     defmethod(:list, :sum, [[h | t], n]) do

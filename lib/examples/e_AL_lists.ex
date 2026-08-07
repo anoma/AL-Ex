@@ -157,4 +157,23 @@ defmodule Examples.ALLists do
     assert Map.get(bindings, :"$x") == 2
     :ok
   end
+
+  example all_dif_propagation_forces_a_naked_pair_chain() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        in_domain(a, [1, 2])
+        in_domain(b, [1, 2])
+        in_domain(c, [2, 3])
+        in_domain(d, [3, 4])
+        all_dif([a, b, c, d])
+      end
+
+    assert Map.get(bindings, :"$c") == 3
+    assert Map.get(bindings, :"$d") == 4
+
+    constraints = Map.get(bindings, :"$constraints")
+    assert Enum.sort(Map.get(constraints, :"$a").domain) == [1, 2]
+    assert Enum.sort(Map.get(constraints, :"$b").domain) == [1, 2]
+    :ok
+  end
 end
