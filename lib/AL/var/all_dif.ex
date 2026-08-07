@@ -62,6 +62,34 @@ defmodule AL.Var.AllDif do
   end
 
   defp propagate(store, domains, branch) do
+    case ground_values(domains) do
+      {:ok, values} ->
+        if length(values) == length(Enum.uniq(values)) do
+          {store, MapSet.new()}
+        else
+          nil
+        end
+
+      :not_ground ->
+        run_matching(store, domains, branch)
+    end
+  end
+
+  defp ground_values(domains) do
+    domains
+    |> Enum.reduce_while([], fn {_key, dom}, acc ->
+      case MapSet.to_list(dom) do
+        [v] -> {:cont, [v | acc]}
+        _ -> {:halt, :not_ground}
+      end
+    end)
+    |> case do
+      :not_ground -> :not_ground
+      values -> {:ok, values}
+    end
+  end
+
+  defp run_matching(store, domains, branch) do
     case maximum_matching(domains) do
       nil ->
         nil
