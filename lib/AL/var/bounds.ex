@@ -20,22 +20,40 @@ defmodule AL.Var.Bounds do
   anything again, so it is unparked from the vars it mentions instead of
   re-running on every later touch of them. Backtracking restores a
   choicepoint's own store, which still carries it.
+
+  Wake classes. A propagator with a still-open var on *both* sides is
+  *ground-woken*: a mere bound narrowing of one of its vars re-queues it
+  only as `{:check, prop}`, which tests the two sides' intervals for a
+  refutation and narrows nothing, so it queues nothing. Once one side is
+  wholly ground it is *narrow-woken* and propagates for real — the open
+  side is then solved against a constant, which reaches its own fixpoint
+  in one pass instead of creeping toward the other side. Grounding a var
+  wakes every propagator parked on it for real, whichever class it is in
+  (`AL.Var.bind/4` runs the fixpoint over them), as does posting a fresh
+  propagator. Chasing two moving sides converges one unit per round, so
+  the narrow wake made a chain of linear equations posted before the
+  calls that ground them cost O(domain width) rounds per frame rather
+  than O(1); refuting without narrowing keeps the refutation and drops
+  the ratchet. The cost is completeness, not soundness: a ground-woken
+  propagator's narrowing waits until one of its sides grounds.
   """
 
   alias AL.Var.ConstraintSet
 
   @type affine() :: {:sum, %{AL.Var.variable() => number()}, number()}
   @type propagator() :: {affine(), affine(), boolean()}
+  @type check_propagator() :: {:check, propagator()}
 
   # Read side Goal.Label uses. Ground term = singleton domain.
   @spec bounds_of(AL.Var.store(), AL.Var.t()) :: {ConstraintSet.bound(), ConstraintSet.bound()}
   def bounds_of(store, term), do: raw_domain(store, term)
 
   # Each side -> affine form -> propagator on every var it mentions -> a
-  # worklist fixpoint (narrowing one var re-queues others parked on it, so
-  # `x < y, y < 5` tightens x transitively). Collapse to a single value ->
-  # bind via AL.Var.bind/4 (so dif/isa still gets checked). nil = infeasible
-  # or non-affine side — same backtrack either way at the call site.
+  # worklist fixpoint (narrowing one var re-queues the narrow-woken
+  # propagators parked on it, grounding it re-queues all of them, so a chain
+  # tightens transitively). Collapse to a single value -> bind
+  # via AL.Var.bind/4 (so dif/isa still gets checked). nil = infeasible or
+  # non-affine side — same backtrack either way at the call site.
   @spec add_compare(AL.Var.store(), atom(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           AL.Var.store() | nil
   def add_compare(store, :eq, a, b, branch) do
@@ -147,13 +165,26 @@ defmodule AL.Var.Bounds do
   # unchecked until something else happened to touch it later.
   @spec run_fixpoint(
           AL.Var.store(),
-          MapSet.t(propagator() | either_propagator() | AL.Var.AllDif.propagator()),
+          MapSet.t(
+            propagator()
+            | check_propagator()
+            | either_propagator()
+            | AL.Var.AllDif.propagator()
+          ),
           AL.Branch.t()
         ) :: AL.Var.store() | nil
   def run_fixpoint(store, worklist, branch) do
     case Enum.at(worklist, 0) do
       nil ->
         store
+
+      {:check, prop} = t ->
+        rest = MapSet.delete(worklist, t)
+
+        case check_only(store, prop) do
+          nil -> nil
+          new_store -> run_fixpoint(new_store, rest, branch)
+        end
 
       {:either, left, right} = t ->
         rest = MapSet.delete(worklist, t)
@@ -184,14 +215,35 @@ defmodule AL.Var.Bounds do
     end
   end
 
+  defp check_only(store, {lo_aff, hi_aff, strict} = prop) do
+    {lo_lo, lo_hi} = domain_of(store, lo_aff)
+    {hi_lo, hi_hi} = domain_of(store, hi_aff)
+
+    cond do
+      refuted?(bump_up(lo_lo, strict), hi_hi) -> nil
+      entailed?(lo_hi, hi_lo, strict) -> unpark(store, prop, prop_vars(prop))
+      true -> store
+    end
+  end
+
   defp retire(store, {lo_aff, hi_aff, strict} = prop) do
     {_lo_lo, lo_hi} = domain_of(store, lo_aff)
     {hi_lo, _hi_hi} = domain_of(store, hi_aff)
 
-    if lo_hi != nil and hi_lo != nil and bump_up(lo_hi, strict) <= hi_lo,
-      do: unpark(store, prop, affine_vars(lo_aff) ++ affine_vars(hi_aff)),
+    if entailed?(lo_hi, hi_lo, strict),
+      do: unpark(store, prop, prop_vars(prop)),
       else: store
   end
+
+  defp prop_vars({lo_aff, hi_aff, _strict}), do: affine_vars(lo_aff) ++ affine_vars(hi_aff)
+
+  defp refuted?(nil, _hi_hi), do: false
+  defp refuted?(_floor, nil), do: false
+  defp refuted?(floor, hi_hi), do: floor > hi_hi
+
+  defp entailed?(nil, _hi_lo, _strict), do: false
+  defp entailed?(_lo_hi, nil, _strict), do: false
+  defp entailed?(lo_hi, hi_lo, strict), do: bump_up(lo_hi, strict) <= hi_lo
 
   defp unpark(store, prop, vars) do
     vars
@@ -471,10 +523,24 @@ defmodule AL.Var.Bounds do
             end
 
           true ->
-            {:ok, set_bounds(store, dv, {v_lo, v_hi}), props_of(store, dv)}
+            {:ok, set_bounds(store, dv, {v_lo, v_hi}), wake_on_narrow(store, dv)}
         end
     end
   end
+
+  defp wake_on_narrow(store, v) do
+    Enum.map(props_of(store, v), fn prop ->
+      if ground_woken?(store, prop), do: {:check, prop}, else: prop
+    end)
+  end
+
+  defp ground_woken?(store, {{:sum, _, _} = lo_aff, {:sum, _, _} = hi_aff, _strict}),
+    do: still_open?(store, lo_aff) and still_open?(store, hi_aff)
+
+  defp ground_woken?(_store, _prop), do: false
+
+  defp still_open?(store, aff),
+    do: Enum.any?(affine_vars(aff), &AL.Var.var?(AL.Var.deref(store, &1)))
 
   # Solves `coeff * v + k` in `[lo, hi]` for integer `v`, rounding each end
   # inward (ceil/floor) — the tightest sound bound, not just a conservative

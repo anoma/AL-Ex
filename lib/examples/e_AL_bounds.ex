@@ -359,6 +359,45 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  @doc "Both sides of every frame's equation stay open until the base case, so waking them on narrowing costs O(7883) narrowings a frame: over a minute at 3000 frames, under a second when they only wake on ground."
+  example a_chain_of_eqs_posted_before_the_calls_that_ground_them() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        vm_set_class(:regsm, :object)
+
+        defmethod(:regsm, :fib_mod, [_s, 1, 1, 1, 0])
+
+        defmethod(:regsm, :fib_mod, [s, x, a, b, q]) do
+          x > 1
+          eq(a1 + b1, q * 7883 + a)
+          a < 7883
+          a + 1 > 0
+          q + 1 > 0
+          unify(b, a1)
+          vm_is(x1, x - 1)
+          fib_mod(s, x1, a1, b1, q1)
+        end
+
+        fib_mod(:regsm, 3000, out, _b, _q)
+      end
+
+    assert Map.get(bindings, :"$out") == 1596
+    :ok
+  end
+
+  @doc "Ground-woken narrows nothing, but still refutes: raising `z`'s floor past the sum's ceiling fails on the spot instead of suspending until a side grounds."
+  example a_ground_woken_eq_still_refutes_the_moment_the_intervals_cross() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        eq(z, a + c)
+        a <= 2
+        c <= 3
+        z >= 10
+      end
+
+    :ok
+  end
+
   example entailed_propagator_holds_again_in_a_backtracked_alternative() do
     {:atomic, _} =
       run branch: :examples do
