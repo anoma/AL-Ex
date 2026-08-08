@@ -359,6 +359,36 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  example entailed_propagator_holds_again_in_a_backtracked_alternative() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:entailed, :object)
+
+        defmethod(:entailed, :small_or_large, [_s, 3])
+        defmethod(:entailed, :small_or_large, [_s, 100])
+      end
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        x < y
+        small_or_large(:entailed, y)
+        x >= 50
+        unify(x, 99)
+      end
+
+    assert Map.get(bindings, :"$y") == 100
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        x < y
+        small_or_large(:entailed, y)
+        x >= 50
+        unify(x, 150)
+      end
+
+    :ok
+  end
+
   # `either` is a real constraint (`AL.Var.Bounds.either/4`), not
   # `alternative`'s backtracking choicepoint -- resolves by elimination:
   # here the left side is refuted outright (4 != 5), so the right side gets

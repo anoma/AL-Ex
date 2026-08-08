@@ -14,6 +14,12 @@ defmodule AL.Var.Bounds do
   products, division by a zero-spanning interval on the inverse side —
   not representable in the same flat sum structure). `/ ** rem`
   unsupported too — all three hard-fail.
+
+  A propagator whose sides' current intervals already prove it holds is
+  entailed: since bounds only tighten within a branch it can never narrow
+  anything again, so it is unparked from the vars it mentions instead of
+  re-running on every later touch of them. Backtracking restores a
+  choicepoint's own store, which still carries it.
   """
 
   alias AL.Var.ConstraintSet
@@ -169,10 +175,37 @@ defmodule AL.Var.Bounds do
         rest = MapSet.delete(worklist, t)
 
         case narrow_pair(store, lo_aff, hi_aff, strict, branch) do
-          nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+          nil ->
+            nil
+
+          {new_store, more} ->
+            run_fixpoint(retire(new_store, t), MapSet.union(rest, more), branch)
         end
     end
+  end
+
+  defp retire(store, {lo_aff, hi_aff, strict} = prop) do
+    {_lo_lo, lo_hi} = domain_of(store, lo_aff)
+    {hi_lo, _hi_hi} = domain_of(store, hi_aff)
+
+    if lo_hi != nil and hi_lo != nil and bump_up(lo_hi, strict) <= hi_lo,
+      do: unpark(store, prop, affine_vars(lo_aff) ++ affine_vars(hi_aff)),
+      else: store
+  end
+
+  defp unpark(store, prop, vars) do
+    vars
+    |> Enum.map(&AL.Var.deref(store, &1))
+    |> Enum.uniq()
+    |> Enum.reduce(store, fn v, acc ->
+      case Map.get(acc, v) do
+        %ConstraintSet{} = set ->
+          Map.put(acc, v, %{set | props: Enum.reject(set.props, &(&1 == prop))})
+
+        _other ->
+          acc
+      end
+    end)
   end
 
   # `either({op1, a1, b1}, {op2, a2, b2})` — CLP(FD) `#\/`: the constraint
