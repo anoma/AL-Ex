@@ -413,32 +413,33 @@ defmodule AL.Var.Bounds do
     end
   end
 
-  defp narrow_one_var(store, v, {v_lo, v_hi}, branch) do
-    if v_lo != nil and v_hi != nil and v_lo > v_hi do
-      :fail
-    else
-      case AL.Var.deref(store, v) do
-        n when is_number(n) ->
-          if AL.Var.in_bounds?({v_lo, v_hi}, n), do: {:ok, store, []}, else: :fail
+  defp narrow_one_var(store, v, derived, branch) do
+    case AL.Var.deref(store, v) do
+      n when is_number(n) ->
+        if AL.Var.in_bounds?(derived, n), do: {:ok, store, []}, else: :fail
 
-        dv ->
-          old_bounds = raw_domain(store, dv)
-          props = props_of(store, dv)
+      dv ->
+        {d_lo, d_hi} = derived
+        {old_lo, old_hi} = old_bounds = raw_domain(store, dv)
+        v_lo = AL.Var.tighten_max(d_lo, old_lo)
+        v_hi = AL.Var.tighten_min(d_hi, old_hi)
 
-          cond do
-            {v_lo, v_hi} == old_bounds ->
-              {:ok, store, []}
+        cond do
+          v_lo != nil and v_hi != nil and v_lo > v_hi ->
+            :fail
 
-            v_lo != nil and v_lo == v_hi ->
-              case AL.Var.bind(store, dv, v_lo, branch) do
-                nil -> :fail
-                new_store -> {:ok, new_store, props}
-              end
+          {v_lo, v_hi} == old_bounds ->
+            {:ok, store, []}
 
-            true ->
-              {:ok, set_bounds(store, dv, {v_lo, v_hi}), props}
-          end
-      end
+          v_lo == v_hi ->
+            case AL.Var.bind(store, dv, v_lo, branch) do
+              nil -> :fail
+              new_store -> {:ok, new_store, props_of(store, dv)}
+            end
+
+          true ->
+            {:ok, set_bounds(store, dv, {v_lo, v_hi}), props_of(store, dv)}
+        end
     end
   end
 

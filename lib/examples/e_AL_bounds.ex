@@ -335,6 +335,30 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  example eq_posted_before_two_sibling_recursive_calls_converges() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        vm_set_class(:eq_first, :object)
+
+        defmethod(:eq_first, :fib_eq_first, [_s, 1, 1])
+        defmethod(:eq_first, :fib_eq_first, [_s, 2, 1])
+
+        defmethod(:eq_first, :fib_eq_first, [s, x, v]) do
+          eq(a, x - 1)
+          eq(b, x - 2)
+          x > 2
+          eq(v, v1 + v2)
+          fib_eq_first(s, a, v1)
+          fib_eq_first(s, b, v2)
+        end
+
+        fib_eq_first(:eq_first, 8, out)
+      end
+
+    assert Map.get(bindings, :"$out") == 21
+    :ok
+  end
+
   # `either` is a real constraint (`AL.Var.Bounds.either/4`), not
   # `alternative`'s backtracking choicepoint -- resolves by elimination:
   # here the left side is refuted outright (4 != 5), so the right side gets
