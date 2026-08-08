@@ -335,6 +335,99 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  example eq_posted_before_two_sibling_recursive_calls_converges() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        vm_set_class(:eq_first, :object)
+
+        defmethod(:eq_first, :fib_eq_first, [_s, 1, 1])
+        defmethod(:eq_first, :fib_eq_first, [_s, 2, 1])
+
+        defmethod(:eq_first, :fib_eq_first, [s, x, v]) do
+          eq(a, x - 1)
+          eq(b, x - 2)
+          x > 2
+          eq(v, v1 + v2)
+          fib_eq_first(s, a, v1)
+          fib_eq_first(s, b, v2)
+        end
+
+        fib_eq_first(:eq_first, 8, out)
+      end
+
+    assert Map.get(bindings, :"$out") == 21
+    :ok
+  end
+
+  @doc "Both sides of every frame's equation stay open until the base case, so waking them on narrowing costs O(7883) narrowings a frame: over a minute at 3000 frames, under a second when they only wake on ground."
+  example a_chain_of_eqs_posted_before_the_calls_that_ground_them() do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        vm_set_class(:regsm, :object)
+
+        defmethod(:regsm, :fib_mod, [_s, 1, 1, 1, 0])
+
+        defmethod(:regsm, :fib_mod, [s, x, a, b, q]) do
+          x > 1
+          eq(a1 + b1, q * 7883 + a)
+          a < 7883
+          a + 1 > 0
+          q + 1 > 0
+          unify(b, a1)
+          vm_is(x1, x - 1)
+          fib_mod(s, x1, a1, b1, q1)
+        end
+
+        fib_mod(:regsm, 3000, out, _b, _q)
+      end
+
+    assert Map.get(bindings, :"$out") == 1596
+    :ok
+  end
+
+  @doc "Ground-woken narrows nothing, but still refutes: raising `z`'s floor past the sum's ceiling fails on the spot instead of suspending until a side grounds."
+  example a_ground_woken_eq_still_refutes_the_moment_the_intervals_cross() do
+    {:aborted, _trace} =
+      run branch: :examples do
+        eq(z, a + c)
+        a <= 2
+        c <= 3
+        z >= 10
+      end
+
+    :ok
+  end
+
+  example entailed_propagator_holds_again_in_a_backtracked_alternative() do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(:entailed, :object)
+
+        defmethod(:entailed, :small_or_large, [_s, 3])
+        defmethod(:entailed, :small_or_large, [_s, 100])
+      end
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        x < y
+        small_or_large(:entailed, y)
+        x >= 50
+        unify(x, 99)
+      end
+
+    assert Map.get(bindings, :"$y") == 100
+
+    {:aborted, _trace} =
+      run branch: :examples do
+        x < y
+        small_or_large(:entailed, y)
+        x >= 50
+        unify(x, 150)
+      end
+
+    :ok
+  end
+
   # `either` is a real constraint (`AL.Var.Bounds.either/4`), not
   # `alternative`'s backtracking choicepoint -- resolves by elimination:
   # here the left side is refuted outright (4 != 5), so the right side gets
