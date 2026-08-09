@@ -43,6 +43,10 @@ defmodule AL.Domino do
   # finished) -- a still-open var there isn't a failure to look up, it
   # means this call only narrowed it rather than fully deciding it. Redo/
   # Fail stay bare: nothing new is known at either of those points.
+  # Chosen isn't a port: it names the clause (`seq`, the method's own clause
+  # numbering) a scope is running, once at its Call and again each time
+  # backtracking hands it the next one. The last Chosen before a scope's Exit
+  # is the clause that fired.
   @type domino_event() ::
           {:method_call, scope(), term(), term(), [term()],
            %{optional(term()) => var_description()}}
@@ -51,6 +55,7 @@ defmodule AL.Domino do
           | {:clause_call, scope(), term(), [term()], %{optional(term()) => var_description()}}
           | {:clause_exit, scope(), %{optional(term()) => var_description()}}
           | {:clause_redo | :clause_fail, scope()}
+          | {:clause_chosen, scope(), non_neg_integer()}
 
   # A raw goal or `:backtrack`/`:flounder` control marker only joins
   # `trace` when a run opts in -- see moduledoc.

@@ -359,6 +359,63 @@ defmodule Examples.ALTrace do
     end
   end
 
+  example call_node_names_the_clause_that_fired() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :pick_box, super: :object, ivars: [] do
+          defmethod(:pick, [self, :first])
+          defmethod(:pick, [self, :second])
+          defmethod(:pick, [self, :third])
+        end
+      end
+
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        new(:pick_box, %{}, obj)
+        pick(obj, chosen)
+        unify(chosen, :third)
+      end
+
+    assert Map.get(bindings, :"$chosen") == :third
+
+    roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+    pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
+
+    assert pick_node.clause == 2
+    pick_node
+  end
+
+  example node_names_the_committed_clause_not_the_one_abandoned_mid_body() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :attempt_box, super: :object, ivars: [] do
+          defmethod(:probe, [self, 1])
+
+          defmethod(:try, [self, v]) do
+            probe(self, w)
+            unify(w, 99)
+            unify(v, :unreachable)
+          end
+
+          defmethod(:try, [self, :committed])
+        end
+      end
+
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        new(:attempt_box, %{}, obj)
+        try(obj, answer)
+      end
+
+    assert Map.get(bindings, :"$answer") == :committed
+
+    roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+    try_node = Enum.find(roots, &match?(%{label: {_, :try, _}}, &1))
+
+    assert try_node.clause == 1
+    try_node
+  end
+
   example derivation_tree_keeps_the_committed_chain_after_a_failed_attempt() do
     {:atomic, _} =
       run branch: :examples do
