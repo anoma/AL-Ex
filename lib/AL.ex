@@ -319,10 +319,18 @@ defmodule AL do
       | domino: %AL.Domino{state.domino | scopes: Map.delete(state.domino.scopes, scope)}
     }
 
+  # Resuming a scope resumes every enclosing scope that had already run out of
+  # goals: the run is inside them again, so their Exit was provisional and the
+  # calls they have yet to make are still theirs. mark_exited/2 suppresses an
+  # already-exited scope's second Exit, so the whole exited ancestry unmarks
+  # for those frames to journal a real Exit when they finish for good.
   defp unmark_exited(state, scope) do
     case Map.get(state.domino.scopes, scope) do
-      nil -> state
-      info -> put_scope(state, scope, %{info | exited: false})
+      %{exited: true, parent: parent} = info ->
+        state |> put_scope(scope, %{info | exited: false}) |> unmark_exited(parent)
+
+      _ ->
+        state
     end
   end
 
