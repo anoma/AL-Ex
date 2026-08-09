@@ -372,10 +372,19 @@ defmodule AL do
 
         state = log_vm_trace(state, :backtrack)
         state = unmark_exited(state, choice.scope_pointer)
+        state = mark_clause_chosen(state, choice)
 
         continue(%AL{state | active_choicepoint: choice, choicepoint_stack: rest_choices})
     end
   end
+
+  # A method's untried clauses become choicepoints all at once, so a clause is
+  # chosen only when backtracking arrives at it. The scope is the one the
+  # clause_call opened: a retry runs the next clause of the same call.
+  defp mark_clause_chosen(state, %AL.Choicepoint{clause: nil}), do: state
+
+  defp mark_clause_chosen(state, %AL.Choicepoint{clause: clause, scope_pointer: scope}),
+    do: push_trace(state, {:clause_chosen, scope, clause})
 
   defp log_vm_trace(state, entry) do
     cond do
@@ -618,7 +627,7 @@ defmodule AL do
       [] ->
         backtrack(state)
 
-      [{:oapply, id, _seq, head, body} | next_choices] ->
+      [{:oapply, id, seq, head, body} | next_choices] ->
         scope = fresh_scope()
         freshener = Integer.to_string(scope)
 
@@ -632,7 +641,7 @@ defmodule AL do
         }
 
         alternative_choicepoints =
-          Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
+          Enum.map(next_choices, fn {:oapply, alt_id, alt_seq, alt_head, alt_body} ->
             alt_store =
               AL.Var.unify(
                 {AL.Var.freshen(alt_head, freshener), alt_id},
@@ -648,7 +657,8 @@ defmodule AL do
                 continuations: [continuation | state.active_choicepoint.continuations],
                 done: [],
                 scope_pointer: scope,
-                suspensions: state.active_choicepoint.suspensions
+                suspensions: state.active_choicepoint.suspensions,
+                clause: alt_seq
               },
               [{bind_head_pattern, method_id_pattern}]
             )
@@ -681,6 +691,7 @@ defmodule AL do
             {:clause_call, scope, method_id_pattern, bind_head_pattern,
              describe_positions(open, pre_store)}
           )
+          |> push_trace({:clause_chosen, scope, seq})
           |> put_scope(scope, %{
             parent: parent,
             kind: :clause,
