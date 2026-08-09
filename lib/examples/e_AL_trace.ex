@@ -302,6 +302,63 @@ defmodule Examples.ALTrace do
     assert [{_var, {:bound, :second}}] = Map.to_list(pick_node.derived)
   end
 
+  example free_ask_keeps_every_call_under_the_frame_that_made_it() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :chain_box, super: :object, ivars: [] do
+          defmethod(:chain, [self, 1, 1])
+          defmethod(:chain, [self, 2, 1])
+
+          defmethod(:chain, [self, n, v]) do
+            n > 2
+            eq(n1, n - 1)
+            eq(n2, n - 2)
+            chain(self, n1, v1)
+            chain(self, n2, v2)
+            eq(v, v1 + v2)
+          end
+        end
+      end
+
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        new(:chain_box, %{}, obj)
+        chain(obj, n, 21)
+      end
+
+    assert Map.get(bindings, :"$n") == 8
+
+    frames =
+      state.domino.trace
+      |> Enum.reverse()
+      |> AL.Trace.derivation_tree()
+      |> Enum.flat_map(&chain_frames/1)
+
+    assert Enum.reject(frames, fn {n, calls} -> calls == predecessors(n) end) == []
+
+    frames
+  end
+
+  defp predecessors(n) when n > 2, do: [n - 1, n - 2]
+  defp predecessors(_n), do: []
+
+  # Every `chain` node, as {n it was called on, n of each `chain` call it made}.
+  defp chain_frames(%{label: {_, :chain, _}} = node) do
+    calls = Enum.filter(node.children, &match?(%{label: {_, :chain, _}}, &1))
+    [{chain_arg(node), Enum.map(calls, &chain_arg/1)} | descend(node)]
+  end
+
+  defp chain_frames(node), do: descend(node)
+
+  defp descend(node), do: Enum.flat_map(node.children, &chain_frames/1)
+
+  defp chain_arg(%{label: {_, :chain, [n | _]}, derived: derived}) do
+    case derived && Map.get(derived, n) do
+      {:bound, value} -> value
+      _ -> n
+    end
+  end
+
   example derivation_tree_keeps_the_committed_chain_after_a_failed_attempt() do
     {:atomic, _} =
       run branch: :examples do

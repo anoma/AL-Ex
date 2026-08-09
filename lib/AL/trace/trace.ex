@@ -215,18 +215,27 @@ defmodule AL.Trace do
     end
   end
 
-  defp tree_step({tag, scope, derived}, {[_ | rest], nodes, aliases, roots}, _store)
+  # Close the exiting scope itself, not whatever sits on top: a frame Exits as
+  # soon as it runs out of goals, and backtracking resumes inside frames that
+  # already exited, so the top of the stack can be a deeper frame's. `unwind`
+  # drops every copy, leaving a collapsed method/clause node's paired Exit
+  # nothing to close.
+  defp tree_step({tag, scope, derived}, {stack, nodes, aliases, roots}, _store)
        when tag in [:method_exit, :clause_exit] do
     resolved = Map.get(aliases, scope, scope)
     nodes = Map.update!(nodes, resolved, &%{&1 | derived: derived})
-    {rest, nodes, aliases, roots}
+    {unwind(stack, resolved), nodes, aliases, roots}
   end
 
-  defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
+  # A Redo resumes the run inside this scope, so the frames open at that moment
+  # are its own ancestry: callers whose provisional Exit unwound the stack are
+  # open again, and the calls they go on to make are theirs. The parent links
+  # say which frames those are; the stack no longer does.
+  defp tree_step({tag, scope}, {_stack, nodes, aliases, roots}, _store)
        when tag in [:method_redo, :clause_redo] do
     resolved = Map.get(aliases, scope, scope)
     nodes = Map.update!(nodes, resolved, &%{&1 | child_scopes: []})
-    {[resolved | stack], nodes, aliases, roots}
+    {ancestry(resolved, nodes), nodes, aliases, roots}
   end
 
   defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
@@ -268,6 +277,13 @@ defmodule AL.Trace do
   # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
   # `render/1`'s job.
   defp tree_step(_other, acc, _store), do: acc
+
+  defp ancestry(scope, nodes) do
+    case Map.fetch!(nodes, scope).parent do
+      nil -> [scope]
+      parent -> [scope | ancestry(parent, nodes)]
+    end
+  end
 
   defp unwind(stack, scope) do
     if scope in stack do
