@@ -215,18 +215,18 @@ defmodule AL.Trace do
     end
   end
 
-  defp tree_step({tag, scope, derived}, {[_ | rest], nodes, aliases, roots}, _store)
+  defp tree_step({tag, scope, derived}, {stack, nodes, aliases, roots}, _store)
        when tag in [:method_exit, :clause_exit] do
     resolved = Map.get(aliases, scope, scope)
     nodes = Map.update!(nodes, resolved, &%{&1 | derived: derived})
-    {rest, nodes, aliases, roots}
+    {unwind(stack, resolved), nodes, aliases, roots}
   end
 
-  defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
+  defp tree_step({tag, scope}, {_stack, nodes, aliases, roots}, _store)
        when tag in [:method_redo, :clause_redo] do
     resolved = Map.get(aliases, scope, scope)
     nodes = Map.update!(nodes, resolved, &%{&1 | child_scopes: []})
-    {[resolved | stack], nodes, aliases, roots}
+    {ancestry(resolved, nodes), nodes, aliases, roots}
   end
 
   defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
@@ -268,6 +268,13 @@ defmodule AL.Trace do
   # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
   # `render/1`'s job.
   defp tree_step(_other, acc, _store), do: acc
+
+  defp ancestry(scope, nodes) do
+    case Map.fetch!(nodes, scope).parent do
+      nil -> [scope]
+      parent -> [scope | ancestry(parent, nodes)]
+    end
+  end
 
   defp unwind(stack, scope) do
     if scope in stack do
