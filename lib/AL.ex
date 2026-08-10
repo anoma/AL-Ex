@@ -613,12 +613,9 @@ defmodule AL do
       [] ->
         backtrack(state)
 
-      [{:oapply, id, _seq, head, body} | next_choices] ->
+      clauses ->
         scope = fresh_scope()
         freshener = Integer.to_string(scope)
-
-        head_pattern = AL.Var.freshen(head, freshener)
-        body_pattern = AL.Var.freshen(body, freshener)
 
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
@@ -626,20 +623,18 @@ defmodule AL do
           scope_pointer: caller_scope_pointer(state)
         }
 
-        alternative_choicepoints =
-          Enum.map(next_choices, fn {:oapply, alt_id, _seq, alt_head, alt_body} ->
-            alt_store =
-              AL.Var.unify(
-                {AL.Var.freshen(alt_head, freshener), alt_id},
-                {bind_head_pattern, method_id_pattern},
-                state.active_choicepoint.store,
-                state.branch
-              )
-
+        [active_choicepoint | alternative_choicepoints] =
+          Enum.map(clauses, fn {:oapply, clause_id, _seq, clause_head, clause_body} ->
             wake(
               %AL.Choicepoint{
-                goals: AL.Var.freshen(alt_body, freshener),
-                store: alt_store,
+                goals: AL.Var.freshen(clause_body, freshener),
+                store:
+                  AL.Var.unify(
+                    {AL.Var.freshen(clause_head, freshener), clause_id},
+                    {bind_head_pattern, method_id_pattern},
+                    state.active_choicepoint.store,
+                    state.branch
+                  ),
                 continuations: [continuation | state.active_choicepoint.continuations],
                 done: [],
                 scope_pointer: scope,
@@ -648,14 +643,6 @@ defmodule AL do
               [{bind_head_pattern, method_id_pattern}]
             )
           end)
-
-        main_store =
-          AL.Var.unify(
-            {head_pattern, id},
-            {bind_head_pattern, method_id_pattern},
-            state.active_choicepoint.store,
-            state.branch
-          )
 
         {call_receiver, call_args} =
           case bind_head_pattern do
@@ -686,18 +673,7 @@ defmodule AL do
 
         %AL{
           state
-          | active_choicepoint:
-              wake(
-                %AL.Choicepoint{
-                  goals: body_pattern,
-                  store: main_store,
-                  continuations: [continuation | state.active_choicepoint.continuations],
-                  done: [],
-                  scope_pointer: scope,
-                  suspensions: state.active_choicepoint.suspensions
-                },
-                [{bind_head_pattern, method_id_pattern}]
-              ),
+          | active_choicepoint: active_choicepoint,
             call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
             pending_cursor: nil,
             choicepoint_stack:
