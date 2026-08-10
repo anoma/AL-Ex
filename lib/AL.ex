@@ -860,7 +860,7 @@ defmodule AL do
       a == b ->
         backtrack(state)
 
-      MapSet.size(AL.Var.find_vars(a)) == 0 and MapSet.size(AL.Var.find_vars(b)) == 0 ->
+      ground?(a) and ground?(b) ->
         state
 
       true ->
@@ -898,7 +898,7 @@ defmodule AL do
 
   # `< > <= >= eq` rely on constraint intervals (see AL.Var.Bounds).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
-    store = state.active_choicepoint.store
+    store = store(state)
 
     case {interp_is(a, store), interp_is(b, store)} do
       {x, y} when is_number(x) and is_number(y) ->
@@ -923,9 +923,7 @@ defmodule AL do
         },
         state
       ) do
-    store = state.active_choicepoint.store
-
-    case AL.Var.Bounds.either(store, {op1, a1, b1}, {op2, a2, b2}, state.branch) do
+    case AL.Var.Bounds.either(store(state), {op1, a1, b1}, {op2, a2, b2}, state.branch) do
       nil -> backtrack(state)
       new_store -> put_bindings(state, new_store, [a1, b1, a2, b2])
     end
@@ -958,7 +956,7 @@ defmodule AL do
 
   # Assert var is ground
   def interp(%Goal.Ground{term: term}, state) do
-    if MapSet.size(AL.Var.find_vars(term)) == 0 do
+    if ground?(term) do
       state
     else
       backtrack(state)
@@ -991,7 +989,7 @@ defmodule AL do
 
   # De/Re-construct a term into/from a list 
   def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    if resolved?(term) do
+    if not AL.Var.var?(term) do
       {term_name, term_args} = decompose_term(term)
       put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
     else
@@ -1006,7 +1004,7 @@ defmodule AL do
   # Prolog call/1. term's shape must be resolved; first arg = receiver, functor
   # = selector — call_term({foo, self, x}) re-dispatches as send(self, :foo, [x]).
   def interp(%Goal.CallTerm{term: term}, state) do
-    if resolved?(term) do
+    if not AL.Var.var?(term) do
       case decompose_term(term) do
         {name, [self | rest]} ->
           choice = state.active_choicepoint
@@ -1119,7 +1117,6 @@ defmodule AL do
   defp decompose_term(atomic), do: {atomic, []}
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
-  defp resolved?(term), do: not AL.Var.var?(term)
 
   defp from_stored_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.from_stored/1)
   defp from_stored_body(body), do: body
