@@ -573,10 +573,8 @@ defmodule AL do
     do: backtrack(state)
 
   def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
-    k = AL.Var.subst(k_pattern, store(state))
-
-    if ground?(k) do
-      case Map.fetch(m, k) do
+    if ground?(k_pattern) do
+      case Map.fetch(m, k_pattern) do
         {:ok, v} ->
           put_bindings(state, unify(state, v_pattern, v), [v_pattern])
 
@@ -606,7 +604,7 @@ defmodule AL do
         backtrack(state)
 
       expr ->
-        put_bindings(state, unify(state, AL.Var.deref(store(state), a), expr), [a])
+        put_bindings(state, unify(state, a, expr), [a])
     end
   end
 
@@ -848,9 +846,7 @@ defmodule AL do
 
   # Prolog `==`: structural equality; never binds, so an unbound side fails.
   def interp(%Goal.Equal{a: a, b: b}, state) do
-    store = state.active_choicepoint.store
-
-    if AL.Var.subst(a, store) == AL.Var.subst(b, store) do
+    if a == b do
       state
     else
       backtrack(state)
@@ -860,19 +856,15 @@ defmodule AL do
   # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
   # AL.Var.bind/4 rechecks on each future bind.
   def interp(%Goal.Dif{a: a, b: b}, state) do
-    store = store(state)
-    a1 = AL.Var.subst(a, store)
-    b1 = AL.Var.subst(b, store)
-
     cond do
-      a1 == b1 ->
+      a == b ->
         backtrack(state)
 
-      MapSet.size(AL.Var.find_vars(a1)) == 0 and MapSet.size(AL.Var.find_vars(b1)) == 0 ->
+      MapSet.size(AL.Var.find_vars(a)) == 0 and MapSet.size(AL.Var.find_vars(b)) == 0 ->
         state
 
       true ->
-        put_bindings(state, AL.Var.add_dif(store, a1, b1), [])
+        put_bindings(state, AL.Var.add_dif(store(state), a, b), [])
     end
   end
 
@@ -881,12 +873,8 @@ defmodule AL do
   # bind time thereafter (find_violation) — not a class with a :domain
   # method. Ground var -> direct membership check, no constraint touched.
   def interp(%Goal.InDomain{var: var, values: values}, state) do
-    store = store(state)
-    resolved = AL.Var.deref(store, var)
-    values = AL.Var.subst(values, store)
-
-    if AL.Var.var?(resolved) do
-      {new_store, narrowed} = AL.Var.add_domain(store, resolved, values)
+    if AL.Var.var?(var) do
+      {new_store, narrowed} = AL.Var.add_domain(store(state), var, values)
 
       cond do
         MapSet.size(narrowed) == 0 ->
@@ -895,7 +883,7 @@ defmodule AL do
         MapSet.size(narrowed) == 1 ->
           [only] = MapSet.to_list(narrowed)
 
-          case AL.Var.bind(new_store, resolved, only, state.branch) do
+          case AL.Var.bind(new_store, var, only, state.branch) do
             nil -> backtrack(state)
             bound_store -> put_bindings(state, bound_store, [var])
           end
@@ -904,7 +892,7 @@ defmodule AL do
           put_bindings(state, new_store, [])
       end
     else
-      if resolved in values, do: state, else: backtrack(state)
+      if var in values, do: state, else: backtrack(state)
     end
   end
 
@@ -944,13 +932,10 @@ defmodule AL do
   end
 
   def interp(%Goal.AllDif{vars: vars}, state) do
-    store = store(state)
-    resolved = AL.Var.subst(vars, store)
-
-    if is_list(resolved) do
-      case AL.Var.AllDif.post(store, resolved, state.branch) do
+    if is_list(vars) do
+      case AL.Var.AllDif.post(store(state), vars, state.branch) do
         nil -> backtrack(state)
-        new_store -> put_bindings(state, new_store, resolved)
+        new_store -> put_bindings(state, new_store, vars)
       end
     else
       backtrack(state)
@@ -973,7 +958,7 @@ defmodule AL do
 
   # Assert var is ground
   def interp(%Goal.Ground{term: term}, state) do
-    if MapSet.size(AL.Var.find_vars(AL.Var.subst(term, state.active_choicepoint.store))) == 0 do
+    if MapSet.size(AL.Var.find_vars(term)) == 0 do
       state
     else
       backtrack(state)
@@ -983,42 +968,35 @@ defmodule AL do
   # CLP(FD) labeling
   def interp(%Goal.Label{term: term}, state) do
     store = store(state)
-    v = AL.Var.deref(store, term)
 
-    if not AL.Var.var?(v) do
+    if not AL.Var.var?(term) do
       state
     else
-      case AL.Var.domain_of(store, v) do
+      case AL.Var.domain_of(store, term) do
         nil ->
-          case AL.Var.Bounds.bounds_of(store, v) do
+          case AL.Var.Bounds.bounds_of(store, term) do
             {lo, hi} when is_integer(lo) and is_integer(hi) ->
-              goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, v]}
+              goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, term]}
               splice_and_run(state, [goal])
 
             _ ->
-              label_from_link_or_isa(v, store, state)
+              label_from_link_or_isa(term, store, state)
           end
 
         domain ->
-          label_from_domain_constraint(v, domain, state)
+          label_from_domain_constraint(term, domain, state)
       end
     end
   end
 
   # De/Re-construct a term into/from a list 
   def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    store = store(state)
-    resolved_term = AL.Var.subst(term, store)
-
-    if resolved?(resolved_term) do
-      {term_name, term_args} = decompose_term(resolved_term)
+    if resolved?(term) do
+      {term_name, term_args} = decompose_term(term)
       put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
     else
-      ground_name = AL.Var.subst(name, store)
-      resolved_args = AL.Var.subst(args, store)
-
-      if ground?(ground_name) and is_list(resolved_args) do
-        put_bindings(state, unify(state, term, compose_term(ground_name, resolved_args)), [term])
+      if ground?(name) and is_list(args) do
+        put_bindings(state, unify(state, term, compose_term(name, args)), [term])
       else
         backtrack(state)
       end
@@ -1028,10 +1006,8 @@ defmodule AL do
   # Prolog call/1. term's shape must be resolved; first arg = receiver, functor
   # = selector — call_term({foo, self, x}) re-dispatches as send(self, :foo, [x]).
   def interp(%Goal.CallTerm{term: term}, state) do
-    resolved_term = AL.Var.subst(term, store(state))
-
-    if resolved?(resolved_term) do
-      case decompose_term(resolved_term) do
+    if resolved?(term) do
+      case decompose_term(term) do
         {name, [self | rest]} ->
           choice = state.active_choicepoint
 
@@ -1053,7 +1029,7 @@ defmodule AL do
 
   # Ground's dual on leaves: succeeds only on an unbound variable.
   def interp(%Goal.IsVar{term: term}, state) do
-    if AL.Var.var?(AL.Var.deref(state.active_choicepoint.store, term)) do
+    if AL.Var.var?(term) do
       state
     else
       backtrack(state)

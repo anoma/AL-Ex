@@ -60,7 +60,14 @@ transactions, durable + replayable state, Git-like branching.
     that same map — so head-var bindings made in the body are visible to the
     caller (no copy-back). `send`/`send_query`/`send_as_value`/
     `durable_candidates`/`call_next_method` clauses delegate straight to
-    `AL.Dispatch`.
+    `AL.Dispatch`. Inside an `interp/2` clause a goal's own fields arrive already
+    resolved — `continue/1` substituted the goal against the store it hands down,
+    so `var?(field)` means still unbound and `ground?(field)` means ground. Read
+    them raw; `subst` is deep and idempotent, so adding one back is a no-op walk
+    on a hot path. The guarantee is that entry path's, not the terms' — it stops
+    at the clause boundary, so anything reached another way still needs
+    resolving: a suspension key, a var off a stored link, `Findall`'s
+    per-solution template, or a helper `AL.Dispatch` hands terms of its own.
   - `wake/2`, `unify/3`, `fresh_scope/0`, `cached_scan_clauses/2`,
     `put_bindings/3`, `fan_out/3`, `scan_clauses/5`, `standardize_apart/1`,
     `splice_goals/2` are `def` (not `defp`) specifically so `AL.Dispatch`,
