@@ -46,13 +46,16 @@ ALClassCoder >> functionEntries [
 	elixir := 'o = ' , object resolve
 			, '
 oid = o.id
-{:atomic, entries} = :mnesia.transaction(fn ->
-  for {:method, _m, name, id} <- AL.Object.scan_method(oid, :"$n", :"$id"),
-      {:oapply, _id, seq, h, b} <- AL.Object.scan_oapply(id, :"$seq", :"$h", :"$b") do
+branch = %AL.Branch{id: AL.Object.branch_id(o)}
+case :mnesia.transaction(fn ->
+  for {:method, _m, name, id} <- AL.Object.scan_method(oid, :"$n", :"$id", branch),
+      {:oapply, _id, seq, h, b} <- AL.Object.scan_oapply(id, :"$seq", :"$h", :"$b", branch) do
     [to_string(name), seq, AL.Source.defmethod_source(oid, name, h, b), length(h)]
   end
-end)
-entries'.
+end) do
+  {:atomic, entries} -> entries
+  {:aborted, _gone} -> []
+end'.
 	rows := (application evaluateAndWait: elixir) asList.
 	^ rows
 		collect: [ :row | 
