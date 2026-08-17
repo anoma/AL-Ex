@@ -1,0 +1,37 @@
+# The command log
+
+## Setup
+
+Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+
+```elixir
+AL.Branch.head()
+```
+
+## Forking
+
+AL persists to a local, gitignored Mnesia store (`.mnesiastore/` by default) that every `iex`/`mix run`/`mix test` invocation in a checkout shares unless told otherwise. Forks let multiple streams of work happen on the same node without conflict.
+
+```elixir
+fork = AL.Branch.fork()
+```
+
+```elixir
+AL.Branch.checkout(fork)
+```
+
+```elixir
+AL.Branch.discard(fork)
+```
+
+## Durability
+
+```elixir
+
+```
+
+## ACID transactions
+
+```elixir
+
+```

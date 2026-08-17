@@ -113,4 +113,66 @@ defmodule Examples.ALDefclass do
     assert Map.get(bindings, :"$x") == 42
     :ok
   end
+
+  example defclass_rejects_redeclaring_an_existing_name() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_probe_a, super: :object, ivars: [] do
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        defclass :redef_probe_a, super: :value, ivars: [] do
+        end
+      end
+
+    :ok
+  end
+
+  example defclass_redef_true_replaces_the_existing_class() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_probe_b, super: :object, ivars: [] do
+          defmethod(:generation, [self, :first])
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :redef_probe_b, super: :value, ivars: [], redef: true do
+          defmethod(:generation, [self, :second])
+        end
+
+        findall(s, [super(:redef_probe_b, s)], supers)
+        new(:redef_probe_b, obj)
+        generation(obj, g)
+      end
+
+    assert Map.get(bindings, :"$supers") == [:value]
+    assert Map.get(bindings, :"$g") == :second
+    :ok
+  end
+
+  example new_rejects_reusing_an_existing_durable_name() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_owner, super: :object, ivars: [] do
+        end
+
+        new(:redef_owner, %{name: :redef_instance}, _)
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        new(:redef_owner, %{name: :redef_instance}, _)
+      end
+
+    {:atomic, _} =
+      run branch: :examples do
+        new(:redef_owner, %{name: :redef_instance, redef: true}, _)
+      end
+
+    :ok
+  end
 end

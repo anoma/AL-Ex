@@ -22,11 +22,12 @@ This runtime is the prototypical version of AL, written in Elixir. The irony of 
 
 ## Features
 
-- Live Smalltalk-style objects, defined relationally. No more faux-ADTs. Define protocols and their implementations. Mix and match at your leisure. With bidirectional method resolution informed by WAM semantics.
-- Shutdown your system, continue later. All transactions are backed up by an on-disk database, hydrated at startup.
-- ACID transactions ensure your work is safe and easy to reason about.
-- CLP over finite domains, *including* over objects, both durable and ephemeral.
-- Git-Like branching behaviour. Fork your system at different points in the system's history.
+- Objects defined relationally, with multiple inheritance and bidirectional dispatch. An unbound receiver turns a call into a search.
+- Durable by default. Every change is logged to disk. Restart and continue where you left off.
+- ACID transactions.
+- Constraint solving over finite domains: bounds consistency, `dif`, global constraints like `all_dif` (Régin's algorithm).
+- Git-like branching. Fork state, work in isolation, discard or keep.
+- Execution tracing. Every run reconstructs a derivation tree: what was called, what was asserted, what it resolved to.
 
 And to come:
 
@@ -159,7 +160,7 @@ Further isolation should be accomplished by configuration of the Mnesiastore dir
 
 ```st
 Metacello new
-	repository: 'github://anoma/AL-Ex:main/src';
+	repository: 'github://anoma/AL-Ex:base/src';
 	baseline: 'AL';
 	load
 ```
@@ -168,7 +169,7 @@ If you have an existing bridge with a different version you want to run this wit
 
 ```st
 Metacello new
-	repository: 'github://anoma/AL-Ex:main/src';
+	repository: 'github://anoma/AL-Ex:base/src';
 	baseline: 'AL';
 	load: #dev
 ```

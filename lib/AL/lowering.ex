@@ -297,7 +297,8 @@ defmodule AL.Lowering do
         ast_to_pattern(Keyword.fetch!(opts, :super)),
         ast_to_pattern(Keyword.get(opts, :ivars, [])),
         ast_to_pattern(Keyword.get(opts, :categories, [])),
-        methods
+        methods,
+        ast_to_pattern(Keyword.get(opts, :redef, false))
       ]
     }
   end

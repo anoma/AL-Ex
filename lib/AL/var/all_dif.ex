@@ -95,7 +95,10 @@ defmodule AL.Var.AllDif do
         nil
 
       matching ->
-        scc = scc_ids(domains, matching)
+        {scc, edges, val_nodes} = scc_ids(domains, matching)
+        matched_vals = matching |> Map.values() |> MapSet.new()
+        free_val_nodes = Enum.reject(val_nodes, fn {:val, v} -> MapSet.member?(matched_vals, v) end)
+        reachable = reaches_free(edges, free_val_nodes)
 
         prunings =
           Enum.reduce(domains, %{}, fn {var, dom}, acc ->
@@ -105,7 +108,8 @@ defmodule AL.Var.AllDif do
             kept =
               dom
               |> Enum.filter(fn val ->
-                val == matched_val or Map.fetch!(scc, {:val, val}) == var_scc
+                val == matched_val or Map.fetch!(scc, {:val, val}) == var_scc or
+                  MapSet.member?(reachable, {:val, val})
               end)
               |> MapSet.new()
 
@@ -170,7 +174,7 @@ defmodule AL.Var.AllDif do
 
     edges = build_edges(domains, matching)
 
-    tarjan(var_nodes ++ val_nodes, edges)
+    {tarjan(var_nodes ++ val_nodes, edges), edges, val_nodes}
   end
 
   defp build_edges(domains, matching) do
@@ -186,6 +190,30 @@ defmodule AL.Var.AllDif do
         Map.update(acc2, from, [to], &[to | &1])
       end)
     end)
+  end
+
+  defp reaches_free(edges, free_val_nodes) do
+    radj = invert_edges(edges)
+    bfs_reachable(radj, free_val_nodes, MapSet.new(free_val_nodes))
+  end
+
+  defp invert_edges(edges) do
+    Enum.reduce(edges, %{}, fn {from, tos}, acc ->
+      Enum.reduce(tos, acc, fn to, acc2 -> Map.update(acc2, to, [from], &[from | &1]) end)
+    end)
+  end
+
+  defp bfs_reachable(_radj, [], visited), do: visited
+
+  defp bfs_reachable(radj, [node | rest], visited) do
+    preds = Map.get(radj, node, [])
+
+    {visited1, frontier1} =
+      Enum.reduce(preds, {visited, rest}, fn p, {v, f} ->
+        if MapSet.member?(v, p), do: {v, f}, else: {MapSet.put(v, p), [p | f]}
+      end)
+
+    bfs_reachable(radj, frontier1, visited1)
   end
 
   defp tarjan(nodes, edges) do

@@ -1,0 +1,45 @@
+# Debugging and tracing
+
+## Setup
+
+Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+
+```elixir
+AL.Branch.head()
+```
+
+## Live tracing
+
+```elixir
+
+```
+
+## Reading a failure
+
+```elixir
+
+```
+
+## Derivation trees
+
+Every run's `state.domino.trace` can be reconstructed into a tree of what was called and what was asserted, each resolved against the run's final store.
+
+```elixir
+{:atomic, {bindings, state}} =
+  run do
+    fibonacci(3, x)
+  end
+
+roots =
+  state.domino.trace
+  |> Enum.reverse()
+  |> AL.Trace.derivation_tree(state.active_choicepoint.store)
+
+AL.Trace.render_tree(roots)
+```
+
+## `method_values` — tabulating recursive calls
+
+```elixir
+
+```

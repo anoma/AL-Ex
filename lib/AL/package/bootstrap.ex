@@ -124,6 +124,33 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(self, key, value)
     end
 
+    defmethod(:object, :retract_class_facts, [self, name]) do
+      findall(c, [class(name, c)], existing_classes)
+
+      forall([member(existing_classes, c)]) do
+        vm_retract_class(name, c)
+      end
+
+      findall(s, [super(name, s)], existing_supers)
+
+      forall([member(existing_supers, s)]) do
+        vm_retract_super(name, s)
+      end
+    end
+
+    defmethod(:object, :claim_name, [self, name, redef]) do
+      implies do
+        [class(name, existing)] ->
+          implies do
+            [unify(redef, true)] -> retract_class_facts(self, name)
+            :else -> fail()
+          end
+
+        :else ->
+          unify(name, name)
+      end
+    end
+
     defmethod(:class, :construct, [self, %{class: self}])
 
     vm_set_method(:class, :allocate, :allocate_class)
@@ -133,8 +160,10 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(args, :name, name)
       vm_map_get(args, :super, super)
       alternative([vm_map_get(args, :ivars, ivars)], [unify(ivars, [])])
+      alternative([vm_map_get(args, :redef, redef)], [unify(redef, false)])
 
       class(self, meta)
+      claim_name(self, name, redef)
 
       vm_set_class(name, meta)
       vm_set_super(name, super)
@@ -146,7 +175,13 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:object, :allocate, [self, args, name]) do
       class(self, meta)
-      alternative([vm_map_get(args, :name, name)], [vm_gensym(name)])
+      alternative([vm_map_get(args, :redef, redef)], [unify(redef, false)])
+
+      implies do
+        [vm_map_get(args, :name, name)] -> claim_name(self, name, redef)
+        :else -> vm_gensym(name)
+      end
+
       vm_set_class(name, meta)
     end
 
@@ -364,8 +399,8 @@ defmodule AL.Package.Bootstrap do
     # the surface syntax, bypassing ordinary send dispatch.
     vm_set_class(:defclass, :behaviour)
 
-    vm_set_oapply(:defclass, [name, metaclass, super, ivars, categories, methods]) do
-      new(metaclass, %{name: name, super: super, ivars: ivars}, _)
+    vm_set_oapply(:defclass, [name, metaclass, super, ivars, categories, methods, redef]) do
+      new(metaclass, %{name: name, super: super, ivars: ivars, redef: redef}, _)
 
       forall([member(categories, category)]) do
         import(name, category)

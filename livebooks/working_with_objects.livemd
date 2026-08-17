@@ -1,0 +1,85 @@
+# Working with objects
+
+```elixir
+use AL
+```
+
+## Setup
+
+Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+
+```elixir
+AL.Branch.head()
+```
+
+## Creating durable classes and instances
+
+AL has an object system in the style of CLOS and Smalltalk, and aims to make writing live, open polymorphisms easy. The details of this will become more apparent later, but the basic ideas you need to know right now are that you can create classes with `defclass`, and instances of those classes with `new`. Let's try the well-known example of a light switch, which has on/off state.
+
+```elixir
+run do
+  defclass :switch,
+    super: :object,
+    ivars: [:state, [domain: ["on", "off"]]] do
+  end
+
+  new(:switch, %{name: :switch_instance_1, state: "on"}, s)
+end
+```
+
+In AL, durable objects are represented by an ID, which currently takes the form of an atom (soon, we will change these to binaries, as it can eventually fill up the atom table). You can inspect basic information about a durable object using examine/2.
+
+```elixir
+run do
+  examine(:switch_instance_1, info)
+end
+```
+
+```elixir
+run do
+  examine(:switch, info)
+end
+```
+
+## Look inside a live object
+
+In AL, durable objects are represented by an `ID`, which currently takes the form of an atom (soon, we will change these to binaries, as it can eventually fill up the atom table). You can inspect basic information about a durable object using `examine/2`.
+
+```elixir
+run do
+  examine(:switch_instance_1, info)
+end
+```
+
+## Extend an inherited method
+
+```elixir
+run do
+  defclass :animal, super: :object do
+    defmethod(:describe, [self, :i_am_animal]) do
+    end
+  end
+
+  defclass :pet, super: :animal do
+    defmethod(:describe, [self, d]) do
+      call_next_method(self, [parent])
+      unify(d, [:i_am_pet, parent])
+    end
+  end
+
+  new(:pet, rex)
+  describe(rex, result)
+end
+```
+
+## Slots
+
+```elixir
+
+```
+
+## Multiple inheritance
+
+```elixir
+
+```

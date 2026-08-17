@@ -1,0 +1,25 @@
+# AL
+
+## Section
+
+This livebook attempts to document and teach AL's unique features. Skip to any section you need.
+
+## Connecting
+
+In this checkout, run `bin/livebook`.
+The page should automatically open.
+
+Then attach this notebook to that node by clicking **Runtime** in the left bar → **Configure** → **Attached node** → enter `al@127.0.0.1` and cookie `al_livebook` → **Connect**.
+
+```elixir
+AL.Branch.head()
+```
+
+If that returns a branch instead of erroring, you're connected.
+
+## Notebooks
+
+* [Working with objects](./working_with_objects.livemd) — classes, inheritance, slots, `examine`.
+* [Logic and constraints](./logic_and_constraints.livemd) — `dif`, `eq`, `all_dif`, backward execution, open-receiver queries.
+* [The command log](./command_log.livemd) — durability, branching, forking, multiple sessions.
+* [Debugging and tracing](./debugging_and_tracing.livemd) — live tracing, reading failures, derivation trees.

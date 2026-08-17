@@ -176,4 +176,22 @@ defmodule Examples.ALLists do
     assert Enum.sort(Map.get(constraints, :"$b").domain) == [1, 2]
     :ok
   end
+
+  example all_dif_leaves_slack_domains_unpruned() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        unify(d, [1, 2, 3, :a, :b, :c])
+        in_domain(x, d)
+        in_domain(y, d)
+        in_domain(z, d)
+        all_dif([x, y, z])
+      end
+
+    constraints = Map.get(bindings, :"$constraints")
+    full = [1, 2, 3, :a, :b, :c]
+    assert Enum.sort(Map.get(constraints, :"$x").domain) == full
+    assert Enum.sort(Map.get(constraints, :"$y").domain) == full
+    assert Enum.sort(Map.get(constraints, :"$z").domain) == full
+    :ok
+  end
 end

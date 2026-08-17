@@ -1,0 +1,89 @@
+# Logic and constraints
+
+## Setup
+
+Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+
+```elixir
+AL.Branch.head()
+```
+
+## Run a method backwards
+
+```elixir
+run do
+  factorial(n, 120)
+end
+```
+
+## Propagate constraints about and between objects
+
+```elixir
+run do
+  defclass :rectangle, super: :value, ivars: [:width, :height, :perimeter] do
+    defmethod(:init, [self, args, new]) do
+      slot_get(args, :width, w)
+      slot_get(args, :height, h)
+      slot_get(args, :perimeter, p)
+      eq(p, 2 * w + 2 * h)
+      unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
+    end
+
+    defmethod(:get_slot, [self, k, v]) do
+      vm_map_get(self, k, v)
+    end
+
+    defmethod(:area, [self, result]) do
+      get_slot(self, :width, w)
+      get_slot(self, :height, h)
+      vm_is(result, w * h)
+    end
+  end
+
+  new(:rectangle, %{width: w, height: 3, perimeter: 16}, r)
+  area(r, a)
+end
+```
+
+## Infer an object's identity from its class and a slot
+
+An open receiver turns the last two calls below into a search, not a lookup.
+
+```elixir
+run do
+  defclass :vehicle, super: :object do
+  end
+
+  defclass :car, super: :vehicle do
+  end
+
+  defclass :bicycle, super: :vehicle do
+  end
+
+  defclass :fire_hydrant, super: :object do
+  end
+
+  set_slots(:car, %{color: :red})
+  set_slots(:bicycle, %{color: :blue})
+  set_slots(:fire_hydrant, %{color: :red})
+
+  new(:car, my_car)
+  new(:bicycle, my_bike)
+  new(:fire_hydrant, hydrant)
+
+  class(x, :vehicle)
+  get_slot(x, :color, :red)
+end
+```
+
+## `dif` and `all_dif`
+
+```elixir
+
+```
+
+## `in_domain` and `label`
+
+```elixir
+
+```
