@@ -86,7 +86,7 @@ run do
       get_slot(self, :count, c)
       vm_is(c1, c + 1)
       set_slot(self, :count, c1)
-      call_next_method(self, [])
+      call_next_method(self)
     end
    end
 
@@ -96,10 +96,72 @@ end
 
 ```elixir
 run do 
-  flick(c)
-  examine(c, info)
+  flick(:counted_switch_instance_1)
+  examine(:counted_switch_instance_1, info)
 end
 
 ```
 
-In fact, AL even supports multiple inheritance. Let's take a look at the classic diamond inheritance problem.
+In fact, AL even supports multiple inheritance. Let's take a look at the classic diamond inheritance problem. To demonstrate this, we'll need another kind of switch. Let's take one that flips its colour every time that it is turned on. For now we have a couple of limitations: Firstly, we must label the var, since constraints aren't durable in the database. Secondly, we don't have an ordering on the domain, meaning we can't express an exact cycle.
+
+```elixir
+run do
+  defclass :colour_cycle_switch,
+    redef: true,
+    super: :switch,
+    ivars: [colour: [domain: ["red", "green", "blue"]]] do
+
+    defmethod(:flick, [self]) do
+      get_slot(self, :state, "off")
+      get_slot(self, :colour, c)
+      in_domain(c1, ["red", "green", "blue"])
+      dif(c, c1)
+      label(c1)
+      set_slot(self, :colour, c1)
+      call_next_method(self)
+    end
+    
+    defmethod(:flick, [self]) do
+      get_slot(self, :state, "on")
+      call_next_method(self)
+    end
+  end
+
+  new(:colour_cycle_switch, %{name: :cc_switch_instance_1, colour: "red", redef: true}, c)
+end
+```
+
+```elixir
+run do
+  flick(:cc_switch_instance_1)
+  examine(:cc_switch_instance_1, info)
+end
+```
+
+Regardless this is sufficient for demonstrating how AL manages diamond inheritance. Here's a little tip: you can search a method by its object-associated name using the following snippet. For example:
+
+```elixir
+run do
+  findall([obj, id], [vm_method(obj, :flick, id)], objids)
+end
+```
+
+```elixir
+run do
+  defclass :diamond_switch,
+    redef: true,
+    super: [:counted_switch, :colour_cycle_switch] do
+  end
+
+  new(:diamond_switch, %{name: :diamond_switch_instance_1, colour: "red", state: "off", redef: true}, c)
+end
+```
+
+The order in which the two supers are topologically sorted actually doesn't matter for flick, since the operations we defined are commutative.
+
+```elixir
+run do
+  flick(:diamond_switch_instance_1)
+  examine(:diamond_switch_instance_1, info)
+end
+```

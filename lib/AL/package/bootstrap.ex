@@ -152,7 +152,18 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
-    defmethod(:object, :retract_class_facts, [self, name]) do
+    # `redef: true` promises the reclaimed name comes back genuinely fresh --
+    # not just able to accept a new class/super, but with none of its prior
+    # state lingering. Slots included: without this, reclaiming a name via
+    # `redef: true` only cleared class/super facts, so an instance's own
+    # data (a durable ivar's old value) survived untouched across each
+    # redefinition and just kept accumulating writes on top of it (e.g. a
+    # `count` ivar meant to start at 0 each time instead kept climbing
+    # across every re-evaluated `new(..., redef: true)` call). Enumerate
+    # every key the object currently has and hand that list straight to
+    # `vm_retract_slots` -- same shape as the class/super retraction just
+    # above, no separate "wipe everything" primitive needed.
+    defmethod(:object, :retract_existing_facts, [self, name]) do
       findall(c, [class(name, c)], existing_classes)
 
       forall([member(existing_classes, c)]) do
@@ -164,13 +175,16 @@ defmodule AL.Package.Bootstrap do
       forall([member(existing_supers, s)]) do
         vm_retract_super(name, s)
       end
+
+      findall(k, [vm_get_slot(name, k, _)], existing_slot_keys)
+      vm_retract_slots(name, existing_slot_keys)
     end
 
     defmethod(:object, :claim_name, [self, name, redef]) do
       implies do
         [class(name, existing)] ->
           implies do
-            [unify(redef, true)] -> retract_class_facts(self, name)
+            [unify(redef, true)] -> retract_existing_facts(self, name)
             :else -> fail()
           end
 
@@ -209,11 +223,36 @@ defmodule AL.Package.Bootstrap do
       claim_name(self, name, redef)
 
       vm_set_class(name, meta)
-      vm_set_super(name, super)
+      set_supers(name, super)
       # The declared instance-var names are reflective metadata about the class,
       # held under `:ivars` in the class object's own slot map — so they sit
       # alongside any class-side slot values rather than overwriting them.
       vm_set_slots(name, %{ivars: ivars})
+    end
+
+    # `super:` accepts either a single class atom (the common case) or a
+    # list, for genuine multiple inheritance -- `vm_set_super` itself only
+    # ever writes one `super` fact per call, so a list has to be walked and
+    # written one fact at a time, not handed to `vm_set_super` as a single
+    # (malformed) value. The list/atom branches live in one clause behind an
+    # explicit `class(super, :list)` guard, not as separate `[]`/`[s|rest]`
+    # clauses with a bare-var fallback -- a bare var structurally unifies
+    # with a list too, so it would stay a live alternative for list input
+    # and could resurface on a later, unrelated backtrack (see
+    # [[feedback-alternative-vs-implies-backtracking-hazard]] /
+    # [[feedback-prolog-clause-selection-not-elixir]]).
+    defmethod(:object, :set_supers, [name, super]) do
+      implies do
+        [class(super, :list)] -> set_super_list(name, super)
+        :else -> vm_set_super(name, super)
+      end
+    end
+
+    defmethod(:object, :set_super_list, [_name, []])
+
+    defmethod(:object, :set_super_list, [name, [s | rest]]) do
+      vm_set_super(name, s)
+      set_super_list(name, rest)
     end
 
     defmethod(:object, :allocate, [self, args, name]) do

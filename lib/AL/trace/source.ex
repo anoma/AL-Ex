@@ -137,7 +137,8 @@ defmodule AL.Source do
       {:call, [],
        [pat(head), if(is_list(body), do: Enum.map(body, &goal/1), else: pat(body)), pat(args)]}
 
-  defp goal({:call_next_method, self, args}), do: call(:call_next_method, [self, args])
+  defp goal({:call_next_method, self, args}),
+    do: {:call_next_method, [], [pat(self) | Enum.map(args, &pat/1)]}
 
   # A var in method position can't use the `method`, emit explicit send.
   defp goal({:send, r, m, args}) do

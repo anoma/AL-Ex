@@ -73,6 +73,37 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
+  # Regression: `allocate_class` used to hand `super:` straight to a single
+  # `vm_set_super` call, so a list wrote one malformed fact (the super
+  # pointing at a list, not a class) instead of two real ones -- broke the
+  # whole class (couldn't even reach :object for :allocate). `set_supers`
+  # now branches on `class(super, :list)` and writes one fact per element.
+  example defclass_supports_multiple_supers() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :multi_super_a, super: :object do
+          defmethod(:from_a, [self, :a_val])
+        end
+
+        defclass :multi_super_b, super: :object do
+          defmethod(:from_b, [self, :b_val])
+        end
+
+        defclass :multi_super_child, super: [:multi_super_a, :multi_super_b] do
+        end
+
+        new(:multi_super_child, instance)
+        from_a(instance, av)
+        from_b(instance, bv)
+        findall(s, [super(:multi_super_child, s)], supers)
+      end
+
+    assert Map.get(bindings, :"$av") == :a_val
+    assert Map.get(bindings, :"$bv") == :b_val
+    assert Enum.sort(Map.get(bindings, :"$supers")) == [:multi_super_a, :multi_super_b]
+    :ok
+  end
+
   # Regression: two methods-list entries sharing a selector used to have the
   # second's retract-before-define step wipe out the first's fresh clause --
   # defclass now retracts every entry's prior clauses in one pass before
@@ -151,6 +182,40 @@ defmodule Examples.ALDefclass do
 
     assert Map.get(bindings, :"$supers") == [:value]
     assert Map.get(bindings, :"$g") == :second
+    :ok
+  end
+
+  # Regression: `redef: true` only ever retracted an existing name's
+  # class/super facts, never its slots -- so reclaiming a *durable instance*
+  # name (not just a class) left its old data sitting untouched, and every
+  # re-evaluation of a `new(..., redef: true)` cell in a live session kept
+  # accumulating writes on top of whatever the previous evaluation left
+  # behind (a `count` ivar meant to start at 0 each time instead climbed
+  # indefinitely). `claim_name`'s redef branch now also retracts every key
+  # the reclaimed name currently has.
+  example new_redef_true_resets_instance_slots() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_probe_c, super: :object, ivars: [count: [type: :number, default: 0]] do
+        end
+      end
+
+    {:atomic, {bindings1, _}} =
+      run branch: :examples do
+        new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
+        set_slot(obj, :count, 99)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings1, :"$count") == 99
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings2, :"$count") == 0
     :ok
   end
 

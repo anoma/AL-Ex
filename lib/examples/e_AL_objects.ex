@@ -482,7 +482,7 @@ defmodule Examples.ALObjects do
         vm_set_super(:cnm_pet, :cnm_animal)
 
         defmethod(:cnm_pet, :describe, [self, d]) do
-          call_next_method(self, [parent])
+          call_next_method(self, parent)
           unify(d, [:i_am_pet, parent])
         end
 
@@ -502,7 +502,7 @@ defmodule Examples.ALObjects do
         vm_set_class(:cnm_solo, :object)
 
         defmethod(:cnm_solo, :only, [self, x]) do
-          call_next_method(self, [x])
+          call_next_method(self, x)
         end
 
         vm_set_class(:cnm_solo_i, :cnm_solo)

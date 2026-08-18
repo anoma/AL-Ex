@@ -47,34 +47,9 @@ From IEx, you can run `require AL`.
 
 ## Some Recipes
 
-**Look inside a live object.**
-
-```elixir
-run do
-  examine(:object, info)
-end
-```
-
-**Extend an inherited method**
-
-```elixir
-run do
-  defclass :animal, super: :object do
-    defmethod(:describe, [self, :i_am_animal]) do
-    end
-  end
-
-  defclass :pet, super: :animal do
-    defmethod(:describe, [self, d]) do
-      call_next_method(self, [parent])
-      unify(d, [:i_am_pet, parent])
-    end
-  end
-
-  new(:pet, rex)
-  describe(rex, result)
-end
-```
+For working with live objects -- inspecting them with `examine`, inheritance,
+`call_next_method`, and multiple inheritance -- see
+[`livebooks/working_with_objects.livemd`](livebooks/working_with_objects.livemd).
 
 **Run a method backwards.**
 

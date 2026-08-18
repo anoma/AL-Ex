@@ -172,26 +172,34 @@ defmodule AL.Object do
     :ok
   end
 
+  # A map's *values* are never consulted for matching -- only `Map.keys/1`
+  # is ever read -- so a map is really just a roundabout way to name which
+  # keys to drop (kept for `AL.Package`'s uninstall reversal, which already
+  # has the original `set_slots` map handy and would otherwise have to
+  # re-derive a key list from it). A plain list of key names is the direct
+  # form of the same operation, and is what lets a caller drop every key an
+  # object currently has (enumerate them, pass the list) without needing a
+  # sentinel "anything non-map wipes the whole row" case, which nothing
+  # exercised and wasn't a designed API -- see
+  # `retract_existing_facts`/`claim_name` (bootstrap.ex) for that caller.
   @spec retract_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
   def retract_slots(object, slots, branch \\ AL.Branch.head())
 
-  def retract_slots(object, slots, branch) when is_map(slots) do
+  def retract_slots(object, slots, branch) when is_map(slots),
+    do: retract_slots(object, Map.keys(slots), branch)
+
+  def retract_slots(object, keys, branch) when is_list(keys) do
     case read_slots(object, branch) do
       [{:slots, ^object, existing}] when is_map(existing) ->
-        case Map.drop(existing, Map.keys(slots)) do
+        case Map.drop(existing, keys) do
           remaining when remaining == %{} -> :mnesia.delete(table(:slots, branch), object, :write)
           remaining -> :mnesia.write(table(:slots, branch), {:slots, object, remaining}, :write)
         end
 
       _ ->
-        :mnesia.delete(table(:slots, branch), object, :write)
+        :ok
     end
 
-    AL.ResolutionCache.invalidate_providers(branch)
-  end
-
-  def retract_slots(object, _slots, branch) do
-    :mnesia.delete(table(:slots, branch), object, :write)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 

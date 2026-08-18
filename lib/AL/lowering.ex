@@ -232,8 +232,8 @@ defmodule AL.Lowering do
       args: ast_to_pattern(args)
     }
 
-  def ast_to_pattern({:call_next_method, _, [self, args]}),
-    do: %Goal.CallNextMethod{self: ast_to_pattern(self), args: ast_to_pattern(args)}
+  def ast_to_pattern({:call_next_method, _, [self | args]}),
+    do: %Goal.CallNextMethod{self: ast_to_pattern(self), args: Enum.map(args, &ast_to_pattern/1)}
 
   def ast_to_pattern({:send_async, _, [object, method, args]}),
     do: %Goal.SendAsync{
