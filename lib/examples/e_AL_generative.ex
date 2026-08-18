@@ -300,7 +300,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         class(x, :card)
         label(x)
-        slot_get(x, :suit, suit)
+        get_slot(x, :suit, suit)
       end
 
     assert %{class: :card} = Map.get(bindings, :"$x")
@@ -423,7 +423,7 @@ defmodule Examples.ALGenerative do
       run branch: :examples do
         defclass :square, super: :value, ivars: [:side] do
           defmethod(:init, [self, args, new]) do
-            slot_get(args, :side, side)
+            get_slot(args, :side, side)
             unify(new, %{class: :square, side: side})
           end
 

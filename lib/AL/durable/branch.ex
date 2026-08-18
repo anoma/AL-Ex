@@ -29,7 +29,7 @@ defmodule AL.Branch do
     case :mnesia.create_table(:branch,
            attributes: [:parent, :child],
            type: :bag,
-           disc_copies: [node()]
+           disc_copies: [AL.Command.owner_node()]
          ) do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, _}} -> :ok
@@ -83,13 +83,35 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Ensure a fresh `:examples` branch on currently compiled source (via
-  `fork_fresh/2`), not whatever `:main` happens to have installed —
-  otherwise `mix test` can silently pass/fail against a stale `defmethod`
-  body. Examples accrete across one another within a session.
+  Ensure an `:examples` branch exists — created once, from whatever `:main`
+  has installed at the time, then left alone. A shared, persistent branch
+  like `:main` itself, not a per-boot reset: with the store shared across
+  concurrently running processes (see `AL.Command.setup/0`), discarding and
+  recreating it on every boot would race with whichever other node is
+  currently using it. Called at every `AL.Application.start/2`, so this has
+  to be safe for a joiner to call too — see `reset_examples/0` for the
+  destructive, explicit-opt-in version `test/test_helper.exs` uses.
   """
   @spec ensure_examples() :: t()
   def ensure_examples() do
+    if %__MODULE__{id: :examples} in list(),
+      do: %__MODULE__{id: :examples},
+      else: fork_fresh(main(), :examples)
+  end
+
+  @doc """
+  Discard and recreate `:examples` fresh from `:main`'s current install —
+  the old `ensure_examples/0` behaviour, split out because it's no longer
+  safe to run on every app boot (a joiner discarding a branch another live
+  node is using). `mix test` wants it though: every example's `defclass`
+  assumes a clean slate each run, not whatever an earlier run (or another
+  session) left behind. `test/test_helper.exs` calls this once, explicitly,
+  rather than it happening implicitly for every process that starts the
+  app — a deliberate "I'm about to run the suite, reset the shared examples
+  branch" action, not an accident of booting.
+  """
+  @spec reset_examples() :: t()
+  def reset_examples() do
     if %__MODULE__{id: :examples} in list(), do: discard(%__MODULE__{id: :examples})
     fork_fresh(main(), :examples)
   end

@@ -62,6 +62,8 @@ defmodule AL.Object do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, _}} -> :ok
     end
+
+    AL.Command.ensure_local_copy(table(relation, branch))
   end
 
   defp type(relation) when relation in @bags, do: :bag

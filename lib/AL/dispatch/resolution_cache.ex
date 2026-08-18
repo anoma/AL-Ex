@@ -45,6 +45,8 @@ defmodule AL.ResolutionCache do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, _}} -> :ok
     end
+
+    AL.Command.ensure_local_copy(table(relation, branch))
   end
 
   @spec fetch_providers(AL.Branch.t(), tuple(), (-> term())) :: term()

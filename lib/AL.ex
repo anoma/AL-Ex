@@ -1333,15 +1333,60 @@ defmodule AL do
         }
 
       [] ->
-        %{
-          message: "Goal failed: #{inspect(failed_on)}",
-          reason: {:goal_failed, failed_on},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+        case root_cause_call(state.domino.trace) do
+          {:method_call, _scope, self, method, args, _} ->
+            %{
+              message: "Goal failed: #{format_call(self, method, args)} had no matching clause.",
+              reason:
+                {:goal_failed,
+                 {:method_call, AL.Trace.pretty(self), method, AL.Trace.pretty(args)}},
+              failed_on: failed_on,
+              trace: steps,
+              state: state
+            }
+
+          {:clause_call, _scope, method_id, call_args, _} ->
+            %{
+              message:
+                "Goal failed: #{inspect(method_id)}#{inspect(AL.Trace.pretty(call_args))} didn't match.",
+              reason: {:goal_failed, {:clause_call, method_id, AL.Trace.pretty(call_args)}},
+              failed_on: failed_on,
+              trace: steps,
+              state: state
+            }
+
+          nil ->
+            %{
+              message: "Goal failed: #{inspect(failed_on)}",
+              reason: {:goal_failed, failed_on},
+              failed_on: failed_on,
+              trace: steps,
+              state: state
+            }
+        end
     end
   end
+
+  defp format_call(self, method, args) do
+    args_str = args |> AL.Trace.pretty() |> Enum.map(&inspect/1) |> Enum.join(", ")
+    "#{inspect(AL.Trace.pretty(self))}.#{method}(#{args_str})"
+  end
+
+  defp root_cause_call(raw_trace) do
+    chronological = Enum.reverse(raw_trace)
+
+    case Enum.find(chronological, &fail_event?/1) do
+      nil -> nil
+      {_tag, scope} -> Enum.find(chronological, &call_event_for?(&1, scope))
+    end
+  end
+
+  defp fail_event?({tag, _scope}) when tag in [:method_fail, :clause_fail], do: true
+  defp fail_event?(_), do: false
+
+  defp call_event_for?({:method_call, scope, _self, _method, _args, _}, scope), do: true
+  defp call_event_for?({:clause_call, scope, _method_id, _call_args, _}, scope), do: true
+  defp call_event_for?(_, _), do: false
 
   # trace is prepended (most-recent-first) — tail is already at the head, no
   # need to touch the rest. count*5 pads against interspersed :backtrack markers.

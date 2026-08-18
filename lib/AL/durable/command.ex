@@ -38,7 +38,7 @@ defmodule AL.Command do
     case :mnesia.create_table(command_reference,
            attributes: [:t, :tx_id, :command],
            type: :ordered_set,
-           disc_copies: [node()],
+           disc_copies: [owner_node()],
            record_name: :command
          ) do
       {:atomic, :ok} -> :ok
@@ -48,7 +48,7 @@ defmodule AL.Command do
     case :mnesia.create_table(meta_reference,
            attributes: [:key, :value],
            type: :set,
-           disc_copies: [node()],
+           disc_copies: [owner_node()],
            record_name: :meta
          ) do
       {:atomic, :ok} -> :ok
@@ -56,8 +56,29 @@ defmodule AL.Command do
     end
 
     :mnesia.wait_for_tables([command_reference, meta_reference], 5_000)
+    ensure_local_copy(command_reference)
+    ensure_local_copy(meta_reference)
 
     {:ok, {command_reference, meta_reference}}
+  end
+
+  @doc """
+  Give this node its own local `ram_copies` replica of `table_ref` if it
+  doesn't already have one — needed for a joining node (see `setup/0`) to
+  reliably see writes made elsewhere in the cluster, whether the table is
+  freshly created here or already exists on the owner. A no-op for the
+  owner itself, which already got a copy at table-creation time.
+  """
+  @spec ensure_local_copy(atom()) :: :ok
+  def ensure_local_copy(table_ref) do
+    if node() == owner_node() or node() in :mnesia.table_info(table_ref, :ram_copies) do
+      :ok
+    else
+      case :mnesia.add_table_copy(table_ref, node(), :ram_copies) do
+        {:atomic, :ok} -> :ok
+        {:aborted, {:already_exists, _, _}} -> :ok
+      end
+    end
   end
 
   @doc "Delete a fork's command and meta tables."
@@ -87,17 +108,52 @@ defmodule AL.Command do
       Application.get_env(:al, :mnesia_dir) || System.get_env("AL_MNESIA_DIR") || ".mnesiastore/"
 
   @doc """
-  Initialise the event log, or re-use the one on disc.
+  A joining process's own local Mnesia directory — distinct from
+  `mnesia_dir/0`, the owner's. A schema member with no table copies of its
+  own still keeps a small local schema record; pointing two different nodes'
+  `Mnesia.dir` at the same files corrupts both. Ephemeral: safe to lose on
+  process exit, since a joining node holds no data of its own to lose.
+  """
+  @spec client_dir() :: String.t()
+  def client_dir(), do: Path.join(System.tmp_dir!(), "al_mnesia_#{node()}")
+
+  @owner_node :"al@127.0.0.1"
+
+  @doc """
+  The node that owns this store's disc-based tables. Every process either
+  becomes this node (the first to boot) or joins it as a schema member with
+  no local copies of its own (`setup/0`) — table placement always targets
+  this fixed name, never the calling process's own `node()`, so a table
+  created from a joined process still lands on the one durable owner.
+  """
+  @spec owner_node() :: node()
+  def owner_node(), do: @owner_node
+
+  @doc """
+  Initialise the event log, or re-use the one on disc. The first process to
+  reach this claims `owner_node/0` and creates the schema locally; every
+  later one joins that node's schema instead of creating its own — so
+  multiple processes (a `mix test` run, a `bin/livebook` session, a second
+  `iex`) can share one store concurrently rather than fighting over it.
   """
   def setup() do
-    :ok = Application.put_env(:mnesia, :dir, to_charlist(mnesia_dir()))
+    case become_or_join_owner() do
+      :owner ->
+        :ok = Application.put_env(:mnesia, :dir, to_charlist(mnesia_dir()))
 
-    case :mnesia.create_schema([node()]) do
-      :ok -> :ok
-      {:error, {_, {:already_exists, _}}} -> :ok
+        case :mnesia.create_schema([node()]) do
+          :ok -> :ok
+          {:error, {_, {:already_exists, _}}} -> :ok
+        end
+
+        :ok = :mnesia.start()
+
+      :joined ->
+        :ok = Application.put_env(:mnesia, :dir, to_charlist(client_dir()))
+        :ok = :mnesia.start()
+        {:ok, [@owner_node]} = :mnesia.change_config(:extra_db_nodes, [@owner_node])
+        :mnesia.wait_for_tables(:mnesia.system_info(:tables), 30_000)
     end
-
-    :ok = :mnesia.start()
 
     {:ok, _references} = create_tables(AL.Branch.main())
 
@@ -109,6 +165,25 @@ defmodule AL.Command do
     end)
 
     :ok
+  end
+
+  @spec become_or_join_owner() :: :owner | :joined
+  defp become_or_join_owner() do
+    cond do
+      node() == @owner_node ->
+        :owner
+
+      Node.alive?() ->
+        if Node.connect(@owner_node), do: :joined, else: :owner
+
+      match?({:ok, _}, Node.start(@owner_node, :longnames)) ->
+        :owner
+
+      true ->
+        {:ok, _} = Node.start(:"al_client_#{System.pid()}@127.0.0.1", :longnames)
+        true = Node.connect(@owner_node)
+        :joined
+    end
   end
 
   @doc "Current system time of the command log — the next command writes at this value."

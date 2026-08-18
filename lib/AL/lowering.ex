@@ -106,7 +106,7 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:set_slots, _, [object, slots]}),
+  def ast_to_pattern({:vm_set_slots, _, [object, slots]}),
     do: %Goal.SetSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
 
   def ast_to_pattern({:vm_get_slot, _, [object, key, value]}),

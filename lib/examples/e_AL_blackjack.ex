@@ -34,7 +34,7 @@ defmodule Examples.ALBlackjack do
         new(:card, %{suit: :spades, rank: :king}, king)
         new(:card, %{suit: :hearts, rank: :ace}, ace)
         new(:card, %{suit: :clubs}, c3)
-        slot_get(c3, :rank, r3)
+        get_slot(c3, :rank, r3)
         findall(r3, [label(r3), hand_total([king, ace, c3], 21)], completions)
       end
 
@@ -47,8 +47,8 @@ defmodule Examples.ALBlackjack do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:card, _, c)
-        slot_get(c, :suit, suit)
-        slot_get(c, :rank, rank)
+        get_slot(c, :suit, suit)
+        get_slot(c, :rank, rank)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$suit"))
@@ -95,7 +95,7 @@ defmodule Examples.ALBlackjack do
     {:aborted, _trace} =
       run branch: :examples do
         new(:card, %{rank: 7}, c)
-        slot_get(c, :rank, 2)
+        get_slot(c, :rank, 2)
       end
 
     :ok

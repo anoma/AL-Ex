@@ -68,18 +68,54 @@ defmodule AL.Package.Bootstrap do
     end
 
     defmethod(:object, :get_slot, [self, key, value]) do
+      vm_map_get(self, key, value)
+    end
+
+    defmethod(:object, :get_slot, [self, key, value]) do
       vm_get_slot(self, key, value)
     end
 
     defmethod(:object, :get_slot, [self, key, value]) do
-      not [vm_get_slot(self, key, value)]
+      not [vm_get_slot(self, key, _)]
       inheritance_chain(self, [self | chain])
       member(chain, ancestor)
       vm_get_slot(ancestor, key, value)
     end
 
+    defmethod(:list, :find_ivar_spec, [[], _key, :no_spec])
+
+    defmethod(:list, :find_ivar_spec, [[spec | rest], key, found]) do
+      vm_functor(spec, name, _opts)
+
+      implies do
+        [unify(name, key)] -> unify(found, spec)
+        :else -> find_ivar_spec(rest, key, found)
+      end
+    end
+
     defmethod(:object, :set_slot, [self, key, value]) do
-      set_slots(self, %{key => value})
+      class(self, class_name)
+
+      implies do
+        [vm_get_slot(class_name, :ivars, ivar_specs)] ->
+          find_ivar_spec(ivar_specs, key, spec)
+
+          implies do
+            [unify(spec, :no_spec)] -> unify(key, key)
+            :else -> apply_ivar_spec(self, %{key => value}, spec, key, value)
+          end
+
+        :else ->
+          unify(key, key)
+      end
+
+      vm_set_slots(self, %{key => value})
+    end
+
+    defmethod(:object, :set_slots, [self, slots]) do
+      forall([vm_map_get(slots, key, value)]) do
+        set_slot(self, key, value)
+      end
     end
 
     defmethod(:object, :slots, [self, [], %{}])
@@ -114,14 +150,6 @@ defmodule AL.Package.Bootstrap do
       implies do
         [vm_map_get(self, key, provided)] -> unify(value, provided)
       end
-    end
-
-    # Ordinary dispatched read of a map-shaped value instance's own field --
-    # no vm_ prefix needed at the call site, same as :get/:put above already
-    # give a dispatched path to map_get/map_put without one (for a *raw*,
-    # classless map -- this one also works on a classed instance).
-    defmethod(:object, :slot_get, [self, key, value]) do
-      vm_map_get(self, key, value)
     end
 
     defmethod(:object, :retract_class_facts, [self, name]) do
@@ -159,8 +187,23 @@ defmodule AL.Package.Bootstrap do
     vm_set_oapply(:allocate_class, [self, args, name]) do
       vm_map_get(args, :name, name)
       vm_map_get(args, :super, super)
-      alternative([vm_map_get(args, :ivars, ivars)], [unify(ivars, [])])
-      alternative([vm_map_get(args, :redef, redef)], [unify(redef, false)])
+
+      # `implies`, not `alternative` -- `alternative` is a live `Goal.Or`,
+      # so a later failure elsewhere in this call (`claim_name` included)
+      # would backtrack into it and retry the *other* branch, silently
+      # flipping an explicitly-supplied `redef: true` back to `false` (or an
+      # explicit `ivars:` back to `[]`) instead of genuinely failing -- the
+      # same risk `build_durable_slots`' own `implies` (below) already
+      # guards against.
+      implies do
+        [vm_map_get(args, :ivars, ivars)] -> unify(ivars, ivars)
+        :else -> unify(ivars, [])
+      end
+
+      implies do
+        [vm_map_get(args, :redef, redef)] -> unify(redef, redef)
+        :else -> unify(redef, false)
+      end
 
       class(self, meta)
       claim_name(self, name, redef)
@@ -170,12 +213,16 @@ defmodule AL.Package.Bootstrap do
       # The declared instance-var names are reflective metadata about the class,
       # held under `:ivars` in the class object's own slot map — so they sit
       # alongside any class-side slot values rather than overwriting them.
-      set_slots(name, %{ivars: ivars})
+      vm_set_slots(name, %{ivars: ivars})
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
       class(self, meta)
-      alternative([vm_map_get(args, :redef, redef)], [unify(redef, false)])
+
+      implies do
+        [vm_map_get(args, :redef, redef)] -> unify(redef, redef)
+        :else -> unify(redef, false)
+      end
 
       implies do
         [vm_map_get(args, :name, name)] -> claim_name(self, name, redef)
@@ -195,52 +242,52 @@ defmodule AL.Package.Bootstrap do
     # ephemeral `:value` map can (see `:value`'s own `:init` below, which
     # leaves an unsupplied ivar open on purpose). `label` on an
     # already-ground value (the explicit-arg case) is a no-op.
-    # `implies`, not `alternative` -- `alternative` lowers to a plain
-    # `Goal.Or` (an ordinary backtracking disjunction, both sides stay live
-    # choicepoints), so a *later* failure inside `build_durable_slots`
-    # would backtrack into the `unify(ivar_specs, [])` fallback instead of
-    # genuinely failing, silently building an empty slots map instead of
-    # reporting the real problem. `implies` commits once its condition
-    # succeeds -- exactly what's needed here.
     #
-    # `:class`/`:object`/`:behaviour` are hand-bootstrapped via raw
-    # vm_set_class at the top of this file, bypassing allocate_class
-    # entirely -- they never get an :ivars slot at all (not even an empty
-    # one), unlike every class actually created through `new(:class,
-    # ...)`. That's the `:else` case, same default allocate_class itself
-    # already applies for its own `:ivars` read.
+    # `init` is the immediate class's own method, but a subclass's instance
+    # needs *every* ancestor's declared ivars honoured too (a `:switch`
+    # subclass's instance still has to accept `state:` even though only the
+    # subclass's own `:ivars` slot is directly attached to it) --
+    # `collect_ivar_specs` walks `inheritance_chain`'s full MRO, not just
+    # `class(self, class)`. `:class`/`:object`/`:behaviour` are
+    # hand-bootstrapped via raw `vm_set_class`, bypassing `allocate_class`
+    # entirely, so they never get an `:ivars` slot at all -- `collect_ivar_specs`
+    # degrades to `[]` for those the same way `class_ivars/2` (dispatch.ex)
+    # already does for its own `:ivars` read, and an empty spec list makes
+    # `build_durable_slots` a no-op via its own base case, so no separate
+    # fallback branch is needed here anymore.
     defmethod(:object, :init, [self, args, self]) do
-      class(self, class)
+      inheritance_chain(self, [self | chain])
+      collect_ivar_specs(chain, ivar_specs)
+      build_durable_slots(self, self, args, ivar_specs, slots)
+      set_slots(self, slots)
+    end
+
+    defmethod(:list, :collect_ivar_specs, [[], []])
+
+    defmethod(:list, :collect_ivar_specs, [[c | rest], specs]) do
+      collect_ivar_specs(rest, rest_specs)
 
       implies do
-        [vm_get_slot(class, :ivars, ivar_specs)] ->
-          build_durable_slots(self, class, args, ivar_specs, slots)
-          set_slots(self, slots)
-
-        :else ->
-          unify(self, self)
+        [vm_get_slot(c, :ivars, own_specs)] -> concat(own_specs, rest_specs, specs)
+        :else -> unify(specs, rest_specs)
       end
     end
 
     defmethod(:object, :build_durable_slots, [_self, _class, _args, [], %{}])
 
-    # A bare ivar (no `domain:`/`type:` spec) with no explicit `args` value
-    # has nothing for `label` to search -- `apply_ivar_spec` leaves
-    # `value` completely unconstrained in that case (see its own comment),
-    # and a totally unconstrained var can't be forced any more than an
-    # unbounded numeric one can. Rather than fail the whole construction
-    # over it, this ivar is just omitted from the durable slots map
-    # entirely (an existing, legitimate pattern: `get_slot_inherits_from_class`
-    # in e_AL_objects.ex relies on an unset instance slot falling back to
-    # the class's own slot value). A spec'd-but-unsupplied ivar, or an
-    # explicitly-supplied one (already ground, `label` a no-op), both
-    # succeed here and get included as usual.
+    # `domain:`/`type:` are validation, not generation -- apply_ivar_spec
+    # posts the constraint either way, but only an explicitly-supplied
+    # `args` value ever gets included; an ivar nobody supplied a value for
+    # (bare or spec'd, constrained or not) is just omitted from the durable
+    # slots map entirely (an existing, legitimate pattern:
+    # `get_slot_inherits_from_class` in e_AL_objects.ex relies on an unset
+    # instance slot falling back to the class's own slot value).
     defmethod(:object, :build_durable_slots, [self, class, args, [spec | rest], output]) do
       build_durable_slots(self, class, args, rest, partial)
       apply_ivar_spec(self, args, spec, name, value)
 
       implies do
-        [label(value)] -> vm_map_put(partial, name, value, output)
+        [vm_ground(value)] -> vm_map_put(partial, name, value, output)
         :else -> unify(output, partial)
       end
     end
@@ -321,9 +368,22 @@ defmodule AL.Package.Bootstrap do
     # existing class both declares ivars and skips :init) instead builds a
     # real map from them: each ivar individually get-optional'd, then
     # domain/type-checked per its own spec, if it has one.
+    #
+    # Whether output stays open or becomes a real map depends on whether
+    # *any* class in the chain declares a real ivar, not just the immediate
+    # one -- a subclass adding its own ivars to an otherwise bare ancestor
+    # still needs the map shape. Every properly-constructed class has an
+    # `:ivars` slot (`allocate_class` always sets one, `[]` included), so the
+    # merged list itself -- empty or not -- is what decides, exactly as
+    # before, just gathered from the whole ancestor chain
+    # (`reachable_classes`, not `inheritance_chain` -- self is the ephemeral
+    # scaffold map here, no durable identity for `class/2` to scan, so the
+    # walk starts from the class atom itself, already in hand via
+    # `vm_map_get`, not from self).
     defmethod(:value, :init, [self, args, output]) do
       vm_map_get(self, :class, class)
-      vm_get_slot(class, :ivars, ivar_specs)
+      reachable_classes([class], [], chain)
+      collect_ivar_specs(chain, ivar_specs)
 
       implies do
         [unify(ivar_specs, [])] -> class(output, class)
@@ -361,6 +421,11 @@ defmodule AL.Package.Bootstrap do
 
           implies do
             [member(opts, {:type, type})] -> class(value, type)
+          end
+
+          implies do
+            [not [vm_map_get(args, name, _)], member(opts, {:default, default})] ->
+              unify(value, default)
           end
 
         :else ->
@@ -437,7 +502,7 @@ defmodule AL.Package.Bootstrap do
       }
     ]) do
       findall(c, [class(self, c)], classes)
-      findall(c, [class(c, self)], objects)
+      findall(c, [class(c, self), label(c)], objects)
       findall(s, [super(self, s)], supers)
       findall(sub, [super(sub, self)], subs)
       findall([n, id], [vm_method(self, n, id)], methods)

@@ -142,9 +142,9 @@ defmodule Examples.ALObjects do
   example slot_merge_semantics() do
     {:atomic, _} =
       run branch: :examples do
-        set_slots(:slot_test, %{a: 1})
-        set_slots(:slot_test, %{b: 2})
-        set_slots(:slot_test, %{a: 99})
+        vm_set_slots(:slot_test, %{a: 1})
+        vm_set_slots(:slot_test, %{b: 2})
+        vm_set_slots(:slot_test, %{a: 99})
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
@@ -187,7 +187,7 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         defclass :durable_meta, super: :object do
           defmethod(:allocate, [self, args, name]) do
-            slot_get(args, :name, name)
+            get_slot(args, :name, name)
 
             class(self, meta)
 
@@ -245,9 +245,9 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, program_state}} =
       run branch: :examples do
         examine(:class, info)
-        slot_get(info, :methods, methods)
-        slot_get(info, :classes, classes)
-        slot_get(info, :supers, supers)
+        get_slot(info, :methods, methods)
+        get_slot(info, :classes, classes)
+        get_slot(info, :supers, supers)
       end
 
     assert Map.get(bindings, :"$classes") == [:class]
@@ -265,12 +265,32 @@ defmodule Examples.ALObjects do
 
         examine(obj, obj_info)
 
-        slot_get(obj_info, :direct_slots, direct_slots)
+        get_slot(obj_info, :direct_slots, direct_slots)
       end
 
     assert Map.get(slot_bindings, :"$direct_slots") == [[:name, :rex]]
 
     program_state
+  end
+
+  example examine_objects_lists_real_instances_only() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :examine_objects_class, super: :object, ivars: [] do
+        end
+
+        examine(:examine_objects_class, info_before)
+        get_slot(info_before, :objects, objects_before)
+
+        new(:examine_objects_class, obj)
+
+        examine(:examine_objects_class, info_after)
+        get_slot(info_after, :objects, objects_after)
+      end
+
+    assert Map.get(bindings, :"$objects_before") == []
+    assert Map.get(bindings, :"$objects_after") == [Map.get(bindings, :"$obj")]
+    :ok
   end
 
   # var receiver send = query: grounds self to real implementers, backtracks
@@ -525,6 +545,61 @@ defmodule Examples.ALObjects do
     bindings
   end
 
+  example get_slot_does_not_fall_through_to_inherited_on_value_mismatch() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :slot_override_class, super: :object, ivars: [:legs] do
+        end
+
+        set_slots(:slot_override_class, %{legs: 4})
+
+        new(:slot_override_class, %{name: :slot_override_instance, legs: 8}, _)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        get_slot(:slot_override_instance, :legs, legs)
+      end
+
+    assert Map.get(bindings, :"$legs") == 8
+
+    {:aborted, _} =
+      run branch: :examples do
+        get_slot(:slot_override_instance, :legs, 4)
+      end
+
+    :ok
+  end
+
+  example set_slot_enforces_domain_on_every_write() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :set_slot_domain_class, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+        end
+
+        new(:set_slot_domain_class, %{name: :set_slot_domain_instance, state: "on"}, _)
+      end
+
+    {:atomic, _} =
+      run branch: :examples do
+        set_slot(:set_slot_domain_instance, :state, "off")
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        get_slot(:set_slot_domain_instance, :state, state)
+      end
+
+    assert Map.get(bindings, :"$state") == "off"
+
+    {:aborted, _} =
+      run branch: :examples do
+        set_slot(:set_slot_domain_instance, :state, :sideways)
+      end
+
+    :ok
+  end
+
   # `:object`'s `:init` now fills in ivars the same way `:value`'s already
   # does (`AL.Package.Blackjack`'s `:card`), reusing the exact same
   # `apply_ivar_spec` -- an explicit `args` value is validated against the
@@ -552,7 +627,7 @@ defmodule Examples.ALObjects do
   # an ephemeral map), a durable slots row can't hold an unresolved var, so
   # `:init` labels it to a real, concrete in-domain value before the
   # durable write (`build_durable_slots`, bootstrap.ex).
-  example durable_construction_labels_unspecified_domain_ivars() do
+  example durable_construction_leaves_unspecified_domain_ivars_unset() do
     {:atomic, _} =
       run branch: :examples do
         defclass :durable_ivar_b,
@@ -564,12 +639,10 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:durable_ivar_b, %{}, obj)
-        vm_get_slot(obj, :suit, suit)
+        findall([k, v], [vm_get_slot(obj, k, v)], slots)
       end
 
-    suit = Map.get(bindings, :"$suit")
-    refute AL.Var.var?(suit)
-    assert suit in [:hearts, :diamonds, :clubs, :spades]
+    assert Map.get(bindings, :"$slots") == []
     :ok
   end
 
@@ -616,6 +689,154 @@ defmodule Examples.ALObjects do
     :ok
   end
 
+  example durable_construction_leaves_unspecified_typed_ivars_unset() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_typed, super: :object, ivars: [count: [type: :number]] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:durable_ivar_typed, %{}, obj)
+        findall([k, v], [vm_get_slot(obj, k, v)], slots)
+      end
+
+    assert Map.get(bindings, :"$slots") == []
+    :ok
+  end
+
+  example durable_construction_uses_default_when_unsupplied() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_defaulted, super: :object, ivars: [count: [type: :number, default: 0]] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:durable_ivar_defaulted, %{}, obj)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings, :"$count") == 0
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        new(:durable_ivar_defaulted, %{count: 5}, obj)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings2, :"$count") == 5
+    :ok
+  end
+
+  example value_construction_allows_open_var_default() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :value_ivar_open_default, super: :value, ivars: [tag: [default: placeholder]] do
+        end
+
+        new(:value_ivar_open_default, %{}, obj)
+        get_slot(obj, :tag, tag)
+      end
+
+    refute AL.Var.var?(Map.get(bindings, :"$obj"))
+    assert AL.Var.var?(Map.get(bindings, :"$tag"))
+    :ok
+  end
+
+  # A subclass's `:init` runs once, on the immediate class -- but a real
+  # instance still has to honor every ancestor's own ivar specs, not just
+  # the subclass's own declared ones. `suit` (domain + default) comes from
+  # the parent; `count` (type + default) is the child's own -- both apply,
+  # and the parent's domain constraint still holds even though construction
+  # went through the child.
+  example durable_construction_inherits_ancestor_ivar_specs() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :durable_ivar_parent,
+          super: :object,
+          ivars: [suit: [domain: [:hearts, :diamonds], default: :hearts]] do
+        end
+
+        defclass :durable_ivar_child,
+          super: :durable_ivar_parent,
+          ivars: [count: [type: :number, default: 0]] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        new(:durable_ivar_child, %{}, obj)
+        get_slot(obj, :suit, suit)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings, :"$suit") == :hearts
+    assert Map.get(bindings, :"$count") == 0
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        new(:durable_ivar_child, %{suit: :diamonds, count: 3}, obj)
+        get_slot(obj, :suit, suit)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings2, :"$suit") == :diamonds
+    assert Map.get(bindings2, :"$count") == 3
+
+    {:aborted, _} =
+      run branch: :examples do
+        new(:durable_ivar_child, %{suit: :not_a_real_suit}, _obj)
+      end
+
+    :ok
+  end
+
+  # Same inheritance requirement on the ephemeral (`:value`) construction
+  # path -- `:value`'s own `:init` has to walk the same full ancestor chain
+  # as `:object`'s, just starting from the scaffold map's `:class` field
+  # instead of a durable object id.
+  example value_construction_inherits_ancestor_ivar_specs() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :value_ivar_parent,
+          super: :value,
+          ivars: [suit: [domain: [:hearts, :diamonds], default: :hearts]] do
+        end
+
+        defclass :value_ivar_child,
+          super: :value_ivar_parent,
+          ivars: [count: [type: :number, default: 0]] do
+        end
+
+        new(:value_ivar_child, %{}, obj)
+        get_slot(obj, :suit, suit)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings, :"$suit") == :hearts
+    assert Map.get(bindings, :"$count") == 0
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        new(:value_ivar_child, %{suit: :diamonds, count: 3}, obj)
+        get_slot(obj, :suit, suit)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings2, :"$suit") == :diamonds
+    assert Map.get(bindings2, :"$count") == 3
+
+    {:aborted, _} =
+      run branch: :examples do
+        new(:value_ivar_child, %{suit: :not_a_real_suit}, _obj)
+      end
+
+    :ok
+  end
+
   # dispatch_strategy: :bfs slot opts a class into breadth-first resolution;
   # default depth-first. Live -- flipping the slot changes resolution
   # immediately, no restart.
@@ -650,7 +871,7 @@ defmodule Examples.ALObjects do
     # ancestor
     {:atomic, _} =
       run branch: :examples do
-        set_slots(:dsp_leaf, %{dispatch_strategy: :bfs})
+        vm_set_slots(:dsp_leaf, %{dispatch_strategy: :bfs})
       end
 
     {:atomic, {b2, _}} =

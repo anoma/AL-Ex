@@ -16,14 +16,27 @@ AL.Branch.head()
 
 AL has an object system in the style of CLOS and Smalltalk, and aims to make writing live, open polymorphisms easy. The details of this will become more apparent later, but the basic ideas you need to know right now are that you can create classes with `defclass`, and instances of those classes with `new`. Let's try the well-known example of a light switch, which has on/off state.
 
+We use the `redef` flag so that the class & instance can be redefined by re-evaluating the block.
+
 ```elixir
 run do
   defclass :switch,
     super: :object,
-    ivars: [:state, [domain: ["on", "off"]]] do
+    redef: true,
+    ivars: [state: [domain: ["on", "off"], default: "off"]] do
+
+    defmethod(:flick, [self]) do
+      get_slot(self, :state, "on")
+      set_slot(self, :state, "off")
+    end
+    
+    defmethod(:flick, [self]) do
+      get_slot(self, :state, "off")
+      set_slot(self, :state, "on")
+    end
   end
 
-  new(:switch, %{name: :switch_instance_1, state: "on"}, s)
+  new(:switch, %{name: :switch_instance_1, state: "on", redef: true}, s)
 end
 ```
 
@@ -41,45 +54,52 @@ run do
 end
 ```
 
-## Look inside a live object
-
-In AL, durable objects are represented by an `ID`, which currently takes the form of an atom (soon, we will change these to binaries, as it can eventually fill up the atom table). You can inspect basic information about a durable object using `examine/2`.
+As you can see, `:switch` is a class which inherits from `:object`. It provides the method `:flick`, which we defined. It was used to create `:switch_instance_1`. `:switch`es have a 'state' which is either on or off. Let's see what happens if we 'flick' the 'switch'.
 
 ```elixir
 run do
-  examine(:switch_instance_1, info)
+  flick(:switch_instance_1)
+  get_slot(:switch_instance_1, :state, state)
 end
 ```
 
-## Extend an inherited method
+It should work! And if you evaluate again, you'll see the state change too. AL is also capable of enforcing slot invariants.
 
 ```elixir
 run do
-  defclass :animal, super: :object do
-    defmethod(:describe, [self, :i_am_animal]) do
-    end
-  end
-
-  defclass :pet, super: :animal do
-    defmethod(:describe, [self, d]) do
-      call_next_method(self, [parent])
-      unify(d, [:i_am_pet, parent])
-    end
-  end
-
-  new(:pet, rex)
-  describe(rex, result)
+  set_slot(:switch_instance_1, :state, :sideways)
 end
 ```
 
-## Slots
+## Inheritance
+
+As you may have already figured out, AL supports inheritance. This is not the scope to explain how inheritance itself works, but instead we will demonstrate a couple features that may be of benefit. For example, you can use `call_next_method` for method continuation and rely on inherited slots.
 
 ```elixir
+run do 
+  defclass :counted_switch,
+    redef: true,
+    super: :switch,
+    ivars: [count: [type: :number, default: 0]] do
+    
+    defmethod(:flick, [self]) do
+      get_slot(self, :count, c)
+      vm_is(c1, c + 1)
+      set_slot(self, :count, c1)
+      call_next_method(self, [])
+    end
+   end
+
+  new(:counted_switch, %{name: :counted_switch_instance_1, redef: true}, c)
+end
+```
+
+```elixir
+run do 
+  flick(c)
+  examine(c, info)
+end
 
 ```
 
-## Multiple inheritance
-
-```elixir
-
-```
+In fact, AL even supports multiple inheritance. Let's take a look at the classic diamond inheritance problem.

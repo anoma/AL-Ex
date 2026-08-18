@@ -22,12 +22,12 @@ defmodule Examples.ALDefclass do
           ivars: [:label],
           categories: [:widget_behaviour] do
           defmethod(:init, [self, args, new]) do
-            slot_get(args, :label, l)
+            get_slot(args, :label, l)
             unify(new, %{class: :widget, label: l})
           end
 
           defmethod(:label, [self, l]) do
-            slot_get(self, :label, l)
+            get_slot(self, :label, l)
           end
         end
 

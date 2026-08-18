@@ -9,7 +9,7 @@ defmodule AL.Package.Mapset do
     end
 
     defmethod(:mapset_value, :init, [self, args, new]) do
-      slot_get(args, :elems, list)
+      get_slot(args, :elems, list)
 
       implies do
         [vm_ground(list)] ->
@@ -23,8 +23,8 @@ defmodule AL.Package.Mapset do
 
     defmethod(:mapset_value, :elem, [self, e]) do
       vm_ground(self)
-      slot_get(self, :elems, elems)
-      slot_get(elems, e, _)
+      get_slot(self, :elems, elems)
+      get_slot(elems, e, _)
     end
 
     defmethod(:mapset_value, :elem, [self, e]) do
@@ -35,8 +35,8 @@ defmodule AL.Package.Mapset do
 
     defmethod(:mapset_value, :members, [self, list]) do
       vm_ground(self)
-      slot_get(self, :elems, elems)
-      findall(k, [slot_get(elems, k, _)], list)
+      get_slot(self, :elems, elems)
+      findall(k, [get_slot(elems, k, _)], list)
     end
 
     defmethod(:mapset_value, :members, [self, list]) do
@@ -46,23 +46,23 @@ defmodule AL.Package.Mapset do
     end
 
     defmethod(:mapset_value, :insert, [self, x, new]) do
-      slot_get(self, :elems, elems)
+      get_slot(self, :elems, elems)
       put(elems, x, true, new_elems)
       unify(new, %{class: :mapset_value, elems: new_elems})
     end
 
     defmethod(:mapset_value, :union, [self, s, new]) do
-      slot_get(self, :elems, elems1)
-      slot_get(s, :elems, elems2)
-      findall(k, [slot_get(elems2, k, _)], list2)
+      get_slot(self, :elems, elems1)
+      get_slot(s, :elems, elems2)
+      findall(k, [get_slot(elems2, k, _)], list2)
       fold_left(list2, :map_insert, elems1, merged)
       unify(new, %{class: :mapset_value, elems: merged})
     end
 
     defmethod(:mapset_value, :intersection, [self, s, new]) do
-      slot_get(self, :elems, elems1)
-      slot_get(s, :elems, elems2)
-      findall(k, [slot_get(elems1, k, _), slot_get(elems2, k, _)], common)
+      get_slot(self, :elems, elems1)
+      get_slot(s, :elems, elems2)
+      findall(k, [get_slot(elems1, k, _), get_slot(elems2, k, _)], common)
       list_to_elems(common, merged)
       unify(new, %{class: :mapset_value, elems: merged})
     end

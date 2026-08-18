@@ -20,7 +20,7 @@ defmodule AL.Package.Blackjack do
       end
 
       defmethod(:card_value, [self, v]) do
-        slot_get(self, :rank, r)
+        get_slot(self, :rank, r)
         rank_value(self, r, v)
       end
     end

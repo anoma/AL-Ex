@@ -33,9 +33,23 @@ defmodule AL.Scheduler do
     end
   end
 
-  @doc "Stop the scheduler for `branch` (unsubscribing it). Idempotent."
+  @doc """
+  Stop the scheduler for `branch` (unsubscribing it), wherever it's actually
+  running. Idempotent. A scheduler is started fresh, locally, by whichever
+  node calls `start/1` for a given branch (a shared store can have several
+  live nodes, each reacting independently) — so stopping it can't rely on
+  `Process.whereis/1` alone, which only ever sees the calling node's own
+  registry. Reaches every node the caller currently knows about instead.
+  """
   @spec stop(AL.Branch.t()) :: :ok
   def stop(branch) do
+    for node <- [node() | Node.list()], do: :rpc.call(node, __MODULE__, :stop_local, [branch])
+    :ok
+  end
+
+  @doc false
+  @spec stop_local(AL.Branch.t()) :: :ok
+  def stop_local(branch) do
     case Process.whereis(name(branch)) do
       nil -> :ok
       pid -> DynamicSupervisor.terminate_child(@supervisor, pid)

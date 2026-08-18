@@ -49,7 +49,7 @@ defmodule AL.Package.Constraints do
 
     defmethod(:cell, :dependents, [self, acc, dependents]) do
       implies do
-        [slot_get(acc, self, seen)] ->
+        [get_slot(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
@@ -75,8 +75,8 @@ defmodule AL.Package.Constraints do
     )
 
     defmethod(:propagator, :init, [self, args, self]) do
-      slot_get(args, :input_cells, input_cells)
-      slot_get(args, :output_cell, output_cell)
+      get_slot(args, :input_cells, input_cells)
+      get_slot(args, :output_cell, output_cell)
 
       set_slots(self, %{input_cells: input_cells, output_cell: output_cell, name: self})
 
@@ -136,7 +136,7 @@ defmodule AL.Package.Constraints do
 
     defmethod(:propagator, :dependents, [self, acc, dependents]) do
       implies do
-        [slot_get(acc, self, seen)] ->
+        [get_slot(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->

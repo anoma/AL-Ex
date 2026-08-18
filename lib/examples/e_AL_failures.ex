@@ -48,6 +48,27 @@ defmodule Examples.ALFailures do
     :ok
   end
 
+  example unmatched_clause_body_names_the_actual_call() do
+    {:aborted, reason} =
+      run branch: :examples do
+        defclass :failbody, super: :value do
+          defmethod(:init, [self, _, self])
+
+          defmethod(:trigger, [self]) do
+            fail()
+          end
+        end
+
+        new(:failbody, obj)
+        trigger(obj)
+      end
+
+    assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
+    assert reason.message =~ "didn't match"
+    refute reason.message =~ "clause_fail"
+    :ok
+  end
+
   # reason.state carries the actual final %AL{} (bindings/constraints live at
   # the last attempt), not just a curated summary.
   example failed_run_exposes_the_final_state() do

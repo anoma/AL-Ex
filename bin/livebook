@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec iex --name al@127.0.0.1 --cookie al_livebook -S mix livebook
+exec iex --name al@127.0.0.1 -S mix livebook

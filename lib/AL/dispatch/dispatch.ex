@@ -52,6 +52,20 @@ defmodule AL.Dispatch do
         enumerate_selectors(self, method, args, state, method_scope)
 
       true ->
+        # The var-receiver/var-selector legs above both push a
+        # `{:method_mark, method_scope}` via `install_method_choicepoints/3`
+        # even for a single candidate -- that sentinel is what lets
+        # `AL.backtrack/1` close the method-level domino scope
+        # (`fail_scope(..., :method_fail)`) if the chosen candidate's clause
+        # matches but its *body* later fails on backtrack. A ground
+        # self+method skips straight to `do_send/6` with no such marker, so
+        # that same body-level failure only closes the clause-level scope
+        # (`{:mark, _}`, pushed by `oapply`/`wrap_clause_scope`) and leaves
+        # the method-level one permanently open in the trace -- harmless for
+        # ordinary execution (the marker is inert on backtrack either way)
+        # but corrupts `AL.Trace.derivation_tree`'s stack-based tree-builder,
+        # which assumes every method_call has a matching close event.
+        state = %AL{state | choicepoint_stack: [{:method_mark, method_scope} | state.choicepoint_stack]}
         do_send(self, method, args, method_scope, state, on_miss)
     end
   end

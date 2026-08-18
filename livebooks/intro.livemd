@@ -9,7 +9,7 @@ This livebook attempts to document and teach AL's unique features. Skip to any s
 In this checkout, run `bin/livebook`.
 The page should automatically open.
 
-Then attach this notebook to that node by clicking **Runtime** in the left bar → **Configure** → **Attached node** → enter `al@127.0.0.1` and cookie `al_livebook` → **Connect**.
+Then attach this notebook to that node by clicking **Runtime** in the left bar → **Configure** → **Attached node** → enter `al@127.0.0.1` and whatever `cat ~/.erlang.cookie` prints → **Connect**.
 
 ```elixir
 AL.Branch.head()
