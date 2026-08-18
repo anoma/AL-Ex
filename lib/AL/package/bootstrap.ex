@@ -163,6 +163,15 @@ defmodule AL.Package.Bootstrap do
     # every key the object currently has and hand that list straight to
     # `vm_retract_slots` -- same shape as the class/super retraction just
     # above, no separate "wipe everything" primitive needed.
+    #
+    # Methods too, and *every* one, not just names `:defclass`'s own body is
+    # about to redeclare -- `:defclass`'s per-name retract-before-define
+    # pass (below) only clears a method if the new block redeclares that
+    # exact name, so a name dropped from a redef's body used to survive as
+    # a zombie: no longer part of the class's logical definition, but still
+    # live and callable. Clearing the whole method set here first means the
+    # class really does come back as exactly what the new `defclass` block
+    # says, nothing more.
     defmethod(:object, :retract_existing_facts, [self, name]) do
       findall(c, [class(name, c)], existing_classes)
 
@@ -178,6 +187,12 @@ defmodule AL.Package.Bootstrap do
 
       findall(k, [vm_get_slot(name, k, _)], existing_slot_keys)
       vm_retract_slots(name, existing_slot_keys)
+
+      findall([n, id], [vm_method(name, n, id)], existing_methods)
+
+      forall([member(existing_methods, [n, id])]) do
+        vm_retract_method(name, n, id)
+      end
     end
 
     defmethod(:object, :claim_name, [self, name, redef]) do

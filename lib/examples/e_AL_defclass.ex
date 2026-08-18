@@ -219,6 +219,43 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
+  # Regression: `defclass`'s retract-before-define pass only cleared a
+  # method if the redef's *new* body redeclared that exact name -- so a
+  # method dropped from a redef (renamed, or just removed) used to survive
+  # as a zombie: no longer part of the class's logical definition, but
+  # still live and callable. `retract_existing_facts` now clears every
+  # method the reclaimed name currently has, not just name-matching ones.
+  example defclass_redef_true_clears_undeclared_methods() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_probe_d, super: :object do
+          defmethod(:greet, [self, :hello_v1])
+        end
+
+        vm_set_class(:redef_probe_d_instance, :redef_probe_d)
+      end
+
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_probe_d, redef: true, super: :object do
+          defmethod(:greet_v2, [self, :hello_v2])
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        greet(:redef_probe_d_instance, _g)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        greet_v2(:redef_probe_d_instance, g)
+      end
+
+    assert Map.get(bindings, :"$g") == :hello_v2
+    :ok
+  end
+
   example new_rejects_reusing_an_existing_durable_name() do
     {:atomic, _} =
       run branch: :examples do
