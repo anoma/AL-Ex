@@ -126,6 +126,20 @@ defmodule AL.Package.Bootstrap do
       vm_map_put(m1, slot_name, slot_val, m)
     end
 
+    # `vm_slot_at(self, key, value, t)` is a genuine relation, not a
+    # pre-packaged list -- one answer per whole-map version self's slots
+    # have held that includes `key` (a slots row versions the whole map as
+    # a unit, not one row per key -- see AL.Object's `@relations` doc), `t`
+    # left open here so it enumerates every version rather than filtering to
+    # one instant. This just collects `key`'s own value from each answer,
+    # collapsing adjacent repeats (`dedupe` -- other keys changing writes a
+    # new whole-map row even when `key` itself didn't, so the raw
+    # per-version values would otherwise repeat).
+    defmethod(:object, :slot_history, [self, key, values]) do
+      findall(v, [vm_slot_at(self, key, v, _t)], raw_values)
+      dedupe(raw_values, values)
+    end
+
     vm_set_class(:map, :class)
 
     vm_set_class(:map_get, :behaviour)

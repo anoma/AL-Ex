@@ -29,6 +29,7 @@ defmodule AL.Goal do
           | Forall.t()
           | Findall.t()
           | GetSlots.t()
+          | GetSlotAt.t()
           | Gensym.t()
           | Print.t()
           | Not.t()
@@ -194,6 +195,23 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:key, AL.Var.t())
     field(:value, AL.Var.t())
+  end
+
+  # `object`/`key` ground (a keyed history read, no scan). `value` and `t`
+  # are ordinary bindable positions like any other relation's -- ground `t`
+  # filters to the row whose `[tx_from, tx_to)` interval contains it (via
+  # `AL.Var.in_bounds?/2`); open `t` fans out one choicepoint per row and
+  # posts that row's interval as `t`'s real `ConstraintSet.bounds`
+  # (`AL.Var.add_bounds/3`) rather than returning inert data -- a still-open
+  # `t` stays a live, further-narrowable CLP var, not a dead end. See
+  # `AL.Interp.Relations`'s handler and `AL.Object`'s `@relations` doc (no
+  # separate history table -- this reads straight off `slots`'s bag, both
+  # open and closed rows).
+  typedstruct enforce: true, module: GetSlotAt do
+    field(:object, AL.Var.t())
+    field(:key, AL.Var.t())
+    field(:value, AL.Var.t())
+    field(:t, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Gensym do
@@ -395,6 +413,7 @@ defmodule AL.Goal do
     {Forall, :forall, [condition: :goals, body: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term]},
+    {GetSlotAt, :slot_at, [object: :term, key: :term, value: :term, t: :term]},
     {Gensym, :gensym, [var: :term]},
     {Print, :print, [pattern: :term]},
     {Not, :not, [condition: :goals]},

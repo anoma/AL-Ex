@@ -54,7 +54,7 @@ defmodule AL.Package do
   def installed?(name) do
     case :mnesia.transaction(fn ->
            Enum.any?(AL.Object.scan_class(:"$p", :package), fn {:class, p, _seq, :package} ->
-             match?([{:slots, ^p, %{name: ^name}}], :mnesia.read(:slots, p))
+             match?([{:slots, ^p, %{name: ^name}}], AL.Object.read_slots(p))
            end)
          end) do
       {:atomic, installed?} -> installed?
@@ -115,7 +115,7 @@ defmodule AL.Package do
     {:atomic, names} =
       :mnesia.transaction(fn ->
         for {:class, p, _seq, :package} <- AL.Object.scan_class(:"$p", :package),
-            {:slots, ^p, %{name: dependent, deps: deps}} <- :mnesia.read(:slots, p),
+            {:slots, ^p, %{name: dependent, deps: deps}} <- AL.Object.read_slots(p),
             name in deps,
             do: dependent
       end)
@@ -125,7 +125,7 @@ defmodule AL.Package do
 
   defp find_package(name) do
     Enum.find_value(AL.Object.scan_class(:"$p", :package), fn {:class, p, _seq, :package} ->
-      case :mnesia.read(:slots, p) do
+      case AL.Object.read_slots(p) do
         [{:slots, ^p, %{name: ^name} = slots}] -> {p, slots}
         _ -> nil
       end

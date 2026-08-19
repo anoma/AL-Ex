@@ -562,6 +562,7 @@ defmodule AL do
   def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.GetSlotAt{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
   def interp(%Goal.OApply{method_id: :fresh_id, args: [result]}, state),
     do: put_bindings(state, unify(state, result, AL.Command.fresh_id(state.branch)), [result])

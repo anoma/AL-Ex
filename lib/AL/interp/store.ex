@@ -132,7 +132,16 @@ defmodule AL.Interp.Store do
   # `AL.Object` call as its `tx` rather than reading `system_time` fresh a
   # second time, which would race a concurrent write and disagree with what
   # the command log itself actually recorded.
-  @tx_stamped [:set_class, :set_super, :set_method, :retract_class, :retract_super, :retract_method]
+  @tx_stamped [
+    :set_class,
+    :set_super,
+    :set_method,
+    :set_slots,
+    :retract_class,
+    :retract_super,
+    :retract_method,
+    :retract_slots
+  ]
 
   defp write(state, fun, args) when fun in @tx_stamped do
     tx = apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])

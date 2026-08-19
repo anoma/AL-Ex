@@ -116,6 +116,14 @@ defmodule AL.Lowering do
       value: ast_to_pattern(value)
     }
 
+  def ast_to_pattern({:vm_slot_at, _, [object, key, value, t]}),
+    do: %Goal.GetSlotAt{
+      object: ast_to_pattern(object),
+      key: ast_to_pattern(key),
+      value: ast_to_pattern(value),
+      t: ast_to_pattern(t)
+    }
+
   def ast_to_pattern({:vm_retract_class, _, [object, class]}),
     do: %Goal.RetractClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}
 

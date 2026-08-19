@@ -169,11 +169,86 @@ defmodule AL.Interp.Relations do
   def interp(%Goal.GetSlots{object: object, key: key, value: value}, state),
     do: scan_slots_directly(state, object, key, value)
 
+  # `object`/`key` are expected ground (a keyed history read -- no
+  # pending-link/broad-scan leg like `GetSlots` above, out of scope for now).
+  # `value`/`t` are ordinary bindable positions: ground `t` filters to the
+  # row whose `[tx_from, tx_to)` interval contains it (`AL.Var.in_bounds?/2`);
+  # open `t` fans out one choicepoint per historical row and posts that
+  # row's interval as `t`'s real `ConstraintSet.bounds` (`AL.Var.add_bounds/3`)
+  # instead of returning inert data -- a still-open `t` stays a live,
+  # further-narrowable CLP var, so it can compose with whatever else the
+  # caller's own query constrains it with. `AL.Object.scan_slots_history/2`
+  # reads straight off `slots`'s own bag (open and closed rows alike) -- no
+  # separate history table, see its `@relations` doc. A closed row's
+  # half-open `[tx_from, tx_to)` becomes the closed-inclusive `tx_to - 1` --
+  # exact, not approximate, since `system_time` is a discrete integer
+  # counter; a still-open row's `:open` becomes the branch's *current*
+  # `system_time`, not genuine unbounded infinity (`nil`) -- a query can
+  # only ever answer for "up to when I'm actually running", never truly
+  # forever, and unlike `nil`, a finite bound is something `label/1` can
+  # actually enumerate (see `Goal.Label`'s `is_integer(lo) and
+  # is_integer(hi)` guard -- `nil` on either side always falls through to
+  # isa/link labeling instead, so the still-open row could never be
+  # labeled at all under the old choice).
+  def interp(%Goal.GetSlotAt{object: object, key: key, value: value, t: t}, state) do
+    object_ground = AL.Var.deref(store(state), object)
+    key_ground = AL.Var.deref(store(state), key)
+    # `system_time/1` reads the counter `inc_system_time` already advanced
+    # past the last command actually written (it stores `t + 1` the moment
+    # `t` gets used) -- it's "the next tick to be allocated", not "the last
+    # one that happened". `- 1` is the real last-used tick; using the raw
+    # value would make even a row written one command ago appear to span
+    # two ticks, with nothing having happened in between at all.
+    now = AL.Command.system_time(state.branch) - 1
+
+    candidates =
+      for {:slots, _o, tx_from, tx_to, m} <-
+            AL.Object.scan_slots_history(object_ground, state.branch),
+          Map.has_key?(m, key_ground) do
+        {Map.fetch!(m, key_ground), tx_from, close_bound(tx_to, now)}
+      end
+
+    AL.fan_out(state, candidates, fn {v, lo, hi} -> slot_at_bindings(state, value, t, v, lo, hi) end)
+  end
+
   defp maybe_add_value_slot_link(store, value, key, object) do
     if AL.Var.var?(value) and value != :"$_" do
       AL.Var.add_slot_link(store, value, {:slot_value, key, object})
     else
       store
+    end
+  end
+
+  defp close_bound(:open, now), do: now
+  defp close_bound(tx_to, _now), do: tx_to - 1
+
+  defp slot_at_bindings(state, value, t, v, lo, hi) do
+    case AL.unify(state, value, v) do
+      nil ->
+        {nil, [value, t]}
+
+      store1 ->
+        t_ground = AL.Var.deref(store1, t)
+
+        cond do
+          AL.Var.var?(t_ground) ->
+            {narrowed_or_nil(store1, t_ground, {lo, hi}), [value, t]}
+
+          AL.Var.in_bounds?({lo, hi}, t_ground) ->
+            {store1, [value, t]}
+
+          true ->
+            {nil, [value, t]}
+        end
+    end
+  end
+
+  defp narrowed_or_nil(store, var, bounds) do
+    new_store = AL.Var.add_bounds(store, var, bounds)
+
+    case AL.Var.constraint_set(new_store, var) do
+      %AL.Var.ConstraintSet{bounds: {lo, hi}} when lo != nil and hi != nil and lo > hi -> nil
+      _ -> new_store
     end
   end
 

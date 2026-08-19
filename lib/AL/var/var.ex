@@ -391,6 +391,28 @@ defmodule AL.Var do
     end)
   end
 
+  # Intersects `{lo, hi}` into whatever bounds `var` already carries (via
+  # `tighten_max`/`tighten_min`, the same narrowing `AL.Var.Bounds` itself
+  # uses for a `< > <= >=` propagator) rather than overwriting them --
+  # a var reaching this with existing bounds from an unrelated constraint
+  # earlier in the same query (e.g. `t > 100` posted before a relation also
+  # posts `t`'s bounds from a matched row) must keep both, not lose one.
+  # Same division of labor as `add_isa`: this only ever narrows, it doesn't
+  # check the result is still feasible (`lo <= hi`) -- callers building a
+  # choicepoint from this check that themselves and fail the choicepoint if
+  # not, the same way `isa_conflict?/3` is a separate check from `add_isa`.
+  @spec add_bounds(store(), variable(), {ConstraintSet.bound(), ConstraintSet.bound()}) ::
+          store()
+  def add_bounds(store, var, {lo, hi}) do
+    Map.update(store, var, %ConstraintSet{bounds: {lo, hi}}, fn
+      %ConstraintSet{bounds: {old_lo, old_hi}} = set ->
+        %{set | bounds: {tighten_max(old_lo, lo), tighten_min(old_hi, hi)}}
+
+      other ->
+        other
+    end)
+  end
+
   # A var's already-known class domain, if any — the read side of `add_isa/3`.
   # Lets a query (e.g. `AL.Interp.Relations`'s `GetClass` asked for self's class with
   # the class side still open) answer directly from what's already known
