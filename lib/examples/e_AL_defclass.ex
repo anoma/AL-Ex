@@ -277,4 +277,39 @@ defmodule Examples.ALDefclass do
 
     :ok
   end
+
+  # `class_redefined`'s default (bootstrap.ex, on `:class`) is a no-op --
+  # customizing it per class means giving that class its own metaclass, the
+  # same way CLOS specializes class-level protocol on the metaclass rather
+  # than the class object itself. `:logging_metaclass` here overrides
+  # `class_redefined` once; every class built with `metaclass:
+  # :logging_metaclass` picks up that override on every redef.
+  example custom_metaclass_overrides_class_redefined() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :logging_metaclass, super: :class do
+          defmethod(:class_redefined, [self, old_supers, new_supers]) do
+            set_slot(self, :redef_log, [old_supers, new_supers])
+          end
+        end
+
+        defclass :logged_thing, metaclass: :logging_metaclass, super: :object, ivars: [] do
+        end
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :logged_thing,
+          metaclass: :logging_metaclass,
+          super: :value,
+          ivars: [],
+          redef: true do
+        end
+
+        get_slot(:logged_thing, :redef_log, log)
+      end
+
+    assert Map.get(bindings, :"$log") == [[:object], [:value]]
+    :ok
+  end
 end

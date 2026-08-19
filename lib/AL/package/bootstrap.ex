@@ -172,26 +172,26 @@ defmodule AL.Package.Bootstrap do
     # live and callable. Clearing the whole method set here first means the
     # class really does come back as exactly what the new `defclass` block
     # says, nothing more.
-    defmethod(:object, :retract_existing_facts, [self, name]) do
-      findall(c, [class(name, c)], existing_classes)
+    defmethod(:object, :retract_existing_facts, [self]) do
+      findall(c, [class(self, c)], existing_classes)
 
       forall([member(existing_classes, c)]) do
-        vm_retract_class(name, c)
+        vm_retract_class(self, c)
       end
 
-      findall(s, [super(name, s)], existing_supers)
+      findall(s, [super(self, s)], existing_supers)
 
       forall([member(existing_supers, s)]) do
-        vm_retract_super(name, s)
+        vm_retract_super(self, s)
       end
 
-      findall(k, [vm_get_slot(name, k, _)], existing_slot_keys)
-      vm_retract_slots(name, existing_slot_keys)
+      findall(k, [vm_get_slot(self, k, _)], existing_slot_keys)
+      vm_retract_slots(self, existing_slot_keys)
 
-      findall([n, id], [vm_method(name, n, id)], existing_methods)
+      findall([n, id], [vm_method(self, n, id)], existing_methods)
 
       forall([member(existing_methods, [n, id])]) do
-        vm_retract_method(name, n, id)
+        vm_retract_method(self, n, id)
       end
     end
 
@@ -199,7 +199,7 @@ defmodule AL.Package.Bootstrap do
       implies do
         [class(name, existing)] ->
           implies do
-            [unify(redef, true)] -> retract_existing_facts(self, name)
+            [unify(redef, true)] -> retract_existing_facts(name)
             :else -> fail()
           end
 
@@ -217,13 +217,6 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(args, :name, name)
       vm_map_get(args, :super, super)
 
-      # `implies`, not `alternative` -- `alternative` is a live `Goal.Or`,
-      # so a later failure elsewhere in this call (`claim_name` included)
-      # would backtrack into it and retry the *other* branch, silently
-      # flipping an explicitly-supplied `redef: true` back to `false` (or an
-      # explicit `ivars:` back to `[]`) instead of genuinely failing -- the
-      # same risk `build_durable_slots`' own `implies` (below) already
-      # guards against.
       implies do
         [vm_map_get(args, :ivars, ivars)] -> unify(ivars, ivars)
         :else -> unify(ivars, [])
@@ -235,27 +228,35 @@ defmodule AL.Package.Bootstrap do
       end
 
       class(self, meta)
+
+      implies do
+        [class(name, _)] ->
+          findall(s, [super(name, s)], old_supers)
+          unify(was_redef, true)
+
+        :else ->
+          unify(old_supers, [])
+          unify(was_redef, false)
+      end
+
       claim_name(self, name, redef)
 
       vm_set_class(name, meta)
       set_supers(name, super)
-      # The declared instance-var names are reflective metadata about the class,
-      # held under `:ivars` in the class object's own slot map — so they sit
-      # alongside any class-side slot values rather than overwriting them.
       vm_set_slots(name, %{ivars: ivars})
+
+      implies do
+        [unify(was_redef, true)] ->
+          findall(s, [super(name, s)], new_supers)
+          class_redefined(name, old_supers, new_supers)
+
+        :else ->
+          unify(name, name)
+      end
     end
 
-    # `super:` accepts either a single class atom (the common case) or a
-    # list, for genuine multiple inheritance -- `vm_set_super` itself only
-    # ever writes one `super` fact per call, so a list has to be walked and
-    # written one fact at a time, not handed to `vm_set_super` as a single
-    # (malformed) value. The list/atom branches live in one clause behind an
-    # explicit `class(super, :list)` guard, not as separate `[]`/`[s|rest]`
-    # clauses with a bare-var fallback -- a bare var structurally unifies
-    # with a list too, so it would stay a live alternative for list input
-    # and could resurface on a later, unrelated backtrack (see
-    # [[feedback-alternative-vs-implies-backtracking-hazard]] /
-    # [[feedback-prolog-clause-selection-not-elixir]]).
+    defmethod(:class, :class_redefined, [self, old_supers, new_supers])
+
     defmethod(:object, :set_supers, [name, super]) do
       implies do
         [class(super, :list)] -> set_super_list(name, super)
