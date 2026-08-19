@@ -252,18 +252,18 @@ defmodule AL.Command do
     end)
   end
 
-  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec set_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def set_class(tx_id, object, class, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_class, {object, class}}, branch)
   end
 
-  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec set_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def set_super(tx_id, object, super, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_super, {object, super}}, branch)
   end
 
   @spec set_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
-          :ok
+          non_neg_integer()
   def set_method(tx_id, object, method_name, method_id, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_method, {object, method_name, method_id}}, branch)
   end
@@ -276,59 +276,63 @@ defmodule AL.Command do
           [AL.goal()],
           AL.Branch.t()
         ) ::
-          :ok
+          non_neg_integer()
   def set_oapply(tx_id, object, seq, head, body, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
   end
 
-  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def set_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:set_slots, {object, slots}}, branch)
   end
 
-  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
+          non_neg_integer()
   def retract_class(tx_id, object, class, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_class, {object, class}}, branch)
   end
 
-  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec retract_super(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
+          non_neg_integer()
   def retract_super(tx_id, object, super, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_super, {object, super}}, branch)
   end
 
   @spec retract_method(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
-          :ok
+          non_neg_integer()
   def retract_method(tx_id, object, name, id, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_method, {object, name, id}}, branch)
   end
 
-  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def retract_oapply(tx_id, object, head, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_oapply, {object, head}}, branch)
   end
 
-  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def retract_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_slots, {object, slots}}, branch)
   end
 
   @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
-          :ok
+          non_neg_integer()
   def send_async(tx_id, object, method, args, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:send_async, {object, method, args}}, branch)
   end
 
-  @spec send_elixir(non_neg_integer(), pid(), term(), AL.Branch.t()) :: :ok
+  @spec send_elixir(non_neg_integer(), pid(), term(), AL.Branch.t()) :: non_neg_integer()
   def send_elixir(tx_id, pid, message, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:send_elixir, {pid, message}}, branch)
   end
 
-  @spec write_command(non_neg_integer(), command(), AL.Branch.t()) :: :ok
+  @doc "Writes the command and returns its `system_time` (`t`) -- the transaction-time stamp callers use for bitemporal class/super/method rows (see `AL.Object.set_class/4` etc.)."
+  @spec write_command(non_neg_integer(), command(), AL.Branch.t()) :: non_neg_integer()
   def write_command(tx_id, command, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
     {t1, _t2} = inc_system_time(branch)
     :mnesia.write(command_reference, {:command, t1, tx_id, command}, :write)
+    t1
   end
 
   def inc_system_time(branch \\ AL.Branch.head()) do

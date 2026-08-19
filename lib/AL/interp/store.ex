@@ -124,6 +124,22 @@ defmodule AL.Interp.Store do
   # an immediate projection update (`AL.Object`) — `fun` names the same
   # operation on both modules, since both are named identically by design (see
   # `AL.Command`/`AL.Object` docs).
+  #
+  # `class`/`super`/`method` additionally carry transaction-time
+  # (`tx_from`/`tx_to`, see `AL.Object`'s `@relations` doc) -- `AL.Command`'s
+  # write already returns the `system_time` it stamped the command with
+  # (`write_command/3`), so that's threaded straight into the matching
+  # `AL.Object` call as its `tx` rather than reading `system_time` fresh a
+  # second time, which would race a concurrent write and disagree with what
+  # the command log itself actually recorded.
+  @tx_stamped [:set_class, :set_super, :set_method, :retract_class, :retract_super, :retract_method]
+
+  defp write(state, fun, args) when fun in @tx_stamped do
+    tx = apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
+    apply(AL.Object, fun, args ++ [tx, state.branch])
+    state
+  end
+
   defp write(state, fun, args) do
     apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [state.branch])

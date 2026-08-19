@@ -55,7 +55,7 @@ defmodule AL.Interp.Relations do
       AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
           not Enum.empty?(known_isa) ->
         rows = for class <- known_isa, do: {:class, object, :isa, class}
-        scan_relation(state, rows, {:class, object, :"$seq", class_pattern})
+        scan_relation(state, rows, {:class, object, fresh_seq(), class_pattern})
 
       # Neither side carries any information at all yet -- not "no answer",
       # but nothing to search for one *now* either. `object` gets the
@@ -85,7 +85,7 @@ defmodule AL.Interp.Relations do
         scan_relation(
           state,
           AL.Object.scan_class(object, class_pattern, state.branch),
-          {:class, object, :"$seq", class_pattern}
+          {:class, object, fresh_seq(), class_pattern}
         )
     end
   end
@@ -112,7 +112,7 @@ defmodule AL.Interp.Relations do
       scan_relation(
         state,
         AL.Object.scan_super(object, super_pattern, state.branch),
-        {:super, object, :"$seq", super_pattern}
+        {:super, object, fresh_seq(), super_pattern}
       )
     end
   end
@@ -122,7 +122,7 @@ defmodule AL.Interp.Relations do
       scan_relation(
         state,
         AL.Object.scan_super(object, super_pattern, state.branch),
-        {:super, object, :"$seq", super_pattern}
+        {:super, object, fresh_seq(), super_pattern}
       )
 
   def interp(%Goal.GetMethod{object: object, name: name, id: id}, state),
@@ -204,6 +204,20 @@ defmodule AL.Interp.Relations do
   defp scan_relation(state, rows, pattern) do
     AL.fan_out(state, rows, fn row -> {AL.unify(state, row, pattern), [pattern]} end)
   end
+
+  # `GetClass`/`GetSuper`'s scan pattern's `seq` slot used to be the bare,
+  # unscoped atom `:"$seq"` -- fine only because every object's `seq` for a
+  # bag row was always effectively 0 the moment a row was reasserted after a
+  # retract (retract deleted the old row, so `next_*_seq` restarted from 0),
+  # so a stale `:"$seq"` binding left over from an earlier, unrelated scan
+  # in the same store always happened to still match. Now that retract
+  # closes rows instead of deleting them (`AL.Object`'s `tx_from`/`tx_to`),
+  # `seq` keeps climbing across a retract-then-reassert, and a stale
+  # `:"$seq"` binding from an earlier scan silently fails to unify against a
+  # later row's *different* seq -- a real bug, exposed rather than caused by
+  # that change. Freshening it per call (same idiom as
+  # `AL.Dispatch.MethodOrder`'s own scan vars) is the actual fix.
+  defp fresh_seq(), do: AL.Var.var("seq_#{AL.fresh_scope()}")
 
   defp store(state), do: state.active_choicepoint.store
 end

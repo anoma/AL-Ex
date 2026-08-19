@@ -39,9 +39,23 @@ defmodule AL.Dispatch do
 
         maybe_trace_dispatch(state, self, method, value_classes)
 
+        # Each candidate is its own independent, mutually-exclusive
+        # alternative -- `generative_candidate/6` attaches `class`'s isa tag
+        # to `self` for *that candidate's own* choicepoint, which is right.
+        # But it does so by mutating `active_choicepoint.store` and handing
+        # the same mutated state back as the fold accumulator -- so without
+        # resetting it here, the next class in the list would build its own
+        # candidate starting from a store where `self` is *already* isa the
+        # previous (unrelated) candidate class, accumulating an impossible
+        # multi-class isa across siblings instead of each starting clean.
+        # `domino` (scope/trace bookkeeping, needed across every candidate
+        # for tracing) is untouched by this reset -- only `active_choicepoint`
+        # carried the leaking mutation.
         {generative_candidates, state} =
           Enum.map_reduce(value_classes, state, fn class, acc_state ->
-            generative_candidate(acc_state, self, method, args, class, method_scope)
+            original_active = acc_state.active_choicepoint
+            {choicepoint, next_state} = generative_candidate(acc_state, self, method, args, class, method_scope)
+            {choicepoint, %AL{next_state | active_choicepoint: original_active}}
           end)
 
         candidates = generative_candidates ++ [durable_placeholder(state, self, method, args)]

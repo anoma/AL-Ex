@@ -17,14 +17,27 @@ defmodule AL.Object do
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
   @type oapply_record() :: {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()]}
 
+  # `class`/`super`/`method` carry `tx_from`/`tx_to` (a `system_time` -- see
+  # AL.Command -- pair, never wall-clock) alongside their existing `seq`.
+  # `seq` keeps doing exactly what it always did (bag-row disambiguation for
+  # this one object); `tx_from`/`tx_to` are the unrelated, additive concern
+  # of when the fact was true. Retract no longer deletes the row -- it closes
+  # `tx_to` -- so a row's full transaction-time history survives, but
+  # `scan_class`/`scan_super`/`scan_method` filter to `tx_to == :open` and
+  # project the two new fields back out before returning, so every existing
+  # caller (dispatch, method resolution, packages -- everything except this
+  # module) sees the exact same shape and behaviour it always has. `tx_to`
+  # is always at index 4 of the raw 6-tuple, uniformly across all three
+  # relations -- see `close/2`, below.
   @relations %{
-    class: [:object, :seq, :class],
-    super: [:object, :seq, :super],
+    class: [:object, :seq, :tx_from, :tx_to, :class],
+    super: [:object, :seq, :tx_from, :tx_to, :super],
     slots: [:object, :slots],
-    method: [:object, :method_name, :method_id],
+    method: [:object, :method_name, :tx_from, :tx_to, :method_id],
     oapply: [:object, :seq, :head, :body]
   }
   @bags [:class, :super, :method, :oapply]
+  @tx_indexed [:class, :super, :method]
 
   typedstruct enforce: true do
     field(:id, any(), enforce: true)
@@ -56,6 +69,7 @@ defmodule AL.Object do
 
   defp create_table(relation, branch) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
+    opts = if relation in @tx_indexed, do: [{:index, [:tx_to]} | opts], else: opts
     opts = if branch.id == :main, do: opts, else: [{:record_name, relation} | opts]
 
     case :mnesia.create_table(table(relation, branch), opts) do
@@ -69,20 +83,40 @@ defmodule AL.Object do
   defp type(relation) when relation in @bags, do: :bag
   defp type(_relation), do: :set
 
+  # Matches only `tx_to == :open` (the literal, not a pattern var) -- today's
+  # exact "currently true" behaviour -- then projects the raw 6-tuple back
+  # down to the legacy 4-tuple every existing caller already expects.
+  #
+  # Sorted by `{seq, tx_from}`, not `seq` alone: `seq` only orders a *single*
+  # object's own rows meaningfully (it's a per-object counter -- see
+  # `next_class_seq/2`); a self-open scan spanning many objects (e.g.
+  # `AL.Dispatch.generative_descendants/1`) ties on `seq` constantly across
+  # unrelated objects, and used to fall back on whatever order Mnesia's
+  # `:bag` happened to return -- unspecified, and it silently shifted the
+  # instant this table's record shape changed to carry `tx_from`/`tx_to`,
+  # which is exactly what surfaced this. `tx_from` (`system_time`, global
+  # and monotonic -- see AL.Command) gives a real, deterministic tiebreak
+  # instead of an implementation accident.
   @spec scan_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [class_record()]
   def scan_class(self_pattern, class_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:class, branch), [
-      {AL.Var.to_mnesia_pattern({:class, self_pattern, :"$seq", class_pattern}), [], [:"$_"]}
+      {AL.Var.to_mnesia_pattern(
+         {:class, self_pattern, :"$seq", :"$tx_from", :open, class_pattern}
+       ), [], [:"$_"]}
     ])
-    |> Enum.sort_by(fn {:class, _object, seq, _class} -> seq end)
+    |> Enum.sort_by(fn {:class, _o, seq, tx_from, :open, _c} -> {seq, tx_from} end)
+    |> Enum.map(fn {:class, o, seq, _tx_from, :open, c} -> {:class, o, seq, c} end)
   end
 
   @spec scan_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [super_record()]
   def scan_super(self_pattern, super_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:super, branch), [
-      {AL.Var.to_mnesia_pattern({:super, self_pattern, :"$seq", super_pattern}), [], [:"$_"]}
+      {AL.Var.to_mnesia_pattern(
+         {:super, self_pattern, :"$seq", :"$tx_from", :open, super_pattern}
+       ), [], [:"$_"]}
     ])
-    |> Enum.sort_by(fn {:super, _object, seq, _super} -> seq end)
+    |> Enum.sort_by(fn {:super, _o, seq, tx_from, :open, _s} -> {seq, tx_from} end)
+    |> Enum.map(fn {:super, o, seq, _tx_from, :open, s} -> {:super, o, seq, s} end)
   end
 
   @spec scan_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [slots_record()]
@@ -100,9 +134,12 @@ defmodule AL.Object do
         branch \\ AL.Branch.head()
       ) do
     :mnesia.select(table(:method, branch), [
-      {AL.Var.to_mnesia_pattern({:method, self_pattern, method_name_pattern, method_id_pattern}),
-       [], [:"$_"]}
+      {AL.Var.to_mnesia_pattern(
+         {:method, self_pattern, method_name_pattern, :"$tx_from", :open, method_id_pattern}
+       ), [], [:"$_"]}
     ])
+    |> Enum.sort_by(fn {:method, _o, _n, tx_from, :open, _id} -> tx_from end)
+    |> Enum.map(fn {:method, o, n, _tx_from, :open, id} -> {:method, o, n, id} end)
   end
 
   @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [
@@ -127,34 +164,55 @@ defmodule AL.Object do
     :mnesia.read(table(:slots, branch), object)
   end
 
-  @spec retract_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_class(object_pattern, class_pattern, branch \\ AL.Branch.head()) do
-    delete_all(:class, scan_class(object_pattern, class_pattern, branch), branch)
+  # `tx` is the `system_time` this retract happens at (see AL.Command) --
+  # closes each currently-open matching row's `tx_to` instead of deleting
+  # it, so the fact's transaction-time history survives. Reads the *raw*
+  # 6-tuple directly (not `scan_class/3`, which already projects that shape
+  # away) since closing a row needs to know exactly which record to replace.
+  @spec retract_class(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def retract_class(object_pattern, class_pattern, tx, branch \\ AL.Branch.head()) do
+    pattern = {:class, object_pattern, :"$seq", :"$tx_from", :open, class_pattern}
+    close_rows(:class, open_rows(:class, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_providers(branch)
     AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
-  @spec retract_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_super(object_pattern, super_pattern, branch \\ AL.Branch.head()) do
-    delete_all(:super, scan_super(object_pattern, super_pattern, branch), branch)
+  @spec retract_super(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def retract_super(object_pattern, super_pattern, tx, branch \\ AL.Branch.head()) do
+    pattern = {:super, object_pattern, :"$seq", :"$tx_from", :open, super_pattern}
+    close_rows(:super, open_rows(:super, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
-  @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
+  @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) ::
+          :ok
   def retract_method(
         object_pattern,
         method_name_pattern,
         method_id_pattern,
+        tx,
         branch \\ AL.Branch.head()
       ) do
-    delete_all(
-      :method,
-      scan_method(object_pattern, method_name_pattern, method_id_pattern, branch),
-      branch
-    )
-
+    pattern = {:method, object_pattern, method_name_pattern, :"$tx_from", :open, method_id_pattern}
+    close_rows(:method, open_rows(:method, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_providers(branch)
+  end
+
+  defp open_rows(relation, pattern, branch) do
+    :mnesia.select(table(relation, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+  end
+
+  # A bag record can't be updated in place -- delete the exact old tuple,
+  # write back the same one with `tx_to` (always index 4, uniformly across
+  # class/super/method -- see @relations above) replaced.
+  defp close_rows(relation, rows, tx, branch) do
+    for row <- rows do
+      :mnesia.delete_object(table(relation, branch), row, :write)
+      :mnesia.write(table(relation, branch), put_elem(row, 4, tx), :write)
+    end
+
+    :ok
   end
 
   @spec retract_oapply(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
@@ -203,25 +261,33 @@ defmodule AL.Object do
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
-  @spec set_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_class(object, class, branch \\ AL.Branch.head()) do
+  # `tx` is the `system_time` this write happens at (see AL.Command),
+  # stamped as `tx_from`; `tx_to` starts `:open` until a matching retract
+  # closes it.
+  @spec set_class(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def set_class(object, class, tx, branch \\ AL.Branch.head()) do
     seq = next_class_seq(object, branch)
-    :mnesia.write(table(:class, branch), {:class, object, seq, class}, :write)
+    :mnesia.write(table(:class, branch), {:class, object, seq, tx, :open, class}, :write)
     AL.ResolutionCache.invalidate_providers(branch)
     AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
-  @spec set_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_super(object, super, branch \\ AL.Branch.head()) do
+  @spec set_super(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def set_super(object, super, tx, branch \\ AL.Branch.head()) do
     seq = next_super_seq(object, branch)
-    :mnesia.write(table(:super, branch), {:super, object, seq, super}, :write)
+    :mnesia.write(table(:super, branch), {:super, object, seq, tx, :open, super}, :write)
     AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
-  @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_method(object, method_name, method_id, branch \\ AL.Branch.head()) do
-    :mnesia.write(table(:method, branch), {:method, object, method_name, method_id}, :write)
+  @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def set_method(object, method_name, method_id, tx, branch \\ AL.Branch.head()) do
+    :mnesia.write(
+      table(:method, branch),
+      {:method, object, method_name, tx, :open, method_id},
+      :write
+    )
+
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -243,12 +309,16 @@ defmodule AL.Object do
     end
   end
 
+  # Counts past closed (retracted) rows too, now that they're kept rather
+  # than deleted -- a reasserted fact never risks colliding with a seq a
+  # now-closed row already used. Only relative order among *open* rows for
+  # one object is ever observed by any caller, and that's unaffected.
   @doc "The next `class` seq for `object` — one past its current maximum, 0 if none."
   @spec next_class_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def next_class_seq(object, branch \\ AL.Branch.head()) do
     case :mnesia.read(table(:class, branch), object) do
       [] -> 0
-      rows -> rows |> Enum.map(fn {:class, _o, seq, _c} -> seq end) |> Enum.max() |> Kernel.+(1)
+      rows -> rows |> Enum.map(fn {:class, _o, seq, _tf, _tt, _c} -> seq end) |> Enum.max() |> Kernel.+(1)
     end
   end
 
@@ -257,7 +327,7 @@ defmodule AL.Object do
   def next_super_seq(object, branch \\ AL.Branch.head()) do
     case :mnesia.read(table(:super, branch), object) do
       [] -> 0
-      rows -> rows |> Enum.map(fn {:super, _o, seq, _s} -> seq end) |> Enum.max() |> Kernel.+(1)
+      rows -> rows |> Enum.map(fn {:super, _o, seq, _tf, _tt, _s} -> seq end) |> Enum.max() |> Kernel.+(1)
     end
   end
 
@@ -280,17 +350,25 @@ defmodule AL.Object do
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
-  @spec hydrate_event(AL.Command.command_op(), tuple(), AL.Branch.t()) :: any()
-  def hydrate_event(op, event, branch \\ AL.Branch.head()) do
+  # `t` is the command's own `system_time` (its position in the log, from
+  # the `{:command, t, tx_id, {op, event}}` tuple `hydrate/2` replays) --
+  # the transaction-time stamp for class/super/method's `tx_from`/`tx_to`.
+  # Replaying an old command must stamp its *original* `t`, not whatever
+  # `system_time` happens to be *now* -- a fork replaying a historical
+  # prefix would otherwise misdate every row to the replay time instead of
+  # when it actually happened.
+  @spec hydrate_event(AL.Command.command_op(), tuple(), AL.Branch.t(), non_neg_integer() | nil) ::
+          any()
+  def hydrate_event(op, event, branch \\ AL.Branch.head(), t \\ nil) do
     case op do
-      :set_class -> with {o, c} <- event, do: set_class(o, c, branch)
-      :set_super -> with {o, s} <- event, do: set_super(o, s, branch)
-      :set_method -> with {o, n, id} <- event, do: set_method(o, n, id, branch)
+      :set_class -> with {o, c} <- event, do: set_class(o, c, t, branch)
+      :set_super -> with {o, s} <- event, do: set_super(o, s, t, branch)
+      :set_method -> with {o, n, id} <- event, do: set_method(o, n, id, t, branch)
       :set_oapply -> with {o, s, h, b} <- event, do: set_oapply(o, s, h, b, branch)
       :set_slots -> with {o, s} <- event, do: set_slots(o, s, branch)
-      :retract_class -> with {o, c} <- event, do: retract_class(o, c, branch)
-      :retract_super -> with {o, s} <- event, do: retract_super(o, s, branch)
-      :retract_method -> with {o, n, id} <- event, do: retract_method(o, n, id, branch)
+      :retract_class -> with {o, c} <- event, do: retract_class(o, c, t, branch)
+      :retract_super -> with {o, s} <- event, do: retract_super(o, s, t, branch)
+      :retract_method -> with {o, n, id} <- event, do: retract_method(o, n, id, t, branch)
       :retract_oapply -> with {o, h} <- event, do: retract_oapply(o, h, branch)
       :retract_slots -> with {o, s} <- event, do: retract_slots(o, s, branch)
       :send_async -> :ok
@@ -312,7 +390,7 @@ defmodule AL.Object do
 
   defp hydrate(fetch, branch) do
     :mnesia.transaction(fn ->
-      for {:command, _, _, {op, event}} <- fetch.(), do: hydrate_event(op, event, branch)
+      for {:command, t, _tx_id, {op, event}} <- fetch.(), do: hydrate_event(op, event, branch, t)
     end)
   end
 end
