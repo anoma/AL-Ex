@@ -302,6 +302,56 @@ defmodule Examples.ALTrace do
     assert [{_var, {:bound, :second}}] = Map.to_list(pick_node.derived)
   end
 
+  example derivation_tree_keeps_the_committed_chain_after_a_failed_attempt() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :probe_box, super: :object, ivars: [] do
+          defmethod(:probe_reject, [self, v]) do
+            unify(v, 1)
+            v > 50
+          end
+
+          defmethod(:probe_leaf, [self, 100])
+
+          defmethod(:probe_mid, [self, v]) do
+            probe_leaf(self, w)
+            vm_is(v, w + 1)
+          end
+
+          defmethod(:probe_top, [self, v]) do
+            probe_mid(self, w)
+            vm_is(v, w + 1)
+          end
+
+          defmethod(:probe_answer, [self, v]) do
+            alternative([probe_reject(self, v)], [probe_top(self, v)])
+          end
+        end
+      end
+
+    {:atomic, {bindings, state}} =
+      run branch: :examples do
+        new(:probe_box, %{}, obj)
+        probe_answer(obj, r)
+      end
+
+    assert Map.get(bindings, :"$r") == 102
+
+    roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+    answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
+
+    assert [top] = answer.children
+    assert {_, :probe_top, _} = top.label
+
+    assert [mid] = top.children
+    assert {_, :probe_mid, _} = mid.label
+
+    assert [leaf] = mid.children
+    assert {_, :probe_leaf, _} = leaf.label
+
+    refute Enum.any?(roots, &match?(%{label: {_, :probe_reject, _}}, &1))
+  end
+
   # Call/Fail only fires once a clause applies -- says nothing about which
   # candidate legs an unbound receiver tried. Selector trace shows legs before
   # any run. durable reports "deferred" not a count -- scanning to report one

@@ -250,13 +250,7 @@ defmodule AL.Trace do
           {nodes, roots}
       end
 
-    stack =
-      case stack do
-        [^resolved | rest] -> rest
-        other -> other
-      end
-
-    {stack, nodes, aliases, roots}
+    {unwind(stack, resolved), nodes, aliases, roots}
   end
 
   defp tree_step(%AL.Goal.Compare{} = goal, acc, store),
@@ -274,6 +268,14 @@ defmodule AL.Trace do
   # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
   # `render/1`'s job.
   defp tree_step(_other, acc, _store), do: acc
+
+  defp unwind(stack, scope) do
+    if scope in stack do
+      stack |> Enum.drop_while(&(&1 != scope)) |> Enum.drop_while(&(&1 == scope))
+    else
+      stack
+    end
+  end
 
   defp attach_constraint_leaf(goal, {stack, nodes, aliases, roots}, store) do
     key = make_ref()
