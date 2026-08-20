@@ -278,17 +278,23 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # `class_redefined`'s default (bootstrap.ex, on `:class`) is a no-op --
-  # customizing it per class means giving that class its own metaclass, the
-  # same way CLOS specializes class-level protocol on the metaclass rather
-  # than the class object itself. `:logging_metaclass` here overrides
-  # `class_redefined` once; every class built with `metaclass:
-  # :logging_metaclass` picks up that override on every redef.
+  # `class_redefined`'s default (bootstrap.ex, on `:class`) does real
+  # ivar reconciliation now (see the examples below) -- customizing it per
+  # class instead means giving that class its own metaclass, the same way
+  # CLOS specializes class-level protocol on the metaclass rather than the
+  # class object itself. `:logging_metaclass` here overrides
+  # `class_redefined` once, replacing the default entirely (no
+  # `call_next_method`, so this class's redefs no longer reconcile
+  # instances -- overriding without calling the ancestor is the same
+  # tradeoff it always is); every class built with `metaclass:
+  # :logging_metaclass` picks up the override on every redef.
   example custom_metaclass_overrides_class_redefined() do
     {:atomic, _} =
       run branch: :examples do
         defclass :logging_metaclass, super: :class do
-          defmethod(:class_redefined, [self, old_supers, new_supers]) do
+          defmethod(:class_redefined, [self, old_spec, new_spec]) do
+            vm_map_get(old_spec, :supers, old_supers)
+            vm_map_get(new_spec, :supers, new_supers)
             set_slot(self, :redef_log, [old_supers, new_supers])
           end
         end
@@ -310,6 +316,75 @@ defmodule Examples.ALDefclass do
       end
 
     assert Map.get(bindings, :"$log") == [[:object], [:value]]
+    :ok
+  end
+
+  # The real, shipped default: redefining a class backfills every existing
+  # instance's newly-added ivars from their declared `default:` (matching
+  # CLOS's own `update-instance-for-redefined-class` default, which runs
+  # `shared-initialize` on `added-slots`) -- no metaclass override needed,
+  # this is `:class`'s own `class_redefined` body.
+  example redef_backfills_new_ivars_with_their_default_on_existing_instances() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        defclass :redef_backfill_probe, super: :object, redef: true, ivars: [] do
+        end
+
+        new(:redef_backfill_probe, obj)
+
+        defclass :redef_backfill_probe,
+          super: :object,
+          redef: true,
+          ivars: [count: [type: :number, default: 0]] do
+        end
+
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings, :"$count") == 0
+    :ok
+  end
+
+  # An ivar with no `default:` has nothing to backfill with -- matches
+  # CLOS's own default too (`shared-initialize` leaves an unsupplied,
+  # initform-less slot unbound rather than inventing a value).
+  example redef_leaves_new_ivars_without_a_default_unset() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_backfill_probe2, super: :object, redef: true, ivars: [] do
+        end
+
+        new(:redef_backfill_probe2, obj)
+
+        defclass :redef_backfill_probe2, super: :object, redef: true, ivars: [nickname: []] do
+        end
+
+        not [get_slot(obj, :nickname, _)]
+      end
+
+    :ok
+  end
+
+  # The other half: an ivar dropped from the redefinition gets its slot
+  # invalidated (retracted) on every existing instance -- AL's slots are a
+  # plain map (see al-legible-failures/al-ivar-specs work), so nothing
+  # *forces* eviction the way CLOS's fixed-size instance vector does, but
+  # the default policy chooses to strip it anyway rather than leave stale
+  # data an ivar-less class no longer claims to own.
+  example redef_invalidates_removed_ivars_on_existing_instances() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_shrink_probe, super: :object, redef: true, ivars: [legs: []] do
+        end
+
+        new(:redef_shrink_probe, %{legs: 4}, obj)
+
+        defclass :redef_shrink_probe, super: :object, redef: true, ivars: [] do
+        end
+
+        not [get_slot(obj, :legs, _)]
+      end
+
     :ok
   end
 end

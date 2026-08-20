@@ -255,10 +255,12 @@ defmodule AL.Package.Bootstrap do
       implies do
         [class(name, _)] ->
           findall(s, [super(name, s)], old_supers)
+          vm_get_slot(name, :ivars, old_ivars)
           unify(was_redef, true)
 
         :else ->
           unify(old_supers, [])
+          unify(old_ivars, [])
           unify(was_redef, false)
       end
 
@@ -271,14 +273,66 @@ defmodule AL.Package.Bootstrap do
       implies do
         [unify(was_redef, true)] ->
           findall(s, [super(name, s)], new_supers)
-          class_redefined(name, old_supers, new_supers)
+
+          class_redefined(
+            name,
+            %{supers: old_supers, ivars: old_ivars},
+            %{supers: new_supers, ivars: ivars}
+          )
 
         :else ->
           unify(name, name)
       end
     end
 
-    defmethod(:class, :class_redefined, [self, old_supers, new_supers])
+    defmethod(:list, :ivar_names, [[], []])
+
+    defmethod(:list, :ivar_names, [[spec | rest], [name | names]]) do
+      vm_functor(spec, name, _)
+      ivar_names(rest, names)
+    end
+
+    defmethod(:class, :class_redefined, [self, old_spec, new_spec]) do
+      vm_map_get(old_spec, :ivars, old_ivars)
+      vm_map_get(new_spec, :ivars, new_ivars)
+
+      ivar_names(old_ivars, old_names)
+      ivar_names(new_ivars, new_names)
+
+      findall(
+        spec,
+        [member(new_ivars, spec), vm_functor(spec, name, _), not [member(old_names, name)]],
+        added_specs
+      )
+
+      findall(name, [member(old_names, name), not [member(new_names, name)]], removed_names)
+
+      findall(o, [class(o, self)], instances)
+
+      forall([member(instances, o)]) do
+        reconcile_redefined_instance(o, added_specs, removed_names)
+      end
+    end
+
+    defmethod(:object, :reconcile_redefined_instance, [self, added_specs, removed_names]) do
+      forall([member(removed_names, key)]) do
+        vm_retract_slots(self, [key])
+      end
+
+      forall([member(added_specs, spec)]) do
+        backfill_ivar(self, spec)
+      end
+    end
+
+    defmethod(:object, :backfill_ivar, [self, spec]) do
+      implies do
+        [vm_functor(spec, name, [opts]), member(opts, {:default, default})] ->
+          set_slot(self, name, default)
+
+        :else ->
+          unify(self, self)
+      end
+    end
 
     defmethod(:object, :set_supers, [name, super]) do
       implies do
