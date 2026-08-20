@@ -51,14 +51,11 @@ defmodule AL.Interp.Store do
   # from durable identity, so it's the one case a class's own literal clause
   # could conflict with a later durable classification of the same atom.
   def interp(%Goal.AssertValidClauseSelf{class: class, head: head}, state) do
-    store = state.active_choicepoint.store
-    class_ground = AL.Var.subst(class, store)
-
-    case AL.Var.subst(head, store) do
+    case head do
       [self_pattern | _] ->
-        if generative_value_class?(class_ground, state.branch) and is_atom(self_pattern) and
+        if generative_value_class?(class, state.branch) and is_atom(self_pattern) and
              not AL.Var.var?(self_pattern) do
-          raise "cannot define #{inspect(class_ground)}'s clause with a bare atom self-pattern " <>
+          raise "cannot define #{inspect(class)}'s clause with a bare atom self-pattern " <>
                   "(#{inspect(self_pattern)}) -- a super: :value class's own literal clauses " <>
                   "must bind self to a map, number, or list (or leave it open), never a bare " <>
                   "atom, since atoms are how AL represents durable identity. Use a map wrapper " <>

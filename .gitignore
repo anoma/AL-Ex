@@ -33,3 +33,9 @@ al-*.tar
 
 # Claude Code: track shared config (skills, settings.json) but not personal/local state.
 /.claude/settings.local.json
+
+# Ignore OS and Emacs clutter
+.DS_Store
+\#*\#
+.\#*
+*~
