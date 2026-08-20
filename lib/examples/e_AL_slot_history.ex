@@ -14,7 +14,7 @@ defmodule Examples.ALSlotHistory do
   example slot_history_finds_every_value_a_slot_has_held() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        defclass :history_probe, super: :object, ivars: [] do
+        defclass :history_probe, super: :object, ivars: [count: []] do
         end
 
         new(:history_probe, obj)
@@ -36,7 +36,7 @@ defmodule Examples.ALSlotHistory do
   example slot_history_collapses_repeats_from_unrelated_key_changes() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        defclass :history_probe_unrelated, super: :object, ivars: [] do
+        defclass :history_probe_unrelated, super: :object, ivars: [count: [], other: []] do
         end
 
         new(:history_probe_unrelated, obj)
@@ -65,7 +65,7 @@ defmodule Examples.ALSlotHistory do
   example slot_at_ground_time_finds_the_value_in_effect_at_the_boundary() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        defclass :clp_boundary_probe, super: :object, ivars: [] do
+        defclass :clp_boundary_probe, super: :object, ivars: [count: []] do
         end
 
         new(:clp_boundary_probe, obj)
@@ -96,7 +96,7 @@ defmodule Examples.ALSlotHistory do
   example slot_at_open_time_posts_a_real_upper_bound() do
     result =
       run branch: :examples do
-        defclass :clp_upper_bound_probe, super: :object, ivars: [] do
+        defclass :clp_upper_bound_probe, super: :object, ivars: [count: []] do
         end
 
         new(:clp_upper_bound_probe, obj)

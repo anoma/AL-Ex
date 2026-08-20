@@ -328,7 +328,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_the_object_side_of_a_pending_slot_link_finds_a_real_row() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :slot_link_class, super: :object, ivars: [] do
+        defclass :slot_link_class, super: :object, ivars: [slot_link_probe: []] do
         end
 
         new(:slot_link_class, %{}, obj)
@@ -350,7 +350,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_the_value_side_of_a_pending_slot_link_finds_a_real_row() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        defclass :slot_link_class2, super: :object, ivars: [] do
+        defclass :slot_link_class2, super: :object, ivars: [slot_link_probe2: []] do
         end
 
         new(:slot_link_class2, %{}, obj)
@@ -389,7 +389,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_a_slot_link_with_both_sides_open_deduplicates_the_value() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :dedup_slot_class, super: :object, ivars: [] do
+        defclass :dedup_slot_class, super: :object, ivars: [dedup_slot_probe: []] do
         end
 
         new(:dedup_slot_class, %{}, obj_a)
@@ -417,7 +417,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_the_object_side_after_the_value_is_known_finds_every_real_object() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :dedup_slot_class2, super: :object, ivars: [] do
+        defclass :dedup_slot_class2, super: :object, ivars: [dedup_slot_probe2: []] do
         end
 
         new(:dedup_slot_class2, %{}, obj_a)
@@ -512,7 +512,7 @@ defmodule Examples.ALPendingLinks do
   example binding_the_object_side_of_a_slot_link_auto_propagates_the_value() do
     {:atomic, {setup_bindings, _}} =
       run branch: :examples do
-        defclass :propagate_slot_class, super: :object, ivars: [] do
+        defclass :propagate_slot_class, super: :object, ivars: [propagate_slot_probe: []] do
         end
 
         new(:propagate_slot_class, %{}, obj)
@@ -536,7 +536,7 @@ defmodule Examples.ALPendingLinks do
   example binding_the_value_side_of_a_slot_link_auto_propagates_a_unique_object() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :propagate_slot_class2, super: :object, ivars: [] do
+        defclass :propagate_slot_class2, super: :object, ivars: [propagate_slot_probe2: []] do
         end
 
         new(:propagate_slot_class2, %{}, obj)
@@ -558,7 +558,7 @@ defmodule Examples.ALPendingLinks do
   example binding_the_value_side_does_not_auto_propagate_when_not_unique() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :propagate_slot_class3, super: :object, ivars: [] do
+        defclass :propagate_slot_class3, super: :object, ivars: [propagate_slot_probe3: []] do
         end
 
         new(:propagate_slot_class3, %{}, obj_a)

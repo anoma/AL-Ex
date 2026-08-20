@@ -11,7 +11,7 @@ defmodule Examples.ALUsers do
     {:atomic, {b, _}} =
       run branch: :examples do
         new(:user, %{name: :alice}, alice)
-        new(:owned, %{owner: alice, label: :thing}, obj)
+        new(:owned, %{owner: alice, data: %{label: :thing}}, obj)
         get_slot(obj, :owner, owner)
         class(obj, c)
       end
@@ -26,7 +26,7 @@ defmodule Examples.ALUsers do
       run branch: :examples do
         new(:user, %{name: :bob}, bob)
         new(:user, %{name: :charlie}, charlie)
-        new(:owned, %{owner: charlie, label: :secret}, obj)
+        new(:owned, %{owner: charlie, data: %{label: :secret}}, obj)
       end
 
     charlie = Map.get(b, :"$charlie")
@@ -35,19 +35,19 @@ defmodule Examples.ALUsers do
 
     {:atomic, _} =
       run branch: :examples do
-        update(^obj, ^charlie, [%{label: :updated}])
+        update(^obj, ^charlie, [%{data: %{label: :updated}}])
       end
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        get_slot(^obj, :label, l)
+        get_slot(^obj, :data, d)
       end
 
-    assert Map.get(b2, :"$l") == :updated
+    assert Map.get(b2, :"$d") == %{label: :updated}
 
     {:aborted, _} =
       run branch: :examples do
-        update(^obj, ^bob, [%{label: :hacked}])
+        update(^obj, ^bob, [%{data: %{label: :hacked}}])
       end
 
     :ok
@@ -59,22 +59,22 @@ defmodule Examples.ALUsers do
     {:atomic, {b, _}} =
       run branch: :examples do
         new(:user, %{name: :dana}, dana)
-        new(:owned, %{owner: dana, label: :guarded}, obj)
+        new(:owned, %{owner: dana, data: %{label: :guarded}}, obj)
       end
 
     obj = Map.get(b, :"$obj")
 
     {:aborted, _} =
       run branch: :examples do
-        update(^obj, caller, [%{label: :leaked}])
+        update(^obj, caller, [%{data: %{label: :leaked}}])
       end
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        get_slot(^obj, :label, l)
+        get_slot(^obj, :data, d)
       end
 
-    assert Map.get(b2, :"$l") == :guarded
+    assert Map.get(b2, :"$d") == %{label: :guarded}
     :ok
   end
 end

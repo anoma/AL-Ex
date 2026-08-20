@@ -5,7 +5,7 @@ defmodule AL.Package.Users do
     defclass :user, super: :object, ivars: [:name] do
     end
 
-    defclass :owned, super: :object, ivars: [:name, :owner] do
+    defclass :owned, super: :object, ivars: [:name, :owner, :data] do
       defmethod(:init, [self, args, self]) do
         set_slots(self, args)
       end

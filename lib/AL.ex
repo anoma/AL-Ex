@@ -459,7 +459,8 @@ defmodule AL do
         state
 
       violation ->
-        %AL{state | diagnostics: [{:constraint_violated, violation} | state.diagnostics]}
+        entry = {state.active_choicepoint.scope_pointer, {:constraint_violated, violation}}
+        %AL{state | diagnostics: [entry | state.diagnostics]}
     end
   end
 
@@ -909,7 +910,13 @@ defmodule AL do
           put_bindings(state, new_store, [])
       end
     else
-      if resolved in values, do: state, else: backtrack(state)
+      if resolved in values do
+        state
+      else
+        entry = {state.active_choicepoint.scope_pointer, {:domain_violated, resolved, values}}
+        %AL{state | diagnostics: [entry | state.diagnostics]}
+        |> backtrack()
+      end
     end
   end
 
@@ -1338,8 +1345,15 @@ defmodule AL do
   defp format_failure(state) do
     steps = state.domino.trace |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
     failed_on = List.last(steps)
+    ancestry = failing_lineage(state.domino.trace)
 
-    case Enum.uniq(state.diagnostics) do
+    relevant_diagnostics =
+      state.diagnostics
+      |> Enum.filter(fn {scope, _inner} -> MapSet.member?(ancestry, scope) end)
+      |> Enum.map(fn {_scope, inner} -> inner end)
+      |> Enum.uniq()
+
+    case relevant_diagnostics do
       [{receiver, selector, arity, suggestions} | _] ->
         receiver = AL.Trace.pretty(receiver)
 
@@ -1367,8 +1381,17 @@ defmodule AL do
           state: state
         }
 
+      [{:domain_violated, resolved, values} | _] ->
+        %{
+          message: "#{inspect(resolved)} is not in the domain #{inspect(values)}.",
+          reason: {:domain_violated, resolved, values},
+          failed_on: failed_on,
+          trace: steps,
+          state: state
+        }
+
       [] ->
-        case root_cause_call(state.domino.trace) do
+        case root_cause_call(state.domino.trace, ancestry) do
           {:method_call, _scope, self, method, args, _} ->
             %{
               message: "Goal failed: #{format_call(self, method, args)} had no matching clause.",
@@ -1407,8 +1430,14 @@ defmodule AL do
     "#{inspect(AL.Trace.pretty(self))}.#{method}(#{args_str})"
   end
 
-  defp root_cause_call(raw_trace) do
-    chronological = Enum.reverse(raw_trace)
+  # Only consider events on the actual failing lineage -- siblings tried
+  # and abandoned during backtracking would otherwise get blamed just for
+  # being nearby in time (see [[al-legible-failures-reporting-gap]]).
+  defp root_cause_call(raw_trace, ancestry) do
+    chronological =
+      raw_trace
+      |> Enum.reverse()
+      |> Enum.filter(&MapSet.member?(ancestry, event_scope(&1)))
 
     case Enum.find(chronological, &fail_event?/1) do
       nil -> nil
@@ -1422,6 +1451,80 @@ defmodule AL do
   defp call_event_for?({:method_call, scope, _self, _method, _args, _}, scope), do: true
   defp call_event_for?({:clause_call, scope, _method_id, _call_args, _}, scope), do: true
   defp call_event_for?(_, _), do: false
+
+  # Every domino_event() tuple carries its own scope as the 2nd element,
+  # regardless of arity -- raw goals (vm_trace) and control markers
+  # (:backtrack) aren't domino events and have no scope of their own.
+  defp event_scope({_tag, scope}), do: scope
+  defp event_scope({_tag, scope, _}), do: scope
+  defp event_scope({_tag, scope, _, _}), do: scope
+  defp event_scope({_tag, scope, _, _, _}), do: scope
+  defp event_scope({_tag, scope, _, _, _, _}), do: scope
+  defp event_scope(_), do: nil
+
+  # `domino.scopes` deliberately deletes a scope's bookkeeping the moment
+  # it fails, to keep a long backtracking search's live state bounded (see
+  # `fail_scope/3`), and `AL.Trace.derivation_tree/2` does the same thing
+  # for the same reason (it's built to show the *successful* path) -- so
+  # neither can answer "what actually failed." `domino.trace` itself is
+  # never pruned, so the lineage gets reconstructed from it directly: AL
+  # tries alternatives in call order, so at any given parent scope, the
+  # child that was opened *last* is the one that was never superseded by
+  # a later sibling -- walking that "last child" chain from the root down
+  # to a leaf lands on the actual final call that failed, using nothing
+  # but data already in the trace, no interpreter-level marking needed.
+  defp failing_lineage(raw_trace) do
+    chronological = Enum.reverse(raw_trace)
+
+    {_stack, parents, opens} =
+      Enum.reduce(chronological, {[], %{}, []}, fn
+        {tag, scope, _, _, _, _}, {stack, parents, opens} when tag == :method_call ->
+          parent = List.first(stack, 0)
+          {[scope | stack], Map.put(parents, scope, parent), [{scope, parent} | opens]}
+
+        {tag, scope, _, _, _}, {stack, parents, opens} when tag == :clause_call ->
+          parent = List.first(stack, 0)
+          {[scope | stack], Map.put(parents, scope, parent), [{scope, parent} | opens]}
+
+        {tag, _scope, _}, {[_ | rest], parents, opens}
+        when tag in [:method_exit, :clause_exit] ->
+          {rest, parents, opens}
+
+        {tag, _scope}, {[_ | rest], parents, opens} when tag in [:method_fail, :clause_fail] ->
+          {rest, parents, opens}
+
+        {tag, scope}, {stack, parents, opens} when tag in [:method_redo, :clause_redo] ->
+          {[scope | stack], parents, opens}
+
+        _other, acc ->
+          acc
+      end)
+
+    opens = Enum.reverse(opens)
+    leaf = walk_last_child(opens, 0)
+    scope_ancestry(parents, leaf)
+  end
+
+  defp walk_last_child(opens, scope) do
+    case last_child(opens, scope) do
+      nil -> scope
+      child -> walk_last_child(opens, child)
+    end
+  end
+
+  defp last_child(opens, parent) do
+    case Enum.filter(opens, fn {_scope, p} -> p == parent end) do
+      [] -> nil
+      matches -> matches |> List.last() |> elem(0)
+    end
+  end
+
+  defp scope_ancestry(parents, scope) do
+    scope
+    |> Stream.iterate(&Map.get(parents, &1))
+    |> Enum.take_while(&(&1 != nil))
+    |> MapSet.new()
+  end
 
   # trace is prepended (most-recent-first) — tail is already at the head, no
   # need to touch the rest. count*5 pads against interspersed :backtrack markers.

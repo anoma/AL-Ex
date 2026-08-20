@@ -69,6 +69,33 @@ defmodule Examples.ALFailures do
     :ok
   end
 
+  # set_slot's own ivar validation (bootstrap.ex) triggers real backtracking
+  # through several relations (member/inheritance_chain/collect_ivar_specs)
+  # before failing -- exactly the shape that used to let an unrelated,
+  # abandoned dead-end (anything encountered mid-search) get blamed instead
+  # of the actual domain violation. `failing_lineage/1` (AL.ex) fixes this
+  # by walking the trace's own "last child tried under each parent" chain
+  # rather than trusting time order or reconstructed-but-pruned scope state.
+  example set_slot_domain_violation_survives_backtracking_search() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :failure_domain_probe, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+        end
+
+        new(:failure_domain_probe, %{name: :failure_domain_instance, state: "on"}, _)
+      end
+
+    {:aborted, reason} =
+      run branch: :examples do
+        set_slot(:failure_domain_instance, :state, :sideways)
+      end
+
+    assert match?({:domain_violated, :sideways, ["on", "off"]}, reason.reason)
+    assert reason.message =~ "not in the domain"
+    refute reason.message =~ "does not understand"
+    :ok
+  end
+
   # reason.state carries the actual final %AL{} (bindings/constraints live at
   # the last attempt), not just a curated summary.
   example failed_run_exposes_the_final_state() do

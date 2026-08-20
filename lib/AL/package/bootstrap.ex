@@ -97,18 +97,27 @@ defmodule AL.Package.Bootstrap do
       class(self, class_name)
 
       implies do
-        [vm_get_slot(class_name, :ivars, ivar_specs)] ->
+        [member([:class, :category, :behaviour], class_name)] ->
+          unify(key, key)
+
+        [reachable_classes([class_name], [], class_supers), member(class_supers, :class)] ->
+          unify(key, key)
+
+        [not [vm_get_slot(class_name, :ivars, _)]] ->
+          unify(key, key)
+
+        :else ->
+          inheritance_chain(self, [self | chain])
+          collect_ivar_specs(chain, ivar_specs)
           find_ivar_spec(ivar_specs, key, spec)
 
           implies do
-            [unify(spec, :no_spec)] -> unify(key, key)
+            [unify(spec, :no_spec)] -> fail
             :else -> apply_ivar_spec(self, %{key => value}, spec, key, value)
           end
-
-        :else ->
-          unify(key, key)
       end
 
+      cut
       vm_set_slots(self, %{key => value})
     end
 

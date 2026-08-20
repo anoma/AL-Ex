@@ -255,7 +255,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {slot_bindings, _}} =
       run branch: :examples do
-        defclass :examine_slot_class, super: :object, ivars: [:legs] do
+        defclass :examine_slot_class, super: :object, ivars: [:legs, :name] do
         end
 
         set_slots(:examine_slot_class, %{legs: 4})

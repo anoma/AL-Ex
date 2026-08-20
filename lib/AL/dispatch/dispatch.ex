@@ -702,7 +702,8 @@ defmodule AL.Dispatch do
 
   defp record_dnu(state, self, method, args) do
     suggestions = rank_suggestions(method, understood_method_names(self, state.branch))
-    entry = {self, method, length(args), suggestions}
+    inner = {self, method, length(args), suggestions}
+    entry = {state.active_choicepoint.scope_pointer, inner}
     %AL{state | diagnostics: [entry | state.diagnostics]}
   end
 
