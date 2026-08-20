@@ -304,12 +304,14 @@ defmodule AL.Command do
     write_command(tx_id, {:retract_method, {object, name, id}}, branch)
   end
 
-  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  @spec retract_oapply(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
+          non_neg_integer()
   def retract_oapply(tx_id, object, head, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_oapply, {object, head}}, branch)
   end
 
-  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
+          non_neg_integer()
   def retract_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_slots, {object, slots}}, branch)
   end

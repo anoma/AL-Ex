@@ -228,7 +228,9 @@ defmodule AL.Object do
         tx,
         branch \\ AL.Branch.head()
       ) do
-    pattern = {:method, object_pattern, method_name_pattern, :"$tx_from", :open, method_id_pattern}
+    pattern =
+      {:method, object_pattern, method_name_pattern, :"$tx_from", :open, method_id_pattern}
+
     close_rows(:method, open_rows(:method, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
@@ -290,8 +292,11 @@ defmodule AL.Object do
         close_current_slots(object, tx, branch)
 
         case Map.drop(existing, keys) do
-          remaining when remaining == %{} -> :ok
-          remaining -> :mnesia.write(table(:slots, branch), {:slots, object, tx, :open, remaining}, :write)
+          remaining when remaining == %{} ->
+            :ok
+
+          remaining ->
+            :mnesia.write(table(:slots, branch), {:slots, object, tx, :open, remaining}, :write)
         end
 
       _ ->
@@ -368,8 +373,14 @@ defmodule AL.Object do
   @spec next_class_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def next_class_seq(object, branch \\ AL.Branch.head()) do
     case :mnesia.read(table(:class, branch), object) do
-      [] -> 0
-      rows -> rows |> Enum.map(fn {:class, _o, seq, _tf, _tt, _c} -> seq end) |> Enum.max() |> Kernel.+(1)
+      [] ->
+        0
+
+      rows ->
+        rows
+        |> Enum.map(fn {:class, _o, seq, _tf, _tt, _c} -> seq end)
+        |> Enum.max()
+        |> Kernel.+(1)
     end
   end
 
@@ -377,8 +388,14 @@ defmodule AL.Object do
   @spec next_super_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def next_super_seq(object, branch \\ AL.Branch.head()) do
     case :mnesia.read(table(:super, branch), object) do
-      [] -> 0
-      rows -> rows |> Enum.map(fn {:super, _o, seq, _tf, _tt, _s} -> seq end) |> Enum.max() |> Kernel.+(1)
+      [] ->
+        0
+
+      rows ->
+        rows
+        |> Enum.map(fn {:super, _o, seq, _tf, _tt, _s} -> seq end)
+        |> Enum.max()
+        |> Kernel.+(1)
     end
   end
 

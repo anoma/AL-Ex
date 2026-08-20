@@ -1,4 +1,4 @@
-# Working with objects
+# Working with Objects
 
 ```elixir
 use AL
@@ -86,7 +86,7 @@ run do
       get_slot(self, :count, c)
       vm_is(c1, c + 1)
       set_slot(self, :count, c1)
-      call_next_method(self, [])
+      call_next_method(self)
     end
    end
 
@@ -118,12 +118,12 @@ run do
       dif(c, c1)
       label(c1)
       set_slot(self, :colour, c1)
-      call_next_method(self, [])
+      call_next_method(self)
     end
     
     defmethod(:flick, [self]) do
       get_slot(self, :state, "on")
-      call_next_method(self, [])
+      call_next_method(self)
     end
   end
 
@@ -170,4 +170,12 @@ end
 
 So far we have only discussed 'durable' objects, without defining what this means. Each durable object in AL has a backing existence in the underlying Mnesia relation tables (which as you will see later, is just a RAM-based view over the command log).
 
-Ephemeral/Value objects, on the other hand, only exist for the lifespan of a transaction, which means they do not clog up the database and are perfect for calculation. We can even redef `switch`es in terms of `value`.
+Ephemeral/Value objects, on the other hand, only exist for the lifespan of a transaction, which means they do not clog up the database and are perfect for calculation. This means new objects can be generated 'on the fly' without dirtying the database.
+
+A nice thing about ephemerals is that `new` gets to decide what the representation of an ephemeral actually is. In fact, numbers and lists are both ephemerals.
+
+```elixir
+run do
+  super(:number, :value)
+end
+```

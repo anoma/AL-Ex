@@ -35,7 +35,10 @@ defmodule Mix.Tasks.Livebook do
         )
 
       path ->
-        Task.start(fn -> System.cmd(path, ["server", "livebooks/"], into: IO.stream(:stdio, :line)) end)
+        Task.start(fn ->
+          System.cmd(path, ["server", "livebooks/"], into: IO.stream(:stdio, :line))
+        end)
+
         :ok
     end
   end

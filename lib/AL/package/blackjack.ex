@@ -8,7 +8,6 @@ defmodule AL.Package.Blackjack do
         suit: [domain: [:spades, :diamonds, :hearts, :clubs]],
         rank: [domain: [2, 3, 4, 5, 6, 7, 8, 9, 10, :jack, :queen, :king, :ace]]
       ] do
-      
       defmethod(:rank_value, [self, :jack, 10])
       defmethod(:rank_value, [self, :queen, 10])
       defmethod(:rank_value, [self, :king, 10])

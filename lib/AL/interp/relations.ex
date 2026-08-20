@@ -208,7 +208,9 @@ defmodule AL.Interp.Relations do
         {Map.fetch!(m, key_ground), tx_from, close_bound(tx_to, now)}
       end
 
-    AL.fan_out(state, candidates, fn {v, lo, hi} -> slot_at_bindings(state, value, t, v, lo, hi) end)
+    AL.fan_out(state, candidates, fn {v, lo, hi} ->
+      slot_at_bindings(state, value, t, v, lo, hi)
+    end)
   end
 
   defp maybe_add_value_slot_link(store, value, key, object) do

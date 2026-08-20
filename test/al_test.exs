@@ -10,6 +10,10 @@ defmodule AlSlotHistoryTest do
   use ExExample.ExUnit, for: Examples.ALSlotHistory
 end
 
+defmodule AlFormatTest do
+  use ExExample.ExUnit, for: Examples.ALFormat
+end
+
 defmodule ALTasksTest do
   use ExExample.ExUnit, for: Examples.ALTasks
 end

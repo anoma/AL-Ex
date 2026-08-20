@@ -97,7 +97,10 @@ defmodule AL.Var.AllDif do
       matching ->
         {scc, edges, val_nodes} = scc_ids(domains, matching)
         matched_vals = matching |> Map.values() |> MapSet.new()
-        free_val_nodes = Enum.reject(val_nodes, fn {:val, v} -> MapSet.member?(matched_vals, v) end)
+
+        free_val_nodes =
+          Enum.reject(val_nodes, fn {:val, v} -> MapSet.member?(matched_vals, v) end)
+
         reachable = reaches_free(edges, free_val_nodes)
 
         prunings =

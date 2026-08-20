@@ -54,7 +54,10 @@ defmodule AL.Dispatch do
         {generative_candidates, state} =
           Enum.map_reduce(value_classes, state, fn class, acc_state ->
             original_active = acc_state.active_choicepoint
-            {choicepoint, next_state} = generative_candidate(acc_state, self, method, args, class, method_scope)
+
+            {choicepoint, next_state} =
+              generative_candidate(acc_state, self, method, args, class, method_scope)
+
             {choicepoint, %AL{next_state | active_choicepoint: original_active}}
           end)
 
@@ -79,7 +82,11 @@ defmodule AL.Dispatch do
         # ordinary execution (the marker is inert on backtrack either way)
         # but corrupts `AL.Trace.derivation_tree`'s stack-based tree-builder,
         # which assumes every method_call has a matching close event.
-        state = %AL{state | choicepoint_stack: [{:method_mark, method_scope} | state.choicepoint_stack]}
+        state = %AL{
+          state
+          | choicepoint_stack: [{:method_mark, method_scope} | state.choicepoint_stack]
+        }
+
         do_send(self, method, args, method_scope, state, on_miss)
     end
   end

@@ -145,8 +145,8 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:vm_gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 
-  def ast_to_pattern({:vm_print, _, [pattern]}),
-    do: %Goal.Print{pattern: ast_to_pattern(pattern)}
+  def ast_to_pattern({:vm_format, _, [control, args]}),
+    do: %Goal.Format{control: ast_to_pattern(control), args: ast_to_pattern(args)}
 
   def ast_to_pattern({:vm_ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 

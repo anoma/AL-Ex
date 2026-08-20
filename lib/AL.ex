@@ -745,8 +745,12 @@ defmodule AL do
     put_bindings(state, unify(state, var, sym), [var])
   end
 
-  def interp(%Goal.Print{pattern: pattern}, state) do
-    IO.inspect(pattern)
+  def interp(%Goal.Format{control: control, args: args}, state) do
+    store = store(state)
+    control_ground = AL.Var.subst(control, store)
+    args_ground = AL.Var.subst(args, store)
+
+    IO.write(render_format(control_ground, args_ground))
 
     state
   end
@@ -1136,6 +1140,36 @@ defmodule AL do
         backtrack(state)
     end
   end
+
+  defp render_format(control, args) do
+    control
+    |> String.graphemes()
+    |> do_render_format(args, [])
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+  end
+
+  defp do_render_format([], _args, acc), do: acc
+
+  defp do_render_format(["~", "a" | rest], [arg | args], acc),
+    do: do_render_format(rest, args, [format_aesthetic(arg) | acc])
+
+  defp do_render_format(["~", "d" | rest], [arg | args], acc),
+    do: do_render_format(rest, args, [format_decimal(arg) | acc])
+
+  defp do_render_format(["~", "%" | rest], args, acc),
+    do: do_render_format(rest, args, ["\n" | acc])
+
+  defp do_render_format(["~", "~" | rest], args, acc),
+    do: do_render_format(rest, args, ["~" | acc])
+
+  defp do_render_format([g | rest], args, acc), do: do_render_format(rest, args, [g | acc])
+
+  defp format_aesthetic(term) when is_binary(term), do: term
+  defp format_aesthetic(term), do: inspect(term)
+
+  defp format_decimal(term) when is_integer(term), do: Integer.to_string(term)
+  defp format_decimal(term), do: inspect(term)
 
   defp compose_term(name, []), do: name
   defp compose_term(name, args), do: List.to_tuple([name | args])

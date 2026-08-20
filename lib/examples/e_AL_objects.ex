@@ -709,7 +709,9 @@ defmodule Examples.ALObjects do
   example durable_construction_uses_default_when_unsupplied() do
     {:atomic, _} =
       run branch: :examples do
-        defclass :durable_ivar_defaulted, super: :object, ivars: [count: [type: :number, default: 0]] do
+        defclass :durable_ivar_defaulted,
+          super: :object,
+          ivars: [count: [type: :number, default: 0]] do
         end
       end
 

@@ -31,7 +31,7 @@ defmodule AL.Goal do
           | GetSlots.t()
           | GetSlotAt.t()
           | Gensym.t()
-          | Print.t()
+          | Format.t()
           | Not.t()
           | Unify.t()
           | Equal.t()
@@ -218,8 +218,9 @@ defmodule AL.Goal do
     field(:var, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: Print do
-    field(:pattern, AL.Var.t())
+  typedstruct enforce: true, module: Format do
+    field(:control, AL.Var.t())
+    field(:args, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Not do
@@ -415,7 +416,7 @@ defmodule AL.Goal do
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term]},
     {GetSlotAt, :slot_at, [object: :term, key: :term, value: :term, t: :term]},
     {Gensym, :gensym, [var: :term]},
-    {Print, :print, [pattern: :term]},
+    {Format, :format, [control: :term, args: :term]},
     {Not, :not, [condition: :goals]},
     {Unify, :unify, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
