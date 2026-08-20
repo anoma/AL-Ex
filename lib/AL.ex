@@ -878,6 +878,7 @@ defmodule AL do
         state
       else
         entry = {state.active_choicepoint.scope_pointer, {:domain_violated, var, values}}
+
         %AL{state | diagnostics: [entry | state.diagnostics]}
         |> backtrack()
       end
