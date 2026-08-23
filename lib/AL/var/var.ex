@@ -14,7 +14,7 @@ defmodule AL.Var do
   alias AL.Var.ConstraintSet
 
   @type variable() :: atom() | {:"$fresh", variable(), String.t()}
-  @type t() :: atom() | number() | binary() | [t()] | tuple() | map()
+  @type t() :: atom() | number() | binary() | maybe_improper_list(t(), t()) | tuple() | map()
 
   # Binding = most-specific case of "what's known" about a var, same as
   # dif/isa, not a different kind of fact. Bound entry = bare term
@@ -383,7 +383,7 @@ defmodule AL.Var do
   # violation check, `isa_conflict?/3`, labeling) treats a still-open entry
   # as "not resolved yet, imposes nothing until it is" rather than assuming
   # every entry is already a usable class atom.
-  @spec add_isa(store(), variable(), atom() | variable()) :: store()
+  @spec add_isa(store(), variable(), AL.Var.ConstraintSet.isa_entry()) :: store()
   def add_isa(store, var, class) do
     Map.update(store, var, %ConstraintSet{isa: MapSet.new([class])}, fn
       %ConstraintSet{} = set -> %{set | isa: MapSet.put(set.isa, class)}

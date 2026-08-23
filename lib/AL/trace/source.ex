@@ -38,14 +38,14 @@ defmodule AL.Source do
   end
 
   @doc "Source for one clause as `defmethod(class, name, head) do body end`."
-  @spec defmethod_source(atom(), atom(), term(), [AL.goal()]) :: String.t()
+  @spec defmethod_source(atom(), atom(), term(), [AL.Goal.stored()]) :: String.t()
   def defmethod_source(class, name, head, body) do
     {head, body} = rename({head, body})
     Macro.to_string({:defmethod, [], [pat(class), pat(name), pat(head), [do: goals(body)]]})
   end
 
   @doc "Source for a body as a do-block."
-  @spec body_source([AL.goal()]) :: String.t()
+  @spec body_source([AL.Goal.stored()]) :: String.t()
   def body_source(body) do
     body
     |> rename()
@@ -80,12 +80,12 @@ defmodule AL.Source do
   defp sub(term, map), do: AL.Goal.map(term, fn leaf -> Map.get(map, leaf, leaf) end)
 
   # --- goals -> surface AST ---
-  @spec goals([AL.goal()]) :: Macro.t()
+  @spec goals([AL.Goal.stored()]) :: Macro.t()
   defp goals([]), do: {:__block__, [], []}
   defp goals([g]), do: goal(g)
   defp goals(gs), do: {:__block__, [], Enum.map(gs, &goal/1)}
 
-  @spec goal(AL.goal()) :: Macro.t()
+  @spec goal(AL.Goal.stored()) :: Macro.t()
   defp goal(:cut), do: {:cut, [], []}
   defp goal(:fail), do: {:fail, [], []}
   defp goal({:print, p}), do: call(:print, [p])

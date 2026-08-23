@@ -18,7 +18,19 @@ defmodule AL.Command do
           | :send_async
           | :send_elixir
 
-  @type command() :: AL.Goal.command()
+  @type command() ::
+          {:set_class, {AL.Var.t(), AL.Var.t()}}
+          | {:set_super, {AL.Var.t(), AL.Var.t()}}
+          | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:set_oapply, {AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}}
+          | {:set_slots, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_class, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_super, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_slots, {AL.Var.t(), AL.Var.t()}}
+          | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:send_elixir, {pid(), term()}}
 
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
@@ -288,7 +300,7 @@ defmodule AL.Command do
           AL.Var.t(),
           non_neg_integer(),
           AL.Var.t(),
-          [AL.goal()],
+          [AL.Goal.stored()],
           AL.Branch.t()
         ) ::
           non_neg_integer()

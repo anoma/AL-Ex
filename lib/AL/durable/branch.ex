@@ -203,7 +203,7 @@ defmodule AL.Branch do
   # Subtracting 1 here converts the count into the inclusive cutoff
   # `commands_until` actually wants, so `at: N` copies exactly the first N
   # commands (0 copies none).
-  @spec at_time(non_neg_integer() | :tip, AL.Branch.t()) :: integer() | :absent
+  @spec at_time(AL.Branch.t(), non_neg_integer() | :tip) :: integer() | :absent
   defp at_time(branch, :tip), do: AL.Command.system_time(branch)
   defp at_time(_branch, t) when is_integer(t), do: t - 1
 
@@ -268,7 +268,7 @@ defmodule AL.Branch do
     end
   end
 
-  @spec children_of(atom()) :: atom()
+  @spec children_of(atom()) :: [atom()]
   defp children_of(branch) do
     :mnesia.select(:branch, [{{:branch, branch, :"$1"}, [], [:"$1"]}])
   end

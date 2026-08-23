@@ -45,12 +45,11 @@ defmodule AL do
   defdelegate ast_to_pattern(ast), to: AL.Lowering
 
   @doc """
-  I provide the DSL for the AL interpreter. I run against the live branch by
-  default; `run branch: s do ... end` runs against branch `s` (e.g. a
-  `fork`). `run vm_trace: true do ... end` additionally interleaves the raw
-  goal-by-goal trail into `state.domino.trace` (off by default — one entry
-  per reduction, most callers only want the always-on domino events
-  `state.domino.trace` already carries).
+  I run an AL transaction against a live branch.
+  Options:
+  - `branch: s` runs against branch s
+  - `vm_trace: true` additionally interleaves the raw
+  goal-by-goal trail into `state.domino.trace`
   """
   defmacro run(opts \\ [], do: program) do
     goals =

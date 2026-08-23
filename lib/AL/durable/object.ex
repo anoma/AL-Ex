@@ -15,7 +15,8 @@ defmodule AL.Object do
   @type super_record() :: {:super, AL.Var.t(), non_neg_integer(), AL.Var.t()}
   @type slots_record() :: {:slots, AL.Var.t(), AL.Var.t()}
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
-  @type oapply_record() :: {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()]}
+  @type oapply_record() ::
+          {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}
 
   # `class`/`super`/`method` carry `tx_from`/`tx_to` (a `system_time` -- see
   # AL.Command -- pair, never wall-clock) alongside their existing `seq`.
@@ -263,6 +264,8 @@ defmodule AL.Object do
     for {:oapply, object, _seq, _head, _body} <- Enum.uniq_by(rows, &elem(&1, 1)) do
       AL.ResolutionCache.invalidate_oapply_clauses(branch, object)
     end
+
+    :ok
   end
 
   defp delete_all(relation, records, branch) do
@@ -347,7 +350,8 @@ defmodule AL.Object do
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
-  @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.goal()], AL.Branch.t()) :: :ok
+  @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()], AL.Branch.t()) ::
+          :ok
   def set_oapply(object, seq, head, body, branch \\ AL.Branch.head()) do
     :mnesia.write(table(:oapply, branch), {:oapply, object, seq, head, body}, :write)
     AL.ResolutionCache.invalidate_oapply_clauses(branch, object)

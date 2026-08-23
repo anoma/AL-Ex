@@ -2,57 +2,57 @@ defmodule AL.Goal do
   use TypedStruct
 
   @type command() ::
-          SetClass.t()
-          | SetSuper.t()
-          | SetMethod.t()
-          | SetOapply.t()
-          | SetSlots.t()
-          | RetractClass.t()
-          | RetractSuper.t()
-          | RetractMethod.t()
-          | RetractOapply.t()
-          | RetractSlots.t()
-          | SendAsync.t()
-          | SendElixir.t()
+          AL.Goal.SetClass.t()
+          | AL.Goal.SetSuper.t()
+          | AL.Goal.SetMethod.t()
+          | AL.Goal.SetOapply.t()
+          | AL.Goal.SetSlots.t()
+          | AL.Goal.RetractClass.t()
+          | AL.Goal.RetractSuper.t()
+          | AL.Goal.RetractMethod.t()
+          | AL.Goal.RetractOapply.t()
+          | AL.Goal.RetractSlots.t()
+          | AL.Goal.SendAsync.t()
+          | AL.Goal.SendElixir.t()
 
   @type instructions() ::
-          GetClass.t()
-          | GetSuper.t()
-          | GetMethod.t()
-          | GetOapply.t()
-          | AssertValidClauseSelf.t()
-          | OApply.t()
-          | Cut.t()
-          | Implies.t()
-          | Or.t()
-          | Then.t()
-          | Forall.t()
-          | Findall.t()
-          | GetSlots.t()
-          | GetSlotAt.t()
-          | Gensym.t()
-          | Format.t()
-          | Not.t()
-          | Unify.t()
-          | Equal.t()
-          | Dif.t()
-          | Compare.t()
-          | Either.t()
-          | AllDif.t()
-          | InDomain.t()
-          | Ground.t()
-          | Label.t()
-          | IsVar.t()
-          | Freeze.t()
-          | Functor.t()
-          | CallTerm.t()
-          | Call.t()
-          | Send.t()
-          | SendQuery.t()
-          | SendAsValue.t()
-          | DurableCandidates.t()
-          | CallNextMethod.t()
-          | Fail.t()
+          AL.Goal.GetClass.t()
+          | AL.Goal.GetSuper.t()
+          | AL.Goal.GetMethod.t()
+          | AL.Goal.GetOapply.t()
+          | AL.Goal.AssertValidClauseSelf.t()
+          | AL.Goal.OApply.t()
+          | AL.Goal.Cut.t()
+          | AL.Goal.Implies.t()
+          | AL.Goal.Or.t()
+          | AL.Goal.Then.t()
+          | AL.Goal.Forall.t()
+          | AL.Goal.Findall.t()
+          | AL.Goal.GetSlots.t()
+          | AL.Goal.GetSlotAt.t()
+          | AL.Goal.Gensym.t()
+          | AL.Goal.Format.t()
+          | AL.Goal.Not.t()
+          | AL.Goal.Unify.t()
+          | AL.Goal.Equal.t()
+          | AL.Goal.Dif.t()
+          | AL.Goal.Compare.t()
+          | AL.Goal.Either.t()
+          | AL.Goal.AllDif.t()
+          | AL.Goal.InDomain.t()
+          | AL.Goal.Ground.t()
+          | AL.Goal.Label.t()
+          | AL.Goal.IsVar.t()
+          | AL.Goal.Freeze.t()
+          | AL.Goal.Functor.t()
+          | AL.Goal.CallTerm.t()
+          | AL.Goal.Call.t()
+          | AL.Goal.Send.t()
+          | AL.Goal.SendQuery.t()
+          | AL.Goal.SendAsValue.t()
+          | AL.Goal.DurableCandidates.t()
+          | AL.Goal.CallNextMethod.t()
+          | AL.Goal.Fail.t()
 
   @type t() :: command() | instructions()
 
@@ -75,7 +75,7 @@ defmodule AL.Goal do
 
   typedstruct enforce: true, module: SetOapply do
     field(:object, AL.Var.t())
-    field(:seq, non_neg_integer())
+    field(:seq, :next | non_neg_integer())
     field(:head, AL.Var.t())
     field(:body, [AL.Goal.t()])
   end
@@ -142,7 +142,7 @@ defmodule AL.Goal do
 
   typedstruct enforce: true, module: GetOapply do
     field(:object, AL.Var.t())
-    field(:seq, non_neg_integer())
+    field(:seq, AL.Var.t())
     field(:head, AL.Var.t())
     field(:body, [AL.Goal.t()])
   end
@@ -310,7 +310,7 @@ defmodule AL.Goal do
 
   typedstruct enforce: true, module: Call do
     field(:head, [AL.Var.t()])
-    field(:body, [AL.Goal.t()])
+    field(:body, [AL.Goal.t()] | AL.Var.variable())
     field(:args, [AL.Var.t()])
   end
 
@@ -435,8 +435,10 @@ defmodule AL.Goal do
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
   @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
 
+  @type stored() :: tuple() | atom()
+
   @doc "Serialize one goal struct to its stored tuple form."
-  @spec to_stored(t()) :: tuple() | atom()
+  @spec to_stored(t()) :: stored()
   def to_stored(%Cut{}), do: :cut
   def to_stored(%Fail{}), do: :fail
 
@@ -463,7 +465,7 @@ defmodule AL.Goal do
   defp store(:goals, other), do: other
 
   @doc "Rebuild a goal struct from its stored tuple form (inverse of to_stored/1)."
-  @spec from_stored(tuple() | atom()) :: t()
+  @spec from_stored(stored()) :: t()
   def from_stored(:cut), do: %Cut{}
   def from_stored(:fail), do: %Fail{}
 

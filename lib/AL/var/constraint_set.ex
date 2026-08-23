@@ -29,9 +29,11 @@ defmodule AL.Var.ConstraintSet do
   # needing its own marker.
   @type slot_link() :: {:slot, atom(), AL.Var.t()} | {:slot_value, atom(), AL.Var.t()}
 
+  @type isa_entry() :: atom() | AL.Var.variable() | {:object_link, AL.Var.variable()}
+
   @type t() :: %__MODULE__{
           dif: [{AL.Var.t(), AL.Var.t()}],
-          isa: MapSet.t(atom()),
+          isa: MapSet.t(isa_entry()),
           bounds: {bound(), bound()},
           props: [propagator()],
           domain: MapSet.t(AL.Var.t()) | nil,

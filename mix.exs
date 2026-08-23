@@ -17,7 +17,8 @@ defmodule AL.MixProject do
       plt_add_apps: [:mnesia, :mix, :ex_unit],
       plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
       ignore_warnings: ".dialyzer_ignore.exs",
-      list_unused_filters: true
+      list_unused_filters: true,
+      flags: [:no_opaque]
     ]
   end
 
