@@ -38,3 +38,5 @@ jobs:
 
       - name: Run tests
         run: mix test
+        env:
+          AL_MNESIA_DISTRIBUTED: "false"

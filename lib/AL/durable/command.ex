@@ -119,15 +119,27 @@ defmodule AL.Command do
 
   @owner_node :"al@127.0.0.1"
 
+  # Whether this process joins the distributed-Erlang dance in
+  # `become_or_join_owner/0` at all. Defaults to true; set the
+  # `AL_MNESIA_DISTRIBUTED=false` env var to skip it and just become a local,
+  # non-distributed owner instead — for a CI runner with no epmd/hostname
+  # resolution to share a store with anyone else, not for normal local dev
+  # (that's exactly what lets a `mix test` run, a live `iex -S mix`, and
+  # `bin/livebook` share one store — see `setup/0`).
+  @spec distributed?() :: boolean()
+  defp distributed?(), do: System.get_env("AL_MNESIA_DISTRIBUTED") != "false"
+
   @doc """
   The node that owns this store's disc-based tables. Every process either
   becomes this node (the first to boot) or joins it as a schema member with
   no local copies of its own (`setup/0`) — table placement always targets
-  this fixed name, never the calling process's own `node()`, so a table
-  created from a joined process still lands on the one durable owner.
+  this name, never necessarily the calling process's own `node()`, so a
+  table created from a joined process still lands on the one durable owner.
+  With distribution disabled (`distributed?/0`) there is only ever one
+  process, so the owner is just that process's own `node()`.
   """
   @spec owner_node() :: node()
-  def owner_node(), do: @owner_node
+  def owner_node(), do: if(distributed?(), do: @owner_node, else: node())
 
   @doc """
   Initialise the event log, or re-use the one on disc. The first process to
@@ -170,6 +182,9 @@ defmodule AL.Command do
   @spec become_or_join_owner() :: :owner | :joined
   defp become_or_join_owner() do
     cond do
+      not distributed?() ->
+        :owner
+
       node() == @owner_node ->
         :owner
 
