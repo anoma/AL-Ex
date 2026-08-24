@@ -9,12 +9,12 @@ defmodule AL.Command do
           | :set_super
           | :set_method
           | :set_oapply
-          | :set_slots
+          | :set_slot
           | :retract_class
           | :retract_super
           | :retract_method
           | :retract_oapply
-          | :retract_slots
+          | :retract_slot
           | :send_async
           | :send_elixir
 
@@ -23,12 +23,12 @@ defmodule AL.Command do
           | {:set_super, {AL.Var.t(), AL.Var.t()}}
           | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:set_oapply, {AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}}
-          | {:set_slots, {AL.Var.t(), AL.Var.t()}}
+          | {:set_slot, {AL.Var.t(), AL.Var.t(), AL.Var.t(), :aos | :soa}}
           | {:retract_class, {AL.Var.t(), AL.Var.t()}}
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
           | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
-          | {:retract_slots, {AL.Var.t(), AL.Var.t()}}
+          | {:retract_slot, {AL.Var.t(), AL.Var.t(), :aos | :soa}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {pid(), term()}}
 
@@ -308,9 +308,18 @@ defmodule AL.Command do
     write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
   end
 
-  @spec set_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
-  def set_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
-    write_command(tx_id, {:set_slots, {object, slots}}, branch)
+  @doc "The one write entry point for any ivar, aos or soa. `store` is recorded on the command itself, not re-derived on replay."
+  @spec set_slot(
+          non_neg_integer(),
+          AL.Var.t(),
+          AL.Var.t(),
+          AL.Var.t(),
+          :aos | :soa,
+          AL.Branch.t()
+        ) ::
+          non_neg_integer()
+  def set_slot(tx_id, object, key, value, store, branch \\ AL.Branch.head()) do
+    write_command(tx_id, {:set_slot, {object, key, value, store}}, branch)
   end
 
   @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
@@ -337,10 +346,11 @@ defmodule AL.Command do
     write_command(tx_id, {:retract_oapply, {object, head}}, branch)
   end
 
-  @spec retract_slots(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
+  @doc "The retract-side counterpart of set_slot/6 -- same store-tagged shape."
+  @spec retract_slot(non_neg_integer(), AL.Var.t(), AL.Var.t(), :aos | :soa, AL.Branch.t()) ::
           non_neg_integer()
-  def retract_slots(tx_id, object, slots, branch \\ AL.Branch.head()) do
-    write_command(tx_id, {:retract_slots, {object, slots}}, branch)
+  def retract_slot(tx_id, object, key, store, branch \\ AL.Branch.head()) do
+    write_command(tx_id, {:retract_slot, {object, key, store}}, branch)
   end
 
   @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::

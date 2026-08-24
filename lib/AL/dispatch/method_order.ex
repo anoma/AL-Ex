@@ -11,21 +11,35 @@ defmodule AL.Dispatch.MethodOrder do
   # `dispatch_strategy: :bfs` slot) and deduped. Map/list/number receivers start
   # from `:map`/`:list`/`:number` and always walk depth-first.
   def method_scopes(self, branch) when is_map(self),
-    do: super_chain([Map.get(self, :class, :map)], branch, :dfs)
+    do: cached_super_chain([Map.get(self, :class, :map)], branch, :dfs)
 
-  def method_scopes(self, branch) when is_list(self), do: super_chain([:list], branch, :dfs)
+  def method_scopes(self, branch) when is_list(self),
+    do: cached_super_chain([:list], branch, :dfs)
 
-  def method_scopes(self, branch) when is_number(self), do: super_chain([:number], branch, :dfs)
+  def method_scopes(self, branch) when is_number(self),
+    do: cached_super_chain([:number], branch, :dfs)
 
   def method_scopes(self, branch) do
     classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
-    chain = super_chain(classes, branch, dispatch_strategy(classes, branch))
+    chain = cached_super_chain(classes, branch, dispatch_strategy(classes, branch))
 
     if Enum.any?(classes, &(&1 in [:class, :category, :behaviour])) do
       chain
     else
       [self | chain]
     end
+  end
+
+  # keyed by {seeds, strategy}, not self: the chain only depends on which
+  # classes we're walking from, so every instance sharing the same class
+  # list shares one cached chain instead of each re-running Kahn's
+  # algorithm. invalidated by AL.Object.set_super/retract_super and by a
+  # class's dispatch_strategy slot changing.
+  @spec cached_super_chain([atom()], AL.Branch.t(), :dfs | :bfs) :: [atom()]
+  def cached_super_chain(seeds, branch, strategy) do
+    AL.ResolutionCache.fetch_method_scopes(branch, {seeds, strategy}, fn ->
+      super_chain(seeds, branch, strategy)
+    end)
   end
 
   def super_chain(seeds, branch, strategy) do

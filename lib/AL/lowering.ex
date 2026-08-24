@@ -14,7 +14,9 @@ defmodule AL.Lowering do
     vm_map_get: :map_get,
     vm_map_put: :map_put,
     vm_fresh_id: :fresh_id,
-    vm_current_tx: :current_tx
+    vm_current_tx: :current_tx,
+    vm_cached_ivar_specs: :cached_ivar_specs,
+    vm_cached_find_ivar_spec: :cached_find_ivar_spec
   }
   @oapply_primitive_names Map.keys(@oapply_primitives)
 
@@ -106,14 +108,27 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:vm_set_slots, _, [object, slots]}),
-    do: %Goal.SetSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
+  def ast_to_pattern({:vm_set_slot, _, [object, key, value]}),
+    do: %Goal.SetSlot{
+      object: ast_to_pattern(object),
+      key: ast_to_pattern(key),
+      value: ast_to_pattern(value)
+    }
 
   def ast_to_pattern({:vm_get_slot, _, [object, key, value]}),
     do: %Goal.GetSlots{
       object: ast_to_pattern(object),
       key: ast_to_pattern(key),
-      value: ast_to_pattern(value)
+      value: ast_to_pattern(value),
+      store: :aos
+    }
+
+  def ast_to_pattern({:vm_get_slot, _, [object, key, value, store]}),
+    do: %Goal.GetSlots{
+      object: ast_to_pattern(object),
+      key: ast_to_pattern(key),
+      value: ast_to_pattern(value),
+      store: ast_to_pattern(store)
     }
 
   def ast_to_pattern({:vm_slot_at, _, [object, key, value, t]}),
@@ -140,8 +155,8 @@ defmodule AL.Lowering do
   def ast_to_pattern({:vm_retract_oapply, _, [object, head]}),
     do: %Goal.RetractOapply{object: ast_to_pattern(object), head: ast_to_pattern(head)}
 
-  def ast_to_pattern({:vm_retract_slots, _, [object, slots]}),
-    do: %Goal.RetractSlots{object: ast_to_pattern(object), slots: ast_to_pattern(slots)}
+  def ast_to_pattern({:vm_retract_slot, _, [object, key]}),
+    do: %Goal.RetractSlot{object: ast_to_pattern(object), key: ast_to_pattern(key)}
 
   def ast_to_pattern({:vm_gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 

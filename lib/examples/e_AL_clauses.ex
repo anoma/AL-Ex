@@ -117,6 +117,38 @@ defmodule Examples.ALClauses do
     :ok
   end
 
+  # `retract_oapply` closes a clause's row (`tx_to`) rather than deleting it
+  # (`AL.Object.retract_oapply/4`, matching `retract_class`/`retract_super`/
+  # `retract_method`'s existing pattern) -- `next_oapply_seq` counts past
+  # closed rows too, same as it already does for class/super, so a clause
+  # added after a retract gets a fresh, higher `seq`, never the retracted
+  # one's. Under the old hard-delete behavior this would come back equal
+  # (the deleted row's `seq` no longer counted at all), not greater.
+  example a_retracted_clause_closes_rather_than_deletes_its_row() do
+    c = fresh_class()
+
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(^c, :object)
+        defmethod(^c, :tag, [self, :first])
+      end
+
+    {:atomic, {b, _}} =
+      run branch: :examples do
+        vm_method(^c, :tag, id)
+        vm_clause(id, seq_before, [_self, :first], _)
+        vm_retract_oapply(id, [_self, :first])
+
+        vm_set_oapply(id, [self, :second]) do
+        end
+
+        vm_clause(id, seq_after, [_self, :second], _)
+      end
+
+    assert Map.get(b, :"$seq_after") > Map.get(b, :"$seq_before")
+    :ok
+  end
+
   # `clause/4` surfaces each clause's `seq`, so a reorder can read current
   # positions before deciding new ones.
   example clause_exposes_seq() do

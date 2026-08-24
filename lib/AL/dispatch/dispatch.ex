@@ -478,6 +478,44 @@ defmodule AL.Dispatch do
   defp ivar_name({name, _opts}), do: name
   defp ivar_name(name), do: name
 
+  # elixir port of bootstrap.ex's collect_ivar_specs/find_ivar_spec, for
+  # AL.ResolutionCache. self's own classes come from a plain scan_class
+  # (per instance, cheap), the ancestor-resolved merged spec list is cached
+  # by classes (shared across every instance of the same class).
+  # inheritance_chain (bootstrap.ex) is provably the same walk as
+  # super_chain(classes, branch, :dfs): always DFS, never reads
+  # dispatch_strategy, same immediate-classes starting point.
+  @spec resolved_ivar_specs(AL.Var.t(), AL.Branch.t()) :: [term()]
+  def resolved_ivar_specs(self, branch) do
+    classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
+    ivar_specs_for_classes(classes, branch)
+  end
+
+  @spec ivar_specs_for_classes([atom()], AL.Branch.t()) :: [term()]
+  def ivar_specs_for_classes(classes, branch) do
+    AL.ResolutionCache.fetch_ivar_specs(branch, classes, fn ->
+      chain = AL.Dispatch.MethodOrder.super_chain(classes, branch, :dfs)
+      Enum.flat_map(chain, &class_ivars(&1, branch))
+    end)
+  end
+
+  @spec find_ivar_spec(AL.Var.t(), term(), AL.Branch.t()) :: term() | :no_spec
+  def find_ivar_spec(self, key, branch) do
+    self
+    |> resolved_ivar_specs(branch)
+    |> Enum.find(:no_spec, &(ivar_name(&1) == key))
+  end
+
+  # only call with `self` as the true write target, never an ancestor --
+  # find_ivar_spec resolves via self's own class chain.
+  @spec ivar_storage(AL.Var.t(), term(), AL.Branch.t()) :: :aos | :soa
+  def ivar_storage(self, key, branch) do
+    case find_ivar_spec(self, key, branch) do
+      {_name, opts} when is_list(opts) -> Keyword.get(opts, :storage, :aos)
+      _ -> :aos
+    end
+  end
+
   # Classes with :value as direct super. seq is per-object, no cross-class
   # ordering guarantee.
   defp generative_descendants(branch) do

@@ -71,54 +71,68 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(self, key, value)
     end
 
+    # aos direct lookup, common case
     defmethod(:object, :get_slot, [self, key, value]) do
       vm_get_slot(self, key, value)
     end
 
+    # soa direct lookup, fallback
     defmethod(:object, :get_slot, [self, key, value]) do
       not [vm_get_slot(self, key, _)]
-      inheritance_chain(self, [self | chain])
-      member(chain, ancestor)
-      vm_get_slot(ancestor, key, value)
+      vm_get_slot(self, key, value, :soa)
     end
 
-    defmethod(:list, :find_ivar_spec, [[], _key, :no_spec])
-
-    defmethod(:list, :find_ivar_spec, [[spec | rest], key, found]) do
-      vm_functor(spec, name, _opts)
+    # neither table has it directly -- storage resolved once via self
+    # (vm_cached_find_ivar_spec), then walk ancestors on that same store.
+    defmethod(:object, :get_slot, [self, key, value]) do
+      not [vm_get_slot(self, key, _)]
+      not [vm_get_slot(self, key, _, :soa)]
+      vm_cached_find_ivar_spec(self, key, spec)
+      ivar_spec_storage(self, spec, storage)
+      inheritance_chain(self, [self | chain])
 
       implies do
-        [unify(name, key)] -> unify(found, spec)
-        :else -> find_ivar_spec(rest, key, found)
+        [unify(storage, :soa)] ->
+          member(chain, ancestor)
+          vm_get_slot(ancestor, key, value, :soa)
+
+        :else ->
+          member(chain, ancestor)
+          vm_get_slot(ancestor, key, value, :aos)
       end
     end
 
+    # escape hatches skip ivar-spec validation (class/category/behaviour,
+    # or no :ivars slot at all). storage routed by vm_set_slot's interp
+    # handler, not here.
     defmethod(:object, :set_slot, [self, key, value]) do
       class(self, class_name)
 
       implies do
         [member([:class, :category, :behaviour], class_name)] ->
-          unify(key, key)
+          unify(self, self)
 
         [reachable_classes([class_name], [], class_supers), member(class_supers, :class)] ->
-          unify(key, key)
+          unify(self, self)
 
         [not [vm_get_slot(class_name, :ivars, _)]] ->
-          unify(key, key)
+          unify(self, self)
 
         :else ->
-          inheritance_chain(self, [self | chain])
-          collect_ivar_specs(chain, ivar_specs)
-          find_ivar_spec(ivar_specs, key, spec)
+          vm_cached_find_ivar_spec(self, key, spec)
 
           implies do
-            [unify(spec, :no_spec)] -> fail
-            :else -> apply_ivar_spec(self, %{key => value}, spec, key, value)
+            [unify(spec, :no_spec)] ->
+              fail
+
+            :else ->
+              apply_ivar_spec(self, %{key => value}, spec, key, value)
           end
       end
 
       cut
-      vm_set_slots(self, %{key => value})
+
+      vm_set_slot(self, key, value)
     end
 
     defmethod(:object, :set_slots, [self, slots]) do
@@ -175,26 +189,16 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
-    # `redef: true` promises the reclaimed name comes back genuinely fresh --
-    # not just able to accept a new class/super, but with none of its prior
-    # state lingering. Slots included: without this, reclaiming a name via
-    # `redef: true` only cleared class/super facts, so an instance's own
-    # data (a durable ivar's old value) survived untouched across each
-    # redefinition and just kept accumulating writes on top of it (e.g. a
-    # `count` ivar meant to start at 0 each time instead kept climbing
-    # across every re-evaluated `new(..., redef: true)` call). Enumerate
-    # every key the object currently has and hand that list straight to
-    # `vm_retract_slots` -- same shape as the class/super retraction just
-    # above, no separate "wipe everything" primitive needed.
+    # redef: true wipes class/super/slots/methods so a reclaimed name comes
+    # back genuinely fresh, not accumulating state across redefs.
     #
-    # Methods too, and *every* one, not just names `:defclass`'s own body is
-    # about to redeclare -- `:defclass`'s per-name retract-before-define
-    # pass (below) only clears a method if the new block redeclares that
-    # exact name, so a name dropped from a redef's body used to survive as
-    # a zombie: no longer part of the class's logical definition, but still
-    # live and callable. Clearing the whole method set here first means the
-    # class really does come back as exactly what the new `defclass` block
-    # says, nothing more.
+    # aos keys: vm_get_slot unbound-key enumeration.
+    # soa keys: no unbound-key scan, so check declared ivar names
+    # (vm_cached_ivar_specs, self's old class) against vm_get_slot/4 :soa.
+    #
+    # methods: all of them, not just names the new defclass body
+    # redeclares (that check happens separately, below) -- else a dropped
+    # name survives as a zombie.
     defmethod(:object, :retract_existing_facts, [self]) do
       findall(c, [class(self, c)], existing_classes)
 
@@ -208,8 +212,17 @@ defmodule AL.Package.Bootstrap do
         vm_retract_super(self, s)
       end
 
-      findall(k, [vm_get_slot(self, k, _)], existing_slot_keys)
-      vm_retract_slots(self, existing_slot_keys)
+      findall(k, [vm_get_slot(self, k, _)], existing_aos_keys)
+
+      vm_cached_ivar_specs(self, ivar_specs)
+      ivar_names(ivar_specs, declared_names)
+      findall(k, [member(declared_names, k), vm_get_slot(self, k, _, :soa)], existing_soa_keys)
+
+      concat(existing_aos_keys, existing_soa_keys, existing_slot_keys)
+
+      forall([member(existing_slot_keys, k)]) do
+        vm_retract_slot(self, k)
+      end
 
       findall([n, id], [vm_method(self, n, id)], existing_methods)
 
@@ -268,7 +281,7 @@ defmodule AL.Package.Bootstrap do
 
       vm_set_class(name, meta)
       set_supers(name, super)
-      vm_set_slots(name, %{ivars: ivars})
+      vm_set_slot(name, :ivars, ivars)
 
       implies do
         [unify(was_redef, true)] ->
@@ -316,7 +329,7 @@ defmodule AL.Package.Bootstrap do
 
     defmethod(:object, :reconcile_redefined_instance, [self, added_specs, removed_names]) do
       forall([member(removed_names, key)]) do
-        vm_retract_slots(self, [key])
+        vm_retract_slot(self, key)
       end
 
       forall([member(added_specs, spec)]) do
@@ -388,8 +401,7 @@ defmodule AL.Package.Bootstrap do
     # `build_durable_slots` a no-op via its own base case, so no separate
     # fallback branch is needed here anymore.
     defmethod(:object, :init, [self, args, self]) do
-      inheritance_chain(self, [self | chain])
-      collect_ivar_specs(chain, ivar_specs)
+      vm_cached_ivar_specs(self, ivar_specs)
       build_durable_slots(self, self, args, ivar_specs, slots)
       set_slots(self, slots)
     end
@@ -414,13 +426,19 @@ defmodule AL.Package.Bootstrap do
     # slots map entirely (an existing, legitimate pattern:
     # `get_slot_inherits_from_class` in e_AL_objects.ex relies on an unset
     # instance slot falling back to the class's own slot value).
+    #
+    # every ground ivar folds in regardless of storage -- routing happens
+    # per key inside set_slot's own vm_set_slot call, not here.
     defmethod(:object, :build_durable_slots, [self, class, args, [spec | rest], output]) do
       build_durable_slots(self, class, args, rest, partial)
       apply_ivar_spec(self, args, spec, name, value)
 
       implies do
-        [vm_ground(value)] -> vm_map_put(partial, name, value, output)
-        :else -> unify(output, partial)
+        [vm_ground(value)] ->
+          vm_map_put(partial, name, value, output)
+
+        :else ->
+          unify(output, partial)
       end
     end
 
@@ -565,6 +583,19 @@ defmodule AL.Package.Bootstrap do
       end
 
       get_optional(args, name, value)
+    end
+
+    # only get_slot's ancestor-walk fallback still needs this -- set_slot
+    # and build_durable_slots route via vm_set_slot's interp handler now.
+    # :aos default when storage: absent.
+    defmethod(:object, :ivar_spec_storage, [self, spec, storage]) do
+      implies do
+        [vm_functor(spec, _name, [opts]), member(opts, {:storage, given})] ->
+          unify(storage, given)
+
+        :else ->
+          unify(storage, :aos)
+      end
     end
 
     # Fold a class's own declared ivar specs into a constructed map -- same

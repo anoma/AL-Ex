@@ -17,42 +17,18 @@ defmodule AL.Object do
   @type method_record() :: {:method, AL.Var.t(), AL.Var.t(), AL.Var.t()}
   @type oapply_record() ::
           {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}
+  @type soa_slot_record() :: {:soa_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
 
-  # `class`/`super`/`method` carry `tx_from`/`tx_to` (a `system_time` -- see
-  # AL.Command -- pair, never wall-clock) alongside their existing `seq`.
-  # `seq` keeps doing exactly what it always did (bag-row disambiguation for
-  # this one object); `tx_from`/`tx_to` are the unrelated, additive concern
-  # of when the fact was true. Retract no longer deletes the row -- it closes
-  # `tx_to` -- so a row's full transaction-time history survives, but
-  # `scan_class`/`scan_super`/`scan_method` filter to `tx_to == :open` and
-  # project the two new fields back out before returning, so every existing
-  # caller (dispatch, method resolution, packages -- everything except this
-  # module) sees the exact same shape and behaviour it always has. `tx_to`
-  # is always at index 4 of the raw 6-tuple, uniformly across all three
-  # relations -- see `close/2`, below.
-  #
-  # `slots` gets the same `tx_from`/`tx_to` treatment, but no `seq` -- unlike
-  # class/super/method it was never row-per-fact to begin with (one row
-  # holds an object's *whole* ivar map together, on purpose: every real
-  # reader wants several of an object's own keys at once, never "this one
-  # key across every object," so keeping it row-oriented instead of
-  # splitting into a fact-per-key bag matches the only access pattern that
-  # actually exists). Each write versions the *whole* map as a unit --
-  # closes the previous open row, inserts a new one with the merged map --
-  # rather than diffing individual keys, so there's exactly one write path
-  # and nothing to keep in sync by discipline. `tx_from` is already globally
-  # unique (`system_time`), so it alone orders a row's history -- no `seq`
-  # needed, same reasoning as why `super`/`method` do need one (they're
-  # genuinely multi-valued per object; a slots row isn't).
+  # aos: array of structs, one row per object. at most one open row per
+  # object by construction.
+  # soa: struct of arrays, one row per (object, key). class/super/method
+  # live here too, as reserved keys.
   @relations %{
-    class: [:object, :seq, :tx_from, :tx_to, :class],
-    super: [:object, :seq, :tx_from, :tx_to, :super],
-    slots: [:object, :tx_from, :tx_to, :slots],
-    method: [:object, :method_name, :tx_from, :tx_to, :method_id],
-    oapply: [:object, :seq, :head, :body]
+    aos: [:object, :tx_from, :tx_to, :slots],
+    soa: [:object, :key, :seq, :tx_from, :tx_to, :value]
   }
-  @bags [:class, :super, :method, :oapply, :slots]
-  @tx_indexed [:class, :super, :method, :slots]
+  @bags [:aos, :soa]
+  @tx_indexed [:aos, :soa]
 
   typedstruct enforce: true do
     field(:id, any(), enforce: true)
@@ -98,49 +74,47 @@ defmodule AL.Object do
   defp type(relation) when relation in @bags, do: :bag
   defp type(_relation), do: :set
 
-  # Matches only `tx_to == :open` (the literal, not a pattern var) -- today's
-  # exact "currently true" behaviour -- then projects the raw 6-tuple back
-  # down to the legacy 4-tuple every existing caller already expects.
-  #
-  # Sorted by `{seq, tx_from}`, not `seq` alone: `seq` only orders a *single*
-  # object's own rows meaningfully (it's a per-object counter -- see
-  # `next_class_seq/2`); a self-open scan spanning many objects (e.g.
-  # `AL.Dispatch.generative_descendants/1`) ties on `seq` constantly across
-  # unrelated objects, and used to fall back on whatever order Mnesia's
-  # `:bag` happened to return -- unspecified, and it silently shifted the
-  # instant this table's record shape changed to carry `tx_from`/`tx_to`,
-  # which is exactly what surfaced this. `tx_from` (`system_time`, global
-  # and monotonic -- see AL.Command) gives a real, deterministic tiebreak
-  # instead of an implementation accident.
+  # sorted {seq, tx_from}: seq alone ties across objects, tx_from breaks it
+  # seq_var/tx_from_var freshly scoped -- avoids to_mnesia_pattern collision
+  # with a same-named caller pattern (see fresh_seq/0, interp/relations.ex)
   @spec scan_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [class_record()]
   def scan_class(self_pattern, class_pattern, branch \\ AL.Branch.head()) do
-    :mnesia.select(table(:class, branch), [
+    seq_var = fresh_wildcard("seq")
+    tx_from_var = fresh_wildcard("tx_from")
+
+    :mnesia.select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
-         {:class, self_pattern, :"$seq", :"$tx_from", :open, class_pattern}
+         {:soa, self_pattern, :class, seq_var, tx_from_var, :open, class_pattern}
        ), [], [:"$_"]}
     ])
-    |> Enum.sort_by(fn {:class, _o, seq, tx_from, :open, _c} -> {seq, tx_from} end)
-    |> Enum.map(fn {:class, o, seq, _tx_from, :open, c} -> {:class, o, seq, c} end)
+    |> Enum.sort_by(fn {:soa, _o, :class, seq, tx_from, :open, _c} -> {seq, tx_from} end)
+    |> Enum.map(fn {:soa, o, :class, seq, _tx_from, :open, c} -> {:class, o, seq, c} end)
   end
 
   @spec scan_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [super_record()]
   def scan_super(self_pattern, super_pattern, branch \\ AL.Branch.head()) do
-    :mnesia.select(table(:super, branch), [
+    seq_var = fresh_wildcard("seq")
+    tx_from_var = fresh_wildcard("tx_from")
+
+    :mnesia.select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
-         {:super, self_pattern, :"$seq", :"$tx_from", :open, super_pattern}
+         {:soa, self_pattern, :super, seq_var, tx_from_var, :open, super_pattern}
        ), [], [:"$_"]}
     ])
-    |> Enum.sort_by(fn {:super, _o, seq, tx_from, :open, _s} -> {seq, tx_from} end)
-    |> Enum.map(fn {:super, o, seq, _tx_from, :open, s} -> {:super, o, seq, s} end)
+    |> Enum.sort_by(fn {:soa, _o, :super, seq, tx_from, :open, _s} -> {seq, tx_from} end)
+    |> Enum.map(fn {:soa, o, :super, seq, _tx_from, :open, s} -> {:super, o, seq, s} end)
   end
 
+  defp fresh_wildcard(name), do: AL.Var.var("#{name}_#{AL.fresh_scope()}")
+
+  # raw tag :aos, projected tag stays :slots (external callers match on it)
   @spec scan_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [slots_record()]
   def scan_slots(self_pattern, slots_pattern, branch \\ AL.Branch.head()) do
-    :mnesia.select(table(:slots, branch), [
-      {AL.Var.to_mnesia_pattern({:slots, self_pattern, :"$tx_from", :open, slots_pattern}), [],
+    :mnesia.select(table(:aos, branch), [
+      {AL.Var.to_mnesia_pattern({:aos, self_pattern, :"$tx_from", :open, slots_pattern}), [],
        [:"$_"]}
     ])
-    |> Enum.map(fn {:slots, o, _tx_from, :open, m} -> {:slots, o, m} end)
+    |> Enum.map(fn {:aos, o, _tx_from, :open, m} -> {:slots, o, m} end)
   end
 
   # Every row (open *and* closed) for `object`, oldest first -- the full
@@ -155,11 +129,17 @@ defmodule AL.Object do
           {:slots, AL.Var.t(), non_neg_integer(), non_neg_integer() | :open, map()}
         ]
   def scan_slots_history(object, branch \\ AL.Branch.head()) do
-    table(:slots, branch)
+    table(:aos, branch)
     |> :mnesia.read(object)
+    |> Enum.map(fn {:aos, o, tx_from, tx_to, m} -> {:slots, o, tx_from, tx_to, m} end)
     |> Enum.sort_by(fn {:slots, _o, tx_from, _tx_to, _m} -> tx_from end)
   end
 
+  # method_name wrapped as {:method, name}, not a bare atom.
+  # - method names are arbitrary user input (defmethod)
+  # - understood_method_names/2 (dispatch.ex) scans with an open pattern
+  # - a bare atom key could collide with :class/:super/a soa ivar key
+  # - wrapping rules out the collision regardless of method name
   @spec scan_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [method_record()]
   def scan_method(
         self_pattern,
@@ -167,15 +147,24 @@ defmodule AL.Object do
         method_id_pattern,
         branch \\ AL.Branch.head()
       ) do
-    :mnesia.select(table(:method, branch), [
+    seq_var = fresh_wildcard("seq")
+    tx_from_var = fresh_wildcard("tx_from")
+
+    :mnesia.select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
-         {:method, self_pattern, method_name_pattern, :"$tx_from", :open, method_id_pattern}
+         {:soa, self_pattern, {:method, method_name_pattern}, seq_var, tx_from_var, :open,
+          method_id_pattern}
        ), [], [:"$_"]}
     ])
-    |> Enum.sort_by(fn {:method, _o, _n, tx_from, :open, _id} -> tx_from end)
-    |> Enum.map(fn {:method, o, n, _tx_from, :open, id} -> {:method, o, n, id} end)
+    |> Enum.sort_by(fn {:soa, _o, {:method, _n}, _seq, tx_from, :open, _id} -> tx_from end)
+    |> Enum.map(fn {:soa, o, {:method, n}, _seq, _tx_from, :open, id} ->
+      {:method, o, n, id}
+    end)
   end
 
+  # head/body packed into one value field (soa has one payload field).
+  # seq_pattern (clause position) becomes the soa key directly.
+  # always a non-negative integer, can't collide with {:method, name}.
   @spec scan_oapply(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [
           oapply_record()
         ]
@@ -186,16 +175,33 @@ defmodule AL.Object do
         body_pattern,
         branch \\ AL.Branch.head()
       ) do
-    :mnesia.select(table(:oapply, branch), [
-      {AL.Var.to_mnesia_pattern({:oapply, self_pattern, seq_pattern, head_pattern, body_pattern}),
-       [], [:"$_"]}
+    seq_var = fresh_wildcard("seq")
+    tx_from_var = fresh_wildcard("tx_from")
+
+    :mnesia.select(table(:soa, branch), [
+      {AL.Var.to_mnesia_pattern(
+         {:soa, self_pattern, seq_pattern, seq_var, tx_from_var, :open,
+          {head_pattern, body_pattern}}
+       ), [], [:"$_"]}
     ])
-    |> Enum.sort_by(fn {:oapply, _object, seq, _head, _body} -> seq end)
+    |> Enum.sort_by(fn {:soa, _object, key, _seq, _tx_from, :open, {_h, _b}} -> key end)
+    |> Enum.map(fn {:soa, o, key, _seq, _tx_from, :open, {h, b}} -> {:oapply, o, key, h, b} end)
+  end
+
+  @spec scan_soa_slot(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [soa_slot_record()]
+  def scan_soa_slot(object_pattern, key_pattern, value_pattern, branch \\ AL.Branch.head()) do
+    :mnesia.select(table(:soa, branch), [
+      {AL.Var.to_mnesia_pattern(
+         {:soa, object_pattern, key_pattern, fresh_wildcard("seq"), fresh_wildcard("tx_from"),
+          :open, value_pattern}
+       ), [], [:"$_"]}
+    ])
+    |> Enum.map(fn {:soa, o, k, _seq, _tx_from, :open, v} -> {:soa_slot, o, k, v} end)
   end
 
   @spec read_slots(AL.Var.t(), AL.Branch.t()) :: [slots_record()]
   def read_slots(object, branch \\ AL.Branch.head()) do
-    for {:slots, ^object, _tx_from, :open, m} <- :mnesia.read(table(:slots, branch), object),
+    for {:aos, ^object, _tx_from, :open, m} <- :mnesia.read(table(:aos, branch), object),
         do: {:slots, object, m}
   end
 
@@ -206,18 +212,26 @@ defmodule AL.Object do
   # away) since closing a row needs to know exactly which record to replace.
   @spec retract_class(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def retract_class(object_pattern, class_pattern, tx, branch \\ AL.Branch.head()) do
-    pattern = {:class, object_pattern, :"$seq", :"$tx_from", :open, class_pattern}
-    close_rows(:class, open_rows(:class, pattern, branch), tx, branch)
+    pattern =
+      {:soa, object_pattern, :class, fresh_wildcard("seq"), fresh_wildcard("tx_from"), :open,
+       class_pattern}
+
+    close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_providers(branch)
     AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
   @spec retract_super(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def retract_super(object_pattern, super_pattern, tx, branch \\ AL.Branch.head()) do
-    pattern = {:super, object_pattern, :"$seq", :"$tx_from", :open, super_pattern}
-    close_rows(:super, open_rows(:super, pattern, branch), tx, branch)
+    pattern =
+      {:soa, object_pattern, :super, fresh_wildcard("seq"), fresh_wildcard("tx_from"), :open,
+       super_pattern}
+
+    close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_method_scopes(branch)
+    AL.ResolutionCache.invalidate_ivar_specs(branch)
   end
 
   @spec retract_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) ::
@@ -230,9 +244,10 @@ defmodule AL.Object do
         branch \\ AL.Branch.head()
       ) do
     pattern =
-      {:method, object_pattern, method_name_pattern, :"$tx_from", :open, method_id_pattern}
+      {:soa, object_pattern, {:method, method_name_pattern}, fresh_wildcard("seq"),
+       fresh_wildcard("tx_from"), :open, method_id_pattern}
 
-    close_rows(:method, open_rows(:method, pattern, branch), tx, branch)
+    close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -242,11 +257,11 @@ defmodule AL.Object do
 
   # A bag record can't be updated in place -- delete the exact old tuple,
   # write back the same one with `tx_to` replaced. `tx_to` is always the
-  # second-to-last element (right before the fact's own value) regardless of
-  # whether a relation also carries `seq` -- class/super/method do, slots
-  # doesn't (see @relations above) -- so its index is derived from the raw
-  # tuple's own size rather than hardcoded, and this stays correct for both
-  # shapes without a relation-specific branch.
+  # second-to-last element (right before the row's own value) regardless of
+  # whether a relation also carries `seq` -- `soa` does, `slots` doesn't
+  # (see @relations above) -- so its index is derived from the raw tuple's
+  # own size rather than hardcoded, and this stays correct for both shapes
+  # without a relation-specific branch.
   defp close_rows(relation, rows, tx, branch) do
     for row <- rows do
       :mnesia.delete_object(table(relation, branch), row, :write)
@@ -256,68 +271,34 @@ defmodule AL.Object do
     :ok
   end
 
-  @spec retract_oapply(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def retract_oapply(object_pattern, head_pattern, branch \\ AL.Branch.head()) do
-    rows = scan_oapply(object_pattern, :"$seq", head_pattern, :"$body", branch)
-    delete_all(:oapply, rows, branch)
+  # tx is the system_time this retract happens at, same as
+  # retract_class/retract_super/retract_method.
+  # matches any clause position (fresh key wildcard) whose head matches.
+  # head/body packed into one value field, so close_rows's generic
+  # tuple_size - 2 offset finds tx_to correctly, no bespoke close needed.
+  @spec retract_oapply(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def retract_oapply(object_pattern, head_pattern, tx, branch \\ AL.Branch.head()) do
+    pattern =
+      {:soa, object_pattern, fresh_wildcard("key"), fresh_wildcard("seq"),
+       fresh_wildcard("tx_from"), :open, {head_pattern, fresh_wildcard("body")}}
 
-    for {:oapply, object, _seq, _head, _body} <- Enum.uniq_by(rows, &elem(&1, 1)) do
+    rows = open_rows(:soa, pattern, branch)
+    close_rows(:soa, rows, tx, branch)
+
+    for {:soa, object, _key, _seq, _tx_from, :open, {_head, _body}} <-
+          Enum.uniq_by(rows, &elem(&1, 1)) do
       AL.ResolutionCache.invalidate_oapply_clauses(branch, object)
     end
 
     :ok
   end
 
-  defp delete_all(relation, records, branch) do
-    for record <- records, do: :mnesia.delete_object(table(relation, branch), record, :write)
-    :ok
-  end
-
-  # A map's *values* are never consulted for matching -- only `Map.keys/1`
-  # is ever read -- so a map is really just a roundabout way to name which
-  # keys to drop (kept for `AL.Package`'s uninstall reversal, which already
-  # has the original `set_slots` map handy and would otherwise have to
-  # re-derive a key list from it). A plain list of key names is the direct
-  # form of the same operation, and is what lets a caller drop every key an
-  # object currently has (enumerate them, pass the list) without needing a
-  # sentinel "anything non-map wipes the whole row" case, which nothing
-  # exercised and wasn't a designed API -- see
-  # `retract_existing_facts`/`claim_name` (bootstrap.ex) for that caller.
-  @spec retract_slots(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
-  def retract_slots(object, slots, tx, branch \\ AL.Branch.head())
-
-  def retract_slots(object, slots, tx, branch) when is_map(slots),
-    do: retract_slots(object, Map.keys(slots), tx, branch)
-
-  def retract_slots(object, keys, tx, branch) when is_list(keys) do
-    case read_slots(object, branch) do
-      [{:slots, ^object, existing}] when is_map(existing) ->
-        close_current_slots(object, tx, branch)
-
-        case Map.drop(existing, keys) do
-          remaining when remaining == %{} ->
-            :ok
-
-          remaining ->
-            :mnesia.write(table(:slots, branch), {:slots, object, tx, :open, remaining}, :write)
-        end
-
-      _ ->
-        :ok
-    end
-
-    AL.ResolutionCache.invalidate_providers(branch)
-  end
-
-  # Every `set_slots`/`retract_slots` write versions the *whole* map as a
-  # unit (see @relations above) -- close whatever's currently open for
-  # `object` before writing its replacement. At most one open row can exist
-  # per object by construction (every write closes the prior one first), so
-  # this is `close_rows` with a pattern that can only ever match zero or one
-  # row, not a real multi-row scan.
-  defp close_current_slots(object, tx, branch) do
-    pattern = {:slots, object, :"$tx_from", :open, :"$m"}
-    close_rows(:slots, open_rows(:slots, pattern, branch), tx, branch)
+  # method_scopes and ivar_specs cache off a class's :dispatch_strategy and
+  # :ivars slots. only clear them when a write actually touches one of
+  # those keys, not on every ordinary instance slots write.
+  defp invalidate_class_metadata_caches(branch, keys) do
+    if :ivars in keys, do: AL.ResolutionCache.invalidate_ivar_specs(branch)
+    if :dispatch_strategy in keys, do: AL.ResolutionCache.invalidate_method_scopes(branch)
   end
 
   # `tx` is the `system_time` this write happens at (see AL.Command),
@@ -325,104 +306,168 @@ defmodule AL.Object do
   # closes it.
   @spec set_class(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def set_class(object, class, tx, branch \\ AL.Branch.head()) do
-    seq = next_class_seq(object, branch)
-    :mnesia.write(table(:class, branch), {:class, object, seq, tx, :open, class}, :write)
+    seq = next_soa_seq(object, :class, branch)
+    :mnesia.write(table(:soa, branch), {:soa, object, :class, seq, tx, :open, class}, :write)
     AL.ResolutionCache.invalidate_providers(branch)
     AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
   @spec set_super(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def set_super(object, super, tx, branch \\ AL.Branch.head()) do
-    seq = next_super_seq(object, branch)
-    :mnesia.write(table(:super, branch), {:super, object, seq, tx, :open, super}, :write)
+    seq = next_soa_seq(object, :super, branch)
+    :mnesia.write(table(:soa, branch), {:soa, object, :super, seq, tx, :open, super}, :write)
     AL.ResolutionCache.invalidate_generative_descendants(branch)
     AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_method_scopes(branch)
+    AL.ResolutionCache.invalidate_ivar_specs(branch)
   end
 
   @spec set_method(AL.Var.t(), AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def set_method(object, method_name, method_id, tx, branch \\ AL.Branch.head()) do
+    key = {:method, method_name}
+    seq = next_soa_seq(object, key, branch)
+    :mnesia.write(table(:soa, branch), {:soa, object, key, seq, tx, :open, method_id}, :write)
+    AL.ResolutionCache.invalidate_providers(branch)
+  end
+
+  @spec set_oapply(
+          AL.Var.t(),
+          non_neg_integer(),
+          AL.Var.t(),
+          [AL.Goal.stored()],
+          non_neg_integer(),
+          AL.Branch.t()
+        ) :: :ok
+  def set_oapply(object, clause_key, head, body, tx, branch \\ AL.Branch.head()) do
+    seq = next_soa_seq(object, clause_key, branch)
+
     :mnesia.write(
-      table(:method, branch),
-      {:method, object, method_name, tx, :open, method_id},
+      table(:soa, branch),
+      {:soa, object, clause_key, seq, tx, :open, {head, body}},
       :write
     )
 
-    AL.ResolutionCache.invalidate_providers(branch)
-  end
-
-  @spec set_oapply(AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()], AL.Branch.t()) ::
-          :ok
-  def set_oapply(object, seq, head, body, branch \\ AL.Branch.head()) do
-    :mnesia.write(table(:oapply, branch), {:oapply, object, seq, head, body}, :write)
     AL.ResolutionCache.invalidate_oapply_clauses(branch, object)
   end
 
+  # fresh clause position, not next_soa_seq/3 (version counter within one
+  # known (object, key) pair). scans every key under object to find an
+  # unused clause position. is_integer(key) filters out
+  # :class/:super/{:method, name}/ivar-fact rows for the same object,
+  # since clause positions are the only integer keys.
   @doc "The next clause `seq` for `object` — one past its current maximum, 0 if none."
   @spec next_oapply_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
   def next_oapply_seq(object, branch \\ AL.Branch.head()) do
-    case :mnesia.read(table(:oapply, branch), object) do
-      [] ->
-        0
+    keys =
+      for {:soa, ^object, key, _seq, _tx_from, _tx_to, _value} <-
+            :mnesia.read(table(:soa, branch), object),
+          is_integer(key),
+          do: key
 
-      rows ->
-        rows |> Enum.map(fn {:oapply, _o, seq, _h, _b} -> seq end) |> Enum.max() |> Kernel.+(1)
+    case keys do
+      [] -> 0
+      keys -> Enum.max(keys) + 1
     end
   end
 
-  # Counts past closed (retracted) rows too, now that they're kept rather
-  # than deleted -- a reasserted fact never risks colliding with a seq a
-  # now-closed row already used. Only relative order among *open* rows for
-  # one object is ever observed by any caller, and that's unaffected.
-  @doc "The next `class` seq for `object` — one past its current maximum, 0 if none."
-  @spec next_class_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
-  def next_class_seq(object, branch \\ AL.Branch.head()) do
-    case :mnesia.read(table(:class, branch), object) do
-      [] ->
-        0
+  # store resolved once by caller (AL.Dispatch.ivar_storage)
+  @spec set_slot(
+          AL.Var.t(),
+          AL.Var.t(),
+          AL.Var.t(),
+          :aos | :soa,
+          non_neg_integer(),
+          AL.Branch.t()
+        ) ::
+          :ok
+  def set_slot(object, key, value, store, tx, branch \\ AL.Branch.head())
 
-      rows ->
-        rows
-        |> Enum.map(fn {:class, _o, seq, _tf, _tt, _c} -> seq end)
-        |> Enum.max()
-        |> Kernel.+(1)
-    end
-  end
+  def set_slot(object, key, value, :soa, tx, branch),
+    do: set_soa_slot(object, key, value, tx, branch)
 
-  @doc "The next `super` seq for `object` — one past its current maximum, 0 if none."
-  @spec next_super_seq(AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
-  def next_super_seq(object, branch \\ AL.Branch.head()) do
-    case :mnesia.read(table(:super, branch), object) do
-      [] ->
-        0
+  def set_slot(object, key, value, :aos, tx, branch),
+    do: set_aos_slot(object, key, value, tx, branch)
 
-      rows ->
-        rows
-        |> Enum.map(fn {:super, _o, seq, _tf, _tt, _s} -> seq end)
-        |> Enum.max()
-        |> Kernel.+(1)
-    end
-  end
+  # open_rows' match spec filters to tx_to == :open server-side (indexed,
+  # see @tx_indexed) -- a plain :mnesia.read/2 would return every row ever
+  # written for `object`, open and closed alike, since closed rows are
+  # never deleted.
+  defp set_aos_slot(object, key, value, tx, branch) do
+    rows = open_rows(:aos, {:aos, object, :"$tx_from", :open, :"$m"}, branch)
 
-  @spec set_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: :ok
-  def set_slots(object, new_slots, tx, branch \\ AL.Branch.head())
-
-  def set_slots(object, new_slots, tx, branch) when is_map(new_slots) do
     existing =
-      case read_slots(object, branch) do
-        [{:slots, _, slots}] when is_map(slots) -> slots
+      case rows do
+        [{:aos, ^object, _tx_from, :open, m}] when is_map(m) -> m
         _ -> %{}
       end
 
-    close_current_slots(object, tx, branch)
-    merged = Map.merge(existing, new_slots)
-    :mnesia.write(table(:slots, branch), {:slots, object, tx, :open, merged}, :write)
+    close_rows(:aos, rows, tx, branch)
+    merged = Map.put(existing, key, value)
+    :mnesia.write(table(:aos, branch), {:aos, object, tx, :open, merged}, :write)
+    AL.ResolutionCache.invalidate_providers(branch)
+    invalidate_class_metadata_caches(branch, [key])
+  end
+
+  @spec set_soa_slot(AL.Var.t(), AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def set_soa_slot(object, key, value, tx, branch \\ AL.Branch.head()) do
+    close_current_soa_slot(object, key, tx, branch)
+    seq = next_soa_seq(object, key, branch)
+    :mnesia.write(table(:soa, branch), {:soa, object, key, seq, tx, :open, value}, :write)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
-  def set_slots(object, slots, tx, branch) do
-    close_current_slots(object, tx, branch)
-    :mnesia.write(table(:slots, branch), {:slots, object, tx, :open, slots}, :write)
+  defp close_current_soa_slot(object, key, tx, branch) do
+    pattern = {:soa, object, key, :"$seq", :"$tx_from", :open, :"$value"}
+    close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
+  end
+
+  @spec retract_slot(AL.Var.t(), AL.Var.t(), :aos | :soa, non_neg_integer(), AL.Branch.t()) :: :ok
+  def retract_slot(object, key, store, tx, branch \\ AL.Branch.head())
+  def retract_slot(object, key, :soa, tx, branch), do: retract_soa_slot(object, key, tx, branch)
+  def retract_slot(object, key, :aos, tx, branch), do: retract_aos_slot(object, key, tx, branch)
+
+  defp retract_aos_slot(object, key, tx, branch) do
+    rows = open_rows(:aos, {:aos, object, :"$tx_from", :open, :"$m"}, branch)
+
+    case rows do
+      [{:aos, ^object, _tx_from, :open, existing}] when is_map(existing) ->
+        close_rows(:aos, rows, tx, branch)
+
+        case Map.delete(existing, key) do
+          remaining when remaining == %{} ->
+            :ok
+
+          remaining ->
+            :mnesia.write(table(:aos, branch), {:aos, object, tx, :open, remaining}, :write)
+        end
+
+      _ ->
+        :ok
+    end
+
     AL.ResolutionCache.invalidate_providers(branch)
+    invalidate_class_metadata_caches(branch, [key])
+  end
+
+  @spec retract_soa_slot(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def retract_soa_slot(object, key, tx, branch \\ AL.Branch.head()) do
+    close_current_soa_slot(object, key, tx, branch)
+    AL.ResolutionCache.invalidate_providers(branch)
+    invalidate_class_metadata_caches(branch, [key])
+  end
+
+  @doc "next soa seq for (object, key). one past current max, 0 if none."
+  @spec next_soa_seq(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  def next_soa_seq(object, key, branch \\ AL.Branch.head()) do
+    seqs =
+      for {:soa, ^object, ^key, seq, _tx_from, _tx_to, _value} <-
+            :mnesia.read(table(:soa, branch), object),
+          do: seq
+
+    case seqs do
+      [] -> 0
+      seqs -> Enum.max(seqs) + 1
+    end
   end
 
   # `t` is the command's own `system_time` (its position in the log, from
@@ -439,13 +484,13 @@ defmodule AL.Object do
       :set_class -> with {o, c} <- event, do: set_class(o, c, t, branch)
       :set_super -> with {o, s} <- event, do: set_super(o, s, t, branch)
       :set_method -> with {o, n, id} <- event, do: set_method(o, n, id, t, branch)
-      :set_oapply -> with {o, s, h, b} <- event, do: set_oapply(o, s, h, b, branch)
-      :set_slots -> with {o, s} <- event, do: set_slots(o, s, t, branch)
+      :set_oapply -> with {o, s, h, b} <- event, do: set_oapply(o, s, h, b, t, branch)
+      :set_slot -> with {o, k, v, store} <- event, do: set_slot(o, k, v, store, t, branch)
       :retract_class -> with {o, c} <- event, do: retract_class(o, c, t, branch)
       :retract_super -> with {o, s} <- event, do: retract_super(o, s, t, branch)
       :retract_method -> with {o, n, id} <- event, do: retract_method(o, n, id, t, branch)
-      :retract_oapply -> with {o, h} <- event, do: retract_oapply(o, h, branch)
-      :retract_slots -> with {o, s} <- event, do: retract_slots(o, s, t, branch)
+      :retract_oapply -> with {o, h} <- event, do: retract_oapply(o, h, t, branch)
+      :retract_slot -> with {o, k, store} <- event, do: retract_slot(o, k, store, t, branch)
       :send_async -> :ok
       :send_elixir -> :ok
     end

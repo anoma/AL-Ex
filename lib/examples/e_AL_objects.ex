@@ -142,9 +142,9 @@ defmodule Examples.ALObjects do
   example slot_merge_semantics() do
     {:atomic, _} =
       run branch: :examples do
-        vm_set_slots(:slot_test, %{a: 1})
-        vm_set_slots(:slot_test, %{b: 2})
-        vm_set_slots(:slot_test, %{a: 99})
+        vm_set_slot(:slot_test, :a, 1)
+        vm_set_slot(:slot_test, :b, 2)
+        vm_set_slot(:slot_test, :a, 99)
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
@@ -873,7 +873,7 @@ defmodule Examples.ALObjects do
     # ancestor
     {:atomic, _} =
       run branch: :examples do
-        vm_set_slots(:dsp_leaf, %{dispatch_strategy: :bfs})
+        vm_set_slot(:dsp_leaf, :dispatch_strategy, :bfs)
       end
 
     {:atomic, {b2, _}} =

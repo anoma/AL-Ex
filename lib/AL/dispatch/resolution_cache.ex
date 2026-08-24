@@ -1,24 +1,19 @@
 defmodule AL.ResolutionCache do
   @moduledoc """
-  Flush-on-write cache for `providers/3` / `generative_descendants/1` /
-  `durable_classes/1` / `oapply_clauses/1`. One Mnesia `ram_copies` table set per
-  branch, named like `AL.Command.table/2` (`al_providers_cache@fork_123`) — so a
-  discarded branch's cache just gets dropped with its other tables, not swept by
-  key. Mnesia rather than ETS because the table must outlive whichever transient
-  process happened to call `AL.Branch.fork/2` (an ExUnit example, a one-off
-  eval) — an ETS table dies with its creator, a Mnesia table doesn't. Ordinary
-  transactional reads/writes, same as every other AL.Object table: AL's
-  backtracking is the interpreter popping its own choicepoint stack, not nested
-  Mnesia transactions, so a fill made during a branch that's later abandoned via
-  backtracking isn't rolled back — only a whole `eval` failing (every
-  alternative exhausted) discards it, and that's the rare case.
+  flush-on-write cache for provider lookup, class metadata, and ivar specs.
+  one mnesia ram_copies table set per branch, named like AL.Command.table/2.
+  discarded branch's cache just drops with its other tables.
+  mnesia not ets: table must outlive whichever transient process forked.
+  ordinary transactional reads/writes like every other AL.Object table.
   """
 
   @relations [
     :providers,
     :generative_descendants,
     :durable_classes,
-    :oapply_clauses
+    :oapply_clauses,
+    :method_scopes,
+    :ivar_specs
   ]
 
   @spec table(atom(), AL.Branch.t()) :: atom()
@@ -66,6 +61,20 @@ defmodule AL.ResolutionCache do
   def fetch_oapply_clauses(branch, method_id, compute),
     do: fetch(table(:oapply_clauses, branch), :oapply_clauses, method_id, compute)
 
+  # keyed by {classes, strategy}. classes only, not self: same class list
+  # gives the same chain for every instance. invalidated by super writes
+  # and by a dispatch_strategy slot change.
+  @spec fetch_method_scopes(AL.Branch.t(), term(), (-> term())) :: term()
+  def fetch_method_scopes(branch, key, compute),
+    do: fetch(table(:method_scopes, branch), :method_scopes, key, compute)
+
+  # keyed by classes (a class list). ancestor-resolved, merged ivar spec
+  # list for that class chain. shared across every instance of the same
+  # class(es). invalidated by super writes and by an :ivars slot change.
+  @spec fetch_ivar_specs(AL.Branch.t(), term(), (-> term())) :: term()
+  def fetch_ivar_specs(branch, key, compute),
+    do: fetch(table(:ivar_specs, branch), :ivar_specs, key, compute)
+
   defp fetch(table, relation, key, compute) do
     case :mnesia.read(table, key) do
       [{^relation, ^key, value}] ->
@@ -98,6 +107,16 @@ defmodule AL.ResolutionCache do
   def invalidate_oapply_clauses(branch, method_id) do
     :mnesia.delete(table(:oapply_clauses, branch), method_id, :write)
     :ok
+  end
+
+  @spec invalidate_method_scopes(AL.Branch.t()) :: :ok
+  def invalidate_method_scopes(branch) do
+    clear(table(:method_scopes, branch))
+  end
+
+  @spec invalidate_ivar_specs(AL.Branch.t()) :: :ok
+  def invalidate_ivar_specs(branch) do
+    clear(table(:ivar_specs, branch))
   end
 
   # A transactional `clear_table` would need the table to have no active

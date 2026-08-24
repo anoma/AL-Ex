@@ -1,7 +1,7 @@
 defmodule AL.Interp.Store do
   @moduledoc """
   I apply object-mutation goals — `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/
-  `SetSlots` and their five `Retract*` counterparts — writing both the durable
+  `SetSlot` and their five `Retract*` counterparts — writing both the durable
   command log (`AL.Command`) and the in-memory projection (`AL.Object`) for
   each. Every one of these goals is a no-op when `object` is already a live
   map (an ephemeral instance, not a durable atom) — ephemeral objects carry no
@@ -89,8 +89,14 @@ defmodule AL.Interp.Store do
     write(state, :set_oapply, [o, seq, h, store_body(b)])
   end
 
-  def interp(%Goal.SetSlots{object: object}, state) when is_map(object), do: state
-  def interp(%Goal.SetSlots{object: o, slots: s}, state), do: write(state, :set_slots, [o, s])
+  def interp(%Goal.SetSlot{object: object}, state) when is_map(object), do: state
+
+  # `o` is always the true write target here, never an ancestor-probe
+  # artifact -- safe to resolve storage via ivar_storage/3 directly.
+  def interp(%Goal.SetSlot{object: o, key: k, value: v}, state) do
+    store = AL.Dispatch.ivar_storage(o, k, state.branch)
+    write(state, :set_slot, [o, k, v, store])
+  end
 
   def interp(%Goal.RetractClass{object: object}, state) when is_map(object), do: state
 
@@ -112,10 +118,12 @@ defmodule AL.Interp.Store do
   def interp(%Goal.RetractOapply{object: o, head: h}, state),
     do: write(state, :retract_oapply, [o, h])
 
-  def interp(%Goal.RetractSlots{object: object}, state) when is_map(object), do: state
+  def interp(%Goal.RetractSlot{object: object}, state) when is_map(object), do: state
 
-  def interp(%Goal.RetractSlots{object: o, slots: s}, state),
-    do: write(state, :retract_slots, [o, s])
+  def interp(%Goal.RetractSlot{object: o, key: k}, state) do
+    store = AL.Dispatch.ivar_storage(o, k, state.branch)
+    write(state, :retract_slot, [o, k, store])
+  end
 
   # Every mutation is both a durable write (`AL.Command`, keyed by `tx_id`) and
   # an immediate projection update (`AL.Object`) — `fun` names the same
@@ -133,11 +141,13 @@ defmodule AL.Interp.Store do
     :set_class,
     :set_super,
     :set_method,
-    :set_slots,
+    :set_oapply,
+    :set_slot,
     :retract_class,
     :retract_super,
     :retract_method,
-    :retract_slots
+    :retract_oapply,
+    :retract_slot
   ]
 
   defp write(state, fun, args) when fun in @tx_stamped do

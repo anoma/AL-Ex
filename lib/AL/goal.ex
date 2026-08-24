@@ -6,12 +6,12 @@ defmodule AL.Goal do
           | AL.Goal.SetSuper.t()
           | AL.Goal.SetMethod.t()
           | AL.Goal.SetOapply.t()
-          | AL.Goal.SetSlots.t()
+          | AL.Goal.SetSlot.t()
           | AL.Goal.RetractClass.t()
           | AL.Goal.RetractSuper.t()
           | AL.Goal.RetractMethod.t()
           | AL.Goal.RetractOapply.t()
-          | AL.Goal.RetractSlots.t()
+          | AL.Goal.RetractSlot.t()
           | AL.Goal.SendAsync.t()
           | AL.Goal.SendElixir.t()
 
@@ -80,9 +80,12 @@ defmodule AL.Goal do
     field(:body, [AL.Goal.t()])
   end
 
-  typedstruct enforce: true, module: SetSlots do
+  # one write goal for any ivar, aos or soa -- routing resolved in the
+  # interp handler, not carried here.
+  typedstruct enforce: true, module: SetSlot do
     field(:object, AL.Var.t())
-    field(:slots, AL.Var.t())
+    field(:key, AL.Var.t())
+    field(:value, AL.Var.t())
   end
 
   typedstruct enforce: true, module: RetractClass do
@@ -106,9 +109,9 @@ defmodule AL.Goal do
     field(:head, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: RetractSlots do
+  typedstruct enforce: true, module: RetractSlot do
     field(:object, AL.Var.t())
-    field(:slots, AL.Var.t())
+    field(:key, AL.Var.t())
   end
 
   typedstruct enforce: true, module: SendAsync do
@@ -191,10 +194,13 @@ defmodule AL.Goal do
     field(:result, AL.Var.t())
   end
 
+  # store defaults :aos (vm_get_slot/3); explicit :soa via vm_get_slot/4,
+  # used by get_slot's ancestor-walk fallback.
   typedstruct enforce: true, module: GetSlots do
     field(:object, AL.Var.t())
     field(:key, AL.Var.t())
     field(:value, AL.Var.t())
+    field(:store, :aos | :soa, default: :aos)
   end
 
   # `object`/`key` ground (a keyed history read, no scan). `value` and `t`
@@ -394,12 +400,12 @@ defmodule AL.Goal do
     {SetSuper, :set_super, [object: :term, super: :term]},
     {SetMethod, :set_method, [object: :term, name: :term, id: :term]},
     {SetOapply, :set_oapply, [object: :term, seq: :term, head: :term, body: :goals]},
-    {SetSlots, :set_slots, [object: :term, slots: :term]},
+    {SetSlot, :set_slot, [object: :term, key: :term, value: :term]},
     {RetractClass, :retract_class, [object: :term, class: :term]},
     {RetractSuper, :retract_super, [object: :term, super: :term]},
     {RetractMethod, :retract_method, [object: :term, name: :term, id: :term]},
     {RetractOapply, :retract_oapply, [object: :term, head: :term]},
-    {RetractSlots, :retract_slots, [object: :term, slots: :term]},
+    {RetractSlot, :retract_slot, [object: :term, key: :term]},
     {SendAsync, :send_async, [object: :term, method: :term, args: :term]},
     {SendElixir, :send_elixir, [pid: :term, message: :term]},
     {GetClass, :get_class, [object: :term, class: :term]},
@@ -413,7 +419,7 @@ defmodule AL.Goal do
     {Then, :then, [then: :goals]},
     {Forall, :forall, [condition: :goals, body: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
-    {GetSlots, :get_slot, [object: :term, key: :term, value: :term]},
+    {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
     {GetSlotAt, :slot_at, [object: :term, key: :term, value: :term, t: :term]},
     {Gensym, :gensym, [var: :term]},
     {Format, :format, [control: :term, args: :term]},

@@ -219,6 +219,38 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
+  # Same regression, for a storage: :soa ivar -- vm_get_slot's own
+  # unbound-key enumeration is aos-only, so retract_existing_facts also
+  # checks self's declared ivar names against vm_get_slot/4 :soa to find
+  # a soa-stored key worth retracting (bootstrap.ex).
+  example new_redef_true_resets_a_storage_soa_instance_slot() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :redef_probe_soa,
+          super: :object,
+          ivars: [{:count, [type: :number, default: 0, storage: :soa]}] do
+        end
+      end
+
+    {:atomic, {bindings1, _}} =
+      run branch: :examples do
+        new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
+        set_slot(obj, :count, 99)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings1, :"$count") == 99
+
+    {:atomic, {bindings2, _}} =
+      run branch: :examples do
+        new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
+        get_slot(obj, :count, count)
+      end
+
+    assert Map.get(bindings2, :"$count") == 0
+    :ok
+  end
+
   # Regression: `defclass`'s retract-before-define pass only cleared a
   # method if the redef's *new* body redeclared that exact name -- so a
   # method dropped from a redef (renamed, or just removed) used to survive

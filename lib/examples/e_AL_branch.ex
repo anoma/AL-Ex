@@ -50,7 +50,7 @@ defmodule Examples.ALBranch do
     # write only into the fork, then read it back from the fork's projection
     {:atomic, {bindings, _}} =
       run branch: tip.id do
-        vm_set_slots(:widget, %{x: 3})
+        vm_set_slot(:widget, :x, 3)
         vm_get_slot(:widget, :x, x)
       end
 
@@ -180,7 +180,7 @@ defmodule Examples.ALBranch do
         vm_set_class(:fork_worker, :object)
 
         defmethod(:fork_worker, :handle, [self, object]) do
-          vm_set_slots(object, %{processed: true})
+          vm_set_slot(object, :processed, true)
           get_slot(:fork_worker_subscriber, :pid, p)
           vm_functor(message, :handled, [object])
           send_elixir(p, message)

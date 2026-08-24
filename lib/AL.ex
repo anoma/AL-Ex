@@ -609,6 +609,35 @@ defmodule AL do
     end
   end
 
+  # cached: AL.ResolutionCache.fetch_ivar_specs, see AL.Dispatch. self must
+  # be ground -- an open self would make scan_class's self_pattern a
+  # wildcard (to_mnesia_pattern treats an open var as "match anything"),
+  # scanning every object's class instead of just this one and corrupting
+  # the resolved spec list. Backtrack rather than guess, same as
+  # `:map_get`'s `when not is_map(m)` guard above.
+  def interp(%Goal.OApply{method_id: :cached_ivar_specs, args: [self, result]}, state) do
+    self_ground = AL.Var.deref(store(state), self)
+
+    if AL.Var.var?(self_ground) do
+      backtrack(state)
+    else
+      specs = AL.Dispatch.resolved_ivar_specs(self_ground, state.branch)
+      put_bindings(state, unify(state, result, specs), [result])
+    end
+  end
+
+  def interp(%Goal.OApply{method_id: :cached_find_ivar_spec, args: [self, key, result]}, state) do
+    self_ground = AL.Var.deref(store(state), self)
+    key_ground = AL.Var.deref(store(state), key)
+
+    if AL.Var.var?(self_ground) do
+      backtrack(state)
+    else
+      spec = AL.Dispatch.find_ivar_spec(self_ground, key_ground, state.branch)
+      put_bindings(state, unify(state, result, spec), [result])
+    end
+  end
+
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     case cached_scan_clauses(method_id_pattern, state.branch) do
       [] ->
@@ -696,13 +725,13 @@ defmodule AL do
 
   def interp(%Goal.GetSlots{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
-  def interp(%Goal.SetSlots{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.SetSlot{} = g, state), do: AL.Interp.Store.interp(g, state)
   def interp(%Goal.RetractClass{} = g, state), do: AL.Interp.Store.interp(g, state)
   def interp(%Goal.RetractSuper{} = g, state), do: AL.Interp.Store.interp(g, state)
   def interp(%Goal.RetractMethod{} = g, state), do: AL.Interp.Store.interp(g, state)
   def interp(%Goal.RetractOapply{} = g, state), do: AL.Interp.Store.interp(g, state)
 
-  def interp(%Goal.RetractSlots{} = g, state), do: AL.Interp.Store.interp(g, state)
+  def interp(%Goal.RetractSlot{} = g, state), do: AL.Interp.Store.interp(g, state)
 
   def interp(%Goal.SendAsync{object: object, method: method, args: args}, state) do
     AL.Command.send_async(state.tx_id, object, method, args, state.branch)

@@ -138,7 +138,7 @@ defmodule AL.Package do
       {:set_super, {o, s}} -> [%AL.Goal.RetractSuper{object: o, super: s}]
       {:set_method, {o, n, id}} -> [%AL.Goal.RetractMethod{object: o, name: n, id: id}]
       {:set_oapply, {o, _seq, h, _b}} -> [%AL.Goal.RetractOapply{object: o, head: h}]
-      {:set_slots, {o, s}} -> [%AL.Goal.RetractSlots{object: o, slots: s}]
+      {:set_slot, {o, k, _v, _store}} -> [%AL.Goal.RetractSlot{object: o, key: k}]
       _ -> []
     end
   end

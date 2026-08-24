@@ -145,29 +145,21 @@ defmodule AL.Interp.Relations do
     end)
   end
 
-  # `object` open with `key` ground (not `:"$_"`) is the same shape as
-  # `class`/`super`'s pending-link cases: `read_slots/2` is a keyed lookup,
-  # so an open `object` can't answer it at all today, and the real
-  # alternative (`AL.Object.scan_slots/3`, a full table scan) shouldn't run
-  # eagerly either. Post a pending link on `object` (and on `value` too, if
-  # it's also open) instead -- resolved by `label` on either side
-  # (`AL.label_from_slot_link/3`), which does the real scan.
-  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state)
-      when key != :"$_" do
-    if AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(key) do
-      new_store =
-        store(state)
-        |> AL.Var.add_slot_link(object, {:slot, key, value})
-        |> maybe_add_value_slot_link(value, key, object)
+  # store can be literal or a var (get_slot's ancestor-walk fallback
+  # passes a resolved spec var through) -- deref before branching.
+  def interp(%Goal.GetSlots{object: object, key: key, value: value, store: store_pattern}, state) do
+    case AL.Var.deref(store(state), store_pattern) do
+      :soa ->
+        scan_relation(
+          state,
+          AL.Object.scan_soa_slot(object, key, value, state.branch),
+          {:soa_slot, object, key, value}
+        )
 
-      AL.put_bindings(state, new_store, [])
-    else
-      scan_slots_directly(state, object, key, value)
+      :aos ->
+        get_aos_slot(state, object, key, value)
     end
   end
-
-  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state),
-    do: scan_slots_directly(state, object, key, value)
 
   # `object`/`key` are expected ground (a keyed history read -- no
   # pending-link/broad-scan leg like `GetSlots` above, out of scope for now).
@@ -254,6 +246,26 @@ defmodule AL.Interp.Relations do
     end
   end
 
+  # `object` open with `key` ground is the pending-link case (same shape
+  # as class/super's): resolved by `label` (`AL.label_from_slot_link/3`).
+  defp get_aos_slot(state, object, key, value) when key != :"$_" do
+    if AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(key) do
+      new_store =
+        store(state)
+        |> AL.Var.add_slot_link(object, {:slot, key, value})
+        |> maybe_add_value_slot_link(value, key, object)
+
+      AL.put_bindings(state, new_store, [])
+    else
+      scan_slots_directly(state, object, key, value)
+    end
+  end
+
+  defp get_aos_slot(state, object, key, value), do: scan_slots_directly(state, object, key, value)
+
+  # an unbound key here only ever enumerates the aos map -- never widen
+  # this to also scan soa, it'd pick up reserved keys (:class, :super,
+  # {:method, _}, oapply clause bodies) that were never slots at all.
   defp scan_slots_directly(state, object, key, value) do
     entries =
       case AL.Object.read_slots(object, state.branch) do
