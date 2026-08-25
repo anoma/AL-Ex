@@ -106,6 +106,10 @@ defmodule ALSourceTest do
   use ExExample.ExUnit, for: Examples.ALSource
 end
 
+defmodule ALSourceInputTest do
+  use ExExample.ExUnit, for: Examples.ALSourceInput
+end
+
 defmodule ALFreezeTest do
   use ExExample.ExUnit, for: Examples.ALFreeze
 end

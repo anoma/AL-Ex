@@ -77,6 +77,27 @@ defmodule AL do
   end
 
   @doc """
+  Parses and lowers one complete AL source input, then evaluates the resulting
+  goal list in one Mnesia transaction.
+
+  Parsing and lowering happen before the transaction. Syntax and lowering
+  failures return a structured `AL.Source.Parser.Error`.
+  """
+  @spec eval_source(String.t(), AL.Branch.t(), keyword()) ::
+          {:atomic, {AL.Var.store(), t() | nil}}
+          | {:aborted, term()}
+          | {:error, String.t() | AL.Source.Parser.Error.t()}
+  def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
+    case AL.Source.Parser.parse(text) do
+      {:ok, %AL.Source.Parser.Result{program: program}} ->
+        eval(program, nil, branch, opts)
+
+      {:error, %AL.Source.Parser.Error{} = error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
   Runs a goal list in a Mnesia transaction. Returns
   `{:atomic, {output_vars, state}}` or `{:aborted, reason}`.
 
