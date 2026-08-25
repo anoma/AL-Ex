@@ -1,3 +1,14 @@
+defmodule AL.Goal.StorableError do
+  @moduledoc "A typed error for an ephemeral source term in durable data."
+
+  defexception [:term, :reason]
+
+  @impl true
+  def message(%__MODULE__{term: term, reason: reason}) do
+    "cannot store ephemeral source term #{inspect(term)}: #{inspect(reason)}"
+  end
+end
+
 defmodule AL.Goal do
   use TypedStruct
 
@@ -52,6 +63,8 @@ defmodule AL.Goal do
           | AL.Goal.SendAsValue.t()
           | AL.Goal.DurableCandidates.t()
           | AL.Goal.CallNextMethod.t()
+          | AL.Goal.SourceScope.t()
+          | AL.Goal.SourceScopeExit.t()
           | AL.Goal.Fail.t()
 
   @type t() :: command() | instructions()
@@ -352,6 +365,15 @@ defmodule AL.Goal do
     field(:args, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: SourceScope do
+    field(:capture_id, term())
+    field(:goals, [AL.Goal.t()])
+  end
+
+  typedstruct enforce: true, module: SourceScopeExit do
+    field(:capture_id, term())
+  end
+
   typedstruct enforce: true, module: CallNextMethod do
     field(:self, AL.Var.t())
     field(:args, AL.Var.t())
@@ -414,6 +436,7 @@ defmodule AL.Goal do
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
     {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},
+    {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
     {Then, :then, [then: :goals]},
@@ -443,12 +466,34 @@ defmodule AL.Goal do
 
   @type stored() :: tuple() | atom()
 
-  @doc "Serialize one goal struct to its stored tuple form."
-  @spec to_stored(t()) :: stored()
-  def to_stored(%Cut{}), do: :cut
-  def to_stored(%Fail{}), do: :fail
+  @doc "Validate that no ephemeral source term can reach durable storage."
+  @spec validate_storable(term()) :: :ok | {:error, AL.Goal.StorableError.t()}
+  def validate_storable(term) do
+    case invalid_storable(term) do
+      nil -> :ok
+      {invalid, reason} -> {:error, %AL.Goal.StorableError{term: invalid, reason: reason}}
+    end
+  end
 
-  def to_stored(goal) when is_struct(goal) do
+  @spec validate_storable!(term()) :: :ok
+  def validate_storable!(term) do
+    case validate_storable(term) do
+      :ok -> :ok
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc "Serialize one goal struct to its stored tuple form."
+  @spec to_stored(term()) :: stored()
+  def to_stored(term) do
+    validate_storable!(term)
+    do_to_stored(term)
+  end
+
+  defp do_to_stored(%Cut{}), do: :cut
+  defp do_to_stored(%Fail{}), do: :fail
+
+  defp do_to_stored(goal) when is_struct(goal) do
     case Map.fetch(@to_form, goal.__struct__) do
       {:ok, {tag, fields}} ->
         List.to_tuple([
@@ -460,15 +505,50 @@ defmodule AL.Goal do
     end
   end
 
-  # Cons by hand: patterns like [row | tail] are improper lists.
-  def to_stored([h | t]), do: [to_stored(h) | to_stored(t)]
-  def to_stored(other), do: other
+  defp do_to_stored([head | tail]), do: [do_to_stored(head) | do_to_stored(tail)]
 
-  # `:term` slots may still nest goal structs (e.g. arithmetic in an `is`/`oapply`
-  # arg list); recurse so nothing struct-shaped reaches storage.
-  defp store(:term, v), do: to_stored(v)
-  defp store(:goals, gs) when is_list(gs), do: Enum.map(gs, &to_stored/1)
-  defp store(:goals, other), do: other
+  defp do_to_stored(term) when is_tuple(term),
+    do: term |> Tuple.to_list() |> Enum.map(&do_to_stored/1) |> List.to_tuple()
+
+  defp do_to_stored(term) when is_map(term),
+    do: Map.new(term, fn {key, value} -> {do_to_stored(key), do_to_stored(value)} end)
+
+  defp do_to_stored(other), do: other
+
+  defp store(:term, value), do: do_to_stored(value)
+  defp store(:goals, goals) when is_list(goals), do: Enum.map(goals, &do_to_stored/1)
+  defp store(:goals, other), do: do_to_stored(other)
+
+  defp invalid_storable(%SourceScope{capture_id: capture_id, goals: goals} = scope) do
+    if AL.Var.var?(capture_id), do: invalid_storable(goals), else: {scope, :concrete_source_scope}
+  end
+
+  defp invalid_storable(%SourceScopeExit{} = exit), do: {exit, :source_scope_exit}
+  defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
+
+  defp invalid_storable({:al_source_method, _capture_id, _method, _head, _body} = tagged),
+    do: {tagged, :tagged_source_method}
+
+  defp invalid_storable({evaluation_ref, ordinal} = capture_id)
+       when is_reference(evaluation_ref) and is_integer(ordinal),
+       do: {capture_id, :capture_id}
+
+  defp invalid_storable([]), do: nil
+
+  defp invalid_storable([head | tail]),
+    do: invalid_storable(head) || invalid_storable(tail)
+
+  defp invalid_storable(term) when is_struct(term),
+    do: term |> Map.from_struct() |> invalid_storable()
+
+  defp invalid_storable(term) when is_map(term) do
+    Enum.find_value(term, fn {key, value} -> invalid_storable(key) || invalid_storable(value) end)
+  end
+
+  defp invalid_storable(term) when is_tuple(term),
+    do: term |> Tuple.to_list() |> Enum.find_value(&invalid_storable/1)
+
+  defp invalid_storable(_term), do: nil
 
   @doc "Rebuild a goal struct from its stored tuple form (inverse of to_stored/1)."
   @spec from_stored(stored()) :: t()

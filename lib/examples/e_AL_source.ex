@@ -16,16 +16,17 @@ defmodule Examples.ALSource do
     ]
 
     source = AL.Source.defmethod_source(:list, :reverse, head, body)
-    # Probably too tight
+
     assert source ==
-             "defmethod(:list, :reverse, [[a | b], c]) do\n  reverse(b, d)\n  concat(d, [a], c)\nend"
+             "defmethod(:list, :reverse, [[h | t], reversed]) do\n" <>
+               "  reverse(t, reversed_tl)\n  concat(reversed_tl, [h], reversed)\nend"
 
     source
   end
 
   example literal_head_to_source() do
     source = AL.Source.defmethod_source(:zkfol, :col, [:"$self", 1, 0, 1, [[0, 1]]], [])
-    assert source == "defmethod(:zkfol, :col, [a, 1, 0, 1, [[0, 1]]]) do\nend"
+    assert source == "defmethod(:zkfol, :col, [self, 1, 0, 1, [[0, 1]]]) do\nend"
     source
   end
 
@@ -40,7 +41,7 @@ defmodule Examples.ALSource do
       end
 
     sources = AL.Source.method_sources(:scoped, branch.id)
-    assert [["hi", "defmethod(:scoped, :hi, [a]) do\nend"]] == sources
+    assert [["hi", "defmethod(:scoped, :hi, [_self]) do\nend"]] == sources
     assert AL.Source.method_sources(:scoped) == []
 
     AL.Branch.discard(branch)
@@ -49,7 +50,26 @@ defmodule Examples.ALSource do
 
   example compare_to_source() do
     source = AL.Source.body_source([{:compare, :>, :"$x", 1}])
-    assert source == "a > 1"
+    assert source == "x > 1"
+    source
+  end
+
+  example freshened_vars_recover_their_authored_name() do
+    self_var = AL.Var.fresh(AL.Var.fresh(:"$self", "3"), "7")
+
+    source = AL.Source.body_source([{:unify, self_var, self_var}])
+    assert source == "unify(self, self)"
+
+    source
+  end
+
+  example distinct_freshened_vars_sharing_a_name_get_suffixed() do
+    self_a = AL.Var.fresh(:"$self", "1")
+    self_b = AL.Var.fresh(:"$self", "2")
+
+    source = AL.Source.body_source([{:unify, self_a, self_b}])
+    assert source == "unify(self, self_2)"
+
     source
   end
 end

@@ -16,7 +16,8 @@ defmodule AL.Lowering do
     vm_fresh_id: :fresh_id,
     vm_current_tx: :current_tx,
     vm_cached_ivar_specs: :cached_ivar_specs,
-    vm_cached_find_ivar_spec: :cached_find_ivar_spec
+    vm_cached_find_ivar_spec: :cached_find_ivar_spec,
+    vm_source_method_parts: :source_method_parts
   }
   @oapply_primitive_names Map.keys(@oapply_primitives)
 
@@ -33,6 +34,9 @@ defmodule AL.Lowering do
   def ast_to_pattern({:%{}, _, kvs}),
     do: Map.new(kvs, fn {k, v} -> {ast_to_pattern(k), ast_to_pattern(v)} end)
 
+  def ast_to_pattern({:{}, _, elements}),
+    do: elements |> Enum.map(&ast_to_pattern/1) |> List.to_tuple()
+
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
   def ast_to_pattern({:class, _, [object, class]}),
@@ -43,6 +47,17 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:vm_assert_valid_clause_self, _, [class, head]}),
     do: %Goal.AssertValidClauseSelf{class: ast_to_pattern(class), head: ast_to_pattern(head)}
+
+  def ast_to_pattern({:vm_source_scope, _, [capture_id, [do: body]]}) do
+    goals =
+      case ast_to_pattern(body) do
+        nil -> []
+        goals when is_list(goals) -> goals
+        goal -> [goal]
+      end
+
+    %Goal.SourceScope{capture_id: ast_to_pattern(capture_id), goals: goals}
+  end
 
   def ast_to_pattern({:vm_method, _, [object, name, id]}),
     do: %Goal.GetMethod{

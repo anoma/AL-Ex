@@ -2,7 +2,10 @@ defmodule AL.Source do
   @moduledoc """
   I render AL goal patterns back into AL source the inverse of `AL.ast_to_pattern/1`.
 
-  The source uses gensysms, and are converted to `a`, `b`, 。。。 before printing.
+  Vars are freshened per call scope, so a stored clause carries `{:"$fresh",
+  base, scope}` wrappers rather than the bare name it was authored with.
+  Printing peels those back to `base` and only appends a numeric suffix when
+  two distinct vars land on the same name.
 
   Goals I don't recognise render as `RAW(<term>)` so there is something to see
   """
@@ -37,6 +40,64 @@ defmodule AL.Source do
     rows
   end
 
+  @doc "GT bridge rows for every open clause on a class."
+  @spec method_source_rows(term(), AL.Branch.t() | atom()) :: [
+          [String.t() | non_neg_integer() | atom() | term()]
+        ]
+  def method_source_rows(class, branch \\ AL.Branch.head())
+
+  def method_source_rows(class, id) when is_atom(id),
+    do: method_source_rows(class, %AL.Branch{id: id})
+
+  def method_source_rows(class, branch) do
+    case :mnesia.transaction(fn ->
+           name_pattern = AL.Var.var("source_method_name_#{AL.fresh_scope()}")
+           id_pattern = AL.Var.var("source_method_id_#{AL.fresh_scope()}")
+
+           for {:method, ^class, name, _method_seq, _method_t, :open, method_id} <-
+                 AL.Object.scan_open_method_versions(class, name_pattern, id_pattern, branch),
+               {:oapply, ^method_id, clause_seq, _row_seq, command_t, :open, head, body} <-
+                 AL.Object.scan_open_oapply_versions(
+                   method_id,
+                   AL.Var.var("source_clause_seq_#{AL.fresh_scope()}"),
+                   AL.Var.var("source_head_#{AL.fresh_scope()}"),
+                   AL.Var.var("source_body_#{AL.fresh_scope()}"),
+                   branch
+                 ) do
+             result = retained_method_source(class, name, head, body, command_t, branch)
+
+             [
+               to_string(name),
+               clause_seq,
+               result.text,
+               length(head),
+               result.start_line,
+               result.provenance,
+               result.diagnostic
+             ]
+           end
+         end) do
+      {:atomic, rows} -> rows
+      {:aborted, _reason} -> []
+    end
+  end
+
+  @doc "Print retained (or decompiled) source for every clause of one method."
+  @spec print_method(term(), atom(), AL.Branch.t() | atom()) :: :ok
+  def print_method(class, name, branch \\ AL.Branch.head()) do
+    target = to_string(name)
+
+    class
+    |> method_source_rows(branch)
+    |> Enum.filter(fn [row_name | _] -> row_name == target end)
+    |> Enum.sort_by(fn [_name, seq | _] -> seq end)
+    |> Enum.each(fn [_name, _seq, text, _arity, _start, provenance, diagnostic] ->
+      if diagnostic, do: IO.puts("# #{provenance}: #{inspect(diagnostic)}")
+      IO.puts(text)
+      IO.puts("")
+    end)
+  end
+
   @doc "Source for one clause as `defmethod(class, name, head) do body end`."
   @spec defmethod_source(atom(), atom(), term(), [AL.Goal.stored()]) :: String.t()
   def defmethod_source(class, name, head, body) do
@@ -53,20 +114,346 @@ defmodule AL.Source do
     |> Macro.to_string()
   end
 
-  # --- rename gensym'd vars to a, b, c by first appearance ---
+  @type display_source() :: %{
+          text: String.t(),
+          start_line: pos_integer(),
+          provenance: :retained | :decompiled,
+          origin: AL.SourceStore.origin() | nil,
+          authored_as: :standalone | :nested | nil,
+          diagnostic: term() | nil
+        }
+
+  @doc "Return retained source for one open method clause, with a decompiled fallback."
+  @spec method_clause_source(
+          term(),
+          term(),
+          term(),
+          non_neg_integer(),
+          AL.Branch.t()
+        ) :: display_source() | {:error, :clause_not_found}
+  def method_clause_source(class, name, method_id, clause_seq, branch \\ AL.Branch.head()) do
+    {:atomic, result} =
+      :mnesia.transaction(fn ->
+        case AL.Object.scan_open_oapply_versions(
+               method_id,
+               clause_seq,
+               AL.Var.var("source_head_#{AL.fresh_scope()}"),
+               AL.Var.var("source_body_#{AL.fresh_scope()}"),
+               branch
+             ) do
+          [{:oapply, ^method_id, ^clause_seq, _seq, command_t, :open, head, body} | _] ->
+            retained_method_source(class, name, head, body, command_t, branch)
+
+          [] ->
+            {:error, :clause_not_found}
+        end
+      end)
+
+    result
+  end
+
+  defp retained_method_source(class, name, head, body, command_t, branch) do
+    fallback = fn diagnostic ->
+      %{
+        text: defmethod_source(class, name, head, body),
+        start_line: 1,
+        provenance: :decompiled,
+        origin: nil,
+        authored_as: nil,
+        diagnostic: diagnostic
+      }
+    end
+
+    case AL.SourceStore.span(command_t, branch) do
+      :absent ->
+        fallback.(nil)
+
+      {:source_span, ^command_t, tx_id, :defmethod, range, context} ->
+        case AL.SourceStore.text(tx_id, branch) do
+          {:source_text, ^tx_id, text, origin} ->
+            case AL.Source.Parser.slice(text, range) do
+              {:ok, source} ->
+                %{
+                  text: source,
+                  start_line: range.start.line,
+                  provenance: :retained,
+                  origin: origin,
+                  authored_as: Map.get(context, :authored_as),
+                  diagnostic: nil
+                }
+
+              {:error, error} ->
+                fallback.({:invalid_source_range, error})
+            end
+
+          :absent ->
+            fallback.({:missing_source_text, tx_id})
+        end
+
+      {:source_span, ^command_t, _tx_id, kind, _range, _context} ->
+        fallback.({:source_kind_mismatch, kind})
+    end
+  end
+
+  @doc "Prepare a parsed program with retry-stable source capture identities."
+  @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin()) ::
+          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
+  def prepare(result, text, origin \\ %{kind: :eval_source, label: nil}) do
+    evaluation_ref = make_ref()
+
+    try do
+      {program, refs} =
+        Enum.reduce(result.captures, {result.program, %{}}, fn capture, {program, refs} ->
+          capture_id = {evaluation_ref, capture.ordinal}
+
+          {goal, refs} =
+            prepare_capture(Enum.at(program, hd(capture.path)), capture, capture_id, refs)
+
+          {List.replace_at(program, hd(capture.path), goal), refs}
+        end)
+
+      {:ok, %AL.Source.Evaluation{text: text, origin: origin, program: program, refs: refs}}
+    rescue
+      error ->
+        {:error,
+         %AL.Source.Parser.Error{
+           phase: :lowering,
+           message: Exception.message(error),
+           line: nil,
+           column: nil,
+           token: nil
+         }}
+    end
+  end
+
+  @doc false
+  def enter_scope(state, capture_id, goals) do
+    case Map.fetch(state.source_refs, capture_id) do
+      {:ok, ref} ->
+        context = scope_context(ref, goals)
+        refs = Map.put(state.source_refs, capture_id, %AL.Source.Ref{ref | context: context})
+        choicepoint = state.active_choicepoint
+
+        %AL{
+          state
+          | source_refs: refs,
+            active_choicepoint: %AL.Choicepoint{
+              choicepoint
+              | source_scopes: [capture_id | choicepoint.source_scopes],
+                goals:
+                  goals ++ [%AL.Goal.SourceScopeExit{capture_id: capture_id}] ++ choicepoint.goals
+            }
+        }
+
+      :error ->
+        :mnesia.abort(%AL.Source.ProvenanceError{
+          capture_id: capture_id,
+          reason: :unknown_capture
+        })
+    end
+  end
+
+  @doc false
+  def exit_scope(state, capture_id) do
+    case state.active_choicepoint.source_scopes do
+      [^capture_id | rest] ->
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | source_scopes: rest}
+        }
+
+      scopes ->
+        :mnesia.abort(%AL.Source.ProvenanceError{
+          capture_id: capture_id,
+          reason: {:scope_exit_mismatch, scopes}
+        })
+    end
+  end
+
+  @doc false
+  def anchor(state, operation, args, command_t) do
+    case state.active_choicepoint.source_scopes do
+      [capture_id | _] -> anchor_active(state, capture_id, operation, args, command_t)
+      [] -> state
+    end
+  end
+
+  @doc false
+  def validate_provenance(state) do
+    Enum.each(state.source_refs, fn {capture_id, _ref} ->
+      case Map.get(state.source_anchors, capture_id, []) do
+        [_command_t] ->
+          :ok
+
+        [] ->
+          :mnesia.abort(%AL.Source.ProvenanceError{
+            capture_id: capture_id,
+            reason: :missing_anchor
+          })
+
+        anchors ->
+          :mnesia.abort(%AL.Source.ProvenanceError{
+            capture_id: capture_id,
+            reason: {:multiple_anchors, anchors}
+          })
+      end
+    end)
+
+    state
+  end
+
+  defp prepare_capture(goal, capture, capture_id, refs) do
+    ref = %AL.Source.Ref{
+      capture_id: capture_id,
+      kind: capture.kind,
+      range: capture.range,
+      authored_as: capture.authored_as
+    }
+
+    refs = Map.put(refs, capture_id, ref)
+
+    {goal, refs} =
+      case {capture.kind, goal} do
+        {:defclass,
+         %AL.Goal.OApply{
+           method_id: :defclass,
+           args: [name, metaclass, super, ivars, categories, methods, redef]
+         } = class_goal} ->
+          {tagged_methods, refs} = prepare_nested_methods(methods, capture.children, refs)
+
+          {%AL.Goal.OApply{
+             class_goal
+             | args: [name, metaclass, super, ivars, categories, tagged_methods, redef]
+           }, refs}
+
+        _ ->
+          {goal, refs}
+      end
+
+    scoped = %AL.Goal.SourceScope{capture_id: capture_id, goals: [goal]}
+    {scoped, refs}
+  end
+
+  defp prepare_nested_methods(methods, captures, refs) do
+    Enum.reduce(captures, {methods, refs}, fn capture, {methods, refs} ->
+      capture_id = capture_id_for(capture, refs)
+      method_index = List.last(capture.path)
+      [method_name, head, body] = Enum.at(methods, method_index)
+      tagged = {:al_source_method, capture_id, method_name, head, body}
+
+      ref = %AL.Source.Ref{
+        capture_id: capture_id,
+        kind: :defmethod,
+        range: capture.range,
+        authored_as: :nested
+      }
+
+      {List.replace_at(methods, method_index, tagged), Map.put(refs, capture_id, ref)}
+    end)
+  end
+
+  defp capture_id_for(capture, refs) do
+    [{evaluation_ref, _ordinal} | _] = Map.keys(refs)
+    {evaluation_ref, capture.ordinal}
+  end
+
+  defp scope_context(%AL.Source.Ref{kind: :defmethod, authored_as: authored_as}, [
+         %AL.Goal.OApply{method_id: :defmethod, args: [class, method | _]}
+       ]),
+       do: %{class: class, method: method, authored_as: authored_as}
+
+  defp scope_context(%AL.Source.Ref{kind: :defclass, authored_as: authored_as}, [
+         %AL.Goal.OApply{method_id: :defclass, args: [class | _]}
+       ]),
+       do: %{class: class, authored_as: authored_as}
+
+  defp scope_context(ref, goals) do
+    :mnesia.abort(%AL.Source.ProvenanceError{
+      capture_id: ref.capture_id,
+      reason: {:scope_goal_mismatch, goals}
+    })
+  end
+
+  defp anchor_active(state, capture_id, operation, args, command_t) do
+    ref = Map.fetch!(state.source_refs, capture_id)
+
+    if defining_write?(ref, operation, args, state.branch) do
+      :ok =
+        AL.SourceStore.put_span(
+          command_t,
+          state.tx_id,
+          ref.kind,
+          ref.range,
+          ref.context,
+          state.branch
+        )
+
+      %AL{
+        state
+        | source_anchors:
+            Map.update(state.source_anchors, capture_id, [command_t], &[command_t | &1])
+      }
+    else
+      state
+    end
+  end
+
+  defp defining_write?(
+         %AL.Source.Ref{kind: :defclass, context: %{class: class}},
+         :set_class,
+         [
+           object,
+           _metaclass
+         ],
+         _branch
+       ),
+       do: object == class
+
+  defp defining_write?(
+         %AL.Source.Ref{kind: :defmethod, context: %{class: class, method: method}},
+         :set_oapply,
+         [object, _seq, _head, _body],
+         branch
+       ) do
+    Enum.any?(AL.Object.scan_method(class, method, object, branch), fn
+      {:method, ^class, ^method, ^object} -> true
+      _row -> false
+    end)
+  end
+
+  defp defining_write?(_ref, _operation, _args, _branch), do: false
+
+  # --- rename to each var's own authored name, disambiguating collisions ---
+  #
+  # `freshen/2` (AL.Var) wraps rather than replaces: {:"$fresh", base, scope}
+  # nests arbitrarily deep across call scopes, but `base` always bottoms out
+  # at the bare `:"$name"` atom the author typed. Peel every wrapper off and
+  # reuse that name; only two *different* vars sharing one authored name
+  # (freshened copies from different scopes) get a numeric suffix.
   @spec rename(term()) :: term()
   defp rename(term) do
-    map =
+    {map, _seen} =
       term
       |> collect()
       |> Enum.uniq()
-      |> Enum.with_index()
-      |> Map.new(fn {v, i} ->
-        a = if i < 26, do: <<?a + i>>, else: "v#{i}"
-        {v, AL.Var.var(a)}
+      |> Enum.reduce({%{}, %{}}, fn v, {map, seen} ->
+        base = base_name(v)
+        count = Map.get(seen, base, 0)
+        display = if count == 0, do: base, else: "#{base}_#{count + 1}"
+        {Map.put(map, v, AL.Var.var(display)), Map.put(seen, base, count + 1)}
       end)
 
     sub(term, map)
+  end
+
+  @spec base_name(AL.Var.t()) :: String.t()
+  defp base_name({:"$fresh", base, _scope}), do: base_name(base)
+
+  defp base_name(atom) when is_atom(atom) do
+    case Atom.to_string(atom) do
+      "$" <> name -> name
+      other -> other
+    end
   end
 
   # Vars in first-appearance order (with dups; caller dedups).

@@ -151,12 +151,14 @@ defmodule AL.Interp.Store do
   ]
 
   defp write(state, fun, args) when fun in @tx_stamped do
+    :ok = AL.Goal.validate_storable!(args)
     tx = apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [tx, state.branch])
-    state
+    AL.Source.anchor(state, fun, args, tx)
   end
 
   defp write(state, fun, args) do
+    :ok = AL.Goal.validate_storable!(args)
     apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [state.branch])
     state

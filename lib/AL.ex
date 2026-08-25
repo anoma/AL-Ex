@@ -26,6 +26,14 @@ defmodule AL do
     field(:diagnostics, [term()], default: [])
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
     field(:reductions, non_neg_integer(), default: 0)
+
+    field(:source_refs, %{optional(AL.Source.Ref.capture_id()) => AL.Source.Ref.t()},
+      default: %{}
+    )
+
+    field(:source_anchors, %{optional(AL.Source.Ref.capture_id()) => [non_neg_integer()]},
+      default: %{}
+    )
   end
 
   # Stack limit. reductions = goals interpreted so far.
@@ -52,13 +60,6 @@ defmodule AL do
   goal-by-goal trail into `state.domino.trace`
   """
   defmacro run(opts \\ [], do: program) do
-    goals =
-      case ast_to_pattern(program) do
-        list when is_list(list) -> list
-        goal -> [goal]
-      end
-
-    escaped = Macro.escape(goals, unquote: true)
     vm_trace? = Keyword.get(opts, :vm_trace, false)
 
     branch_ast =
@@ -68,7 +69,55 @@ defmodule AL do
         quote do: AL.Branch.head()
       end
 
-    quote do: AL.eval(unquote(escaped), nil, unquote(branch_ast), vm_trace: unquote(vm_trace?))
+    case captured_source(program, __CALLER__) do
+      {:ok, result, text, origin} ->
+        quote do
+          AL.eval_captured(
+            unquote(Macro.escape(result, unquote: true)),
+            unquote(text),
+            unquote(Macro.escape(origin)),
+            nil,
+            unquote(branch_ast),
+            vm_trace: unquote(vm_trace?)
+          )
+        end
+
+      :error ->
+        goals =
+          case ast_to_pattern(program) do
+            list when is_list(list) -> list
+            goal -> [goal]
+          end
+
+        escaped = Macro.escape(goals, unquote: true)
+
+        quote do:
+                AL.eval(unquote(escaped), nil, unquote(branch_ast), vm_trace: unquote(vm_trace?))
+    end
+  end
+
+  # Best-effort compile-time source capture for `AL.run`: reads the caller's
+  # own file and asks `AL.Source.Parser` to extract the same capture tree it
+  # would from that text at runtime. `__CALLER__.file` is only a real,
+  # readable path when `run/2` is expanded while compiling a file (not e.g.
+  # from a `Code.eval_quoted` with no file), and a nested block's forms only
+  # round-trip when they are literal text (not `unquote`-generated) — either
+  # miss falls back to :error, and `run/2` evaluates without retention exactly
+  # as before this existed.
+  @spec captured_source(Macro.t(), Macro.Env.t()) ::
+          {:ok, AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin()} | :error
+  defp captured_source(program, caller) do
+    with file when is_binary(file) <- caller.file,
+         true <- File.exists?(file),
+         {:ok, text} <- File.read(file),
+         {:ok, %AL.Source.Parser.Result{captures: [_ | _]} = result} <-
+           AL.Source.Parser.capture(program, text) do
+      {:ok, result, text, %{kind: :al_run, file: Path.relative_to_cwd(file), line: caller.line}}
+    else
+      _ -> :error
+    end
+  rescue
+    _ -> :error
   end
 
   @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
@@ -76,24 +125,31 @@ defmodule AL do
     goals ++ state.active_choicepoint.goals
   end
 
-  @doc """
-  Parses and lowers one complete AL source input, then evaluates the resulting
-  goal list in one Mnesia transaction.
-
-  Parsing and lowering happen before the transaction. Syntax and lowering
-  failures return a structured `AL.Source.Parser.Error`.
-  """
+  @doc "Parse, retain, and evaluate one complete AL source input in one transaction."
   @spec eval_source(String.t(), AL.Branch.t(), keyword()) ::
           {:atomic, {AL.Var.store(), t() | nil}}
           | {:aborted, term()}
           | {:error, String.t() | AL.Source.Parser.Error.t()}
   def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
-    case AL.Source.Parser.parse(text) do
-      {:ok, %AL.Source.Parser.Result{program: program}} ->
-        eval(program, nil, branch, opts)
+    with {:ok, result} <- AL.Source.Parser.parse(text),
+         {:ok, source} <- AL.Source.prepare(result, text) do
+      eval_program(source.program, nil, branch, opts, source)
+    end
+  end
 
-      {:error, %AL.Source.Parser.Error{} = error} ->
-        {:error, error}
+  @doc false
+  @spec eval_captured(
+          AL.Source.Parser.Result.t(),
+          String.t(),
+          AL.SourceStore.origin(),
+          AL.Var.store() | nil,
+          AL.Branch.t(),
+          keyword()
+        ) :: {:atomic, {AL.Var.store(), t() | nil}} | {:aborted, term()} | {:error, term()}
+  def eval_captured(result, text, origin, initial_store, branch, opts) do
+    case AL.Source.prepare(result, text, origin) do
+      {:ok, source} -> eval_program(source.program, initial_store, branch, opts, source)
+      {:error, _error} -> eval_program(result.program, initial_store, branch, opts, nil)
     end
   end
 
@@ -101,41 +157,52 @@ defmodule AL do
   Runs a goal list in a Mnesia transaction. Returns
   `{:atomic, {output_vars, state}}` or `{:aborted, reason}`.
 
-  - `oapply`: bidirectional — head-var bindings from the body flow back to caller.
-  - `cut`: prunes choicepoints in call scope, not a Mnesia commit.
-
-  `heap: words` runs in a capped process, returns bindings only (state shares
-  heap structure; copying it out as a message would flatten it):
-
-      AL.eval(goals, nil, branch, heap: 256_000_000)
+  `heap: words` runs in a capped process and returns bindings only.
   """
   @spec eval([AL.Goal.t()], AL.Var.store() | nil, AL.Branch.t(), keyword()) ::
           {:atomic, {AL.Var.store(), t() | nil}} | {:aborted, term()} | {:error, String.t()}
-  def eval(program, initial_store \\ nil, branch \\ AL.Branch.head(), opts \\ [])
+  def eval(program, initial_store \\ nil, branch \\ AL.Branch.head(), opts \\ []) do
+    eval_program(program, initial_store, branch, opts, nil)
+  end
 
-  def eval(program, initial_store, branch, heap: heap) do
-    {pid, ref} =
-      spawn_monitor(fn ->
-        Process.flag(:max_heap_size, %{size: heap, kill: true, error_logger: false})
-        exit({:derived, shed(eval(program, initial_store, branch))})
-      end)
+  defp eval_program(program, initial_store, branch, opts, source) do
+    case Keyword.pop(opts, :heap) do
+      {nil, transaction_opts} ->
+        eval_transaction(program, initial_store, branch, transaction_opts, source)
 
-    receive do
-      {:DOWN, ^ref, :process, ^pid, {:derived, result}} ->
-        result
+      {heap, transaction_opts} ->
+        {pid, ref} =
+          spawn_monitor(fn ->
+            Process.flag(:max_heap_size, %{size: heap, kill: true, error_logger: false})
 
-      {:DOWN, ^ref, :process, ^pid, _killed} ->
-        {:error, "the derivation exceeded #{heap} heap words"}
+            exit({
+              :derived,
+              shed(eval_program(program, initial_store, branch, transaction_opts, source))
+            })
+          end)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, {:derived, result}} ->
+            result
+
+          {:DOWN, ^ref, :process, ^pid, _killed} ->
+            {:error, "the derivation exceeded #{heap} heap words"}
+        end
     end
   end
 
-  def eval(program, initial_store, branch, opts) do
+  defp eval_transaction(program, initial_store, branch, opts, source) do
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
     vm_trace? = Keyword.get(opts, :vm_trace, false)
 
     :mnesia.transaction(fn ->
       tx_id = AL.Command.system_time(branch)
+      source_refs = source_refs(source, tx_id)
+
+      if source != nil and map_size(source_refs) > 0 do
+        :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
+      end
 
       result =
         continue(%AL{
@@ -144,22 +211,33 @@ defmodule AL do
             store: store,
             continuations: [],
             done: [],
-            scope_pointer: 0
+            scope_pointer: 0,
+            source_scopes: []
           },
           choicepoint_stack: [{:mark, 0}],
           tx_id: tx_id,
           branch: branch,
           domino: %AL.Domino{vm_trace_enabled?: vm_trace?, tracepoints: AL.Trace.tracepoints()},
-          program: program
+          program: program,
+          source_refs: source_refs,
+          source_anchors: %{}
         })
-
-      result = finalize_trace(result)
+        |> finalize_trace()
 
       if result.active_choicepoint.store == nil do
         :mnesia.abort(format_failure(result))
       else
+        if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
         {format_output_vars(input_vars, result.active_choicepoint.store), result}
       end
+    end)
+  end
+
+  defp source_refs(nil, _tx_id), do: %{}
+
+  defp source_refs(source, tx_id) do
+    Map.new(source.refs, fn {capture_id, ref} ->
+      {capture_id, %AL.Source.Ref{ref | tx_id: tx_id}}
     end)
   end
 
@@ -442,6 +520,7 @@ defmodule AL do
                 store: state.active_choicepoint.store,
                 continuations: rest_continuations,
                 scope_pointer: continuation.scope_pointer,
+                source_scopes: continuation.source_scopes,
                 suspensions: state.active_choicepoint.suspensions
               }
           })
@@ -591,6 +670,39 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.tx_id), [result])
 
+  def interp(
+        %Goal.OApply{
+          method_id: :source_method_parts,
+          args: [entry, method, head, body, source_kind, capture_id]
+        },
+        state
+      ) do
+    case entry do
+      [entry_method, entry_head, entry_body] ->
+        result =
+          unify(
+            state,
+            {method, head, body, source_kind},
+            {entry_method, entry_head, entry_body, :plain}
+          )
+
+        put_bindings(state, result, [method, head, body, source_kind])
+
+      {:al_source_method, entry_capture_id, entry_method, entry_head, entry_body} ->
+        result =
+          unify(
+            state,
+            {method, head, body, source_kind, capture_id},
+            {entry_method, entry_head, entry_body, :retained, entry_capture_id}
+          )
+
+        put_bindings(state, result, [method, head, body, source_kind, capture_id])
+
+      _other ->
+        backtrack(state)
+    end
+  end
+
   def interp(%Goal.OApply{method_id: :map_get, args: [m, _k, _v]}, state) when not is_map(m),
     do: backtrack(state)
 
@@ -659,6 +771,12 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.SourceScope{capture_id: capture_id, goals: goals}, state),
+    do: AL.Source.enter_scope(state, capture_id, goals)
+
+  def interp(%Goal.SourceScopeExit{capture_id: capture_id}, state),
+    do: AL.Source.exit_scope(state, capture_id)
+
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
     case cached_scan_clauses(method_id_pattern, state.branch) do
       [] ->
@@ -671,7 +789,8 @@ defmodule AL do
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
           done: state.active_choicepoint.done,
-          scope_pointer: caller_scope_pointer(state)
+          scope_pointer: caller_scope_pointer(state),
+          source_scopes: state.active_choicepoint.source_scopes
         }
 
         [active_choicepoint | alternative_choicepoints] =
@@ -689,6 +808,7 @@ defmodule AL do
                 continuations: [continuation | state.active_choicepoint.continuations],
                 done: [],
                 scope_pointer: scope,
+                source_scopes: state.active_choicepoint.source_scopes,
                 suspensions: state.active_choicepoint.suspensions
               },
               [{bind_head_pattern, method_id_pattern}]
@@ -784,7 +904,8 @@ defmodule AL do
            condition,
            state.active_choicepoint.store,
            state.tx_id,
-           state.branch
+           state.branch,
+           state.active_choicepoint.source_scopes
          ) do
       {:ok, solutions} ->
         body_goals =
@@ -813,7 +934,8 @@ defmodule AL do
            condition,
            state.active_choicepoint.store,
            state.tx_id,
-           state.branch
+           state.branch,
+           state.active_choicepoint.source_scopes
          ) do
       {:ok, solutions} ->
         # Per solution: resolve template against that solution's own
@@ -845,7 +967,8 @@ defmodule AL do
         continuation = %AL.Continuation{
           goals: state.active_choicepoint.goals,
           done: state.active_choicepoint.done,
-          scope_pointer: state.active_choicepoint.scope_pointer
+          scope_pointer: state.active_choicepoint.scope_pointer,
+          source_scopes: state.active_choicepoint.source_scopes
         }
 
         %AL{
@@ -858,6 +981,7 @@ defmodule AL do
                   continuations: [continuation | state.active_choicepoint.continuations],
                   done: [],
                   scope_pointer: scope,
+                  source_scopes: state.active_choicepoint.source_scopes,
                   suspensions: state.active_choicepoint.suspensions
                 },
                 [args]
@@ -1077,7 +1201,8 @@ defmodule AL do
            condition,
            state.active_choicepoint.store,
            state.tx_id,
-           state.branch
+           state.branch,
+           state.active_choicepoint.source_scopes
          ) do
       {:ok, []} -> state
       {:ok, _} -> backtrack(state)
@@ -1259,14 +1384,15 @@ defmodule AL do
     AL.Var.subst(term, rename)
   end
 
-  defp collect_all_solutions(condition, store, tx_id, branch) do
+  defp collect_all_solutions(condition, store, tx_id, branch, source_scopes) do
     initial = %AL{
       active_choicepoint: %AL.Choicepoint{
         goals: condition,
         store: store,
         continuations: [],
         done: [],
-        scope_pointer: 0
+        scope_pointer: 0,
+        source_scopes: source_scopes
       },
       choicepoint_stack: [],
       tx_id: tx_id,
@@ -1631,7 +1757,8 @@ defmodule AL do
     continuation = %AL.Continuation{
       goals: state.active_choicepoint.goals,
       done: state.active_choicepoint.done,
-      scope_pointer: caller_scope_pointer(state)
+      scope_pointer: caller_scope_pointer(state),
+      source_scopes: state.active_choicepoint.source_scopes
     }
 
     choicepoint = %AL.Choicepoint{

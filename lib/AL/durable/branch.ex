@@ -41,6 +41,7 @@ defmodule AL.Branch do
 
     for branch <- [main() | list()] do
       AL.Object.create_tables(branch)
+      AL.SourceStore.create_tables(branch)
       AL.ResolutionCache.create_tables(branch)
       AL.Object.hydrate_since(0, branch)
     end
@@ -117,8 +118,11 @@ defmodule AL.Branch do
   end
 
   defp create_fork(branch, at, from) do
+    command_cutoff = at_time(from, at)
     AL.Command.create_tables(branch)
-    AL.Command.copy_prefix(from, branch, at_time(from, at))
+    AL.Command.copy_prefix(from, branch, command_cutoff)
+    AL.SourceStore.create_tables(branch)
+    AL.SourceStore.copy_prefix(from, branch, command_cutoff)
     AL.Object.create_tables(branch)
     AL.ResolutionCache.create_tables(branch)
     AL.Object.hydrate_since(0, branch)
@@ -135,6 +139,7 @@ defmodule AL.Branch do
     AL.Scheduler.stop(branch)
     AL.Object.drop_tables(branch)
     AL.ResolutionCache.drop_tables(branch)
+    AL.SourceStore.drop_tables(branch)
     AL.Command.drop_tables(branch)
     :ok
   end

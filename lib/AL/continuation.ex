@@ -12,5 +12,6 @@ defmodule AL.Continuation do
     field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:done, [AL.Goal.t()], enforce: true, default: [])
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
+    field(:source_scopes, [AL.Source.Ref.capture_id()], default: [])
   end
 end

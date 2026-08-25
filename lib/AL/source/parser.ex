@@ -102,6 +102,27 @@ defmodule AL.Source.Parser do
   def slice(_text, _range),
     do: range_error("source range must contain start and stop positions", nil)
 
+  @doc """
+  Extract captures and a lowered program from an already-parsed AST, given the
+  exact text it was parsed from.
+
+  For an AST a caller parsed itself (for example a macro's own received
+  argument, under `columns: true, token_metadata: true`), rather than text
+  `parse/1` parsed. Skips the EOF sentinel `parse_valid_text/1` uses: that
+  works around the parser omitting `end_of_expression` on the final top-level
+  form of a *complete* parse, which does not apply to an AST nested inside a
+  larger, unparsed enclosing form.
+  """
+  @spec capture(Macro.t(), String.t()) :: {:ok, Result.t()} | {:error, Error.t()}
+  def capture(ast, text) when is_binary(text) do
+    forms = top_level_forms(ast)
+
+    with {:ok, captures, _next_ordinal} <- capture_forms(forms, text, 0, 0, []),
+         {:ok, program} <- lower(ast) do
+      {:ok, %Result{program: program, captures: captures}}
+    end
+  end
+
   defp parse_valid_text(text) do
     case Code.string_to_quoted(text, @parse_options) do
       {:ok, ast} ->

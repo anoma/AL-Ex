@@ -615,6 +615,32 @@ defmodule AL.Package.Bootstrap do
 
     vm_set_super(:map, :object)
 
+    defmethod(:object, :source_define_method, [
+      self,
+      class,
+      method_name,
+      head,
+      body,
+      :plain,
+      _capture_id
+    ]) do
+      defmethod(class, method_name, head, body)
+    end
+
+    defmethod(:object, :source_define_method, [
+      self,
+      class,
+      method_name,
+      head,
+      body,
+      :retained,
+      capture_id
+    ]) do
+      vm_source_scope(capture_id) do
+        defmethod(class, method_name, head, body)
+      end
+    end
+
     # `defclass name, metaclass: :class, super: ..., ivars: [...],
     # categories: [...] do ... end` — bundles the `new(metaclass, ...)` +
     # per-category `import` + per-method `defmethod` sequence a class
@@ -635,9 +661,10 @@ defmodule AL.Package.Bootstrap do
       end
 
       # Retract pass runs to completion *before* any defmethod call, so two
-      # methods-list entries sharing a selector (a genuinely multi-clause
-      # method) don't retract each other's freshly-added clause.
-      forall([member(methods, [method_name, _head, _body])]) do
+      # methods-list entries sharing a selector don't retract each other's
+      # freshly-added clause.
+      forall([member(methods, entry)]) do
+        vm_source_method_parts(entry, method_name, _head, _body, _source_kind, _capture_id)
         findall(id, [vm_method(name, method_name, id)], existing_ids)
 
         forall([member(existing_ids, id)]) do
@@ -645,8 +672,9 @@ defmodule AL.Package.Bootstrap do
         end
       end
 
-      forall([member(methods, [method_name, head, body])]) do
-        defmethod(name, method_name, head, body)
+      forall([member(methods, entry)]) do
+        vm_source_method_parts(entry, method_name, head, body, source_kind, capture_id)
+        source_define_method(:object, name, method_name, head, body, source_kind, capture_id)
       end
     end
 

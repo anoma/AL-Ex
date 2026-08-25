@@ -1,3 +1,5 @@
+Code.compiler_options(parser_options: [columns: true, token_metadata: true])
+
 defmodule AL.MixProject do
   use Mix.Project
 

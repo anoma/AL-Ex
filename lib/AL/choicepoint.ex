@@ -17,6 +17,7 @@ defmodule AL.Choicepoint do
     field(:store, AL.Var.store() | nil, enforce: true, default: %{})
     field(:continuations, [AL.Continuation.t()], enforce: true, default: [])
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
+    field(:source_scopes, [AL.Source.Ref.capture_id()], default: [])
     field(:suspensions, %{optional(AL.Var.t()) => [AL.Goal.t()]}, default: %{})
   end
 end

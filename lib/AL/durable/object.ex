@@ -188,6 +188,67 @@ defmodule AL.Object do
     |> Enum.map(fn {:soa, o, key, _seq, _tx_from, :open, {h, b}} -> {:oapply, o, key, h, b} end)
   end
 
+  @doc "Return open class rows with transaction-time fields."
+  def scan_open_class_versions(object, class, branch \\ AL.Branch.head()),
+    do: scan_class_versions(object, class, :open, branch)
+
+  @doc "Return all class versions with transaction-time fields."
+  def scan_class_history(object, class, branch \\ AL.Branch.head()),
+    do: scan_class_versions(object, class, fresh_wildcard("tx_to"), branch)
+
+  @doc "Return open method rows with transaction-time fields."
+  def scan_open_method_versions(object, method, method_id, branch \\ AL.Branch.head()),
+    do: scan_method_versions(object, method, method_id, :open, branch)
+
+  @doc "Return all method versions with transaction-time fields."
+  def scan_method_history(object, method, method_id, branch \\ AL.Branch.head()),
+    do: scan_method_versions(object, method, method_id, fresh_wildcard("tx_to"), branch)
+
+  @doc "Return open clause rows with transaction-time fields."
+  def scan_open_oapply_versions(object, clause_seq, head, body, branch \\ AL.Branch.head()),
+    do: scan_oapply_versions(object, clause_seq, head, body, :open, branch)
+
+  @doc "Return all clause versions with transaction-time fields."
+  def scan_oapply_history(object, clause_seq, head, body, branch \\ AL.Branch.head()),
+    do: scan_oapply_versions(object, clause_seq, head, body, fresh_wildcard("tx_to"), branch)
+
+  defp scan_class_versions(object, class, tx_to, branch) do
+    pattern =
+      {:soa, object, :class, fresh_wildcard("seq"), fresh_wildcard("tx_from"), tx_to, class}
+
+    :mnesia.select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    |> Enum.map(fn {:soa, o, :class, seq, tx_from, tx_to, c} ->
+      {:class, o, seq, tx_from, tx_to, c}
+    end)
+    |> Enum.sort_by(fn {:class, _o, seq, tx_from, _tx_to, _c} -> {seq, tx_from} end)
+  end
+
+  defp scan_method_versions(object, method, method_id, tx_to, branch) do
+    pattern =
+      {:soa, object, {:method, method}, fresh_wildcard("seq"), fresh_wildcard("tx_from"), tx_to,
+       method_id}
+
+    :mnesia.select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    |> Enum.map(fn {:soa, o, {:method, name}, seq, tx_from, tx_to, id} ->
+      {:method, o, name, seq, tx_from, tx_to, id}
+    end)
+    |> Enum.sort_by(fn {:method, _o, _name, seq, tx_from, _tx_to, _id} -> {seq, tx_from} end)
+  end
+
+  defp scan_oapply_versions(object, clause_seq, head, body, tx_to, branch) do
+    pattern =
+      {:soa, object, clause_seq, fresh_wildcard("seq"), fresh_wildcard("tx_from"), tx_to,
+       {head, body}}
+
+    :mnesia.select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    |> Enum.map(fn {:soa, o, key, seq, tx_from, tx_to, {h, b}} ->
+      {:oapply, o, key, seq, tx_from, tx_to, h, b}
+    end)
+    |> Enum.sort_by(fn {:oapply, _o, key, _seq, tx_from, _tx_to, _h, _b} ->
+      {key, tx_from}
+    end)
+  end
+
   @spec scan_soa_slot(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [soa_slot_record()]
   def scan_soa_slot(object_pattern, key_pattern, value_pattern, branch \\ AL.Branch.head()) do
     :mnesia.select(table(:soa, branch), [
