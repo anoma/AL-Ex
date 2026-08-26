@@ -85,6 +85,14 @@ defmodule AL.Lowering do
   def ast_to_pattern({:vm_oapply, _, [method_id, args]}),
     do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
 
+  def ast_to_pattern({:vm_method_source, _, [object, seq, text, provenance]}),
+    do: %Goal.MethodSource{
+      object: ast_to_pattern(object),
+      seq: ast_to_pattern(seq),
+      text: ast_to_pattern(text),
+      provenance: ast_to_pattern(provenance)
+    }
+
   def ast_to_pattern({:implies, _, [[do: clauses]]}), do: build_implies(clauses)
 
   def ast_to_pattern({:alternative, _, [left, right]}),
@@ -93,6 +101,8 @@ defmodule AL.Lowering do
   def ast_to_pattern({:cut, _, _}), do: %Goal.Cut{}
 
   def ast_to_pattern({:fail, _, _}), do: %Goal.Fail{}
+
+  def ast_to_pattern({:pass, _, _}), do: %Goal.Pass{}
 
   def ast_to_pattern({:vm_set_class, _, [object, class]}),
     do: %Goal.SetClass{object: ast_to_pattern(object), class: ast_to_pattern(class)}

@@ -662,6 +662,7 @@ defmodule AL do
   def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.MethodSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetSlotAt{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
   def interp(%Goal.OApply{method_id: :fresh_id, args: [result]}, state),
@@ -1213,6 +1214,8 @@ defmodule AL do
   def interp(%Goal.Fail{}, state) do
     backtrack(state)
   end
+
+  def interp(%Goal.Pass{}, state), do: state
 
   def interp(%Goal.Send{object: self, method: method, args: args}, state),
     do: AL.Dispatch.dispatch(self, method, args, state, &AL.Dispatch.dnu(self, method, args, &1))

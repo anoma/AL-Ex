@@ -149,4 +149,32 @@ defmodule Examples.ALControlFlow do
     assert Map.get(bindings, :"$out") == :hello
     :ok
   end
+
+  # `pass` is the always-succeeds no-op goal -- a branch that has nothing left
+  # to do (its condition already did the work) shouldn't need a self-unify.
+  example pass_succeeds_without_changing_bindings() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        unify(out, :hello)
+        pass
+      end
+
+    assert Map.get(bindings, :"$out") == :hello
+    :ok
+  end
+
+  example pass_as_an_implies_branch() do
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        implies do
+          [class(:object, c)] -> pass
+          :else -> unify(out, :else_ran)
+        end
+
+        unify(out, :then_ran_and_passed)
+      end
+
+    assert Map.get(bindings, :"$out") == :then_ran_and_passed
+    :ok
+  end
 end

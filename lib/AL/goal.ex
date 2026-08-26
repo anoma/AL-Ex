@@ -3,6 +3,8 @@ defmodule AL.Goal.StorableError do
 
   defexception [:term, :reason]
 
+  @type t() :: %__MODULE__{term: term(), reason: term()}
+
   @impl true
   def message(%__MODULE__{term: term, reason: reason}) do
     "cannot store ephemeral source term #{inspect(term)}: #{inspect(reason)}"
@@ -31,6 +33,7 @@ defmodule AL.Goal do
           | AL.Goal.GetSuper.t()
           | AL.Goal.GetMethod.t()
           | AL.Goal.GetOapply.t()
+          | AL.Goal.MethodSource.t()
           | AL.Goal.AssertValidClauseSelf.t()
           | AL.Goal.OApply.t()
           | AL.Goal.Cut.t()
@@ -66,6 +69,7 @@ defmodule AL.Goal do
           | AL.Goal.SourceScope.t()
           | AL.Goal.SourceScopeExit.t()
           | AL.Goal.Fail.t()
+          | AL.Goal.Pass.t()
 
   @type t() :: command() | instructions()
 
@@ -161,6 +165,14 @@ defmodule AL.Goal do
     field(:seq, AL.Var.t())
     field(:head, AL.Var.t())
     field(:body, [AL.Goal.t()])
+  end
+
+  # `object` is a method's own id (from `vm_method`), not a class+selector pair.
+  typedstruct enforce: true, module: MethodSource do
+    field(:object, AL.Var.t())
+    field(:seq, AL.Var.t())
+    field(:text, AL.Var.t())
+    field(:provenance, AL.Var.t())
   end
 
   # Narrowly-scoped validation, not a general primitive -- called only from
@@ -382,6 +394,9 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: Fail do
   end
 
+  typedstruct enforce: true, module: Pass do
+  end
+
   @doc "Transform every leaf of a goal term with `fun`."
   @spec map(term(), (term() -> term())) :: term()
   def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
@@ -434,6 +449,7 @@ defmodule AL.Goal do
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
+    {MethodSource, :method_source, [object: :term, seq: :term, text: :term, provenance: :term]},
     {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},
     {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
@@ -492,6 +508,7 @@ defmodule AL.Goal do
 
   defp do_to_stored(%Cut{}), do: :cut
   defp do_to_stored(%Fail{}), do: :fail
+  defp do_to_stored(%Pass{}), do: :pass
 
   defp do_to_stored(goal) when is_struct(goal) do
     case Map.fetch(@to_form, goal.__struct__) do
@@ -554,6 +571,7 @@ defmodule AL.Goal do
   @spec from_stored(stored()) :: t()
   def from_stored(:cut), do: %Cut{}
   def from_stored(:fail), do: %Fail{}
+  def from_stored(:pass), do: %Pass{}
 
   def from_stored(stored) when is_tuple(stored) do
     [tag | args] = Tuple.to_list(stored)

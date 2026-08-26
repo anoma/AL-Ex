@@ -203,14 +203,23 @@ defmodule AL.Command do
       Node.alive?() ->
         if Node.connect(@owner_node), do: :joined, else: :owner
 
-      match?({:ok, _}, Node.start(@owner_node, :longnames)) ->
-        :owner
-
       true ->
-        {:ok, _} = Node.start(:"al_client_#{System.pid()}@127.0.0.1", :longnames)
-        true = Node.connect(@owner_node)
-        :joined
+        ensure_epmd_running()
+
+        if match?({:ok, _}, Node.start(@owner_node, :longnames)) do
+          :owner
+        else
+          {:ok, _} = Node.start(:"al_client_#{System.pid()}@127.0.0.1", :longnames)
+          true = Node.connect(@owner_node)
+          :joined
+        end
     end
+  end
+
+  @spec ensure_epmd_running() :: :ok
+  defp ensure_epmd_running() do
+    System.cmd("epmd", ["-daemon"], stderr_to_stdout: true)
+    :ok
   end
 
   @doc "Current system time of the command log — the next command writes at this value."

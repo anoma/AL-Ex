@@ -17,7 +17,7 @@ defmodule AL.Package.Constraints do
 
           implies do
             [new_domain == old_domain] ->
-              true
+              pass
 
             :else ->
               set_slot(self, :domain, new_domain)

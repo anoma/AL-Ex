@@ -6,6 +6,12 @@ defmodule Examples.ALSource do
   use ExExample
   use AL
   import ExUnit.Assertions
+  import ExUnit.CaptureIO
+
+  defp fresh_id(prefix) do
+    suffix = System.unique_integer([:positive])
+    String.to_atom("#{prefix}_#{suffix}")
+  end
 
   example reverse_clause_to_source() do
     head = [[:"$h" | :"$t"], :"$reversed"]
@@ -71,5 +77,31 @@ defmodule Examples.ALSource do
     assert source == "unify(self, self_2)"
 
     source
+  end
+
+  example listing_prints_a_methods_clauses_via_print_object_dispatch() do
+    branch = AL.Branch.fork_fresh()
+    class = fresh_id("listing_class")
+
+    try do
+      source = """
+      defclass #{inspect(class)}, super: :object do
+        defmethod(:greet, [self, :hi])
+      end
+      """
+
+      {:atomic, _} = AL.eval_source(source, branch)
+
+      output =
+        capture_io(fn ->
+          run branch: branch.id do
+            listing(^class, :greet)
+          end
+        end)
+
+      assert output == "defmethod(:greet, [self, :hi])\n\n"
+    after
+      AL.Branch.discard(branch)
+    end
   end
 end

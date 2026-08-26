@@ -82,6 +82,31 @@ defmodule AL.Source do
     end
   end
 
+  @doc "Source rows for one method object's own open clauses, by method identity."
+  @spec method_object_source_rows(term(), AL.Branch.t()) :: [
+          {:method_source, term(), non_neg_integer(), String.t(), :retained | :decompiled}
+        ]
+  def method_object_source_rows(method_id, branch \\ AL.Branch.head()) do
+    for {:method, class, name, ^method_id} <-
+          AL.Object.scan_method(
+            AL.Var.var("method_source_class_#{AL.fresh_scope()}"),
+            AL.Var.var("method_source_name_#{AL.fresh_scope()}"),
+            method_id,
+            branch
+          ),
+        {:oapply, ^method_id, clause_seq, _row_seq, command_t, :open, head, body} <-
+          AL.Object.scan_open_oapply_versions(
+            method_id,
+            AL.Var.var("method_source_seq_#{AL.fresh_scope()}"),
+            AL.Var.var("method_source_head_#{AL.fresh_scope()}"),
+            AL.Var.var("method_source_body_#{AL.fresh_scope()}"),
+            branch
+          ) do
+      result = retained_method_source(class, name, head, body, command_t, branch)
+      {:method_source, method_id, clause_seq, result.text, result.provenance}
+    end
+  end
+
   @doc "Print retained (or decompiled) source for every clause of one method."
   @spec print_method(term(), atom(), AL.Branch.t() | atom()) :: :ok
   def print_method(class, name, branch \\ AL.Branch.head()) do
@@ -475,6 +500,7 @@ defmodule AL.Source do
   @spec goal(AL.Goal.stored()) :: Macro.t()
   defp goal(:cut), do: {:cut, [], []}
   defp goal(:fail), do: {:fail, [], []}
+  defp goal(:pass), do: {:pass, [], []}
   defp goal({:print, p}), do: call(:print, [p])
   defp goal({:not, cond}), do: {:not, [], [Enum.map(cond, &goal/1)]}
   defp goal({:freeze, v, gs}), do: {:freeze, [], [pat(v), Enum.map(gs, &goal/1)]}

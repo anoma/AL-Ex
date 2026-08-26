@@ -133,6 +133,17 @@ defmodule AL.Interp.Relations do
         {:method, object, name, id}
       )
 
+  def interp(
+        %Goal.MethodSource{object: object, seq: seq, text: text, provenance: provenance},
+        state
+      ),
+      do:
+        scan_relation(
+          state,
+          AL.Source.method_object_source_rows(object, state.branch),
+          {:method_source, object, seq, text, provenance}
+        )
+
   def interp(%Goal.GetOapply{object: object, seq: seq, head: head, body: body}, state) do
     clause = {:oapply, object, seq, head, body}
 

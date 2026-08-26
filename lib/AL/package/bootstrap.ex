@@ -67,6 +67,22 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
+    defmethod(:object, :print_object, [self, class_name]) do
+      class(self, class_name)
+    end
+
+    defmethod(:behaviour, :print_object, [self, text]) do
+      vm_method_source(self, _seq, text, _provenance)
+    end
+
+    defmethod(:object, :listing, [class, name]) do
+      vm_method(class, name, impl)
+
+      forall([print_object(impl, text)]) do
+        vm_format("~a~%~%", [text])
+      end
+    end
+
     defmethod(:object, :get_slot, [self, key, value]) do
       vm_map_get(self, key, value)
     end
@@ -110,13 +126,13 @@ defmodule AL.Package.Bootstrap do
 
       implies do
         [member([:class, :category, :behaviour], class_name)] ->
-          unify(self, self)
+          pass
 
         [reachable_classes([class_name], [], class_supers), member(class_supers, :class)] ->
-          unify(self, self)
+          pass
 
         [not [vm_get_slot(class_name, :ivars, _)]] ->
-          unify(self, self)
+          pass
 
         :else ->
           vm_cached_find_ivar_spec(self, key, spec)
@@ -240,7 +256,7 @@ defmodule AL.Package.Bootstrap do
           end
 
         :else ->
-          unify(name, name)
+          pass
       end
     end
 
@@ -254,12 +270,12 @@ defmodule AL.Package.Bootstrap do
       vm_map_get(args, :super, super)
 
       implies do
-        [vm_map_get(args, :ivars, ivars)] -> unify(ivars, ivars)
+        [vm_map_get(args, :ivars, ivars)] -> pass
         :else -> unify(ivars, [])
       end
 
       implies do
-        [vm_map_get(args, :redef, redef)] -> unify(redef, redef)
+        [vm_map_get(args, :redef, redef)] -> pass
         :else -> unify(redef, false)
       end
 
@@ -294,7 +310,7 @@ defmodule AL.Package.Bootstrap do
           )
 
         :else ->
-          unify(name, name)
+          pass
       end
     end
 
@@ -343,7 +359,7 @@ defmodule AL.Package.Bootstrap do
           set_slot(self, name, default)
 
         :else ->
-          unify(self, self)
+          pass
       end
     end
 
@@ -365,7 +381,7 @@ defmodule AL.Package.Bootstrap do
       class(self, meta)
 
       implies do
-        [vm_map_get(args, :redef, redef)] -> unify(redef, redef)
+        [vm_map_get(args, :redef, redef)] -> pass
         :else -> unify(redef, false)
       end
 
