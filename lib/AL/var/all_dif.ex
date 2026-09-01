@@ -31,20 +31,24 @@ defmodule AL.Var.AllDif do
     end
   end
 
+  # Keyed by each position's *live* var, not the name captured at post time:
+  # a later head unification can retire that name into an alias of a fresh
+  # var (`AL.Var.migrate_constraints`), and binding or narrowing the stale
+  # name would sever the alias while the live var stays open.
   defp materialize_domains(store, vars) do
     vars
     |> Enum.with_index()
     |> Enum.reduce_while(%{}, fn {v, idx}, acc ->
-      case domain_of(store, v) do
+      resolved = AL.Var.deref(store, v)
+
+      case domain_of(store, resolved) do
         nil -> {:halt, :unknown}
-        dom -> {:cont, Map.put(acc, {idx, v}, dom)}
+        dom -> {:cont, Map.put(acc, {idx, resolved}, dom)}
       end
     end)
   end
 
-  defp domain_of(store, v) do
-    resolved = AL.Var.deref(store, v)
-
+  defp domain_of(store, resolved) do
     if AL.Var.var?(resolved) do
       case AL.Var.constraint_set(store, resolved) do
         %ConstraintSet{domain: dom} when not is_nil(dom) ->
