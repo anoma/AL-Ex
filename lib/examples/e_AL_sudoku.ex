@@ -95,6 +95,44 @@ defmodule Examples.ALSudoku do
     :ok
   end
 
+  # Seventeen givens, the minimum for a unique grid, so nearly every cell is
+  # searched. The row `all_dif`s are posted before `transpose`/`boxes`
+  # re-alias the cells, so their propagators name retired aliases; pruning
+  # must reach the live var or labeling returns a grid with duplicates.
+  example sudoku_class_solves_a_seventeen_clue_puzzle() do
+    givens = [
+      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 3, 0, 8, 5],
+      [0, 0, 1, 0, 2, 0, 0, 0, 0],
+      [0, 0, 0, 5, 0, 7, 0, 0, 0],
+      [0, 0, 4, 0, 0, 0, 1, 0, 0],
+      [0, 9, 0, 0, 0, 0, 0, 0, 0],
+      [5, 0, 0, 0, 0, 0, 0, 7, 3],
+      [0, 0, 2, 0, 1, 0, 0, 0, 0],
+      [0, 0, 0, 0, 4, 0, 0, 0, 9]
+    ]
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
+        solve(puzzle, solved)
+      end
+
+    assert Map.get(bindings, :"$solved") == [
+             [9, 8, 7, 6, 5, 4, 3, 2, 1],
+             [2, 4, 6, 1, 7, 3, 9, 8, 5],
+             [3, 5, 1, 9, 2, 8, 7, 4, 6],
+             [1, 2, 8, 5, 3, 7, 6, 9, 4],
+             [6, 3, 4, 8, 9, 2, 1, 5, 7],
+             [7, 9, 5, 4, 6, 1, 8, 3, 2],
+             [5, 1, 9, 2, 8, 6, 4, 7, 3],
+             [4, 7, 2, 3, 1, 9, 5, 6, 8],
+             [8, 6, 3, 7, 4, 5, 2, 1, 9]
+           ]
+
+    :ok
+  end
+
   # No labeling involved at all — two given clues in the same row directly
   # violate that row's `all_dif`, caught by `constrain_rows` at `new` time
   # (before `solve` even runs), the same way `all_dif`'s own regression
