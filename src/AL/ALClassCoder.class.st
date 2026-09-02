@@ -5,7 +5,8 @@ Class {
 		'object',
 		'application',
 		'moduleName',
-		'announcer'
+		'announcer',
+		'functionStreamingModel'
 	],
 	#category : 'AL',
 	#package : 'AL'
@@ -20,6 +21,13 @@ ALClassCoder class >> forObject: anALObject [
 		yourself
 ]
 
+{ #category : 'announcing' }
+ALClassCoder >> announce: anAnnouncement [
+	"The streaming model announces its range through its module coder."
+
+	^ self announcer announce: anAnnouncement
+]
+
 { #category : 'accessing' }
 ALClassCoder >> announcer [
 	^ announcer ifNil: [ announcer := Announcer new ]
@@ -28,6 +36,14 @@ ALClassCoder >> announcer [
 { #category : 'accessing' }
 ALClassCoder >> application [
 	^ application
+]
+
+{ #category : 'accessing' }
+ALClassCoder >> coderRangeUpTo: aModuleName [
+	"An AL class has neither namespace ancestors nor imports, so the range the
+	 streaming model widens over is always just me."
+
+	^ OrderedCollection with: self
 ]
 
 { #category : 'accessing' }
@@ -67,11 +83,17 @@ entries'.
 						yourself) ]
 ]
 
-{ #category : 'as yet unclassified' }
+{ #category : 'accessing' }
 ALClassCoder >> functionStreamingModel [
-	"Module-coder contract for gt_bridge function coders; I currently have no filter bar"
+	"The model that streams my clauses; the substring highlight styler reaches
+	 its active filters through me."
 
-	^ nil
+	^ functionStreamingModel
+]
+
+{ #category : 'accessing' }
+ALClassCoder >> functionStreamingModel: anElixirFunctionStreamingModel [
+	functionStreamingModel := anElixirFunctionStreamingModel
 ]
 
 { #category : 'gt-extensions' }
