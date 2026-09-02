@@ -371,10 +371,19 @@ defmodule AL do
 
         state = log_vm_trace(state, :backtrack)
         state = unmark_exited(state, choice.scope_pointer)
+        state = mark_clause_chosen(state, choice)
 
         continue(%AL{state | active_choicepoint: choice, choicepoint_stack: rest_choices})
     end
   end
+
+  # A method's untried clauses become choicepoints all at once, so a clause is
+  # chosen only when backtracking arrives at it. The scope is the one the
+  # clause_call opened: a retry runs the next clause of the same call.
+  defp mark_clause_chosen(state, %AL.Choicepoint{clause: nil}), do: state
+
+  defp mark_clause_chosen(state, %AL.Choicepoint{clause: clause, scope_pointer: scope}),
+    do: push_trace(state, {:clause_chosen, scope, clause})
 
   defp log_vm_trace(state, entry) do
     cond do
@@ -628,7 +637,7 @@ defmodule AL do
         }
 
         [active_choicepoint | alternative_choicepoints] =
-          Enum.map(clauses, fn {:oapply, clause_id, _seq, clause_head, clause_body} ->
+          Enum.map(clauses, fn {:oapply, clause_id, clause_seq, clause_head, clause_body} ->
             wake(
               %AL.Choicepoint{
                 goals: AL.Var.freshen(clause_body, freshener),
@@ -642,7 +651,8 @@ defmodule AL do
                 continuations: [continuation | state.active_choicepoint.continuations],
                 done: [],
                 scope_pointer: scope,
-                suspensions: state.active_choicepoint.suspensions
+                suspensions: state.active_choicepoint.suspensions,
+                clause: clause_seq
               },
               [{bind_head_pattern, method_id_pattern}]
             )
@@ -667,6 +677,7 @@ defmodule AL do
             {:clause_call, scope, method_id_pattern, bind_head_pattern,
              describe_positions(open, pre_store)}
           )
+          |> push_trace({:clause_chosen, scope, active_choicepoint.clause})
           |> put_scope(scope, %{
             parent: parent,
             kind: :clause,
