@@ -1,4 +1,4 @@
-defmodule AL.Views do
+defmodule AL.GtBridge do
   @moduledoc """
   I define GlamorousToolkit views for AL
   """

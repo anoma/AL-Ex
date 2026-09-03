@@ -1,6 +1,6 @@
 ---
 name: al-internals
-description: How AL's own interpreter/VM works — the goal/choicepoint engine, dispatch resolution, unification store, event-sourced object projection, and the domino tracing model. Use when modifying AL's own interpreter code (lib/AL.ex, lib/AL/interp/, lib/AL/dispatch/, lib/AL/var/, lib/AL/durable/, lib/AL/trace/) or adding a new goal/primitive. For writing AL programs against the existing language (defclass, packages, examples, DSL gotchas), use al-practices instead.
+description: How AL's own interpreter/VM works — the goal/choicepoint engine, dispatch resolution, unification store, event-sourced object projection, and the domino tracing model. Use when modifying AL's own interpreter code (lib/AL.ex, lib/AL/interp/, lib/AL/dispatch/, lib/AL/var/, lib/AL/command_log/, lib/AL/view/, lib/AL/branch.ex, lib/AL/cache/, lib/AL/native/, lib/AL/trace/) or adding a new goal/primitive. For writing AL programs against the existing language (defclass, packages, examples, DSL gotchas), use al-practices instead.
 ---
 
 # AL internals
@@ -43,41 +43,46 @@ transactions, durable + replayable state, Git-like branching.
 Five separable concerns, not a layered stack — several have no dependency on
 each other at all, only on the command log itself:
 
-- **Command log** (`AL.Command`, `lib/AL/durable/command.ex`) — the
+- **Command log** (`AL.Command`, `lib/AL/command_log/command.ex`) — the
   append-only `{:command, t, tx_id, op}` Mnesia log. The one thing everything
   else either derives from or reacts to. Depends on nothing else here.
-- **Views** (`AL.Object`, `AL.SourceStore`, `lib/AL/durable/object.ex`,
-  `lib/AL/trace/source.ex`) — materialised projections rebuilt by replaying
-  the command log (`hydrate_since`/`hydrate_event`). Depend on the command
-  log for what to project; nothing else depends on them *existing* — a view
-  can always be rebuilt from the log alone.
+- **Views** (`AL.Object`, `AL.SourceStore`, `AL.Source` — `lib/AL/view/`) —
+  materialised projections rebuilt by replaying the command log
+  (`hydrate_since`/`hydrate_event`), plus `AL.Source`'s inverse-lowering
+  decompiler over that projection. Depend on the command log for what to
+  project; nothing else depends on them *existing* — a view can always be
+  rebuilt from the log alone.
 - **Scheduler** (`AL.Scheduler`, `lib/AL/scheduler.ex`) — reacts to *raw*
   command-log writes directly (`:mnesia.subscribe({:table, …, :detailed})`),
   not to views, to drive `send_async`/`send_elixir`. A parallel consumer of
   the log, not something built on top of the projection — independent of
   views and caches entirely.
-- **Caches** (`AL.ResolutionCache`, `lib/AL/dispatch/resolution_cache.ex`) —
+- **Caches** (`AL.ResolutionCache`, `lib/AL/cache/resolution_cache.ex`) —
   derived, disposable, per-branch memoization of expensive queries *over*
   views (`providers/3`, `oapply_clauses`, `native`, …), invalidated by the
   same writes that mutate the view they cache. Never a source of truth —
   correctness never depends on a cache entry existing, only speed does.
-- **Extensible VM** (`AL.Native`, `AL.Native.Registry` — `lib/AL/native.ex`,
-  `lib/AL/native/registry.ex` — and someday a jets mechanism) — the seam
-  where the interpreter's dispatch can be handed capability the kernel has
-  no way to derive itself. A view holds only a *symbolic reference* to what's
-  expected (a durable `:native` fact — module/function/arity/style, a name,
-  not code); *supplying* the implementation is this concern's own job, done
-  via ordinary Elixir/OTP deployment (config, releases), never via anything
-  the command log itself can execute. See
-  [[al-natives-vs-jets-kernel-runtime]] for why a future jet, unlike a
-  native, wouldn't need even the symbolic reference to be durable.
+- **Extensible VM** (`AL.Native`, `AL.Native.Registry` — `lib/AL/native/`
+  — and someday a jets mechanism) — the seam where the interpreter's
+  dispatch can be handed capability the kernel has no way to derive itself.
+  A view holds only a *symbolic reference* to what's expected (a durable
+  `:native` fact — module/function/arity/style, a name, not code);
+  *supplying* the implementation is this concern's own job, done via
+  ordinary Elixir/OTP deployment (config, releases), never via anything the
+  command log itself can execute. See [[al-natives-vs-jets-kernel-runtime]]
+  for why a future jet, unlike a native, wouldn't need even the symbolic
+  reference to be durable.
 
 The interpreter proper (`AL` itself, `AL.Dispatch`, `AL.Interp.*`, `AL.Var`,
 `AL.Choicepoint`) isn't a sixth concern of its own — it's what executes goals
 *against* these five: reading views and caches, writing back only through
 the command log's own `AL.Command`/`AL.Object` entry points (never touching
-Mnesia directly outside `lib/AL/durable/`), and reaching into the extensible
-VM specifically at `OApply` dispatch.
+Mnesia directly outside `lib/AL/command_log/`, `lib/AL/view/`, and
+`lib/AL/branch.ex`), and reaching into the extensible VM specifically at
+`OApply` dispatch. `AL.Branch` (`lib/AL/branch.ex`) sits alongside all five
+rather than inside any one of them — forking genuinely spans Command Log and
+Views (copies a log prefix *and* provisions the projection/cache tables) and
+also starts/stops the Scheduler per branch.
 
 ## Architecture (lib/AL)
 
@@ -143,7 +148,7 @@ VM specifically at `OApply` dispatch.
   resolution-order topological sort (`method_scopes/2`, `super_chain/3`, Kahn's
   algorithm). Pure functions of a receiver/class and a branch, no choicepoint or
   bindings involved — the most standalone piece of the whole dispatch subsystem.
-- **`AL.ResolutionCache` (lib/AL/dispatch/resolution_cache.ex)** — per-branch,
+- **`AL.ResolutionCache` (lib/AL/cache/resolution_cache.ex)** — per-branch,
   flush-on-write Mnesia `ram_copies` (not ETS — a table has to outlive whichever
   transient process forked the branch) memoizing `providers/3`,
   `generative_descendants/1`, `durable_classes/1`, `answers_selector?` — pure
@@ -196,18 +201,18 @@ VM specifically at `OApply` dispatch.
   `AL.ex`) is the state-aware convenience every other module calls;
   `AL.Var.unify/4` directly only when there's no `AL` state to pull
   `store`/`branch` from. Vars are atoms starting with `$` (`:"$x"`).
-- **`AL.Command` (lib/AL/durable/command.ex)** — the event log. Each mutating goal
-  writes a `{:command, t, tx_id, op}` row. `t` is a **global monotonic counter**
-  shared across stores, so commands are globally ordered.
-- **`AL.Object` (lib/AL/durable/object.ex)** — the projection: a RAM
+- **`AL.Command` (lib/AL/command_log/command.ex)** — the event log. Each mutating
+  goal writes a `{:command, t, tx_id, op}` row. `t` is a **global monotonic
+  counter** shared across stores, so commands are globally ordered.
+- **`AL.Object` (lib/AL/view/object.ex)** — the projection: a RAM
   materialisation of the log (class/super/method/oapply as `:bag`, slots as
   `:set`). Rebuilt by replay (`hydrate_since`); `scan_*` query it.
-- **`AL.Branch` (lib/AL/durable/branch.ex)** — forks. `fork(at \\ :tip, from \\
+- **`AL.Branch` (lib/AL/branch.ex)** — forks. `fork(at \\ :tip, from \\
   head())` copies `from`'s log prefix into a new store + projection; writes
   diverge. Forks nest. `checkout` sets HEAD; `discard` tears a fork down.
-  `AL.Command`/`AL.Object`/`AL.Branch` share `lib/AL/durable/` — together they
-  *are* the append-only substrate; nothing else in the interpreter reaches into
-  Mnesia directly.
+  `AL.Command`/`AL.Object`/`AL.Branch` *are* the append-only substrate
+  (`lib/AL/command_log/`, `lib/AL/view/`, `lib/AL/branch.ex` respectively) —
+  nothing else in the interpreter reaches into Mnesia directly.
 - **`AL.Package` (lib/AL/package/package.ex)** — `defpackage` installs
   definitions as a durable receipt object; dependency-ordered, reversible
   `uninstall`. `bootstrap` is foundational (class/object/method machinery
@@ -217,11 +222,15 @@ VM specifically at `OApply` dispatch.
   are goals that only *write a command*; the scheduler reacts. **One scheduler
   per store** under a DynamicSupervisor, each subscribed to its own command
   table, so fork async stays on the fork. `Branch.fork`/`discard` start/stop it.
-- **`AL.Trace`/`AL.Domino`/`AL.Source` (lib/AL/trace/)** — introspection. See
-  "The domino tracing model" below for `AL.Domino` and `AL.Trace`'s live
-  tracepoint printer; `AL.Source` decompiles a stored goal pattern back into
-  readable AL surface syntax (used by the GlamorousToolkit method-coder view in
-  `AL.Views`, `lib/AL/views.ex`).
+- **`AL.Trace`/`AL.Domino` (lib/AL/trace/)** — introspection. See "The domino
+  tracing model" below for `AL.Domino` and `AL.Trace`'s live tracepoint
+  printer.
+- **`AL.Source` (lib/AL/view/source.ex)** — decompiles a stored goal pattern
+  back into readable AL surface syntax; a Views concern, not interpreter
+  introspection, since it reads back out of the projection rather than
+  tracing live execution. Used by the GlamorousToolkit method-coder view in
+  `AL.GtBridge` (`lib/AL/gt_bridge.ex`, renamed from the unrelated
+  `AL.Views`).
 
 ## Execution model: choicepoints, marks, cut
 
