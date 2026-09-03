@@ -4,17 +4,21 @@ defmodule AL.Command do
   hydration. `system_time` is a monotonic counter, not wall-clock.
   """
 
+  @type native_mfa() :: {module(), atom(), non_neg_integer(), :value | :raw}
+
   @type command_op() ::
           :set_class
           | :set_super
           | :set_method
           | :set_oapply
           | :set_slot
+          | :set_native
           | :retract_class
           | :retract_super
           | :retract_method
           | :retract_oapply
           | :retract_slot
+          | :retract_native
           | :send_async
           | :send_elixir
 
@@ -24,11 +28,13 @@ defmodule AL.Command do
           | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:set_oapply, {AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}}
           | {:set_slot, {AL.Var.t(), AL.Var.t(), AL.Var.t(), :aos | :soa}}
+          | {:set_native, {AL.Var.t(), native_mfa()}}
           | {:retract_class, {AL.Var.t(), AL.Var.t()}}
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
           | {:retract_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
           | {:retract_slot, {AL.Var.t(), AL.Var.t(), :aos | :soa}}
+          | {:retract_native, {AL.Var.t(), native_mfa()}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {pid(), term()}}
 
@@ -317,6 +323,12 @@ defmodule AL.Command do
     write_command(tx_id, {:set_oapply, {object, seq, head, body}}, branch)
   end
 
+  @spec set_native(non_neg_integer(), AL.Var.t(), native_mfa(), AL.Branch.t()) ::
+          non_neg_integer()
+  def set_native(tx_id, object, mfa, branch \\ AL.Branch.head()) do
+    write_command(tx_id, {:set_native, {object, mfa}}, branch)
+  end
+
   @doc "The one write entry point for any ivar, aos or soa. `store` is recorded on the command itself, not re-derived on replay."
   @spec set_slot(
           non_neg_integer(),
@@ -353,6 +365,12 @@ defmodule AL.Command do
           non_neg_integer()
   def retract_oapply(tx_id, object, head, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:retract_oapply, {object, head}}, branch)
+  end
+
+  @spec retract_native(non_neg_integer(), AL.Var.t(), native_mfa(), AL.Branch.t()) ::
+          non_neg_integer()
+  def retract_native(tx_id, object, mfa, branch \\ AL.Branch.head()) do
+    write_command(tx_id, {:retract_native, {object, mfa}}, branch)
   end
 
   @doc "The retract-side counterpart of set_slot/6 -- same store-tagged shape."

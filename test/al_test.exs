@@ -38,6 +38,10 @@ defmodule ALFunctorTest do
   use ExExample.ExUnit, for: Examples.ALFunctor
 end
 
+defmodule ALNativeTest do
+  use ExExample.ExUnit, for: Examples.ALNative
+end
+
 defmodule ALListsTest do
   use ExExample.ExUnit, for: Examples.ALLists
 end

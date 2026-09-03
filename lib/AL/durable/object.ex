@@ -18,6 +18,7 @@ defmodule AL.Object do
   @type oapply_record() ::
           {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}
   @type soa_slot_record() :: {:soa_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
+  @type native_record() :: {:native, AL.Var.t(), non_neg_integer(), AL.Command.native_mfa()}
 
   # aos: array of structs, one row per object. at most one open row per
   # object by construction.
@@ -188,6 +189,29 @@ defmodule AL.Object do
     |> Enum.map(fn {:soa, o, key, _seq, _tx_from, :open, {h, b}} -> {:oapply, o, key, h, b} end)
   end
 
+  @spec scan_native(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [native_record()]
+  def scan_native(object_pattern, mfa_pattern, branch \\ AL.Branch.head()) do
+    seq_var = fresh_wildcard("seq")
+    tx_from_var = fresh_wildcard("tx_from")
+
+    :mnesia.select(table(:soa, branch), [
+      {AL.Var.to_mnesia_pattern(
+         {:soa, object_pattern, :native, seq_var, tx_from_var, :open, mfa_pattern}
+       ), [], [:"$_"]}
+    ])
+    |> Enum.sort_by(fn {:soa, _o, :native, seq, tx_from, :open, _mfa} -> {seq, tx_from} end)
+    |> Enum.map(fn {:soa, o, :native, seq, _tx_from, :open, mfa} -> {:native, o, seq, mfa} end)
+  end
+
+  @doc "The durable native binding for `object`, or nil if it isn't declared native."
+  @spec get_native(AL.Var.t(), AL.Branch.t()) :: AL.Command.native_mfa() | nil
+  def get_native(object, branch \\ AL.Branch.head()) do
+    case scan_native(object, fresh_wildcard("mfa"), branch) do
+      [{:native, ^object, _seq, mfa} | _] -> mfa
+      [] -> nil
+    end
+  end
+
   @doc "Return open class rows with transaction-time fields."
   def scan_open_class_versions(object, class, branch \\ AL.Branch.head()),
     do: scan_class_versions(object, class, :open, branch)
@@ -354,6 +378,26 @@ defmodule AL.Object do
     :ok
   end
 
+  # same shape as retract_oapply/4: close matching rows, then invalidate per
+  # actual object found (object_pattern isn't necessarily ground -- in
+  # practice AL.Native.retract/2 always calls with one, but the defensive
+  # per-row invalidation costs nothing and stays correct either way).
+  @spec retract_native(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def retract_native(object_pattern, mfa_pattern, tx, branch \\ AL.Branch.head()) do
+    pattern =
+      {:soa, object_pattern, :native, fresh_wildcard("seq"), fresh_wildcard("tx_from"), :open,
+       mfa_pattern}
+
+    rows = open_rows(:soa, pattern, branch)
+    close_rows(:soa, rows, tx, branch)
+
+    for {:soa, object, :native, _seq, _tx_from, :open, _mfa} <- Enum.uniq_by(rows, &elem(&1, 1)) do
+      AL.ResolutionCache.invalidate_native(branch, object)
+    end
+
+    :ok
+  end
+
   # method_scopes and ivar_specs cache off a class's :dispatch_strategy and
   # :ivars slots. only clear them when a write actually touches one of
   # those keys, not on every ordinary instance slots write.
@@ -409,6 +453,16 @@ defmodule AL.Object do
     )
 
     AL.ResolutionCache.invalidate_oapply_clauses(branch, object)
+  end
+
+  # the durable binding fact -- "method_id is native, backed by this Elixir
+  # {module, function, arity, style}". Never the implementation itself: that
+  # lives only in the running image's AL.Native.Registry (see AL.Native).
+  @spec set_native(AL.Var.t(), AL.Command.native_mfa(), non_neg_integer(), AL.Branch.t()) :: :ok
+  def set_native(object, mfa, tx, branch \\ AL.Branch.head()) do
+    seq = next_soa_seq(object, :native, branch)
+    :mnesia.write(table(:soa, branch), {:soa, object, :native, seq, tx, :open, mfa}, :write)
+    AL.ResolutionCache.invalidate_native(branch, object)
   end
 
   # fresh clause position, not next_soa_seq/3 (version counter within one
@@ -547,11 +601,13 @@ defmodule AL.Object do
       :set_method -> with {o, n, id} <- event, do: set_method(o, n, id, t, branch)
       :set_oapply -> with {o, s, h, b} <- event, do: set_oapply(o, s, h, b, t, branch)
       :set_slot -> with {o, k, v, store} <- event, do: set_slot(o, k, v, store, t, branch)
+      :set_native -> with {o, mfa} <- event, do: set_native(o, mfa, t, branch)
       :retract_class -> with {o, c} <- event, do: retract_class(o, c, t, branch)
       :retract_super -> with {o, s} <- event, do: retract_super(o, s, t, branch)
       :retract_method -> with {o, n, id} <- event, do: retract_method(o, n, id, t, branch)
       :retract_oapply -> with {o, h} <- event, do: retract_oapply(o, h, t, branch)
       :retract_slot -> with {o, k, store} <- event, do: retract_slot(o, k, store, t, branch)
+      :retract_native -> with {o, mfa} <- event, do: retract_native(o, mfa, t, branch)
       :send_async -> :ok
       :send_elixir -> :ok
     end

@@ -12,11 +12,14 @@ defmodule AL.Application do
     AL.Branch.setup()
 
     opts = [strategy: :one_for_one, name: Al.Supervisor]
-    {:ok, pid} = Supervisor.start_link([AL.Scheduler.supervisor_spec()], opts)
+
+    {:ok, pid} =
+      Supervisor.start_link([AL.Scheduler.supervisor_spec(), AL.Native.Registry], opts)
 
     AL.Scheduler.start_all()
 
     bootstrap()
+    register_natives()
     AL.Branch.ensure_examples()
 
     {:ok, pid}
@@ -26,5 +29,15 @@ defmodule AL.Application do
     :al
     |> Application.get_env(:packages, [])
     |> AL.Package.install_all()
+  end
+
+  # Re-run on every boot, same as bootstrap/0 -- a native's durable binding
+  # fact survives an image restart, but the implementation itself doesn't
+  # (see AL.Native); this is what re-satisfies it automatically instead of
+  # requiring anyone to remember a manual re-registration step.
+  def register_natives() do
+    :al
+    |> Application.get_env(:natives, [])
+    |> AL.Native.register_all()
   end
 end

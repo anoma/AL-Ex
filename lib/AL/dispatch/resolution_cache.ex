@@ -13,7 +13,8 @@ defmodule AL.ResolutionCache do
     :durable_classes,
     :oapply_clauses,
     :method_scopes,
-    :ivar_specs
+    :ivar_specs,
+    :native
   ]
 
   @spec table(atom(), AL.Branch.t()) :: atom()
@@ -61,6 +62,11 @@ defmodule AL.ResolutionCache do
   def fetch_oapply_clauses(branch, method_id, compute),
     do: fetch(table(:oapply_clauses, branch), :oapply_clauses, method_id, compute)
 
+  @doc "Caches AL.Object.get_native/2 -- nil (not native) is cached same as a real binding."
+  @spec fetch_native(AL.Branch.t(), term(), (-> term())) :: term()
+  def fetch_native(branch, method_id, compute),
+    do: fetch(table(:native, branch), :native, method_id, compute)
+
   # keyed by {classes, strategy}. classes only, not self: same class list
   # gives the same chain for every instance. invalidated by super writes
   # and by a dispatch_strategy slot change.
@@ -106,6 +112,13 @@ defmodule AL.ResolutionCache do
   @spec invalidate_oapply_clauses(AL.Branch.t(), term()) :: :ok
   def invalidate_oapply_clauses(branch, method_id) do
     :mnesia.delete(table(:oapply_clauses, branch), method_id, :write)
+    :ok
+  end
+
+  @doc "Precise, not flush-all: mirrors invalidate_oapply_clauses/2."
+  @spec invalidate_native(AL.Branch.t(), term()) :: :ok
+  def invalidate_native(branch, method_id) do
+    :mnesia.delete(table(:native, branch), method_id, :write)
     :ok
   end
 

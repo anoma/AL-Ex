@@ -38,6 +38,47 @@ transactions, durable + replayable state, Git-like branching.
   "just import" would forecloses automatic propagation to classes/methods
   defined later.
 
+## Architectural concerns
+
+Five separable concerns, not a layered stack — several have no dependency on
+each other at all, only on the command log itself:
+
+- **Command log** (`AL.Command`, `lib/AL/durable/command.ex`) — the
+  append-only `{:command, t, tx_id, op}` Mnesia log. The one thing everything
+  else either derives from or reacts to. Depends on nothing else here.
+- **Views** (`AL.Object`, `AL.SourceStore`, `lib/AL/durable/object.ex`,
+  `lib/AL/trace/source.ex`) — materialised projections rebuilt by replaying
+  the command log (`hydrate_since`/`hydrate_event`). Depend on the command
+  log for what to project; nothing else depends on them *existing* — a view
+  can always be rebuilt from the log alone.
+- **Scheduler** (`AL.Scheduler`, `lib/AL/scheduler.ex`) — reacts to *raw*
+  command-log writes directly (`:mnesia.subscribe({:table, …, :detailed})`),
+  not to views, to drive `send_async`/`send_elixir`. A parallel consumer of
+  the log, not something built on top of the projection — independent of
+  views and caches entirely.
+- **Caches** (`AL.ResolutionCache`, `lib/AL/dispatch/resolution_cache.ex`) —
+  derived, disposable, per-branch memoization of expensive queries *over*
+  views (`providers/3`, `oapply_clauses`, `native`, …), invalidated by the
+  same writes that mutate the view they cache. Never a source of truth —
+  correctness never depends on a cache entry existing, only speed does.
+- **Extensible VM** (`AL.Native`, `AL.Native.Registry` — `lib/AL/native.ex`,
+  `lib/AL/native/registry.ex` — and someday a jets mechanism) — the seam
+  where the interpreter's dispatch can be handed capability the kernel has
+  no way to derive itself. A view holds only a *symbolic reference* to what's
+  expected (a durable `:native` fact — module/function/arity/style, a name,
+  not code); *supplying* the implementation is this concern's own job, done
+  via ordinary Elixir/OTP deployment (config, releases), never via anything
+  the command log itself can execute. See
+  [[al-natives-vs-jets-kernel-runtime]] for why a future jet, unlike a
+  native, wouldn't need even the symbolic reference to be durable.
+
+The interpreter proper (`AL` itself, `AL.Dispatch`, `AL.Interp.*`, `AL.Var`,
+`AL.Choicepoint`) isn't a sixth concern of its own — it's what executes goals
+*against* these five: reading views and caches, writing back only through
+the command log's own `AL.Command`/`AL.Object` entry points (never touching
+Mnesia directly outside `lib/AL/durable/`), and reaching into the extensible
+VM specifically at `OApply` dispatch.
+
 ## Architecture (lib/AL)
 
 - **`AL` (lib/AL.ex)** — the interpreter's core stepping engine:

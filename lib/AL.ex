@@ -779,78 +779,9 @@ defmodule AL do
     do: AL.Source.exit_scope(state, capture_id)
 
   def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
-    case cached_scan_clauses(method_id_pattern, state.branch) do
-      [] ->
-        backtrack(state)
-
-      clauses ->
-        scope = fresh_scope()
-        freshener = Integer.to_string(scope)
-
-        continuation = %AL.Continuation{
-          goals: state.active_choicepoint.goals,
-          done: state.active_choicepoint.done,
-          scope_pointer: caller_scope_pointer(state),
-          source_scopes: state.active_choicepoint.source_scopes
-        }
-
-        [active_choicepoint | alternative_choicepoints] =
-          Enum.map(clauses, fn {:oapply, clause_id, _seq, clause_head, clause_body} ->
-            wake(
-              %AL.Choicepoint{
-                goals: AL.Var.freshen(clause_body, freshener),
-                store:
-                  AL.Var.unify(
-                    {AL.Var.freshen(clause_head, freshener), clause_id},
-                    {bind_head_pattern, method_id_pattern},
-                    state.active_choicepoint.store,
-                    state.branch
-                  ),
-                continuations: [continuation | state.active_choicepoint.continuations],
-                done: [],
-                scope_pointer: scope,
-                source_scopes: state.active_choicepoint.source_scopes,
-                suspensions: state.active_choicepoint.suspensions
-              },
-              [{bind_head_pattern, method_id_pattern}]
-            )
-          end)
-
-        {call_receiver, call_args} =
-          case bind_head_pattern do
-            [r | rest] -> {r, rest}
-            other -> {other, []}
-          end
-
-        pre_store = state.active_choicepoint.store
-        open = open_positions(call_positions(call_receiver, call_args), pre_store)
-        parent = state.active_choicepoint.scope_pointer
-
-        state =
-          trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
-
-        state =
-          state
-          |> push_trace(
-            {:clause_call, scope, method_id_pattern, bind_head_pattern,
-             describe_positions(open, pre_store)}
-          )
-          |> put_scope(scope, %{
-            parent: parent,
-            kind: :clause,
-            open_vars: open,
-            exited: false,
-            derived: nil
-          })
-
-        %AL{
-          state
-          | active_choicepoint: active_choicepoint,
-            call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
-            pending_cursor: nil,
-            choicepoint_stack:
-              alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
-        }
+    case AL.Native.dispatch(method_id_pattern, bind_head_pattern, state) do
+      {:handled, result} -> result
+      :not_native -> interp_oapply_clauses(method_id_pattern, bind_head_pattern, state)
     end
   end
 
@@ -1276,6 +1207,85 @@ defmodule AL do
     end
   end
 
+  # unchanged interpreted-clause fallback for OApply -- extracted so
+  # AL.Native.dispatch/3 (checked first, see the OApply interp/2 clause
+  # above) can decline into exactly this, never a duplicated copy.
+  defp interp_oapply_clauses(method_id_pattern, bind_head_pattern, state) do
+    case cached_scan_clauses(method_id_pattern, state.branch) do
+      [] ->
+        backtrack(state)
+
+      clauses ->
+        scope = fresh_scope()
+        freshener = Integer.to_string(scope)
+
+        continuation = %AL.Continuation{
+          goals: state.active_choicepoint.goals,
+          done: state.active_choicepoint.done,
+          scope_pointer: caller_scope_pointer(state),
+          source_scopes: state.active_choicepoint.source_scopes
+        }
+
+        [active_choicepoint | alternative_choicepoints] =
+          Enum.map(clauses, fn {:oapply, clause_id, _seq, clause_head, clause_body} ->
+            wake(
+              %AL.Choicepoint{
+                goals: AL.Var.freshen(clause_body, freshener),
+                store:
+                  AL.Var.unify(
+                    {AL.Var.freshen(clause_head, freshener), clause_id},
+                    {bind_head_pattern, method_id_pattern},
+                    state.active_choicepoint.store,
+                    state.branch
+                  ),
+                continuations: [continuation | state.active_choicepoint.continuations],
+                done: [],
+                scope_pointer: scope,
+                source_scopes: state.active_choicepoint.source_scopes,
+                suspensions: state.active_choicepoint.suspensions
+              },
+              [{bind_head_pattern, method_id_pattern}]
+            )
+          end)
+
+        {call_receiver, call_args} =
+          case bind_head_pattern do
+            [r | rest] -> {r, rest}
+            other -> {other, []}
+          end
+
+        pre_store = state.active_choicepoint.store
+        open = open_positions(call_positions(call_receiver, call_args), pre_store)
+        parent = state.active_choicepoint.scope_pointer
+
+        state =
+          trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
+
+        state =
+          state
+          |> push_trace(
+            {:clause_call, scope, method_id_pattern, bind_head_pattern,
+             describe_positions(open, pre_store)}
+          )
+          |> put_scope(scope, %{
+            parent: parent,
+            kind: :clause,
+            open_vars: open,
+            exited: false,
+            derived: nil
+          })
+
+        %AL{
+          state
+          | active_choicepoint: active_choicepoint,
+            call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
+            pending_cursor: nil,
+            choicepoint_stack:
+              alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
+        }
+    end
+  end
+
   defp render_format(control, args) do
     control
     |> String.graphemes()
@@ -1518,6 +1528,71 @@ defmodule AL do
           state: state
         }
 
+      # Every native diagnostic below is a tagged 2-tuple ({:tag, payload})
+      # rather than a flat N-tuple -- the DNU clause above pattern-matches
+      # an *untyped* 4-tuple ({receiver, selector, arity, suggestions}), so
+      # any native diagnostic shaped as a bare 4-tuple would silently and
+      # incorrectly match it first regardless of its actual tag.
+      [{:native_missing, {method_id, {module, function, arity, _style}}} | _] ->
+        label = native_label(method_id, state.branch)
+
+        %{
+          message:
+            "method #{label} is declared native (#{inspect(module)}.#{function}/#{arity}) " <>
+              "but that implementation is not registered in this image.",
+          reason: {:native_missing, method_id, {module, function, arity}},
+          failed_on: failed_on,
+          trace: steps,
+          state: state
+        }
+
+      [
+        {:native_mismatch,
+         {method_id, {expected_module, expected_fun, expected_arity, _},
+          {actual_module, actual_fun, actual_arity, _}}}
+        | _
+      ] ->
+        label = native_label(method_id, state.branch)
+
+        %{
+          message:
+            "method #{label} is declared native backed by " <>
+              "#{inspect(expected_module)}.#{expected_fun}/#{expected_arity}, but this image " <>
+              "has #{inspect(actual_module)}.#{actual_fun}/#{actual_arity} registered instead.",
+          reason:
+            {:native_mismatch, method_id, {expected_module, expected_fun, expected_arity},
+             {actual_module, actual_fun, actual_arity}},
+          failed_on: failed_on,
+          trace: steps,
+          state: state
+        }
+
+      [{:native_input_not_ground, {method_id, position}} | _] ->
+        label = native_label(method_id, state.branch)
+
+        %{
+          message:
+            "native method #{label} needs input ##{position} to be ground, but it's " <>
+              "still an open variable.",
+          reason: {:native_input_not_ground, method_id, position},
+          failed_on: failed_on,
+          trace: steps,
+          state: state
+        }
+
+      [{:native_error, {method_id, {module, function}, exception_message}} | _] ->
+        label = native_label(method_id, state.branch)
+
+        %{
+          message:
+            "native method #{label} (#{inspect(module)}.#{function}) raised: " <>
+              exception_message,
+          reason: {:native_error, method_id, {module, function}, exception_message},
+          failed_on: failed_on,
+          trace: steps,
+          state: state
+        }
+
       [] ->
         case root_cause_call(state.domino.trace, ancestry) do
           {:method_call, _scope, self, method, args, _} ->
@@ -1556,6 +1631,16 @@ defmodule AL do
   defp format_call(self, method, args) do
     args_str = args |> AL.Trace.pretty() |> Enum.map(&inspect/1) |> Enum.join(", ")
     "#{inspect(AL.Trace.pretty(self))}.#{method}(#{args_str})"
+  end
+
+  # Reverse-looks-up a method_id's own {class, selector} for a readable
+  # native-diagnostic label -- falls back to the bare method_id if none is
+  # found (e.g. a fork that never installed the class this native targets).
+  defp native_label(method_id, branch) do
+    case AL.Object.scan_method(:"$native_label_self", :"$native_label_name", method_id, branch) do
+      [{:method, class, name, ^method_id} | _] -> "#{inspect(class)}##{name}"
+      [] -> inspect(method_id)
+    end
   end
 
   # Only consider events on the actual failing lineage -- siblings tried

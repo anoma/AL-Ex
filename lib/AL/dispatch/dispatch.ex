@@ -671,7 +671,7 @@ defmodule AL.Dispatch do
       ) do
     if has_matching_clause?(id, call_args, state.active_choicepoint.store, state.branch) do
       state =
-        if id in @primitive_methods,
+        if id in @primitive_methods or native_bound?(id, state.branch),
           do: state,
           else: %AL{state | pending_cursor: {self, selector, rest, method_scope}}
 
@@ -760,8 +760,19 @@ defmodule AL.Dispatch do
   end
 
   defp has_matching_clause?(id, call_args, store, branch) do
-    id in @primitive_methods or any_clause_matches?(id, call_args, store, branch)
+    id in @primitive_methods or native_bound?(id, branch) or
+      any_clause_matches?(id, call_args, store, branch)
   end
+
+  # True whenever a durable :native fact exists for `id`, regardless of
+  # whether this image currently has a matching implementation registered
+  # (AL.Native.Registry) -- that distinction is a "can we actually run it"
+  # question handled at the actual dispatch point (AL.Native.dispatch/3),
+  # not folded into an ordinary miss here.
+  defp native_bound?(id, branch),
+    do:
+      AL.ResolutionCache.fetch_native(branch, id, fn -> AL.Object.get_native(id, branch) end) !=
+        nil
 
   defp any_clause_matches?(id, call_args, store, branch) do
     scope = Integer.to_string(AL.fresh_scope())

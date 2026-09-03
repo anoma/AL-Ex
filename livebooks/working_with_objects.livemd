@@ -166,6 +166,12 @@ run do
 end
 ```
 
+```elixir
+run do
+  findall([x, y, t], [vm_slot_at(:diamond_switch_instance_1, :colour, x, t), vm_slot_at(:diamond_switch_instance_1, :state, y, t), label(t)], xs)
+end
+```
+
 ## Ephemeral Objects (Values)
 
 So far we have only discussed 'durable' objects, without defining what this means. Each durable object in AL has a backing existence in the underlying Mnesia relation tables (which as you will see later, is just a RAM-based view over the command log).

@@ -20,6 +20,10 @@ config :al,
     AL.Package.Euler
   ]
 
+# Native (Elixir-backed) methods registered at every boot -- see AL.Native.
+# {class, selector, module, function, arity} or {..., opts} tuples.
+config :al, natives: []
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 if File.exists?("config/#{config_env()}.exs") do
