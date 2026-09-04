@@ -1,10 +1,30 @@
 # Logic and constraints
 
+```elixir
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+)
+```
+
 ## Setup
 
-Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+This notebook is self-contained. The cell above installs AL directly, no separate node, no cookie, nothing to attach to. The first run compiles AL and its dependencies from scratch, which takes a minute or two. Reopening this notebook later is fast, since `Mix.install` caches by the exact dependency and config combination. State here is throwaway. It lives only for this notebook's session and disappears when the session ends.
+
+If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
+
+`Mix.install` has to finish running before AL's macros (`run`, `defclass`, and the rest) can be brought into scope, so that happens in its own cell here.
 
 ```elixir
+use AL
+
 AL.Branch.head()
 ```
 
@@ -16,15 +36,35 @@ run do
 end
 ```
 
+## `eq`: a real constraint, not immediate evaluation
+
+`vm_is` (from [syntax basics](./syntax_basics.livemd)) needs its right side already ground. `eq` doesn't care which side is open — it's a real constraint, checked at bind time like `dif`, not a one-shot evaluation.
+
+```elixir
+run do
+  unify(n, 5)
+  eq(n1, n - 1)
+end
+```
+
+The var can just as easily be buried inside the expression, on either side. No separate mode is needed, unlike `vm_is`.
+
+```elixir
+run do
+  unify(x, 10)
+  eq(x, y + 3)
+end
+```
+
 ## Propagate constraints about and between objects
 
 ```elixir
 run do
   defclass :rectangle, super: :value, ivars: [:width, :height, :perimeter] do
     defmethod(:init, [self, args, new]) do
-      slot_get(args, :width, w)
-      slot_get(args, :height, h)
-      slot_get(args, :perimeter, p)
+      vm_map_get(args, :width, w)
+      vm_map_get(args, :height, h)
+      vm_map_get(args, :perimeter, p)
       eq(p, 2 * w + 2 * h)
       unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
     end
@@ -44,6 +84,46 @@ run do
   area(r, a)
 end
 ```
+
+## Comparisons narrow instead of failing
+
+`< > <= >=` don't need a ground operand the way `vm_is` does. An open var just gets its interval narrowed instead.
+
+```elixir
+run do
+  y > 1
+end
+```
+
+`y` is still open here, just narrowed rather than bound to one value. Only a genuinely non-numeric ground operand still hard-fails, since there's no interval to narrow against it.
+
+```elixir
+run do
+  y > :not_a_number
+end
+```
+
+## Posting order doesn't matter
+
+Posting `x < y` alone narrows nothing observable, since both sides are still open. But once `y < 5` is posted too, `x` is transitively bound to satisfy the whole chain, without `x < y` ever being re-checked by hand. This is the propagator sitting parked and re-firing on its own, not a one-shot check.
+
+```elixir
+run do
+  x < y
+  y < 5
+  unify(x, 2)
+end
+```
+
+```elixir
+run do
+  x < y
+  y < 5
+  unify(x, 10)
+end
+```
+
+The second one fails: `10` can't be less than something itself less than `5`. Nothing about the order you posted the constraints in mattered, only what they jointly imply.
 
 ## Infer an object's identity from its class and a slot
 
@@ -78,12 +158,155 @@ end
 
 ## `dif` and `all_dif`
 
-```elixir
+`dif(a, b)` never resolves by binding anything itself. It only rules out bindings that would make its two sides equal.
 
+```elixir
+run do
+  dif(x, 1)
+  unify(x, 2)
+end
+```
+
+```elixir
+run do
+  dif(x, 1)
+  unify(x, 1)
+end
+```
+
+Posted on a still-open var, `dif` drives backtracking directly. `member`'s first clause offers `x = 1`, which violates the constraint and fails, so it falls through to `x = 2` without `1` ever surfacing as a candidate.
+
+```elixir
+run do
+  dif(x, 1)
+  member([1, 2, 3], x)
+end
+```
+
+`all_dif` is the same idea over a whole list at once: every pair has to satisfy `dif`.
+
+```elixir
+run do
+  all_dif([1, 2, 3])
+end
+```
+
+```elixir
+run do
+  all_dif([1, 2, 1])
+end
+```
+
+Combined with `in_domain` below, `all_dif` can force values by elimination alone, with no search: if two elements can only be `1` or `2`, and two more overlap with different ranges, the ones with no other option get pinned down directly.
+
+```elixir
+run do
+  in_domain(a, [1, 2])
+  in_domain(b, [1, 2])
+  in_domain(c, [2, 3])
+  in_domain(d, [3, 4])
+  all_dif([a, b, c, d])
+end
 ```
 
 ## `in_domain` and `label`
 
-```elixir
+`in_domain(var, values)` restricts a var to a finite set, the same way `dif`/bounds do: a real constraint on the var, not a class with a `:domain` method.
 
+```elixir
+run do
+  in_domain(x, [:a, :b, :c])
+  findall(x, [label(x)], all)
+end
+```
+
+Posting `in_domain` twice narrows by intersection.
+
+```elixir
+run do
+  in_domain(y, [:a, :b, :c, :d])
+  in_domain(y, [:c, :d, :e])
+  findall(y, [label(y)], all)
+end
+```
+
+A domain narrowed down to exactly one value binds automatically, no `label` needed.
+
+```elixir
+run do
+  in_domain(z, [:only_one])
+end
+```
+
+`label` is the one place a bounded-but-still-open var actually becomes concrete. Inequalities and `in_domain` alone only ever narrow, they never enumerate. On an already-ground term, `label` is a no-op.
+
+```elixir
+run do
+  label(5)
+  unify(x, 5)
+end
+```
+
+On a genuinely open, bounded var, `label` enumerates every value as ordinary backtracking alternatives, cheapest first.
+
+```elixir
+run do
+  x >= 3
+  x <= 5
+  label(x)
+end
+```
+
+A domain that's still open on at least one side has nothing finite to enumerate, so `label` fails rather than looping forever.
+
+```elixir
+run do
+  x >= 3
+  label(x)
+end
+```
+
+## `either`: disjunctive constraints
+
+`or` between two constraints is a real disjunction (`AL.Var.Bounds.either`), not `alternative`'s backtracking choicepoint. If one side gets refuted, the other is applied for real.
+
+```elixir
+run do
+  unify(a, 4)
+  eq(a, 5) or eq(b, 7)
+end
+```
+
+If neither side can be decided yet, `either` just stays parked, undetermined, rather than guessing.
+
+```elixir
+run do
+  eq(a, 5) or eq(b, 6)
+end
+```
+
+Both `a` and `b` are still open there. `either` is reactive too: post it before anything is ground, and it resolves once a refutation actually arrives.
+
+```elixir
+run do
+  eq(a, 5) or eq(b, 7)
+  unify(a, 4)
+end
+```
+
+Putting `findall`, `eq`, `either`, and `label` together: every multiple of 3 or 5 below 20, with no duplicates. `15` is a multiple of both and would show up twice under a naive backtracking `alternative`. It doesn't here, because `either` resolves by elimination rather than by trying both branches.
+
+```elixir
+run do
+  findall(
+    candidate,
+    [
+      candidate < 20,
+      candidate > 0,
+      eq(candidate, x * 5) or eq(candidate, y * 3),
+      label(candidate)
+    ],
+    candidates
+  )
+end
 ```

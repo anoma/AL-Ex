@@ -1,28 +1,85 @@
 # Debugging and tracing
 
-## Setup
-
-Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
-
 ```elixir
-AL.Branch.head()
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+)
 ```
 
-## Live tracing
+## Setup
+
+This notebook is self-contained. The cell above installs AL directly, no separate node, no cookie, nothing to attach to. The first run compiles AL and its dependencies from scratch, which takes a minute or two. Reopening this notebook later is fast, since `Mix.install` caches by the exact dependency and config combination. State here is throwaway. It lives only for this notebook's session and disappears when the session ends.
+
+If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
+
+`Mix.install` has to finish running before AL's macros (`run`, `defclass`, and the rest) can be brought into scope, so that happens in its own cell here.
 
 ```elixir
+use AL
 
+AL.Branch.head()
 ```
 
 ## Reading a failure
 
-```elixir
+An aborted `run` comes back with a structured reason naming exactly what went wrong. Sending a selector a method it does not understand names the receiver, the selector, its arity, and a ranked list of suggestions.
 
+```elixir
+result =
+  run do
+    defclass :failgreeter, super: :value do
+      defmethod(:init, [self, _, self])
+      defmethod(:greet, [self, _name])
+    end
+
+    new(:failgreeter, g)
+    greett(g, :world)
+  end
+
+{:aborted, reason} = result
+{reason.reason, reason.message}
 ```
 
-## Derivation trees
+AL's reporter can also report domain violations.
 
-Every run's `state.domino.trace` can be reconstructed into a tree of what was called and what was asserted, each resolved against the run's final store.
+```elixir
+run do
+  defclass :failure_domain_probe, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+  end
+
+  new(:failure_domain_probe, %{name: :failure_domain_instance, state: "on"}, _)
+end
+```
+
+## A custom `does_not_understand` suppresses the failure entirely
+
+If a class handles its own misses, sending it something unknown doesn't abort. This allows for custom fallback behaviour.
+
+```elixir
+run do
+  defclass :failquiet, super: :value do
+    defmethod(:init, [self, _, self])
+    defmethod(:does_not_understand, [self, _m, _a])
+  end
+
+  new(:failquiet, q)
+  anything(q, :x)
+end
+```
+
+## The domino tracing model
+
+AL's trace is called "domino" internally, and and is built on the classic Prolog tracer model: a "Byrd box" for every call, with four ports — `Call`, `Exit`, `Redo`, `Fail`. Plain Prolog needs one box per predicate call. AL needs two, stacked: a **method** box (dispatch choosing which provider answers a selector), which wraps a **clause** box (which clause of the chosen method actually runs). Every send opens because AL has dispatch sitting on top of clause selection, whereas Prolog only has the latter.
+
+The trace is always being recorded, cheaply, whether or not you ask to see it printed- `state.domino.trace` holds it on every run, traced or not.
 
 ```elixir
 {:atomic, {bindings, state}} =
@@ -30,16 +87,180 @@ Every run's `state.domino.trace` can be reconstructed into a tree of what was ca
     fibonacci(3, x)
   end
 
+state.domino.trace
+|> Enum.reverse()
+|> Enum.map(fn
+  entry when is_tuple(entry) -> elem(entry, 0)
+  entry -> entry
+end)
+|> Enum.filter(&(&1 in [:method_call, :method_exit, :clause_call, :clause_exit]))
+```
+
+Each of the three recursive `fibonacci` calls opens its own method box immediately wrapping a clause box, and closes them in the same nested order. `method_call, clause_call, ..., clause_exit, method_exit`, one pair of boxes per call, exactly as deep as the recursion goes.
+
+## Turning on tracing for a selector
+
+`AL.trace(selector)` prints every `Call`/`Exit`/`Redo`/`Fail` port as that selector runs, until `AL.notrace()` turns it back off. Since this notebook runs AL in its own process, the output shows up right below the cell. (If you're instead attached to a separate, persistent AL node, the trace prints to that node's own terminal, not the notebook.)
+
+```elixir
+AL.trace(:cell)
+
+run do
+  new(:cell, %{name: :traced}, c)
+end
+
+AL.notrace()
+```
+
+`Fail` shows up the same way when a call doesn't pan out — here `member` tries `:a` against `:z`, fails, then `:b` against `:z`, fails too.
+
+```elixir
+AL.trace(:list_member)
+
+run do
+  member([:a, :b], :z)
+end
+
+AL.notrace()
+```
+
+There's also a `vm_trace: true` option on `run` that interleaves the raw goals themselves into the same trace, alongside the `Call`/`Exit` events. It is a deeper knob than most debugging needs, but there if you want to see every goal AL actually executed, not just the method/clause ports.
+
+Dispatch on an open receiver can have several candidate legs- a value/ephemeral leg and a durable leg, at minimum. Tracing shows which legs are being considered before a match is even found.
+
+```elixir
+run do
+  defclass :trace_leg_class, super: :value, ivars: [] do
+    defmethod(:trace_next, [
+      %{class: :trace_leg_class, letter: :a},
+      %{class: :trace_leg_class, letter: :b}
+    ])
+  end
+end
+
+AL.trace(:trace_next)
+
+run do
+  trace_next(x, %{class: :trace_leg_class, letter: :b})
+end
+
+AL.notrace()
+```
+
+## The derivation tree: a cleaner picture than raw trace text
+
+`AL.Trace.derivation_tree/1` turns a run's trace into real nested nodes instead of indented text you have to read by eye. 
+```elixir
+{:atomic, {bindings, state}} =
+  run do
+    fibonacci(3, x)
+  end
+
+[root] = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+
+{root.kind, root.label, root.derived, length(root.children)}
+```
+
+When a method has more than one clause that could structurally match, redo tries the next one in place. The tree keeps only the attempt that actually won, not a trail of every clause that was tried.
+
+```elixir
+run do
+  defclass :redo_demo, super: :object, ivars: [] do
+  end
+
+  defmethod(:redo_demo, :pick, [self, :first])
+  defmethod(:redo_demo, :pick, [self, :second])
+end
+```
+
+```elixir
+{:atomic, {bindings, state}} =
+  run do
+    new(:redo_demo, %{}, obj)
+    pick(obj, result)
+    unify(result, :second)
+  end
+
+roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
+
+{pick_node.children, pick_node.derived}
+```
+
+The first clause (`:first`) is attempted and then upon fail, redone into the second clause. The derivation tree though, only shows the winner. It prunes the failed branches.
+
+```elixir
+run do
+  defclass :probe_box, super: :object, ivars: [] do
+    defmethod(:probe_reject, [self, v]) do
+      unify(v, 1)
+      v > 50
+    end
+
+    defmethod(:probe_leaf, [self, 100])
+
+    defmethod(:probe_mid, [self, v]) do
+      probe_leaf(self, w)
+      vm_is(v, w + 1)
+    end
+
+    defmethod(:probe_top, [self, v]) do
+      probe_mid(self, w)
+      vm_is(v, w + 1)
+    end
+
+    defmethod(:probe_answer, [self, v]) do
+      alternative([probe_reject(self, v)], [probe_top(self, v)])
+    end
+  end
+end
+```
+
+```elixir
+{:atomic, {bindings, state}} =
+  run do
+    new(:probe_box, %{}, obj)
+    probe_answer(obj, r)
+  end
+
+roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
+
+[top] = answer.children
+[mid] = top.children
+[leaf] = mid.children
+
+{top.label, mid.label, leaf.label, Enum.any?(roots, &match?(%{label: {_, :probe_reject, _}}, &1))}
+```
+
+## Constraints show up in the tree too, nested under their own scope, with resolved values
+
+Constraint goals (from [logic and constraints](./logic_and_constraints.livemd)) get their own node kind nested under whichever method scope posted them. Passing the run's final store into `derivation_tree/2` resolves that node to the value it settled on.
+
+```elixir
+run do
+  defclass :triple_class, super: :object, ivars: [] do
+    defmethod(:triple, [self, n, result]) do
+      eq(result, n * 3)
+    end
+  end
+end
+```
+
+```elixir
+{:atomic, {bindings, state}} =
+  run do
+    new(:triple_class, %{}, obj)
+    triple(obj, 4, r)
+  end
+
 roots =
   state.domino.trace
   |> Enum.reverse()
   |> AL.Trace.derivation_tree(state.active_choicepoint.store)
 
-AL.Trace.render_tree(roots)
-```
+root = Enum.find(roots, &match?(%{label: {_, :triple, _}}, &1))
+[constraint_node] = Enum.filter(root.children, &(&1.kind == :constraint))
 
-## `method_values` — tabulating recursive calls
-
-```elixir
-
+{constraint_node.kind, constraint_node.derived}
 ```

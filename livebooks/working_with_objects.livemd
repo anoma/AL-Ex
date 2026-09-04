@@ -1,14 +1,30 @@
 # Working with Objects
 
 ```elixir
-use AL
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+)
 ```
 
 ## Setup
 
-Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+This notebook is self-contained. The cell above installs AL directly, no separate node, no cookie, nothing to attach to. The first run compiles AL and its dependencies from scratch, which takes a minute or two. Reopening this notebook later is fast, since `Mix.install` caches by the exact dependency and config combination. State here is throwaway. It lives only for this notebook's session and disappears when the session ends.
+
+If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
+
+`Mix.install` has to finish running before AL's macros (`run`, `defclass`, and the rest) can be brought into scope, so that happens in its own cell here.
 
 ```elixir
+use AL
+
 AL.Branch.head()
 ```
 
@@ -16,7 +32,7 @@ AL.Branch.head()
 
 AL has an object system in the style of CLOS and Smalltalk, and aims to make writing live, open polymorphisms easy. The details of this will become more apparent later, but the basic ideas you need to know right now are that you can create classes with `defclass`, and instances of those classes with `new`. Let's try the well-known example of a light switch, which has on/off state.
 
-We use the `redef` flag so that the class & instance can be redefined by re-evaluating the block.
+We use the `redef` flag so that the class & instance can be redefined by re-evaluating the block. Inside `:flick` below you'll see `get_slot`/`set_slot`, which read and write an object's own state. They're ordinary methods on `:object`, not special syntax, so `get_slot(obj, :key, value)` is itself a message send, the same as `flick(self)` is.
 
 ```elixir
 run do
@@ -54,7 +70,18 @@ run do
 end
 ```
 
-As you can see, `:switch` is a class which inherits from `:object`. It provides the method `:flick`, which we defined. It was used to create `:switch_instance_1`. `:switch`es have a 'state' which is either on or off. Let's see what happens if we 'flick' the 'switch'.
+As you can see, `:switch` is a class which inherits from `:object`. It provides the method `:flick`, which we defined. It was used to create `:switch_instance_1`. `:switch`es have a 'state' which is either on or off.
+
+`examine` isn't the only way to see this. `class/2` and `super/2` are themselves ordinary queryable relations, not just something `defclass` declares once and hides away.
+
+```elixir
+run do
+  class(:switch_instance_1, c)
+  super(:switch, s)
+end
+```
+
+Let's see what happens if we 'flick' the 'switch'.
 
 ```elixir
 run do
@@ -63,7 +90,16 @@ run do
 end
 ```
 
-It should work! And if you evaluate again, you'll see the state change too. AL is also capable of enforcing slot invariants.
+It should work! And if you evaluate again, you'll see the state change too. `flick(:switch_instance_1)` is shorthand: it's exactly the same as writing the send out explicitly.
+
+```elixir
+run do
+  send(:switch_instance_1, :flick, [])
+  get_slot(:switch_instance_1, :state, state)
+end
+```
+
+AL is also capable of enforcing slot invariants.
 
 ```elixir
 run do
@@ -166,9 +202,70 @@ run do
 end
 ```
 
+## Categories: importing methods without inheritance
+
+`categories:` is a different way to share methods, and it isn't inheritance at all. A category is just an ordinary object with some methods on it. `import` copies those methods directly onto a class by their shared method id, with no super edge created — the class's own super chain is completely unaffected.
+
 ```elixir
 run do
-  findall([x, y, t], [vm_slot_at(:diamond_switch_instance_1, :colour, x, t), vm_slot_at(:diamond_switch_instance_1, :state, y, t), label(t)], xs)
+  new(:category, %{name: :glowable, super: :object, ivars: []}, cat)
+
+  defmethod(:glowable, :glow, [self, result]) do
+    unify(result, :shiny)
+  end
+
+  defclass :lamp, super: :object, categories: [:glowable] do
+  end
+
+  new(:lamp, %{name: :lamp_1}, w)
+  glow(:lamp_1, result)
+end
+```
+
+`:lamp` answers `:glow`, but its super is still just `:object`.
+
+```elixir
+run do
+  super(:lamp, s)
+end
+```
+
+## Printing objects
+
+Every object can describe itself for printing, through a relation called `:print_object`. It doesn't print anything by itself. It just relates `self` to some representation of it, and something else decides what to do with that (like `listing` below). The default version, defined on `:object`, just reports the object's own class.
+
+```elixir
+run do
+  print_object(:switch_instance_1, description)
+end
+```
+
+Any class can override `:print_object` to describe its own instances better, the same way `printOn:` works in Smalltalk. We can add this straight to `:switch` without touching its existing `:flick` clauses, since `defmethod` also works as a standalone call, not only nested inside `defclass`.
+
+```elixir
+run do
+  defmethod(:switch, :print_object, [self, description]) do
+    get_slot(self, :state, s)
+    unify(description, {:switch, s})
+  end
+
+  print_object(:switch_instance_1, description)
+end
+```
+
+`vm_format` (see [syntax basics](./syntax_basics.livemd)) has a directive for exactly this two-step dance. `~o` resolves `print_object` on its argument automatically, then formats the result, so the cell above is the same as writing this in one step:
+
+```elixir
+run do
+  vm_format("~o~%", [:switch_instance_1])
+end
+```
+
+Methods are printable objects too. `:behaviour`, the class every class, category and method eventually falls under, overrides `:print_object` to return a method's own source text instead of a class name. `listing/2` uses that to print every clause of a method: give it a class and a method name, and it finds the method and runs `print_object` on each of its clauses.
+
+```elixir
+run do
+  listing(:switch, :flick)
 end
 ```
 
@@ -185,3 +282,22 @@ run do
   super(:number, :value)
 end
 ```
+
+We'll discuss the most interesting facets of ephemerals in [logic and constraints](./logic_and_constraints.livemd).
+
+## Advanced: raw method dispatch
+
+Everything so far has gone through ordinary dispatch: a send looks up which method answers a selector on a class, following its supers if it has to. `vm_oapply` skips inheritance chaining. You give it a method's own internal id directly, found with `vm_method`, and it runs that exact method body, bypassing class/selector lookup entirely.
+
+```elixir
+run do
+  vm_method(:number, :factorial, id)
+  vm_oapply(id, [5, result])
+end
+```
+
+This is how AL implements things like `call_next_method` under the hood. It is not advised to use this in ordinary code, although it may provide performance boosts since it does not require checking the inheritance chain.
+
+## Some philosophy on 'Relational Objects'
+
+As you may have noticed, relations about objects don't require the object to 'exist' in some sense. In fact, to say that an object exists in AL is to say that there are relations which concern that object: The ID is meaningless in itself, and is just a handle or pointer to establish sameness- the essence of the object lies in its relations.

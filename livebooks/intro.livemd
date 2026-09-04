@@ -4,21 +4,37 @@
 
 This livebook attempts to document and teach AL's unique features. Skip to any section you need.
 
+## Getting Livebook itself
+
+If you don't already have Livebook installed:
+
+```
+mix escript.install hex livebook
+```
+
+then
+
+```
+livebook server
+```
+
+(if you use asdf, run `asdf reshim elixir` right after installing, so the `livebook` command lands on your `$PATH`.) That opens the Livebook UI in your browser. From there, open any notebook in `livebooks/` directly, no other setup needed.
+
 ## Connecting
 
-In this checkout, run `bin/livebook`.
-The page should automatically open.
-
-Then attach this notebook to that node by clicking **Runtime** in the left bar → **Configure** → **Attached node** → enter `al@127.0.0.1` and whatever `cat ~/.erlang.cookie` prints → **Connect**.
+Every notebook in this list installs AL itself on its first cell, via `Mix.install`. Just open one and run its Setup cells top to bottom. The first run compiles AL from scratch, which takes a minute or two; reopening it later is fast.
 
 ```elixir
 AL.Branch.head()
 ```
 
-If that returns a branch instead of erroring, you're connected.
+If that returns a branch instead of erroring, you're set up correctly.
+
+If you'd rather work against a real, persistent, shared store instead (useful for actual AL development, since a `Mix.install` notebook's state disappears when the session ends), run `bin/livebook` in this checkout instead of a standalone `livebook server`. That boots the project's own mix environment with a Livebook server embedded in it. Then, in a notebook, replace its Setup cells with attaching to that node directly: **Runtime** in the left bar → **Configure** → **Attached node** → enter `al@127.0.0.1` and whatever `cat ~/.erlang.cookie` prints → **Connect**.
 
 ## Notebooks
 
+* [Syntax basics](./syntax_basics.livemd) — goals, unification, arithmetic, `findall`.
 * [Working with objects](./working_with_objects.livemd) — classes, inheritance, slots, `examine`.
 * [Logic and constraints](./logic_and_constraints.livemd) — `dif`, `eq`, `all_dif`, backward execution, open-receiver queries.
 * [The command log](./command_log.livemd) — durability, branching, forking, multiple sessions.

@@ -1,0 +1,189 @@
+# Syntax basics
+
+```elixir
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+)
+```
+
+## Setup
+
+This notebook is self-contained. The cell above installs AL directly, no separate node, no cookie, nothing to attach to. The first run compiles AL and its dependencies from scratch, which takes a minute or two. Reopening this notebook later is fast, since `Mix.install` caches by the exact dependency and config combination. State here is throwaway. It lives only for this notebook's session and disappears when the session ends.
+
+If you already have a real AL node running and want the persistent, shared store instead (useful for actual development, or for [the command log](./command_log.livemd)'s multi-session material), see the [intro](./intro.livemd) for how to attach to it instead.
+
+`Mix.install` has to finish running before AL's macros (`run`, `defclass`, and the rest) can be brought into scope, so that happens in its own cell here.
+
+```elixir
+use AL
+
+AL.Branch.head()
+```
+
+## Goals
+
+An AL program is a sequence of goals, run together as one transaction with `run do ... end`. A goal either succeeds, maybe binding some variables along the way, or it fails.
+
+```elixir
+run do
+  unify(x, 1)
+end
+```
+
+Lowercase names like `x` are variables. You never declare them, you just use them, and AL fills them in as it runs.
+
+A goal that fails aborts the whole transaction.
+
+```elixir
+run do
+  unify(x, 1)
+  unify(x, 2)
+end
+```
+
+`x` can't be both `1` and `2`, so this one fails.
+
+## WAM Arithmetic
+
+`vm_is` evaluates an arithmetic expression and unifies the result against the first argument.
+
+```elixir
+run do
+  vm_is(x, 2 + 3 * 4)
+end
+```
+
+Comparisons are written directly.
+
+```elixir
+run do
+  vm_is(x, 10)
+  x > 5
+  x < 20
+end
+```
+
+This section does not cover constraint propagation.
+
+## Lists
+
+Lists look like Elixir's, including cons.
+
+```elixir
+run do
+  unify([h | t], [1, 2, 3])
+end
+```
+
+The same pattern shows up directly in method and clause heads later on, not just in `unify`.
+
+## Printing values
+
+`vm_format` writes straight to output. `~a` prints a value as-is if it's already a string, or its plain representation otherwise. `~d` prints an integer. `~%` is a newline.
+
+```elixir
+run do
+  vm_format("the answer is ~d~%", [42])
+end
+```
+
+There's also a `~o` directive for printing objects specifically, covered in [working with objects](./working_with_objects.livemd).
+
+## Collecting multiple solutions
+
+Some goals can succeed more than one way. `member` checks whether something is in a list, and if the second argument is still open, it enumerates every element instead of just checking one.
+
+```elixir
+run do
+  findall(x, [member([1, 2, 3], x)], results)
+end
+```
+
+`findall(template, goals, result)` runs `goals`, collects every way they can succeed, and gathers `template`'s binding from each into a list.
+
+## Running a goal once per solution
+
+`forall` is `findall`'s side-effecting sibling. It doesn't collect anything, it just runs its body once for every way the condition can succeed.
+
+```elixir
+run do
+  forall([member([1, 2, 3], x)]) do
+    vm_format("~d~%", [x])
+  end
+end
+```
+
+## Control flow
+
+`implies` picks a branch based on which condition succeeds first, top to bottom, with an optional `:else`.
+
+```elixir
+run do
+  vm_is(x, 5)
+  implies do
+    [x > 3] -> unify(result, :big)
+    :else -> unify(result, :small)
+  end
+end
+```
+
+`alternative` is a plain backtracking choice between two goals. Both sides stay live for backtracking.
+
+```elixir
+run do
+  findall(x, [alternative([unify(x, :a)], [unify(x, :b)])], results)
+end
+```
+
+`cut` commits to whatever's been decided so far in the current call and discards any remaining alternatives.
+
+```elixir
+run do
+  findall(x, [alternative([unify(x, :a), cut], [unify(x, :b)])], results)
+end
+```
+
+`fail` always fails. `pass` always succeeds without doing anything, useful as an empty branch.
+
+```elixir
+run do
+  unify(x, 1);
+  pass
+end
+```
+
+## Inspecting and building terms
+
+`vm_functor` is Prolog's `functor/3`. Given a ground tuple, it splits off the first element as a name and the rest as args. Given a name and args instead, it builds the tuple.
+
+```elixir
+run do
+  vm_functor({:point, 1, 2}, name, args)
+end
+```
+
+`var` succeeds if its argument is still open. `vm_ground` succeeds if a term has no open variables left in it anywhere.
+
+```elixir
+run do
+  var(x)
+end
+```
+
+## The closest thing to a lambda
+
+AL has no first-class lambda syntax. `call(head, body, args)` is the closest thing: it unifies `args` against `head`, then runs `body`, with no class or selector needed.
+
+```elixir
+run do
+  call([a, b], [vm_is(b, a * 2)], [5, result])
+end
+```

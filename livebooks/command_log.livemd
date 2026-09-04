@@ -1,37 +1,363 @@
 # The command log
 
+```elixir
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+)
+```
+
 ## Setup
 
-Connect this notebook to a running `iex --sname al -S mix` session first — see the [intro](./intro.livemd) for connection steps.
+This notebook is self-contained. The cell above installs AL directly, no separate node, no cookie, nothing to attach to. The first run compiles AL and its dependencies from scratch, which takes a minute or two. Reopening this notebook later is fast, since `Mix.install` caches by the exact dependency and config combination. State here is throwaway. It lives only for this notebook's session and disappears when the session ends, which is a bit ironic for a notebook about durability, but the command log mechanics themselves work exactly the same either way, just against a store that happens to be temporary.
+
+If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
+
+`Mix.install` has to finish running before AL's macros (`run`, `defclass`, and the rest) can be brought into scope, so that happens in its own cell here.
 
 ```elixir
+use AL
+
 AL.Branch.head()
 ```
 
-## Forking
+## The command log is the source of truth
 
-AL persists to a local, gitignored Mnesia store (`.mnesiastore/` by default) that every `iex`/`mix run`/`mix test` invocation in a checkout shares unless told otherwise. Forks let multiple streams of work happen on the same node without conflict.
+Durable objects (classes, methods, slots) live in Mnesia tables you can query directly, but those tables are only a materialized view over an append-only sequence of commands. Every write to the object system ends up as a write on the command log, and persists on disk as an Mnesia table. We say that the AL image is held as the command log. This is similar to the concept of 'event sourcing'.
 
 ```elixir
-fork = AL.Branch.fork()
+before = AL.Command.system_time()
+
+run do
+  vm_set_class(:command_log_demo, :object)
+end
+
+{:atomic, commands} =
+  :mnesia.transaction(fn -> AL.Command.commands_since(before, AL.Branch.head()) end)
+
+commands
+```
+
+Each row is a `{:command, t, tx_id, {op, event}}` tuple: `t` is the command's position in the log, `tx_id` names which transaction wrote it, and `{op, event}` is the operating event.
+
+The command log is thus the singular origin of truth for AL.
+
+## How transactions work
+
+A `run do ... end` block is one transaction. Every write inside it, no matter how many separate command rows it produces, gets tagged with the same `tx_id`.
+
+```elixir
+{:atomic, {bindings, _}} =
+  run do
+    defclass :tx_demo, super: :object, ivars: [greeting: []] do
+      defmethod(:hello, [self, :hi])
+    end
+
+    new(:tx_demo, obj)
+    set_slot(obj, :greeting, "hi")
+  end
+
+{:atomic, commands} =
+  :mnesia.transaction(fn -> AL.Command.commands_since(before, AL.Branch.head()) end)
+
+commands
+|> Enum.map(fn {:command, _t, tx_id, {op, _event}} -> {tx_id, op} end)
+```
+
+Defining a class, giving it a method, creating an instance, and setting a slot produces several command rows, one per write, but they all share one `tx_id`. Two separate `run` blocks, on the other hand, get two different transactions.
+
+```elixir
+a = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower) |> String.to_atom()
+c = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower) |> String.to_atom()
+
+{:atomic, _} =
+  run do
+    vm_set_class(^a, :object)
+  end
+
+{:atomic, _} =
+  run do
+    vm_set_class(^c, :object)
+  end
+
+{:atomic, commands} =
+  :mnesia.transaction(fn -> AL.Command.commands_since(before, AL.Branch.head()) end)
+
+tx_of = fn obj ->
+  Enum.find_value(commands, fn
+    {:command, _t, tx_id, {:set_class, {^obj, :object}}} -> tx_id
+    _ -> nil
+  end)
+end
+
+{tx_of.(a), tx_of.(c)}
+```
+
+Transactions are all or nothing. A goal that fails aborts the whole transaction. Nothing partial gets left behind. This does not mean that if you backtrack, state changes are undone during a transaction.
+
+## Hydration: durable views are rebuilt from the log
+
+Since the log is the real source of truth, the durable object tables (`class`, `super`, `method`, slot rows) are disposable. They can be dropped and rebuilt from nothing but the log.
+
+```elixir
+{:atomic, {bindings, _}} =
+  run do
+    defclass :hydration_demo, super: :object, ivars: [greeting: []] do
+      defmethod(:hello, [self, :hi])
+    end
+
+    new(:hydration_demo, obj)
+    set_slot(obj, :greeting, "hi")
+  end
+
+obj = Map.get(bindings, :"$obj")
+
+:ok = AL.Object.drop_tables(AL.Branch.head())
+:ok = AL.Object.create_tables(AL.Branch.head())
+{:atomic, _} = AL.Object.hydrate_since(0)
+
+run do
+  class(^obj, c)
+  get_slot(^obj, :greeting, g)
+end
+```
+
+The instance's class and its slot value both come back exactly as they were, rebuilt by replaying every command from the start. We call this 'hydration'. It means that you can take your system down and bring it back up online later to continue work. It means that if a crash occurs, the work is not lost. It also means that we can understand the system as it existed in the past. In essence, this should allow us to perform version control and bitemporal queries against AL.
+
+## Branching: isolated forks
+
+`AL.Branch.fork()` makes a full divergent copy of the log from the point of the fork, much like forking in git.
+
+```elixir
+tip = AL.Branch.fork()
+
+{:atomic, {bindings, _}} =
+  run branch: tip.id do
+    vm_set_slot(:widget, :x, 3)
+    vm_get_slot(:widget, :x, x)
+  end
+
+Map.get(bindings, :"$x")
+```
+
+Main never saw it.
+
+```elixir
+run do
+  vm_get_slot(:widget, :x, x)
+end
 ```
 
 ```elixir
-AL.Branch.checkout(fork)
+AL.Branch.discard(tip)
+```
+
+## A fork is frozen at its parent's history
+
+A fork taken before a write does not see it, even though a fork taken right after does, and both still carry whatever came before either of them.
+
+```elixir
+before_fork = AL.Command.system_time()
+
+run do
+  vm_set_class(:fork_timing_demo, :object)
+end
+
+past = AL.Branch.fork(before_fork)
+tip = AL.Branch.fork()
+
+run branch: tip.id do
+  class(:fork_timing_demo, :object)
+end
 ```
 
 ```elixir
-AL.Branch.discard(fork)
+run branch: past.id do
+  class(:fork_timing_demo, :object)
+end
 ```
-
-## Durability
 
 ```elixir
-
+run branch: past.id do
+  class(:object, :class)
+end
 ```
-
-## ACID transactions
 
 ```elixir
-
+AL.Branch.discard(past)
+AL.Branch.discard(tip)
 ```
+
+## Checking out a branch
+
+`AL.Branch.checkout/1` changes which branch a plain `run do ... end` acts against.
+
+```elixir
+branch = AL.Branch.fork()
+AL.Branch.checkout(branch)
+
+run do
+  vm_set_class(:checkout_demo, :object)
+end
+
+run do
+  class(:checkout_demo, :object)
+end
+```
+
+```elixir
+AL.Branch.checkout(AL.Branch.main())
+
+run do
+  class(:checkout_demo, :object)
+end
+```
+
+```elixir
+AL.Branch.discard(branch)
+```
+
+## Discarding
+
+Discarding a branch does not drop its children. They get reparented onto the grandparent, and keep working.
+
+```elixir
+parent = AL.Branch.fork()
+child = AL.Branch.fork(:tip, parent)
+
+{:branch, parent, child} in AL.Branch.branch_graph()
+```
+
+```elixir
+AL.Branch.discard(parent)
+
+{:branch, AL.Branch.main(), child} in AL.Branch.branch_graph()
+```
+
+```elixir
+run branch: child.id do
+  vm_set_class(:survivor, :object)
+end
+
+run branch: child.id do
+  class(:survivor, :object)
+end
+```
+
+```elixir
+AL.Branch.discard(child)
+```
+
+The same isolation composes when you fork a fork, and even async sends stay scoped to whichever branch they were written on. This is because each branch has its own scheduler.
+
+## Temporality
+
+Slots keep their own history. `slot_history/3` reads it back from oldest first.
+
+```elixir
+run do
+  defclass :history_probe, super: :object, ivars: [count: []] do
+  end
+
+  new(:history_probe, obj)
+  set_slot(obj, :count, 1)
+  set_slot(obj, :count, 2)
+  set_slot(obj, :count, 3)
+  slot_history(obj, :count, values)
+end
+```
+
+## Temporality: what a slot's value was at a given point in time
+
+`vm_slot_at/4` asks what a slot held at a specific transaction time, not just what it holds now.
+
+```elixir
+run do
+  defclass :boundary_probe, super: :object, ivars: [count: []] do
+  end
+
+  new(:boundary_probe, obj)
+  set_slot(obj, :count, 1)
+  set_slot(obj, :count, 2)
+
+  vm_slot_at(obj, :count, 1, t1)
+  label(t1)
+  vm_is(boundary, t1 + 1)
+  vm_slot_at(obj, :count, v_at_boundary, boundary)
+end
+```
+
+`t1` is the last instant the slot held `1`. Querying one instant later returns `2`, not `1`. The boundary belongs to the value that just took effect, not the one it closed out.
+
+## Temporality
+
+A `vm_slot_at` call with an open time variable does not just filter, it posts a real bound on that variable, the same bounds machinery from [logic and constraints](./logic_and_constraints.livemd). This means you can perform constraint queries in AL. 
+
+```elixir
+run do
+  defclass :upper_bound_probe, super: :object, ivars: [count: []] do
+  end
+
+  new(:upper_bound_probe, obj)
+  set_slot(obj, :count, 1)
+  set_slot(obj, :count, 2)
+
+  vm_slot_at(obj, :count, 1, t)
+  vm_slot_at(obj, :count, 2, t2)
+  t >= t2
+end
+```
+
+The interval during which the slot held `1` ends exactly when the interval during which it holds `2` begins, so `t >= t2` is comparing two already-bounded variables whose intervals are disjointed.
+
+## Temporality: overlap across two objects
+
+Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `unify` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `unify` succeeds. If they never coincided, it fails.
+
+```elixir
+run do
+  defclass :sensor_a, super: :object, ivars: [status: []] do
+  end
+
+  defclass :sensor_b, super: :object, ivars: [status: []] do
+  end
+
+  new(:sensor_a, %{name: :sensor_a_1, status: :off}, _)
+  new(:sensor_b, %{name: :sensor_b_1, status: :on}, _)
+end
+
+run do
+  set_slot(:sensor_a_1, :status, :on)
+end
+
+run do
+  set_slot(:sensor_b_1, :status, :off)
+end
+
+run do
+  set_slot(:sensor_a_1, :status, :off)
+end
+
+run do
+  vm_slot_at(:sensor_a_1, :status, :on, ta)
+  vm_slot_at(:sensor_b_1, :status, :on, tb)
+  unify(ta, tb)
+end
+```
+
+Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `:on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `unify`.
+
+This is not the same as asking whether one sensor's whole `:on` period came entirely before or after the other's. `>=` and `<=` between two bound variables like these only ask whether some pairing of instants could satisfy the comparison, not whether every instant in one interval relates to every instant in the other that way. Proving that stronger kind of claim needs both endpoints of an interval available on their own, which is not something `vm_slot_at` exposes today. More on this below.
+
+## Plans for future temporality features
+
+`vm_slot_at` reads by tx time- when something was actually written. This is only one axis of a fuller bitemporal model. In the future, AL will also automatically track the 'valid time' of relations, meaning that one can separate the time in the system under which things occurred from application logic. Meaning that 'time' for a specific domain problem should be something that can be reasoned about and manipulated in a first class sense as 'valid time', rather than only the system time of objects, which is determined by the actual order in which the system learned about things.
+
+We also plan to expand the capabilities of what you can express about time, the only blocker here being we haven't gotten around to it!

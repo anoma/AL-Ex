@@ -555,7 +555,10 @@ defmodule AL do
   defp record_constraint_violation(state, nil, a, b) do
     case AL.Var.diagnose_unify_failure(a, b, store(state), state.branch) do
       nil ->
-        state
+        resolved_a = AL.Var.deref(store(state), a)
+        resolved_b = AL.Var.deref(store(state), b)
+        entry = {state.active_choicepoint.scope_pointer, {:unify_failed, resolved_a, resolved_b}}
+        %AL{state | diagnostics: [entry | state.diagnostics]}
 
       violation ->
         entry = {state.active_choicepoint.scope_pointer, {:constraint_violated, violation}}
@@ -826,9 +829,34 @@ defmodule AL do
     control_ground = AL.Var.subst(control, store)
     args_ground = AL.Var.subst(args, store)
 
-    IO.write(render_format(control_ground, args_ground))
+    case plan_format(control_ground, args_ground) do
+      {_new_control, _new_args, []} ->
+        IO.write(render_format(control_ground, args_ground))
+        state
 
-    state
+      {new_control, new_args, pending_sends} ->
+        implies_goals =
+          Enum.map(pending_sends, fn {original_arg, fresh_var} ->
+            %Goal.Implies{
+              condition: [
+                %Goal.Send{object: original_arg, method: :print_object, args: [fresh_var]}
+              ],
+              then: [],
+              otherwise: [%Goal.Fail{}]
+            }
+          end)
+
+        spliced =
+          AL.splice_goals(
+            state,
+            implies_goals ++ [%Goal.Format{control: new_control, args: new_args}]
+          )
+
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}
+        }
+    end
   end
 
   def interp(%Goal.Forall{condition: condition, body: body}, state) do
@@ -1310,6 +1338,55 @@ defmodule AL do
 
   defp do_render_format([g | rest], args, acc), do: do_render_format(rest, args, [g | acc])
 
+  # `~o` needs AL.Dispatch (print_object is a real send), unreachable from a
+  # plain Elixir function the way format_aesthetic/format_decimal are -- this
+  # walk mirrors do_render_format/3 directive-by-directive, but instead of
+  # producing output it produces a rewritten control/args pair (every `~o`
+  # replaced by `~a`, its arg replaced by a fresh var) plus the print_object
+  # sends the caller must splice and resolve before re-running Format on the
+  # rewritten pair. See Goal.Format's interp clause above.
+  @spec plan_format(String.t(), [term()]) :: {String.t(), [term()], [{term(), AL.Var.t()}]}
+  defp plan_format(control, args) do
+    {control_acc, args_acc, pending_acc} =
+      do_plan_format(String.graphemes(control), args, [], [], [])
+
+    {
+      control_acc |> Enum.reverse() |> IO.iodata_to_binary(),
+      Enum.reverse(args_acc),
+      Enum.reverse(pending_acc)
+    }
+  end
+
+  defp do_plan_format([], _args, control_acc, args_acc, pending_acc),
+    do: {control_acc, args_acc, pending_acc}
+
+  defp do_plan_format(["~", "a" | rest], [arg | args], control_acc, args_acc, pending_acc),
+    do: do_plan_format(rest, args, ["~a" | control_acc], [arg | args_acc], pending_acc)
+
+  defp do_plan_format(["~", "d" | rest], [arg | args], control_acc, args_acc, pending_acc),
+    do: do_plan_format(rest, args, ["~d" | control_acc], [arg | args_acc], pending_acc)
+
+  defp do_plan_format(["~", "o" | rest], [arg | args], control_acc, args_acc, pending_acc) do
+    fresh_var = AL.Var.var("format_object_#{fresh_scope()}")
+
+    do_plan_format(
+      rest,
+      args,
+      ["~a" | control_acc],
+      [fresh_var | args_acc],
+      [{arg, fresh_var} | pending_acc]
+    )
+  end
+
+  defp do_plan_format(["~", "%" | rest], args, control_acc, args_acc, pending_acc),
+    do: do_plan_format(rest, args, ["~%" | control_acc], args_acc, pending_acc)
+
+  defp do_plan_format(["~", "~" | rest], args, control_acc, args_acc, pending_acc),
+    do: do_plan_format(rest, args, ["~~" | control_acc], args_acc, pending_acc)
+
+  defp do_plan_format([g | rest], args, control_acc, args_acc, pending_acc),
+    do: do_plan_format(rest, args, [g | control_acc], args_acc, pending_acc)
+
   defp format_aesthetic(term) when is_binary(term), do: term
   defp format_aesthetic(term), do: inspect(term)
 
@@ -1588,6 +1665,15 @@ defmodule AL do
             "native method #{label} (#{inspect(module)}.#{function}) raised: " <>
               exception_message,
           reason: {:native_error, method_id, {module, function}, exception_message},
+          failed_on: failed_on,
+          trace: steps,
+          state: state
+        }
+
+      [{:unify_failed, a, b} | _] ->
+        %{
+          message: "#{inspect(a)} and #{inspect(b)} can't be the same.",
+          reason: {:unify_failed, a, b},
           failed_on: failed_on,
           trace: steps,
           state: state

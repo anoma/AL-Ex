@@ -1,6 +1,6 @@
 # AL
 
-AL is a live, ACID, (eventually) bitemporal, relational-object operating system built around an append-only command log. It combines inspiration from:
+AL is a live, ACID, bitemporal, relational-object operating system built around an append-only command log. It combines inspiration from:
 
 - XTDB
 
@@ -25,13 +25,10 @@ This runtime is the prototypical version of AL, written in Elixir. The irony of 
 - Objects defined relationally, with multiple inheritance and bidirectional dispatch. An unbound receiver turns a call into a search.
 - Durable by default. Every change is logged to disk. Restart and continue where you left off.
 - ACID transactions.
-- Constraint solving over finite domains: bounds consistency, `dif`, global constraints like `all_dif` (Régin's algorithm).
+- Constraint solving over finite domains: bounds consistency, `dif`, global constraints like `all_dif` (Régin's algorithm). Objects can be reasoned about via constraints.
 - Git-like branching. Fork state, work in isolation, discard or keep.
 - Execution tracing. Every run reconstructs a derivation tree: what was called, what was asserted, what it resolved to.
-
-And to come:
-
-- Bitemporality features: Query objects as of certain times, working with system and business time separately
+- Nascent bitemporality features: Query objects as of certain times, working with system and business time separately
 
 For discussion of the design philosophy of AL and resources that were consulted during its design, please see: 
 https://forum.anoma.net/t/design-philosophy-of-al-bibliography/2698
@@ -45,77 +42,9 @@ From IEx, you can run `require AL`.
 `lib/AL/package` contains the bundled packages (the `bootstrap` package is the foundational one).
 `lib/AL` contains the runtime code.
 
-## Some Recipes
+## Livebooks
 
-For working with live objects -- inspecting them with `examine`, inheritance,
-`call_next_method`, and multiple inheritance -- see
-[`livebooks/working_with_objects.livemd`](livebooks/working_with_objects.livemd).
-
-**Run a method backwards.**
-
-```elixir
-run do
-  factorial(n, 120)
-end
-```
-
-**Propagate constraints about and between objects**
-
-```elixir
-run do
-  defclass :rectangle, super: :value, ivars: [:width, :height, :perimeter] do
-    defmethod(:init, [self, args, new]) do
-      slot_get(args, :width, w)
-      slot_get(args, :height, h)
-      slot_get(args, :perimeter, p)
-      eq(p, 2 * w + 2 * h)
-      unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
-    end
-
-    defmethod(:get_slot, [self, k, v]) do
-      vm_map_get(self, k, v)
-    end
-
-    defmethod(:area, [self, result]) do
-      get_slot(self, :width, w)
-      get_slot(self, :height, h)
-      vm_is(result, w * h)
-    end
-  end
-
-  new(:rectangle, %{width: w, height: 3, perimeter: 16}, r)
-  area(r, a)
-end
-```
-
-**Infer an object's identity from its class and a slot**
-
-```elixir
-run do
-  defclass :vehicle, super: :object do
-  end
-
-  defclass :car, super: :vehicle do
-  end
-
-  defclass :bicycle, super: :vehicle do
-  end
-
-  defclass :fire_hydrant, super: :object do
-  end
-
-  set_slots(:car, %{color: :red})
-  set_slots(:bicycle, %{color: :blue})
-  set_slots(:fire_hydrant, %{color: :red})
-
-  new(:car, my_car)
-  new(:bicycle, my_bike)
-  new(:fire_hydrant, hydrant)
-
-  class(x, :vehicle)
-  get_slot(x, :color, :red)
-end
-```
+The fastest way to try AL is [`livebooks/intro.livemd`](livebooks/intro.livemd) and the notebooks it links to. `mix escript.install hex livebook` followed by `livebook server` gets you Livebook itself if you don't already have it.
 
 ## Working with multiple sessions at once
 
