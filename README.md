@@ -62,6 +62,24 @@ Further isolation should be accomplished by configuration of the Mnesiastore dir
 
 ## Installing into Glamorous Toolkit
 
+The bundled Lepiter notebook **Working with AL in GT** covers bridge setup,
+connection checks, object inspection, and troubleshooting. After loading the
+baseline below, register it in GT with:
+
+```st
+BaselineOfAL loadLepiter
+```
+
+For a local Tonel load or a checkout not registered as `AL-Ex` in Iceberg:
+
+```st
+BaselineOfAL loadLepiterFrom: '/path/to/AL-Ex'
+```
+
+The database is stored in `lepiter/`. Edit its page in GT and include the
+resulting files in the same review as related code changes. Registration does
+not start an Elixir runtime or execute the notebook's setup snippets.
+
 ```st
 Metacello new
 	repository: 'github://anoma/AL-Ex:base/src';
