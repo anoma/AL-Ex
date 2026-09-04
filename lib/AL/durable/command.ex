@@ -145,13 +145,17 @@ defmodule AL.Command do
   The node that owns this store's disc-based tables. Every process either
   becomes this node (the first to boot) or joins it as a schema member with
   no local copies of its own (`setup/0`) — table placement always targets
-  this name, never necessarily the calling process's own `node()`, so a
+  the owner, never necessarily the calling process's own `node()`, so a
   table created from a joined process still lands on the one durable owner.
-  With distribution disabled (`distributed?/0`) there is only ever one
+  A named node that finds no owner to join owns the store itself and says
+  so here, so placement follows the decision `setup/0` made. Set
+  `:al, :owner_node` to name the owner every process sharing a store looks
+  for. With distribution disabled (`distributed?/0`) there is only ever one
   process, so the owner is just that process's own `node()`.
   """
   @spec owner_node() :: node()
-  def owner_node(), do: if(distributed?(), do: @owner_node, else: node())
+  def owner_node(),
+    do: if(distributed?(), do: Application.get_env(:al, :owner_node, @owner_node), else: node())
 
   @doc """
   Initialise the event log, or re-use the one on disc. The first process to
@@ -175,7 +179,7 @@ defmodule AL.Command do
       :joined ->
         :ok = Application.put_env(:mnesia, :dir, to_charlist(client_dir()))
         :ok = :mnesia.start()
-        {:ok, [@owner_node]} = :mnesia.change_config(:extra_db_nodes, [@owner_node])
+        {:ok, [_owner]} = :mnesia.change_config(:extra_db_nodes, [owner_node()])
         :mnesia.wait_for_tables(:mnesia.system_info(:tables), 30_000)
     end
 
@@ -197,20 +201,27 @@ defmodule AL.Command do
       not distributed?() ->
         :owner
 
-      node() == @owner_node ->
+      node() == owner_node() ->
         :owner
 
       Node.alive?() ->
-        if Node.connect(@owner_node), do: :joined, else: :owner
+        if Node.connect(owner_node()), do: :joined, else: claim_ownership()
 
-      match?({:ok, _}, Node.start(@owner_node, :longnames)) ->
+      match?({:ok, _}, Node.start(owner_node(), :longnames)) ->
         :owner
 
       true ->
         {:ok, _} = Node.start(:"al_client_#{System.pid()}@127.0.0.1", :longnames)
-        true = Node.connect(@owner_node)
+        true = Node.connect(owner_node())
         :joined
     end
+  end
+
+  # A named node with no owner to join owns the store under its own name.
+  @spec claim_ownership() :: :owner
+  defp claim_ownership() do
+    :ok = Application.put_env(:al, :owner_node, node())
+    :owner
   end
 
   @doc "Current system time of the command log — the next command writes at this value."
