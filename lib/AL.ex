@@ -419,8 +419,11 @@ defmodule AL do
 
   defp unmark_exited(state, scope) do
     case Map.get(state.domino.scopes, scope) do
-      nil -> state
-      info -> put_scope(state, scope, %{info | exited: false})
+      %{exited: true, parent: parent} = info ->
+        state |> put_scope(scope, %{info | exited: false}) |> unmark_exited(parent)
+
+      _ ->
+        state
     end
   end
 
