@@ -121,6 +121,14 @@ defmodule AL.Trace do
     {depth - 1, seen}
   end
 
+  # Not a port: it annotates the box above it, so it prints at that box's own
+  # depth and opens no level.
+  defp render_step({:clause_chosen, scope, clause}, {depth, seen}) do
+    {receiver, method} = Map.get(seen, scope, {nil, nil})
+    port_line(:clause, depth - 1, "Chosen #{clause}: ", receiver, method)
+    {depth, seen}
+  end
+
   defp render_step({tag, scope}, {depth, seen}) when tag in [:method_redo, :clause_redo] do
     level = if tag == :method_redo, do: :method, else: :clause
     {receiver, method} = Map.get(seen, scope, {nil, nil})
@@ -146,9 +154,10 @@ defmodule AL.Trace do
     IO.puts([String.duplicate("  ", depth + 1), inspect(descriptions)])
   end
 
-  # Show the successful call in full. `store` (optional) resolves constraint
-  # leaf nodes' `derived` against the run's final store -- omit it and
-  # constraint nodes carry `derived: nil`, same as before this existed.
+  # Show the successful call in full. `store` resolves constraint leaves'
+  # `derived`; without it they carry nil. A node's `clause` is the seq of
+  # the clause that fired, read off the journal: nil on a constraint leaf
+  # and on a method box whose clause box is its own node below.
   @spec derivation_tree([term()], AL.Var.store() | nil) :: [map()]
   def derivation_tree(steps, store \\ nil) do
     {_stack, nodes, _aliases, roots} =
@@ -191,6 +200,7 @@ defmodule AL.Trace do
       label: {self, method, args},
       constraints_in: constraints_in,
       derived: nil,
+      clause: nil,
       parent: nil,
       child_scopes: []
     })
@@ -213,6 +223,11 @@ defmodule AL.Trace do
     else
       open_node(acc, scope, scope, clause_node(method_id, call_args, constraints_in))
     end
+  end
+
+  defp tree_step({:clause_chosen, scope, clause}, {stack, nodes, aliases, roots}, _store) do
+    resolved = Map.get(aliases, scope, scope)
+    {stack, Map.update!(nodes, resolved, &%{&1 | clause: clause}), aliases, roots}
   end
 
   defp tree_step({tag, scope, derived}, {stack, nodes, aliases, roots}, _store)
@@ -292,6 +307,7 @@ defmodule AL.Trace do
       label: goal,
       constraints_in: %{},
       derived: constraint_derived(goal, store),
+      clause: nil,
       parent: nil,
       child_scopes: []
     }
@@ -346,6 +362,7 @@ defmodule AL.Trace do
       label: {self, method_id, args},
       constraints_in: constraints_in,
       derived: nil,
+      clause: nil,
       parent: nil,
       child_scopes: []
     }
@@ -359,6 +376,7 @@ defmodule AL.Trace do
       label: node.label,
       constraints_in: node.constraints_in,
       derived: node.derived,
+      clause: node.clause,
       children: Enum.map(node.child_scopes, &materialize(&1, nodes))
     }
   end
