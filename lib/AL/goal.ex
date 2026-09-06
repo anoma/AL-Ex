@@ -34,6 +34,7 @@ defmodule AL.Goal do
           | AL.Goal.GetMethod.t()
           | AL.Goal.GetOapply.t()
           | AL.Goal.MethodSource.t()
+          | AL.Goal.TransactionSource.t()
           | AL.Goal.AssertValidClauseSelf.t()
           | AL.Goal.OApply.t()
           | AL.Goal.Cut.t()
@@ -167,7 +168,12 @@ defmodule AL.Goal do
     field(:body, [AL.Goal.t()])
   end
 
-  # `object` is a method's own id (from `vm_method`), not a class+selector pair.
+  typedstruct enforce: true, module: TransactionSource do
+    field(:tx, AL.Var.t())
+    field(:text, AL.Var.t())
+    field(:origin, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: MethodSource do
     field(:object, AL.Var.t())
     field(:seq, AL.Var.t())
@@ -449,6 +455,7 @@ defmodule AL.Goal do
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
+    {TransactionSource, :transaction_source, [tx: :term, text: :term, origin: :term]},
     {MethodSource, :method_source, [object: :term, seq: :term, text: :term, provenance: :term]},
     {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},

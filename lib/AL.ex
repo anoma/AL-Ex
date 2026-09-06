@@ -19,6 +19,7 @@ defmodule AL do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
     field(:choicepoint_stack, [stack_entry()], default: [])
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
+    field(:transaction_object, AL.Var.t() | nil, default: nil)
     field(:domino, AL.Domino.t(), default: %AL.Domino{})
     field(:program, [AL.Goal.t()], enforce: true, default: [])
     field(:call_cursors, %{optional(scope()) => cursor()}, default: %{})
@@ -70,11 +71,12 @@ defmodule AL do
       end
 
     case captured_source(program, __CALLER__) do
-      {:ok, result, text, origin} ->
+      {:ok, result, source_text, retained_text, origin} ->
         quote do
           AL.eval_captured(
             unquote(Macro.escape(result, unquote: true)),
-            unquote(text),
+            unquote(source_text),
+            unquote(retained_text),
             unquote(Macro.escape(origin)),
             nil,
             unquote(branch_ast),
@@ -97,22 +99,22 @@ defmodule AL do
   end
 
   # Best-effort compile-time source capture for `AL.run`: reads the caller's
-  # own file and asks `AL.Source.Parser` to extract the same capture tree it
-  # would from that text at runtime. `__CALLER__.file` is only a real,
-  # readable path when `run/2` is expanded while compiling a file (not e.g.
-  # from a `Code.eval_quoted` with no file), and a nested block's forms only
-  # round-trip when they are literal text (not `unquote`-generated) — either
-  # miss falls back to :error, and `run/2` evaluates without retention exactly
-  # as before this existed.
+  # own file, extracts the run body range, and asks the parser to extract the
+  # same capture tree it would from that text at runtime. A missing readable
+  # file or a generated body falls back to evaluation without retention.
   @spec captured_source(Macro.t(), Macro.Env.t()) ::
-          {:ok, AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin()} | :error
+          {:ok, AL.Source.Parser.Result.t(), String.t(), String.t(), AL.SourceStore.origin()}
+          | :error
   defp captured_source(program, caller) do
     with file when is_binary(file) <- caller.file,
          true <- File.exists?(file),
          {:ok, text} <- File.read(file),
-         {:ok, %AL.Source.Parser.Result{captures: [_ | _]} = result} <-
-           AL.Source.Parser.capture(program, text) do
-      {:ok, result, text, %{kind: :al_run, file: Path.relative_to_cwd(file), line: caller.line}}
+         {:ok, %AL.Source.Parser.Result{} = result} <-
+           AL.Source.Parser.capture(program, text),
+         {:ok, range} <- AL.Source.Parser.run_range(text, caller.line, Map.get(caller, :column)),
+         {:ok, retained_text} <- AL.Source.Parser.slice(text, range) do
+      {:ok, result, text, retained_text,
+       %{kind: :al_run, file: Path.relative_to_cwd(file), line: caller.line, range: range}}
     else
       _ -> :error
     end
@@ -141,17 +143,21 @@ defmodule AL do
   @spec eval_captured(
           AL.Source.Parser.Result.t(),
           String.t(),
+          String.t(),
           AL.SourceStore.origin(),
           AL.Var.store() | nil,
           AL.Branch.t(),
           keyword()
         ) :: {:atomic, {AL.Var.store(), t() | nil}} | {:aborted, term()} | {:error, term()}
-  def eval_captured(result, text, origin, initial_store, branch, opts) do
-    case AL.Source.prepare(result, text, origin) do
+  def eval_captured(result, source_text, retained_text, origin, initial_store, branch, opts) do
+    case AL.Source.prepare(result, source_text, origin, retained_text) do
       {:ok, source} -> eval_program(source.program, initial_store, branch, opts, source)
       {:error, _error} -> eval_program(result.program, initial_store, branch, opts, nil)
     end
   end
+
+  def eval_captured(result, text, origin, initial_store, branch, opts),
+    do: eval_captured(result, text, text, origin, initial_store, branch, opts)
 
   @doc """
   Runs a goal list in a Mnesia transaction. Returns
@@ -196,41 +202,72 @@ defmodule AL do
     input_vars = observable_vars(program)
     vm_trace? = Keyword.get(opts, :vm_trace, false)
 
-    :mnesia.transaction(fn ->
-      tx_id = AL.Command.system_time(branch)
-      source_refs = source_refs(source, tx_id)
+    {:atomic, {command_tx, transaction_object}} = AL.Transaction.begin(branch.id)
+    retain_on_failure? = source != nil and source.origin.kind == :al_run
 
-      if source != nil and map_size(source_refs) > 0 do
-        :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
-      end
+    if retain_on_failure? do
+      {:atomic, :ok} =
+        :mnesia.transaction(fn ->
+          AL.SourceStore.put_text(command_tx, source.text, source.origin, branch)
+        end)
+    end
 
-      result =
-        continue(%AL{
-          active_choicepoint: %AL.Choicepoint{
-            goals: program,
-            store: store,
-            continuations: [],
-            done: [],
-            scope_pointer: 0,
-            source_scopes: []
-          },
-          choicepoint_stack: [{:mark, 0}],
-          tx_id: tx_id,
-          branch: branch,
-          domino: %AL.Domino{vm_trace_enabled?: vm_trace?, tracepoints: AL.Trace.tracepoints()},
-          program: program,
-          source_refs: source_refs,
-          source_anchors: %{}
-        })
-        |> finalize_trace()
+    result =
+      :mnesia.transaction(fn ->
+        tx_id = command_tx
+        source_refs = source_refs(source, tx_id)
 
-      if result.active_choicepoint.store == nil do
-        :mnesia.abort(format_failure(result))
-      else
-        if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
-        {format_output_vars(input_vars, result.active_choicepoint.store), result}
-      end
-    end)
+        if source != nil and not retain_on_failure? do
+          :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
+        end
+
+        result =
+          continue(%AL{
+            active_choicepoint: %AL.Choicepoint{
+              goals: program,
+              store: store,
+              continuations: [],
+              done: [],
+              scope_pointer: 0,
+              source_scopes: []
+            },
+            choicepoint_stack: [{:mark, 0}],
+            tx_id: tx_id,
+            transaction_object: transaction_object,
+            branch: branch,
+            domino: %AL.Domino{vm_trace_enabled?: vm_trace?, tracepoints: AL.Trace.tracepoints()},
+            program: program,
+            source_refs: source_refs,
+            source_anchors: %{}
+          })
+          |> finalize_trace()
+
+        if result.active_choicepoint.store == nil do
+          :mnesia.abort(format_failure(result))
+        else
+          if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
+          {format_output_vars(input_vars, result.active_choicepoint.store), result}
+        end
+      end)
+
+    case result do
+      {:atomic, _} ->
+        AL.Transaction.finish(command_tx, transaction_object, branch.id, :committed)
+
+      {:aborted, reason} ->
+        AL.Transaction.finish(
+          command_tx,
+          transaction_object,
+          branch.id,
+          :failed,
+          %{
+            reason: reason,
+            __retained_source__: if(retain_on_failure?, do: nil, else: source)
+          }
+        )
+    end
+
+    result
   end
 
   defp source_refs(nil, _tx_id), do: %{}
@@ -677,6 +714,8 @@ defmodule AL do
   def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.TransactionSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
+
   def interp(%Goal.MethodSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetSlotAt{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
@@ -685,6 +724,9 @@ defmodule AL do
 
   def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.tx_id), [result])
+
+  def interp(%Goal.OApply{method_id: :transaction_object, args: [result]}, state),
+    do: put_bindings(state, unify(state, result, state.transaction_object), [result])
 
   def interp(
         %Goal.OApply{
@@ -2403,8 +2445,10 @@ defmodule AL do
   end
 end
 
-defimpl Inspect, for: AL do
-  def inspect(%AL{}, _opts) do
-    "#AL<>"
+unless Protocol.consolidated?(Inspect) do
+  defimpl Inspect, for: AL do
+    def inspect(%AL{}, _opts) do
+      "#AL<>"
+    end
   end
 end

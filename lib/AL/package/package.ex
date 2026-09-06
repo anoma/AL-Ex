@@ -4,6 +4,64 @@ defmodule AL.Package do
   receipt of running its definitions, authored with `defpackage/3`.
   """
 
+  def source(self = %AL.Object{}) do
+    branch = %AL.Branch{id: AL.Object.branch_id(self)}
+
+    case :mnesia.transaction(fn ->
+           case installation_tx(self, branch) do
+             {:ok, tx} ->
+               id = transaction_id(tx, branch)
+
+               case AL.SourceStore.text(id, branch) do
+                 {:source_text, ^id, text, _origin} -> {:ok, text}
+                 :absent -> {:error, :source_unavailable}
+               end
+
+             other ->
+               other
+           end
+         end) do
+      {:atomic, result} -> result
+      _ -> :not_package
+    end
+  end
+
+  def source_rows(self = %AL.Object{}) do
+    branch = %AL.Branch{id: AL.Object.branch_id(self)}
+
+    case :mnesia.transaction(fn ->
+           case installation_tx(self, branch) do
+             {:ok, tx} -> AL.Source.transaction_method_rows(transaction_id(tx, branch), branch)
+             _ -> []
+           end
+         end) do
+      {:atomic, rows} -> rows
+      _ -> []
+    end
+  end
+
+  defp transaction_id({:transaction, tx}, _branch), do: tx
+
+  defp transaction_id(tx, branch) when is_atom(tx) do
+    case AL.Object.read_slots(tx, branch) do
+      [{:slots, _, %{tx: command_tx}}] when is_integer(command_tx) -> command_tx
+      _ -> tx
+    end
+  end
+
+  defp transaction_id(tx, _branch), do: tx
+
+  defp installation_tx(self, branch) do
+    if :package in AL.Dispatch.MethodOrder.method_scopes(self.id, branch) do
+      case AL.Object.read_slots(self.id, branch) do
+        [{:slots, _, %{tx: tx}}] -> {:ok, tx}
+        _ -> {:error, :source_unavailable}
+      end
+    else
+      :not_package
+    end
+  end
+
   defmacro __using__(_opts) do
     quote do
       require AL
@@ -28,18 +86,69 @@ defmodule AL.Package do
 
     program = {:__block__, [], statements ++ [receipt]}
 
+    source_ast = {:defpackage, [], [name, opts, [do: body]]}
+    source = Macro.to_string(source_ast)
+    origin = %{kind: :package, file: __CALLER__.file, line: __CALLER__.line}
+
     quote do
       def __package__ do
         %{name: unquote(name), version: unquote(version), deps: unquote(deps)}
       end
 
       def install do
-        AL.run do
-          unquote(program)
-        end
+        AL.Package.retain_install(unquote(source), unquote(Macro.escape(origin)), fn ->
+          AL.run do
+            unquote(program)
+          end
+        end)
       end
     end
   end
+
+  def retain_install(text, origin, install) do
+    branch = AL.Branch.head()
+
+    :mnesia.transaction(fn ->
+      tx = AL.Command.system_time(branch)
+
+      case install.() do
+        {:atomic, result} ->
+          retain_transaction_source(result, text, origin, branch)
+
+          if AL.SourceStore.text(tx, branch) == :absent do
+            AL.SourceStore.put_text(tx, text, origin, branch)
+          end
+
+          result
+
+        {:aborted, reason} ->
+          :mnesia.abort(reason)
+
+        {:error, reason} ->
+          :mnesia.abort(reason)
+      end
+    end)
+  end
+
+  defp retain_transaction_source(
+         {_bindings, %AL{transaction_object: object}},
+         text,
+         origin,
+         branch
+       )
+       when is_atom(object) do
+    case AL.Object.read_slots(object, branch) do
+      [{:slots, _, %{tx: command_tx}}] when is_integer(command_tx) ->
+        if AL.SourceStore.text(command_tx, branch) == :absent do
+          AL.SourceStore.put_text(command_tx, text, origin, branch)
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp retain_transaction_source(_result, _text, _origin, _branch), do: :ok
 
   @spec install_all([module()]) :: :ok
   def install_all(modules) do
@@ -99,15 +208,28 @@ defmodule AL.Package do
   end
 
   defp do_uninstall(name) do
+    branch = AL.Branch.head()
+
     case :mnesia.transaction(fn ->
            case find_package(name) do
-             {_p, %{tx: tx}} -> AL.Command.commands_for_transaction(tx)
-             _ -> nil
+             {_p, %{tx: tx}} ->
+               AL.Command.commands_for_transaction(transaction_id(tx, branch), branch)
+
+             _ ->
+               nil
            end
          end) do
-      {:atomic, nil} -> {:error, :not_installed}
-      {:atomic, commands} -> commands |> Enum.reverse() |> Enum.flat_map(&inverse/1) |> AL.eval()
-      other -> other
+      {:atomic, nil} ->
+        {:error, :not_installed}
+
+      {:atomic, commands} ->
+        commands
+        |> Enum.reverse()
+        |> Enum.flat_map(&inverse/1)
+        |> AL.eval(nil, branch)
+
+      other ->
+        other
     end
   end
 

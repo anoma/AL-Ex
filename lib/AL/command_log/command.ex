@@ -302,6 +302,110 @@ defmodule AL.Command do
     ])
   end
 
+  def command_log_rows(commands) do
+    Enum.map(commands, fn {:command, time, tx, operation} ->
+      {_marker, action, target, details} = describe_command(operation)
+
+      %{
+        marker: "##",
+        time: time,
+        tx: tx,
+        color: command_color(operation),
+        op: operation |> elem(0) |> inspect(),
+        command: command_display(operation),
+        action: action,
+        target: target,
+        details: details,
+        operation: operation
+      }
+    end)
+  end
+
+  defp describe_command({action, {object, class}})
+       when action in [:set_class, :retract_class] do
+    {mutation_marker(action), "Class", inspect(object), "#{inspect(object)} → #{inspect(class)}"}
+  end
+
+  defp describe_command({action, {object, super}})
+       when action in [:set_super, :retract_super] do
+    {mutation_marker(action), "Superclass", inspect(object),
+     "#{inspect(object)} → #{inspect(super)}"}
+  end
+
+  defp describe_command({action, {object, name, id}})
+       when action in [:set_method, :retract_method] do
+    {mutation_marker(action), "Method", inspect(object), "#{inspect(name)} · #{inspect(id)}"}
+  end
+
+  defp describe_command({:set_oapply, {object, seq, head, _body}}) do
+    {mutation_marker(:set_oapply), "Clause", inspect(object), "#{seq} · #{inspect(head)}"}
+  end
+
+  defp describe_command({:retract_oapply, {object, head}}) do
+    {mutation_marker(:retract_oapply), "Clause", inspect(object), inspect(head)}
+  end
+
+  defp describe_command({:set_slot, {object, key, value, store}}) do
+    {mutation_marker(:set_slot), "Slot", inspect(object),
+     "#{inspect(key)} = #{inspect(value)} · #{store}"}
+  end
+
+  defp describe_command({:retract_slot, {object, key, store}}) do
+    {mutation_marker(:retract_slot), "Slot", inspect(object), "#{inspect(key)} · #{store}"}
+  end
+
+  defp describe_command({action, {object, mfa}}) when action in [:set_native, :retract_native] do
+    {mutation_marker(action), "Native", inspect(object), inspect(mfa)}
+  end
+
+  defp describe_command({:send_async, {object, method, args}}) do
+    {"[>]", "Async Send", inspect(object), "#{inspect(method)} #{inspect(args)}"}
+  end
+
+  defp describe_command({:send_elixir, {pid, message}}) do
+    {"[>]", "Elixir Send", inspect(pid), inspect(message)}
+  end
+
+  defp describe_command(operation) do
+    {"[?]", operation |> elem(0) |> inspect(), "", inspect(operation)}
+  end
+
+  defp mutation_marker(action)
+       when action in [:set_class, :set_super, :set_method, :set_oapply, :set_slot, :set_native],
+       do: "[+]"
+
+  defp mutation_marker(_action), do: "[-]"
+
+  defp command_color({operation, _})
+       when operation in [:set_class, :retract_class],
+       do: "#2563EB"
+
+  defp command_color({operation, _})
+       when operation in [:set_super, :retract_super],
+       do: "#7C3AED"
+
+  defp command_color({operation, _})
+       when operation in [:set_method, :retract_method, :set_oapply, :retract_oapply],
+       do: "#059669"
+
+  defp command_color({operation, _})
+       when operation in [:set_slot, :retract_slot],
+       do: "#D97706"
+
+  defp command_color({operation, _})
+       when operation in [:set_native, :retract_native],
+       do: "#DB2777"
+
+  defp command_color({operation, _}) when operation in [:send_async, :send_elixir],
+    do: "#0891B2"
+
+  defp command_color(_operation), do: "#64748B"
+
+  defp command_display({operation, arguments}),
+    do: "#{inspect(operation)} -> #{inspect(arguments)}"
+
+  defp command_display(operation), do: inspect(operation)
+
   @doc "Copy `src`'s commands up to and including time `t` into `dst`'s log."
   @spec copy_prefix(AL.Branch.t(), AL.Branch.t(), integer()) ::
           {:atomic, any()} | {:aborted, term()}

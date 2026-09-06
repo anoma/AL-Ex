@@ -11,7 +11,6 @@ defmodule AL.Branch do
   """
 
   use TypedStruct
-  alias GtBridge.Phlow.ColumnedList
   use GtBridge.View
 
   typedstruct enforce: true do
@@ -280,14 +279,6 @@ defmodule AL.Branch do
 
   defview command_log(self = %__MODULE__{}, builder) do
     {:atomic, log} = :mnesia.transaction(fn -> AL.Command.commands_since(0, self) end)
-
-    builder.columned_list()
-    |> ColumnedList.title("Command Log")
-    |> ColumnedList.priority(10)
-    |> ColumnedList.items(fn -> log end)
-    |> ColumnedList.column("type", fn {_, type, _, _} -> to_string(type) end)
-    |> ColumnedList.column("tx", fn {_, _, tx, _} -> to_string(tx) end)
-    |> ColumnedList.column("op", fn {_, _, _, op} -> inspect(op) end)
-    |> ColumnedList.send(fn {_, _, _, op} -> op end)
+    AL.GtBridge.command_log_view(builder, log, "Command Log")
   end
 end

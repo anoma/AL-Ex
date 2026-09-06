@@ -123,6 +123,43 @@ defmodule AL.Source do
     end)
   end
 
+  def transaction_method_rows(tx, branch) do
+    commands = AL.Command.commands_for_transaction(tx, branch)
+    cutoff = Enum.reduce(commands, -1, fn {:command, t, _, _}, last -> max(t, last) end)
+
+    {_methods, rows} =
+      AL.Command.commands_until(cutoff, branch)
+      |> Enum.sort_by(fn {:command, t, _, _} -> t end)
+      |> Enum.reduce({%{}, []}, fn
+        {:command, _, _, {:set_method, {class, name, id}}}, {methods, rows} ->
+          {Map.put(methods, id, {class, name}), rows}
+
+        {:command, t, ^tx, {:set_oapply, {id, _seq, head, body}}}, {methods, rows} ->
+          case Map.fetch(methods, id) do
+            {:ok, {class, name}} ->
+              source = retained_method_source(class, name, head, body, t, branch)
+
+              row = [
+                "#{inspect(class)} · #{name}",
+                t,
+                source.text,
+                length(head),
+                source.start_line
+              ]
+
+              {methods, [row | rows]}
+
+            :error ->
+              {methods, rows}
+          end
+
+        _, acc ->
+          acc
+      end)
+
+    Enum.reverse(rows)
+  end
+
   @doc "Source for one clause as `defmethod(class, name, head) do body end`."
   @spec defmethod_source(atom(), atom(), term(), [AL.Goal.stored()]) :: String.t()
   def defmethod_source(class, name, head, body) do
@@ -196,11 +233,20 @@ defmodule AL.Source do
       {:source_span, ^command_t, tx_id, :defmethod, range, context} ->
         case AL.SourceStore.text(tx_id, branch) do
           {:source_text, ^tx_id, text, origin} ->
-            case AL.Source.Parser.slice(text, range) do
+            case AL.Source.Parser.slice(text, range, origin) do
               {:ok, source} ->
+                display_range =
+                  case Map.get(origin, :range) do
+                    %{start: _start, stop: _stop} = container ->
+                      AL.Source.Parser.rebase_range(range, container)
+
+                    _ ->
+                      range
+                  end
+
                 %{
                   text: source,
-                  start_line: range.start.line,
+                  start_line: display_range.start.line,
                   provenance: :retained,
                   origin: origin,
                   authored_as: Map.get(context, :authored_as),
@@ -221,9 +267,17 @@ defmodule AL.Source do
   end
 
   @doc "Prepare a parsed program with retry-stable source capture identities."
+  @spec prepare(AL.Source.Parser.Result.t(), String.t()) ::
+          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
+  def prepare(result, text), do: prepare(result, text, %{kind: :eval_source, label: nil}, text)
+
   @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin()) ::
           {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
-  def prepare(result, text, origin \\ %{kind: :eval_source, label: nil}) do
+  def prepare(result, text, origin), do: prepare(result, text, origin, text)
+
+  @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin(), String.t()) ::
+          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
+  def prepare(result, _text, origin, retained_text) do
     evaluation_ref = make_ref()
 
     try do
@@ -237,7 +291,13 @@ defmodule AL.Source do
           {List.replace_at(program, hd(capture.path), goal), refs}
         end)
 
-      {:ok, %AL.Source.Evaluation{text: text, origin: origin, program: program, refs: refs}}
+      {:ok,
+       %AL.Source.Evaluation{
+         text: retained_text,
+         origin: origin,
+         program: program,
+         refs: refs
+       }}
     rescue
       error ->
         {:error,
@@ -513,6 +573,10 @@ defmodule AL.Source do
   defp goal({:functor, term, name, args}), do: call(:vm_functor, [term, name, args])
   defp goal({:unify, a, b}), do: call(:unify, [a, b])
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
+
+  defp goal({:transaction_source, tx, text, origin}),
+    do: call(:vm_transaction_source, [tx, text, origin])
+
   defp goal({:get_class, o, c}), do: call(:class, [o, c])
   defp goal({:get_super, o, s}), do: call(:super, [o, s])
   defp goal({:set_class, o, c}), do: call(:set_class, [o, c])

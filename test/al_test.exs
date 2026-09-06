@@ -185,3 +185,7 @@ end
 defmodule ALMnesiaTest do
   use ExExample.ExUnit, for: Examples.ALMnesia
 end
+
+defmodule ALGtBridgeTest do
+  use ExExample.ExUnit, for: Examples.ALGtBridge
+end

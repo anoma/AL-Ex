@@ -102,6 +102,49 @@ defmodule AL.Source.Parser do
   def slice(_text, _range),
     do: range_error("source range must contain start and stop positions", nil)
 
+  @doc "Find the authored body range of an `AL.run ... do ... end` call."
+  @spec run_range(String.t(), pos_integer(), pos_integer() | nil) ::
+          {:ok, Capture.source_range()} | {:error, Error.t()}
+  def run_range(text, line, column \\ nil)
+
+  def run_range(text, line, column)
+      when is_binary(text) and is_integer(line) and line > 0 and
+             (is_integer(column) or is_nil(column)) do
+    case Code.string_to_quoted(text, @parse_options) do
+      {:ok, ast} -> find_run_range(ast, text, line, column)
+      {:error, reason} -> {:error, parse_error(reason)}
+    end
+  rescue
+    exception -> range_error(Exception.message(exception), nil)
+  end
+
+  @doc "Rebase a range from an archived source container to its sliced text."
+  @spec rebase_range(Capture.source_range(), Capture.source_range()) :: Capture.source_range()
+  def rebase_range(
+        %{start: %{line: start_line, column: start_column}, stop: stop},
+        %{start: %{line: container_line, column: container_column}}
+      ) do
+    %{
+      start:
+        rebase_position(
+          %{line: start_line, column: start_column},
+          container_line,
+          container_column
+        ),
+      stop: rebase_position(stop, container_line, container_column)
+    }
+  end
+
+  @doc "Slice a range after rebasing it through an origin's source container."
+  @spec slice(String.t(), Capture.source_range(), map()) ::
+          {:ok, String.t()} | {:error, Error.t()}
+  def slice(text, range, origin) when is_binary(text) and is_map(origin) do
+    case Map.get(origin, :range) do
+      %{start: _start, stop: _stop} = container -> slice(text, rebase_range(range, container))
+      _ -> slice(text, range)
+    end
+  end
+
   @doc """
   Extract captures and a lowered program from an already-parsed AST, given the
   exact text it was parsed from.
@@ -120,6 +163,64 @@ defmodule AL.Source.Parser do
     with {:ok, captures, _next_ordinal} <- capture_forms(forms, text, 0, 0, []),
          {:ok, program} <- lower(ast) do
       {:ok, %Result{program: program, captures: captures}}
+    end
+  end
+
+  defp find_run_range(ast, text, line, column) do
+    {_ast, result} =
+      Macro.prewalk(ast, :not_found, fn node, result ->
+        case {node, result} do
+          {
+            {{:., _dot_metadata, [{:__aliases__, _alias_metadata, [:AL]}, :run]}, metadata,
+             _args},
+            :not_found
+          }
+          when is_list(metadata) ->
+            if call_at?(metadata, line, column) do
+              {node, {:found, metadata}}
+            else
+              {node, result}
+            end
+
+          {{:defpackage, metadata, _args}, :not_found} when is_list(metadata) ->
+            if call_at?(metadata, line, column) do
+              {node, {:found, metadata}}
+            else
+              {node, result}
+            end
+
+          _ ->
+            {node, result}
+        end
+      end)
+
+    case result do
+      {:found, metadata} ->
+        with {:ok, do_position} <-
+               require_position(metadata_position(metadata[:do]), "run body start is missing"),
+             {:ok, start} <- token_stop(text, do_position, "do"),
+             {:ok, stop} <-
+               require_position(metadata_position(metadata[:end]), "run end is missing"),
+             range = %{start: start, stop: stop},
+             {:ok, _source} <- slice(text, range) do
+          {:ok, range}
+        end
+
+      :not_found ->
+        range_error("AL.run call is missing from the caller source", %{line: line, column: 1})
+    end
+  end
+
+  defp call_at?(metadata, line, nil), do: Keyword.get(metadata, :line) == line
+
+  defp call_at?(metadata, line, column),
+    do: Keyword.get(metadata, :line) == line and Keyword.get(metadata, :column) == column
+
+  defp rebase_position(%{line: line, column: column}, container_line, container_column) do
+    if line == container_line do
+      %{line: 1, column: max(column - container_column + 1, 1)}
+    else
+      %{line: line - container_line + 1, column: column}
     end
   end
 

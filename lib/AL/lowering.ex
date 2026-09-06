@@ -15,6 +15,7 @@ defmodule AL.Lowering do
     vm_map_put: :map_put,
     vm_fresh_id: :fresh_id,
     vm_current_tx: :current_tx,
+    vm_transaction_object: :transaction_object,
     vm_cached_ivar_specs: :cached_ivar_specs,
     vm_cached_find_ivar_spec: :cached_find_ivar_spec,
     vm_source_method_parts: :source_method_parts
@@ -84,6 +85,13 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:vm_oapply, _, [method_id, args]}),
     do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
+
+  def ast_to_pattern({:vm_transaction_source, _, [tx, text, origin]}),
+    do: %Goal.TransactionSource{
+      tx: ast_to_pattern(tx),
+      text: ast_to_pattern(text),
+      origin: ast_to_pattern(origin)
+    }
 
   def ast_to_pattern({:vm_method_source, _, [object, seq, text, provenance]}),
     do: %Goal.MethodSource{
