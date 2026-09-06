@@ -1,3 +1,12 @@
+defmodule AL.Command.TableCreationError do
+  defexception [:table, :owner, :reason]
+
+  @impl true
+  def message(error) do
+    "cannot create #{inspect(error.table)} on #{inspect(error.owner)}: #{inspect(error.reason)}"
+  end
+end
+
 defmodule AL.Command do
   @moduledoc """
   Event-sourcing / command log for AL, in Mnesia. Entry point for event
@@ -59,8 +68,17 @@ defmodule AL.Command do
            disc_copies: [owner_node()],
            record_name: :command
          ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
+      {:atomic, :ok} ->
+        :ok
+
+      {:aborted, {:already_exists, _}} ->
+        :ok
+
+      {:aborted, reason} ->
+        raise AL.Command.TableCreationError,
+          table: command_reference,
+          owner: owner_node(),
+          reason: reason
     end
 
     case :mnesia.create_table(meta_reference,
@@ -69,8 +87,17 @@ defmodule AL.Command do
            disc_copies: [owner_node()],
            record_name: :meta
          ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
+      {:atomic, :ok} ->
+        :ok
+
+      {:aborted, {:already_exists, _}} ->
+        :ok
+
+      {:aborted, reason} ->
+        raise AL.Command.TableCreationError,
+          table: meta_reference,
+          owner: owner_node(),
+          reason: reason
     end
 
     :mnesia.wait_for_tables([command_reference, meta_reference], 5_000)
@@ -147,17 +174,14 @@ defmodule AL.Command do
   @spec distributed?() :: boolean()
   defp distributed?(), do: System.get_env("AL_MNESIA_DISTRIBUTED") != "false"
 
-  @doc """
-  The node that owns this store's disc-based tables. Every process either
-  becomes this node (the first to boot) or joins it as a schema member with
-  no local copies of its own (`setup/0`) — table placement always targets
-  this name, never necessarily the calling process's own `node()`, so a
-  table created from a joined process still lands on the one durable owner.
-  With distribution disabled (`distributed?/0`) there is only ever one
-  process, so the owner is just that process's own `node()`.
-  """
+  @doc "The durable owner selected during setup, including an already named local node."
   @spec owner_node() :: node()
-  def owner_node(), do: if(distributed?(), do: @owner_node, else: node())
+  def owner_node(),
+    do:
+      :persistent_term.get(
+        {__MODULE__, :owner_node},
+        if(distributed?(), do: @owner_node, else: node())
+      )
 
   @doc """
   Initialise the event log, or re-use the one on disc. The first process to
@@ -169,6 +193,7 @@ defmodule AL.Command do
   def setup() do
     case become_or_join_owner() do
       :owner ->
+        :persistent_term.put({__MODULE__, :owner_node}, node())
         :ok = Application.put_env(:mnesia, :dir, to_charlist(mnesia_dir()))
 
         case :mnesia.create_schema([node()]) do
@@ -179,6 +204,7 @@ defmodule AL.Command do
         :ok = :mnesia.start()
 
       :joined ->
+        :persistent_term.put({__MODULE__, :owner_node}, @owner_node)
         :ok = Application.put_env(:mnesia, :dir, to_charlist(client_dir()))
         :ok = :mnesia.start()
         {:ok, [@owner_node]} = :mnesia.change_config(:extra_db_nodes, [@owner_node])
