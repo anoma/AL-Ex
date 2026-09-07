@@ -49,7 +49,7 @@ history, but it does not replace the command that produced it.
 | Durable writes and replay | `lib/AL/command_log/command.ex` | hydration modules, `lib/AL/view/object.ex` |
 | Branch creation and isolation | `lib/AL/branch.ex` | command/view table naming and copying |
 | Source parsing and capture | `lib/AL/source/parser.ex` | `lib/AL/view/source.ex`, `source_store.ex` |
-| Definition serialisation codec | `lib/AL/serialisation/document.ex` | `serialisation/snapshot.ex`, `serialisation/sync.ex` |
+| Definition serialisation codec | `lib/AL/serialisation/document.ex` | `serialisation/layout.ex`, `serialisation/snapshot.ex`, `serialisation/sync.ex` |
 | Filesystem synchronization | `lib/AL/serialisation.ex` | file-system dependency and application supervision |
 | GT inspection | `lib/AL/gt_bridge.ex` | `lib/AL/view/` |
 | Bootstrap language behavior | `lib/AL/package/bootstrap.ex` | package modules and `al-practices` |

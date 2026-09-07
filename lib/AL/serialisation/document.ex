@@ -107,24 +107,27 @@ defmodule AL.Serialisation.Document do
   end
 
   defp take_header(text) do
-    case Regex.run(~r/\A(Class|Extension)? ?\{\n?(.*?)\n?\}/ms, text, return: :index) do
-      [{0, length}, name_index, {body_start, body_length}] ->
-        name = header_name(text, name_index)
-        body = binary_part(text, body_start, body_length)
-        rest = binary_part(text, length, byte_size(text) - length)
+    with {:ok, name, after_open} <- header_start(text),
+         {:ok, closing} <- AL.Source.Scanner.close_index(after_open, 0, ?{, ?}) do
+      body = binary_part(after_open, 0, closing) |> String.trim("\n")
+      rest = binary_part(after_open, closing + 1, byte_size(after_open) - closing - 1)
 
-        case literal_metadata(body) do
-          {:ok, metadata} -> {:ok, name, metadata, rest}
-          {:error, reason} -> invalid(reason)
-        end
-
-      _ ->
-        invalid("expected a Class or Extension header")
+      case literal_metadata(body) do
+        {:ok, metadata} -> {:ok, name, metadata, rest}
+        {:error, reason} -> invalid(reason)
+      end
+    else
+      :error -> invalid("header is not terminated by a closing brace")
+      {:error, _reason} = error -> error
     end
   end
 
-  defp header_name(_text, {-1, _length}), do: nil
-  defp header_name(text, {start, length}), do: binary_part(text, start, length)
+  defp header_start("Class {" <> rest), do: {:ok, "Class", rest}
+  defp header_start("Class{" <> rest), do: {:ok, "Class", rest}
+  defp header_start("Extension {" <> rest), do: {:ok, "Extension", rest}
+  defp header_start("Extension{" <> rest), do: {:ok, "Extension", rest}
+  defp header_start("{" <> rest), do: {:ok, nil, rest}
+  defp header_start(_text), do: invalid("expected a Class or Extension header")
 
   defp literal_metadata(body) do
     normalized =

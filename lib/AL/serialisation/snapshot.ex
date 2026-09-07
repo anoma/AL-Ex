@@ -126,9 +126,9 @@ defmodule AL.Serialisation.Snapshot do
   def clause_rows(method_id, branch) do
     AL.Object.scan_open_oapply_versions(
       method_id,
-      AL.Var.var("source_snapshot_clause"),
-      AL.Var.var("source_snapshot_head"),
-      AL.Var.var("source_snapshot_body"),
+      AL.Var.var("serialisation_snapshot_clause"),
+      AL.Var.var("serialisation_snapshot_head"),
+      AL.Var.var("serialisation_snapshot_body"),
       branch
     )
     |> Enum.sort_by(fn {:oapply, ^method_id, clause, _seq, _tx, :open, _head, _body} ->

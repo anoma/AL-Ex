@@ -356,6 +356,31 @@ defmodule ALSerialisationTest do
     end
   end
 
+  test "deserialises an offline definition deletion after the serialiser restarts" do
+    branch = AL.Branch.fork()
+    root = temporary_root()
+    class = fresh_id("serialisation_offline_delete")
+
+    try do
+      assert {:atomic, _} =
+               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+
+      assert :ok = AL.Serialisation.start(branch, root)
+      path = AL.Serialisation.definition_path(root, branch, class)
+      assert eventually(fn -> File.exists?(path) end)
+      AL.Serialisation.stop(branch)
+
+      File.rm!(path)
+      assert :ok = AL.Serialisation.start(branch, root)
+      assert class_rows(class, branch) == []
+      refute File.exists?(path)
+    after
+      AL.Serialisation.stop(branch)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
   test "a stale offline document is regenerated from the authoritative store" do
     branch = AL.Branch.fork()
     root = temporary_root()
@@ -384,6 +409,34 @@ defmodule ALSerialisationTest do
     end
   end
 
+  test "a stale offline deletion is rejected and regenerated" do
+    branch = AL.Branch.fork()
+    root = temporary_root()
+    class = fresh_id("serialisation_stale_delete")
+
+    try do
+      assert {:atomic, _} =
+               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+
+      assert :ok = AL.Serialisation.start(branch, root)
+      path = AL.Serialisation.definition_path(root, branch, class)
+      assert eventually(fn -> File.exists?(path) end)
+      AL.Serialisation.stop(branch)
+
+      assert {:atomic, _} = AL.eval_source("vm_set_super(#{inspect(class)}, :value)\n", branch)
+      File.rm!(path)
+
+      capture_log(fn -> assert :ok = AL.Serialisation.start(branch, root) end)
+      assert class_rows(class, branch) != []
+      assert live_supers(class, branch) == [:object, :value]
+      assert read_document(path).supers == [:object, :value]
+    after
+      AL.Serialisation.stop(branch)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
   test "startup repairs a changed transaction file from retained source" do
     branch = AL.Branch.fork(0, AL.Branch.main())
     root = temporary_root()
@@ -396,6 +449,40 @@ defmodule ALSerialisationTest do
       File.write!(path, "incorrect transaction source")
       assert :ok = AL.Serialisation.start(branch, root)
       assert File.read!(path) == source
+    after
+      AL.Serialisation.stop(branch)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "an empty branch still starts its serialiser" do
+    branch = AL.Branch.fork(0, AL.Branch.main())
+    root = temporary_root()
+
+    try do
+      assert :ok = AL.Serialisation.start(branch, root)
+      assert File.exists?(AL.Serialisation.Layout.index_path(root, branch))
+      assert AL.Serialisation.status(branch).watching
+    after
+      AL.Serialisation.stop(branch)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "a malformed serialisation index is repaired instead of crashing startup" do
+    branch = AL.Branch.fork()
+    root = temporary_root()
+
+    try do
+      assert :ok = AL.Serialisation.start(branch, root)
+      index = AL.Serialisation.Layout.index_path(root, branch)
+      AL.Serialisation.stop(branch)
+      File.write!(index, :erlang.term_to_binary([:not_a_map]))
+
+      assert :ok = AL.Serialisation.start(branch, root)
+      assert AL.Serialisation.status(branch).watching
     after
       AL.Serialisation.stop(branch)
       AL.Branch.discard(branch)

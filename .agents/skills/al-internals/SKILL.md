@@ -60,6 +60,8 @@ generative/durable/domain dispatch convergence specifically, read
 
 - `AL.Serialisation.Document` owns the Tonel-like file codec. Headers are generated
   metadata; method bodies contain retained or marked decompiled source.
+- `AL.Serialisation.Layout` owns branch and definition paths. Keep its path
+  segments injective and unable to escape the configured root.
 - `AL.Serialisation.Snapshot` captures all live facts needed to render and diff
   definitions. Add facts here when planning otherwise needs another Mnesia
   read.

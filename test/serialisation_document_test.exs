@@ -125,6 +125,16 @@ defmodule ALDocumentTest do
     assert {:ok, ^document} = Document.parse(Document.render(document))
   end
 
+  test "closing braces inside literal metadata do not terminate the header" do
+    document =
+      class(
+        owner: :"a}class",
+        ivars: [config: [default: %{closing: "}"}]]
+      )
+
+    assert {:ok, ^document} = Document.parse(Document.render(document))
+  end
+
   test "rejects executable header metadata" do
     assert {:error, {:invalid_document, _}} =
              Document.parse(

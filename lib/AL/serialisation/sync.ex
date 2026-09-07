@@ -16,7 +16,8 @@ defmodule AL.Serialisation.Sync do
           {:ok, [chunk()]} | {:error, term()}
   def plan(%Snapshot{} = snapshot, edited_documents, deleted_owners \\ [])
       when is_list(edited_documents) and is_list(deleted_owners) do
-    with :ok <- validate_unique_owners(edited_documents) do
+    with :ok <- validate_unique_owners(edited_documents),
+         :ok <- validate_kind_changes(edited_documents, snapshot) do
       {:ok, deleted_chunks(deleted_owners, snapshot) ++ edited_chunks(edited_documents, snapshot)}
     end
   end
@@ -27,6 +28,18 @@ defmodule AL.Serialisation.Sync do
     if length(owners) == MapSet.size(MapSet.new(owners)),
       do: :ok,
       else: {:error, :duplicate_definition_owner}
+  end
+
+  defp validate_kind_changes(documents, snapshot) do
+    Enum.reduce_while(documents, :ok, fn document, :ok ->
+      case Map.get(snapshot.documents, document.owner) do
+        %Document{kind: old_kind} when old_kind != document.kind ->
+          {:halt, {:error, {:definition_kind_changed, document.owner, old_kind, document.kind}}}
+
+        _ ->
+          {:cont, :ok}
+      end
+    end)
   end
 
   defp deleted_chunks(owners, snapshot) do
@@ -180,14 +193,12 @@ defmodule AL.Serialisation.Sync do
   end
 
   defp scope(owner, selector) do
-    "#{identifier(owner)}_#{identifier(selector)}"
-  end
+    encoded =
+      {owner, selector}
+      |> :erlang.term_to_binary()
+      |> Base.encode16(case: :lower)
 
-  defp identifier(term) do
-    term
-    |> to_string()
-    |> String.replace(~r/[^A-Za-z0-9]/u, "_")
-    |> String.downcase()
+    "serialisation_#{encoded}"
   end
 
   defp literal(term),

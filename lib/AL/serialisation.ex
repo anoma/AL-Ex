@@ -33,6 +33,7 @@ defmodule AL.Serialisation do
   require Logger
 
   alias AL.Serialisation.Document
+  alias AL.Serialisation.Layout
   alias AL.Serialisation.Snapshot
   alias AL.Serialisation.Sync
 
@@ -65,6 +66,10 @@ defmodule AL.Serialisation do
   def start(_branch, nil), do: :disabled
 
   def start(branch, root) do
+    if owner_node?(), do: start_local(branch, root), else: call_owner(:start, [branch, root])
+  end
+
+  defp start_local(branch, root) do
     case DynamicSupervisor.start_child(@supervisor, {__MODULE__, {branch, root}}) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, pid}} -> GenServer.call(pid, :ensure_watching)
@@ -74,6 +79,10 @@ defmodule AL.Serialisation do
 
   @doc "Return the watcher state, including the last deserialisation result."
   def status(branch \\ AL.Branch.head()) do
+    if owner_node?(), do: status_local(branch), else: call_owner(:status, [branch])
+  end
+
+  defp status_local(branch) do
     case Process.whereis(name(branch)) do
       nil -> :not_running
       pid -> GenServer.call(pid, :status)
@@ -88,6 +97,17 @@ defmodule AL.Serialisation do
   """
   @spec quiescent?(AL.Branch.t()) :: boolean()
   def quiescent?(branch \\ AL.Branch.head()) do
+    if owner_node?() do
+      quiescent_local?(branch)
+    else
+      case call_owner(:quiescent?, [branch]) do
+        result when is_boolean(result) -> result
+        {:error, _reason} -> false
+      end
+    end
+  end
+
+  defp quiescent_local?(branch) do
     case Process.whereis(name(branch)) do
       nil -> true
       pid -> GenServer.call(pid, :quiescent?)
@@ -100,8 +120,12 @@ defmodule AL.Serialisation do
   def start_all(nil), do: :ok
 
   def start_all(root) do
+    if owner_node?(), do: start_all_local(root), else: call_owner(:start_all, [root])
+  end
+
+  defp start_all_local(root) do
     branches = [AL.Branch.main() | AL.Branch.list()]
-    current_dirs = MapSet.new(branches, &branch_dir(root, &1))
+    current_dirs = MapSet.new(branches, &Layout.branch_dir(root, &1))
 
     root
     |> Path.join("branches/*")
@@ -118,8 +142,12 @@ defmodule AL.Serialisation do
   end
 
   @doc "Stop the local serialiser for `branch`, if one is running."
-  @spec stop(AL.Branch.t()) :: :ok
+  @spec stop(AL.Branch.t()) :: :ok | {:error, term()}
   def stop(branch) do
+    if owner_node?(), do: stop_local(branch), else: call_owner(:stop, [branch])
+  end
+
+  defp stop_local(branch) do
     case {Process.whereis(@supervisor), Process.whereis(name(branch))} do
       {nil, _} -> :ok
       {_, nil} -> :ok
@@ -171,7 +199,7 @@ defmodule AL.Serialisation do
       {:ok, snapshot} ->
         case Enum.reduce_while(Snapshot.rendered(snapshot), {:ok, []}, fn {owner, text},
                                                                           {:ok, written} ->
-               case write_derived(root, branch, owner, text) do
+               case write_definition(root, branch, owner, text) do
                  {:ok, path} -> {:cont, {:ok, [{path, fingerprint(text)} | written]}}
                  {:error, reason} -> {:halt, {:error, reason}}
                end
@@ -180,7 +208,7 @@ defmodule AL.Serialisation do
             written = Enum.reverse(written)
             paths = Enum.map(written, &elem(&1, 0))
 
-            with :ok <- prune_derived(root, branch, paths),
+            with :ok <- prune_definitions(root, branch, paths),
                  :ok <- write_index(root, branch, Map.new(written)) do
               {:ok, paths}
             end
@@ -196,19 +224,15 @@ defmodule AL.Serialisation do
 
   @doc "Return the ordered transaction directory for a branch."
   @spec transactions_dir(root(), AL.Branch.t()) :: Path.t()
-  def transactions_dir(root, %AL.Branch{id: branch}) do
-    Path.join([root, "branches", Atom.to_string(branch), "transactions"])
-  end
+  defdelegate transactions_dir(root, branch), to: Layout
 
   @doc "Return the definitions directory for a branch."
   @spec definitions_dir(root(), AL.Branch.t()) :: Path.t()
-  def definitions_dir(root, branch), do: Path.join(branch_dir(root, branch), "definitions")
+  defdelegate definitions_dir(root, branch), to: Layout
 
   @doc "Return the definition document path for an owner."
   @spec definition_path(root(), AL.Branch.t(), term()) :: Path.t()
-  def definition_path(root, branch, owner) do
-    Path.join([definitions_dir(root, branch), identifier(owner) <> ".class.al"])
-  end
+  defdelegate definition_path(root, branch, owner), to: Layout
 
   @doc "Return the definition document path for `class`."
   @spec class_path(root(), AL.Branch.t(), term()) :: Path.t()
@@ -222,10 +246,7 @@ defmodule AL.Serialisation do
 
   @doc "Return the path used for a branch-local transaction sequence number."
   @spec transaction_path(root(), AL.Branch.t(), non_neg_integer()) :: Path.t()
-  def transaction_path(root, branch, tx) when is_integer(tx) and tx >= 0 do
-    filename = "#{String.pad_leading(Integer.to_string(tx), 12, "0")}_tx_#{tx}.al"
-    Path.join(transactions_dir(root, branch), filename)
-  end
+  defdelegate transaction_path(root, branch, tx), to: Layout
 
   def child_spec({branch, root}) do
     %{
@@ -286,7 +307,7 @@ defmodule AL.Serialisation do
         {:noreply, %{state | definition_snapshot: definition_snapshot(root, branch)}}
 
       {:error, reason} ->
-        Logger.warning("AL serialisation could not project definitions: #{inspect(reason)}")
+        Logger.warning("AL could not serialise definitions: #{inspect(reason)}")
         {:noreply, state}
     end
   end
@@ -341,7 +362,7 @@ defmodule AL.Serialisation do
         :ok
 
       {:error, reason} ->
-        Logger.warning("AL serialisation could not project tx_#{tx}: #{inspect(reason)}")
+        Logger.warning("AL could not serialise tx_#{tx}: #{inspect(reason)}")
     end
 
     {:noreply, mark_definitions_dirty(state)}
@@ -367,7 +388,7 @@ defmodule AL.Serialisation do
 
   @impl true
   def handle_info({:file_event, watcher, {path, _events}}, %{watcher: watcher} = state) do
-    if definition_file?(state, path) do
+    if Layout.definition_file?(state.definitions_root, path) do
       {:noreply, handle_definition_file_event(state, path)}
     else
       {:noreply, state}
@@ -413,39 +434,44 @@ defmodule AL.Serialisation do
      }, state}
   end
 
-  def handle_call(:serialise, _from, %{branch: branch, root: root} = state) do
-    {:reply, serialise_branch(branch, root), state}
-  end
-
   defp refresh_definitions(%{branch: branch, root: root} = state, :ok) do
     case serialise_definitions(branch, root) do
       {:ok, _paths} ->
         %{state | definition_snapshot: definition_snapshot(root, branch)}
 
       {:error, reason} ->
-        Logger.warning("AL serialisation could not project definitions: #{inspect(reason)}")
+        Logger.warning("AL could not serialise definitions: #{inspect(reason)}")
         state
     end
   end
+
+  defp refresh_definitions(state, {:error, {:stale_definition, _owner}}),
+    do: refresh_definitions(state, :ok)
 
   defp refresh_definitions(state, _result), do: state
 
   defp name(%AL.Branch{id: branch}), do: String.to_atom("#{__MODULE__}.#{branch}")
 
-  defp branch_dir(root, %AL.Branch{id: branch}),
-    do: Path.join([root, "branches", Atom.to_string(branch)])
+  defp owner_node?, do: node() == AL.Command.owner_node()
+
+  defp call_owner(function, arguments) do
+    owner = AL.Command.owner_node()
+
+    case :rpc.call(owner, __MODULE__, function, arguments) do
+      {:badrpc, reason} -> {:error, {:owner_unavailable, owner, reason}}
+      result -> result
+    end
+  end
 
   defp start_watcher(%{watcher: pid} = state) when is_pid(pid), do: state
 
   defp start_watcher(state) do
-    File.mkdir_p!(state.definitions_root)
-
-    case FileSystem.start_link(dirs: [state.definitions_root]) do
-      {:ok, pid} ->
-        FileSystem.subscribe(pid)
-        await_watcher_ready(pid, state.definitions_root)
-        %{state | watcher: pid}
-
+    with :ok <- File.mkdir_p(state.definitions_root),
+         {:ok, pid} <- FileSystem.start_link(dirs: [state.definitions_root]) do
+      FileSystem.subscribe(pid)
+      await_watcher_ready(pid, state.definitions_root)
+      %{state | watcher: pid}
+    else
       {:error, reason} ->
         Logger.error("AL serialisation could not start file watcher: #{inspect(reason)}")
         state
@@ -486,10 +512,6 @@ defmodule AL.Serialisation do
     File.rm(sentinel)
 
     if outcome == :retry, do: await_watcher_ready(pid, definitions_root, attempts - 1)
-  end
-
-  defp definition_file?(state, path) do
-    String.ends_with?(path, ".al") and String.starts_with?(path, state.definitions_root)
   end
 
   # A branch materializing lots of inherited state at once (a fresh fork,
@@ -533,7 +555,7 @@ defmodule AL.Serialisation do
   defp reconcile_store(root) do
     with {:atomic, identity} <- AL.Command.store_identity(),
          :ok <- File.mkdir_p(root) do
-      marker = Path.join(root, ".store-id")
+      marker = Layout.store_marker_path(root)
 
       case File.read(marker) do
         {:ok, ^identity} ->
@@ -574,6 +596,12 @@ defmodule AL.Serialisation do
           |> Path.join("*.class.al")
           |> Path.wildcard()
 
+        deleted =
+          root
+          |> read_index(branch)
+          |> Map.keys()
+          |> Enum.reject(&File.exists?/1)
+
         entries =
           existing
           |> Enum.flat_map(fn path ->
@@ -587,7 +615,7 @@ defmodule AL.Serialisation do
             end
           end)
 
-        deserialise_document_batch(entries, [], branch, root)
+        deserialise_document_batch(entries, deleted, branch, root)
 
         :ok
 
@@ -662,6 +690,7 @@ defmodule AL.Serialisation do
 
     with :ok <- validate_document_paths(parsed, root, branch),
          :ok <- validate_fresh_base(parsed, snapshot, index),
+         :ok <- validate_deleted_fresh_base(deleted_paths, snapshot, index, root, branch),
          deleted_owners <- deleted_owners(deleted_paths, snapshot, root, branch),
          documents <- Enum.map(parsed, &elem(&1, 1)),
          {:ok, chunks} <- Sync.plan(snapshot, documents, deleted_owners) do
@@ -671,11 +700,10 @@ defmodule AL.Serialisation do
 
   defp deleted_owners(paths, snapshot, root, branch) do
     Enum.flat_map(paths, fn path ->
-      snapshot.documents
-      |> Enum.find_value(fn {owner, _document} ->
-        if definition_path(root, branch, owner) == path, do: owner
-      end)
-      |> List.wrap()
+      case owner_document_for_path(snapshot, path, root, branch) do
+        {owner, _document} -> [owner]
+        nil -> []
+      end
     end)
   end
 
@@ -688,6 +716,28 @@ defmodule AL.Serialisation do
       else
         _ -> {:cont, :ok}
       end
+    end)
+  end
+
+  defp validate_deleted_fresh_base(paths, snapshot, index, root, branch) do
+    Enum.reduce_while(paths, :ok, fn path, :ok ->
+      case owner_document_for_path(snapshot, path, root, branch) do
+        nil ->
+          {:cont, :ok}
+
+        {owner, document} ->
+          if Map.get(index, path) == fingerprint(Document.render(document)) do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:stale_definition, owner}}}
+          end
+      end
+    end)
+  end
+
+  defp owner_document_for_path(snapshot, path, root, branch) do
+    Enum.find_value(snapshot.documents, fn {owner, document} ->
+      if definition_path(root, branch, owner) == path, do: {owner, document}
     end)
   end
 
@@ -764,21 +814,37 @@ defmodule AL.Serialisation do
     end
   end
 
-  defp fingerprint(text), do: {:present, byte_size(text), :erlang.phash2(text)}
-
-  defp index_path(root, branch), do: Path.join(branch_dir(root, branch), ".serialised")
+  defp fingerprint(text), do: {:present, byte_size(text), :crypto.hash(:sha256, text)}
 
   defp write_index(root, branch, index) do
-    case atomic_write(index_path(root, branch), :erlang.term_to_binary(index)) do
-      {:ok, _path} -> :ok
-      {:error, reason} -> {:error, reason}
+    relative_index =
+      Map.new(index, fn {path, fingerprint} ->
+        {Path.relative_to(path, Layout.branch_dir(root, branch)), fingerprint}
+      end)
+
+    path = Layout.index_path(root, branch)
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         {:ok, _path} <- atomic_write(path, :erlang.term_to_binary(relative_index)) do
+      :ok
+    else
+      {:error, {:file_write, _path, _reason} = reason} -> {:error, reason}
+      {:error, reason} -> {:error, {:file_write, path, reason}}
     end
   end
 
   defp read_index(root, branch) do
-    with {:ok, binary} <- File.read(index_path(root, branch)),
-         {:ok, index} <- safe_term(binary) do
-      index
+    with {:ok, binary} <- File.read(Layout.index_path(root, branch)),
+         {:ok, index} when is_map(index) <- safe_term(binary),
+         true <- Enum.all?(Map.keys(index), &is_binary/1) do
+      Map.new(index, fn {path, fingerprint} ->
+        absolute =
+          if Path.type(path) == :absolute,
+            do: path,
+            else: Path.join(Layout.branch_dir(root, branch), path)
+
+        {absolute, fingerprint}
+      end)
     else
       _ -> %{}
     end
@@ -790,18 +856,19 @@ defmodule AL.Serialisation do
     ArgumentError -> :error
   end
 
-  defp write_derived(root, branch, owner, text),
+  defp write_definition(root, branch, owner, text),
     do: write_file(definition_path(root, branch, owner), text)
 
   defp write_file(path, text) do
     with :ok <- File.mkdir_p(Path.dirname(path)), {:ok, ^path} <- atomic_write(path, text) do
       {:ok, path}
     else
+      {:error, {:file_write, _path, _reason} = reason} -> {:error, reason}
       {:error, reason} -> {:error, {:file_write, path, reason}}
     end
   end
 
-  defp prune_derived(root, branch, current_paths) do
+  defp prune_definitions(root, branch, current_paths) do
     prune_files(Path.join(definitions_dir(root, branch), "**/*.al"), current_paths)
   end
 
@@ -822,24 +889,19 @@ defmodule AL.Serialisation do
     end)
   end
 
-  defp identifier(term) when is_atom(term), do: safe_identifier(Atom.to_string(term))
-  defp identifier(term), do: safe_identifier(inspect(term))
-
-  defp safe_identifier(value) do
-    value = Regex.replace(~r/[^A-Za-z0-9_.-]/u, value, "_")
-    if value in ["", ".", ".."], do: "_", else: value
-  end
-
   defp write_transaction(root, branch, tx, text) do
     directory = transactions_dir(root, branch)
     path = transaction_path(root, branch, tx)
-    :ok = File.mkdir_p(directory)
 
-    case File.read(path) do
-      {:ok, ^text} -> {:ok, path}
-      {:ok, _other} -> atomic_write(path, text)
-      {:error, :enoent} -> atomic_write(path, text)
-      {:error, reason} -> {:error, {:file_read, path, reason}}
+    with :ok <- File.mkdir_p(directory) do
+      case File.read(path) do
+        {:ok, ^text} -> {:ok, path}
+        {:ok, _other} -> atomic_write(path, text)
+        {:error, :enoent} -> atomic_write(path, text)
+        {:error, reason} -> {:error, {:file_read, path, reason}}
+      end
+    else
+      {:error, reason} -> {:error, {:file_write, directory, reason}}
     end
   end
 
