@@ -1229,6 +1229,7 @@ defmodule AL do
   end
 
   def interp(%Goal.Pass{}, state), do: state
+  def interp(%Goal.Comment{}, state), do: state
 
   def interp(%Goal.Send{object: self, method: method, args: args}, state),
     do: AL.Dispatch.dispatch(self, method, args, state, &AL.Dispatch.dnu(self, method, args, &1))

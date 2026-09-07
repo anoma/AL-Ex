@@ -110,7 +110,7 @@ defmodule AL.Source.Parser do
   def run_range(text, line, column)
       when is_binary(text) and is_integer(line) and line > 0 and
              (is_integer(column) or is_nil(column)) do
-    case Code.string_to_quoted(text, @parse_options) do
+    case parse_with_comments(text, @parse_options) do
       {:ok, ast} -> find_run_range(ast, text, line, column)
       {:error, reason} -> {:error, parse_error(reason)}
     end
@@ -236,7 +236,7 @@ defmodule AL.Source.Parser do
   end
 
   defp parse_valid_text(text) do
-    case Code.string_to_quoted(text, @parse_options) do
+    case parse_with_comments(text, @parse_options) do
       {:ok, ast} ->
         with {:ok, metadata_forms} <- metadata_forms(text),
              {:ok, captures, _next_ordinal} <- capture_forms(metadata_forms, text, 0, 0, []),
@@ -255,7 +255,7 @@ defmodule AL.Source.Parser do
   defp metadata_forms(text) do
     augmented = text <> "\n:" <> Atom.to_string(@range_sentinel)
 
-    case Code.string_to_quoted(augmented, @parse_options) do
+    case parse_with_comments(augmented, @parse_options) do
       {:ok, ast} ->
         forms = top_level_forms(ast)
 
@@ -469,11 +469,79 @@ defmodule AL.Source.Parser do
     end
   end
 
+  @doc """
+  Parse AL source with comments spliced into method bodies as inert goals.
+
+  Every caller that lowers AL text must use this rather than
+  `Code.string_to_quoted/2`, or a body containing a comment will disagree with
+  the range check in `verify_round_trip/3`.
+  """
+  @spec parse_quoted(String.t(), keyword()) :: {:ok, Macro.t()} | {:error, term()}
+  def parse_quoted(text, options),
+    do: parse_with_comments(text, Keyword.merge(@parse_options, options))
+
+  # Elixir discards comments before lowering, so a definition could not be
+  # regenerated from its stored goals. Capture them and splice them into method
+  # bodies as ordinary statements, which lower to inert `AL.Goal.Comment` goals.
+  # Only method bodies are spliced: top-level form indices carry capture paths,
+  # and class bodies carry method indices, so neither may shift.
+  defp parse_with_comments(text, options) do
+    case Code.string_to_quoted_with_comments(text, options) do
+      {:ok, ast, []} -> {:ok, ast}
+      {:ok, ast, comments} -> {:ok, splice_comments(ast, comments)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp splice_comments(ast, comments) do
+    Macro.prewalk(ast, fn
+      {:defmethod, meta, args} = form when is_list(args) and args != [] ->
+        with [{:do, block}] <- List.last(args),
+             opening when is_list(opening) <- Keyword.get(meta, :do),
+             closing when is_list(closing) <- Keyword.get(meta, :end),
+             inner when inner != [] <- enclosed(comments, opening[:line], closing[:line]) do
+          {:defmethod, meta, List.replace_at(args, -1, [{:do, splice_block(block, inner)}])}
+        else
+          _ -> form
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  defp enclosed(comments, opening, closing),
+    do: Enum.filter(comments, &(&1.line > opening and &1.line < closing))
+
+  defp splice_block(block, comments) do
+    statements =
+      case block do
+        {:__block__, _meta, list} when is_list(list) -> list
+        single -> [single]
+      end
+
+    {:__block__, [], merge_comments(statements, Enum.sort_by(comments, & &1.line))}
+  end
+
+  defp merge_comments([], comments), do: Enum.map(comments, &comment_node/1)
+  defp merge_comments(statements, []), do: statements
+
+  defp merge_comments([statement | rest], comments) do
+    {leading, trailing} = Enum.split_while(comments, &(&1.line <= statement_line(statement)))
+    Enum.map(leading, &comment_node/1) ++ [statement | merge_comments(rest, trailing)]
+  end
+
+  defp comment_node(%{text: "#" <> text}), do: {:comment, [], [text]}
+  defp comment_node(%{text: text}), do: {:comment, [], [text]}
+
+  defp statement_line({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :line, 0)
+  defp statement_line(_statement), do: 0
+
   defp advance_column(%{line: line, column: column}, amount),
     do: %{line: line, column: column + amount}
 
   defp verify_round_trip(form, source, position) do
-    case Code.string_to_quoted(source) do
+    case parse_with_comments(source, @parse_options) do
       {:ok, parsed} ->
         if strip_metadata(parsed) == strip_metadata(form) do
           :ok
@@ -486,8 +554,21 @@ defmodule AL.Source.Parser do
     end
   end
 
+  # Comments are dropped on both sides: this check verifies that a captured
+  # range round-trips to its definition, and `AL.run` hands us a compile-time
+  # AST that never carried comments in the first place.
   defp strip_metadata(ast) do
     Macro.prewalk(ast, fn
+      {:__block__, metadata, statements} when is_list(statements) ->
+        case Enum.reject(statements, &match?({:comment, _, _}, &1)) do
+          [single] -> single
+          rest -> {:__block__, metadata, rest}
+        end
+
+      node ->
+        node
+    end)
+    |> Macro.prewalk(fn
       {name, metadata, args} when is_atom(name) and is_list(metadata) -> {name, [], args}
       node -> node
     end)

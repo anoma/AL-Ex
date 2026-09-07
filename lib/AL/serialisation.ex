@@ -1,7 +1,7 @@
-defmodule AL.SourceExport do
+defmodule AL.Serialisation do
   @moduledoc """
-  I project a branch's retained AL transactions into an append-only directory,
-  with Tonel-like definition documents alongside them.
+  Serialises a branch into ordinary AL files and deserialises definition edits
+  back into atomic AL transactions.
 
   Mnesia and `AL.SourceStore` remain authoritative. The filesystem is a
   repairable, human-facing projection: each retained source transaction gets
@@ -21,44 +21,44 @@ defmodule AL.SourceExport do
   retained transactions; parse and evaluation failures are logged and leave
   the live branch unchanged. Existing edits are reconciled once at startup
   (before the first regeneration and before the watcher attaches), so edits
-  made while AL is stopped are imported on restart.
+  made while AL is stopped are deserialised on restart.
 
-  Source exports are enabled by default under `al-source-export/`. Set
-  `config :al, :source_export_dir, "path"` or `AL_SOURCE_EXPORT_DIR` to choose another
-  root.
+  Serialisation is enabled by default under `src/al/`. Set
+  `config :al, :serialisation_dir, "path"` to choose another root, or set it
+  to `nil` to disable serialisation.
   """
 
   use GenServer
 
   require Logger
 
-  alias AL.SourceDocument
-  alias AL.SourceSnapshot
-  alias AL.SourceSync
+  alias AL.Serialisation.Document
+  alias AL.Serialisation.Snapshot
+  alias AL.Serialisation.Sync
 
-  @supervisor AL.SourceExport.Supervisor
+  @supervisor AL.Serialisation.Supervisor
 
   @type root() :: Path.t()
   @type result() :: {:ok, [Path.t()]} | {:error, term()}
 
-  @doc "The Dynamic Supervisor child spec for per-branch source export projectors."
+  @doc "The DynamicSupervisor child spec for per-branch serialisers."
   @spec supervisor_spec() :: {module(), keyword()}
   def supervisor_spec do
     {DynamicSupervisor, name: @supervisor, strategy: :one_for_one}
   end
 
-  @doc "The configured source export root, defaulting to `al-source-export/`."
+  @doc "The configured serialisation root, defaulting to `src/al/`."
   @spec configured_root() :: root() | nil
   def configured_root do
-    case Application.fetch_env(:al, :source_export_dir) do
+    case Application.fetch_env(:al, :serialisation_dir) do
       {:ok, nil} -> nil
       {:ok, false} -> nil
       {:ok, root} -> root
-      :error -> System.get_env("AL_SOURCE_EXPORT_DIR") || "al-source-export"
+      :error -> "src/al"
     end
   end
 
-  @doc "Start a projector for `branch` when a source export root is configured."
+  @doc "Start the serialiser for `branch` when a root is configured."
   @spec start(AL.Branch.t(), root() | nil) :: :ok | :disabled | {:error, term()}
   def start(branch, root \\ configured_root())
 
@@ -72,7 +72,7 @@ defmodule AL.SourceExport do
     end
   end
 
-  @doc "Return the watcher state for a branch, including its last import result."
+  @doc "Return the watcher state, including the last deserialisation result."
   def status(branch \\ AL.Branch.head()) do
     case Process.whereis(name(branch)) do
       nil -> :not_running
@@ -81,8 +81,8 @@ defmodule AL.SourceExport do
   end
 
   @doc """
-  Whether `branch`'s projector has fully caught up: no queued Mnesia or file
-  events, and no export debounced for later. A caller that just made a
+  Whether `branch`'s serialiser has fully caught up: no queued Mnesia or file
+  events, and no serialisation debounced for later. A caller that just made a
   change and wants to observe its effect should poll this instead of
   sleeping a guessed duration — it reflects real backlog, not a timer.
   """
@@ -94,7 +94,7 @@ defmodule AL.SourceExport do
     end
   end
 
-  @doc "Start projectors for the main branch and all existing forks."
+  @doc "Start serialisers for the main branch and all existing forks."
   @spec start_all(root() | nil) :: :ok | {:error, term()}
   def start_all(root \\ configured_root())
   def start_all(nil), do: :ok
@@ -117,7 +117,7 @@ defmodule AL.SourceExport do
     end)
   end
 
-  @doc "Stop the local projector for `branch`, if one is running."
+  @doc "Stop the local serialiser for `branch`, if one is running."
   @spec stop(AL.Branch.t()) :: :ok
   def stop(branch) do
     case {Process.whereis(@supervisor), Process.whereis(name(branch))} do
@@ -127,13 +127,13 @@ defmodule AL.SourceExport do
     end
   end
 
-  @doc "Export all retained source transactions for `branch` into `root`."
-  @spec export_branch(AL.Branch.t(), root() | nil) ::
-          result() | {:error, :source_export_not_configured}
-  def export_branch(branch, root \\ configured_root())
-  def export_branch(_branch, nil), do: {:error, :source_export_not_configured}
+  @doc "Serialise all retained transactions for `branch` into `root`."
+  @spec serialise_branch(AL.Branch.t(), root() | nil) ::
+          result() | {:error, :serialisation_not_configured}
+  def serialise_branch(branch, root \\ configured_root())
+  def serialise_branch(_branch, nil), do: {:error, :serialisation_not_configured}
 
-  def export_branch(branch, root) do
+  def serialise_branch(branch, root) do
     case :mnesia.transaction(fn -> AL.SourceStore.texts(branch) end) do
       {:atomic, rows} ->
         rows
@@ -161,27 +161,28 @@ defmodule AL.SourceExport do
     end
   end
 
-  @doc "Export current retained class and method definitions for `branch`."
-  @spec export_definitions(AL.Branch.t(), root() | nil) ::
-          result() | {:error, :source_export_not_configured}
-  def export_definitions(_branch, nil), do: {:error, :source_export_not_configured}
+  @doc "Serialise current class and method definitions for `branch`."
+  @spec serialise_definitions(AL.Branch.t(), root() | nil) ::
+          result() | {:error, :serialisation_not_configured}
+  def serialise_definitions(_branch, nil), do: {:error, :serialisation_not_configured}
 
-  def export_definitions(branch, root) do
-    case SourceSnapshot.capture(branch) do
+  def serialise_definitions(branch, root) do
+    case Snapshot.capture(branch) do
       {:ok, snapshot} ->
-        case Enum.reduce_while(SourceSnapshot.rendered(snapshot), {:ok, []}, fn {owner, text},
-                                                                                {:ok, paths} ->
+        case Enum.reduce_while(Snapshot.rendered(snapshot), {:ok, []}, fn {owner, text},
+                                                                          {:ok, written} ->
                case write_derived(root, branch, owner, text) do
-                 {:ok, path} -> {:cont, {:ok, [path | paths]}}
+                 {:ok, path} -> {:cont, {:ok, [{path, fingerprint(text)} | written]}}
                  {:error, reason} -> {:halt, {:error, reason}}
                end
              end) do
-          {:ok, paths} ->
-            paths = Enum.reverse(paths)
+          {:ok, written} ->
+            written = Enum.reverse(written)
+            paths = Enum.map(written, &elem(&1, 0))
 
-            case prune_derived(root, branch, paths) do
-              :ok -> {:ok, paths}
-              {:error, reason} -> {:error, reason}
+            with :ok <- prune_derived(root, branch, paths),
+                 :ok <- write_index(root, branch, Map.new(written)) do
+              {:ok, paths}
             end
 
           other ->
@@ -253,9 +254,9 @@ defmodule AL.SourceExport do
     :mnesia.subscribe({:table, aos_table, :detailed})
 
     with :ok <- reconcile_store(root),
-         {:ok, _transaction_paths} <- export_branch(branch, root),
-         :ok <- import_external_definitions(root, branch),
-         {:ok, _definition_paths} <- export_definitions(branch, root) do
+         {:ok, _transaction_paths} <- serialise_branch(branch, root),
+         :ok <- deserialise_external_definitions(root, branch),
+         {:ok, _definition_paths} <- serialise_definitions(branch, root) do
       state = %{
         branch: branch,
         root: root,
@@ -264,9 +265,9 @@ defmodule AL.SourceExport do
         soa_table: soa_table,
         aos_table: aos_table,
         definition_snapshot: definition_snapshot(root, branch),
-        export_pending: false,
-        import_pending: MapSet.new(),
-        import_timer: nil,
+        serialisation_pending: false,
+        deserialisation_pending: MapSet.new(),
+        deserialisation_timer: nil,
         watcher: nil
       }
 
@@ -277,22 +278,22 @@ defmodule AL.SourceExport do
   end
 
   @impl true
-  def handle_info(:export_definitions, %{branch: branch, root: root} = state) do
-    state = %{state | export_pending: false}
+  def handle_info(:serialise_definitions, %{branch: branch, root: root} = state) do
+    state = %{state | serialisation_pending: false}
 
-    case export_definitions(branch, root) do
+    case serialise_definitions(branch, root) do
       {:ok, _paths} ->
         {:noreply, %{state | definition_snapshot: definition_snapshot(root, branch)}}
 
       {:error, reason} ->
-        Logger.warning("AL source export could not project definitions: #{inspect(reason)}")
+        Logger.warning("AL serialisation could not project definitions: #{inspect(reason)}")
         {:noreply, state}
     end
   end
 
   @impl true
-  def handle_info(:import_definitions, state) do
-    paths = state.import_pending |> MapSet.to_list() |> Enum.sort()
+  def handle_info(:deserialise_definitions, state) do
+    paths = state.deserialisation_pending |> MapSet.to_list() |> Enum.sort()
 
     entries =
       Enum.flat_map(paths, fn path ->
@@ -304,13 +305,13 @@ defmodule AL.SourceExport do
             []
 
           {:error, reason} ->
-            Logger.warning("AL source export could not read #{path}: #{inspect(reason)}")
+            Logger.warning("AL serialisation could not read #{path}: #{inspect(reason)}")
             []
         end
       end)
 
     deleted = Enum.reject(paths, &File.exists?/1)
-    result = import_document_batch(entries, deleted, state.branch, state.root)
+    result = deserialise_document_batch(entries, deleted, state.branch, state.root)
 
     snapshot =
       Enum.reduce(paths, state.definition_snapshot, fn path, snapshot ->
@@ -322,12 +323,12 @@ defmodule AL.SourceExport do
 
     state =
       state
-      |> Map.put(:import_pending, MapSet.new())
-      |> Map.put(:import_timer, nil)
+      |> Map.put(:deserialisation_pending, MapSet.new())
+      |> Map.put(:deserialisation_timer, nil)
       |> Map.put(:definition_snapshot, snapshot)
-      |> Map.put(:last_import, %{paths: paths, result: result})
+      |> Map.put(:last_deserialisation, %{paths: paths, result: result})
 
-    {:noreply, state}
+    {:noreply, refresh_definitions(state, result)}
   end
 
   @impl true
@@ -340,7 +341,7 @@ defmodule AL.SourceExport do
         :ok
 
       {:error, reason} ->
-        Logger.warning("AL source export could not project tx_#{tx}: #{inspect(reason)}")
+        Logger.warning("AL serialisation could not project tx_#{tx}: #{inspect(reason)}")
     end
 
     {:noreply, mark_definitions_dirty(state)}
@@ -375,7 +376,7 @@ defmodule AL.SourceExport do
 
   def handle_info({:file_event, watcher, :stop}, %{watcher: watcher} = state) do
     Logger.warning(
-      "AL source export file watcher for #{state.definitions_root} stopped, restarting"
+      "AL serialisation file watcher for #{state.definitions_root} stopped, restarting"
     )
 
     {:noreply, start_watcher(%{state | watcher: nil})}
@@ -397,8 +398,9 @@ defmodule AL.SourceExport do
     {:message_queue_len, pending} = Process.info(self(), :message_queue_len)
 
     {:reply,
-     pending == 0 and not state.export_pending and is_nil(state.import_timer) and
-       MapSet.size(state.import_pending) == 0, state}
+     pending == 0 and not state.serialisation_pending and
+       is_nil(state.deserialisation_timer) and
+       MapSet.size(state.deserialisation_pending) == 0, state}
   end
 
   def handle_call(:status, _from, state) do
@@ -407,13 +409,26 @@ defmodule AL.SourceExport do
        branch: state.branch,
        directory: Path.expand(definitions_dir(state.root, state.branch)),
        watching: match?(pid when is_pid(pid), state[:watcher]),
-       last_import: Map.get(state, :last_import, :none)
+       last_deserialisation: Map.get(state, :last_deserialisation, :none)
      }, state}
   end
 
-  def handle_call(:export, _from, %{branch: branch, root: root} = state) do
-    {:reply, export_branch(branch, root), state}
+  def handle_call(:serialise, _from, %{branch: branch, root: root} = state) do
+    {:reply, serialise_branch(branch, root), state}
   end
+
+  defp refresh_definitions(%{branch: branch, root: root} = state, :ok) do
+    case serialise_definitions(branch, root) do
+      {:ok, _paths} ->
+        %{state | definition_snapshot: definition_snapshot(root, branch)}
+
+      {:error, reason} ->
+        Logger.warning("AL serialisation could not project definitions: #{inspect(reason)}")
+        state
+    end
+  end
+
+  defp refresh_definitions(state, _result), do: state
 
   defp name(%AL.Branch{id: branch}), do: String.to_atom("#{__MODULE__}.#{branch}")
 
@@ -432,7 +447,7 @@ defmodule AL.SourceExport do
         %{state | watcher: pid}
 
       {:error, reason} ->
-        Logger.error("AL source export could not start file watcher: #{inspect(reason)}")
+        Logger.error("AL serialisation could not start file watcher: #{inspect(reason)}")
         state
     end
   end
@@ -440,7 +455,7 @@ defmodule AL.SourceExport do
   # inotifywait is a separate OS process; subscribing doesn't mean it has
   # attached its watches yet -- recursive setup takes real time proportional
   # to tree size, so a single fixed wait either wastes time on a small tree
-  # or loses the race on a large one (a fresh fork's ~150 exported files
+  # or loses the race on a large one (a fresh fork's ~150 serialised files
   # regularly takes longer to watch than a single short wait). Retry a
   # cheap sentinel write instead of guessing one timeout: succeeds as soon
   # as the watch is actually live, bounded overall the same as before.
@@ -452,7 +467,7 @@ defmodule AL.SourceExport do
 
   defp await_watcher_ready(_pid, definitions_root, 0) do
     Logger.warning(
-      "AL source export file watcher for #{definitions_root} didn't confirm readiness"
+      "AL serialisation file watcher for #{definitions_root} didn't confirm readiness"
     )
   end
 
@@ -480,17 +495,17 @@ defmodule AL.SourceExport do
   # A branch materializing lots of inherited state at once (a fresh fork,
   # bulk hydration) writes `:soa` one row at a time, not as a single
   # transaction — each write would otherwise trigger its own full
-  # re-export. Debounce into one flush per burst instead of one per write.
+  # reserialisation. Debounce into one flush per burst instead of one per write.
   @definitions_flush_delay_ms 100
 
-  defp mark_definitions_dirty(%{export_pending: true} = state), do: state
+  defp mark_definitions_dirty(%{serialisation_pending: true} = state), do: state
 
   defp mark_definitions_dirty(state) do
-    Process.send_after(self(), :export_definitions, @definitions_flush_delay_ms)
-    %{state | export_pending: true}
+    Process.send_after(self(), :serialise_definitions, @definitions_flush_delay_ms)
+    %{state | serialisation_pending: true}
   end
 
-  @definitions_import_delay_ms 120
+  @definitions_deserialisation_delay_ms 120
 
   defp handle_definition_file_event(state, path) do
     current = file_fingerprint(path)
@@ -500,10 +515,18 @@ defmodule AL.SourceExport do
       state
     else
       timer =
-        state.import_timer ||
-          Process.send_after(self(), :import_definitions, @definitions_import_delay_ms)
+        state.deserialisation_timer ||
+          Process.send_after(
+            self(),
+            :deserialise_definitions,
+            @definitions_deserialisation_delay_ms
+          )
 
-      %{state | import_pending: MapSet.put(state.import_pending, path), import_timer: timer}
+      %{
+        state
+        | deserialisation_pending: MapSet.put(state.deserialisation_pending, path),
+          deserialisation_timer: timer
+      }
     end
   end
 
@@ -538,11 +561,11 @@ defmodule AL.SourceExport do
     |> Map.new(fn path -> {path, file_fingerprint(path)} end)
   end
 
-  defp import_external_definitions(root, branch) do
-    case SourceSnapshot.capture(branch) do
+  defp deserialise_external_definitions(root, branch) do
+    case Snapshot.capture(branch) do
       {:ok, snapshot} ->
         expected =
-          Map.new(SourceSnapshot.rendered(snapshot), fn {owner, text} ->
+          Map.new(Snapshot.rendered(snapshot), fn {owner, text} ->
             {definition_path(root, branch, owner), text}
           end)
 
@@ -559,12 +582,12 @@ defmodule AL.SourceExport do
                 if Map.get(expected, path) == text, do: [], else: [{path, text}]
 
               {:error, reason} ->
-                Logger.warning("AL source export could not read #{path}: #{inspect(reason)}")
+                Logger.warning("AL serialisation could not read #{path}: #{inspect(reason)}")
                 []
             end
           end)
 
-        import_document_batch(entries, [], branch, root)
+        deserialise_document_batch(entries, [], branch, root)
 
         :ok
 
@@ -573,49 +596,49 @@ defmodule AL.SourceExport do
     end
   end
 
-  defp import_document_batch([], [], _branch, _root), do: :ok
+  defp deserialise_document_batch([], [], _branch, _root), do: :ok
 
-  defp import_document_batch(entries, deleted_paths, branch, root) do
+  defp deserialise_document_batch(entries, deleted_paths, branch, root) do
     paths = Enum.map(entries, &elem(&1, 0)) ++ deleted_paths
+    index = read_index(root, branch)
 
     with {:ok, parsed} <- parse_documents(entries),
-         {:atomic, {:ok, chunks, prefix}} <-
+         {:atomic, {:ok, chunks}} <-
            :mnesia.transaction(fn ->
-             prepare_document_changes(parsed, deleted_paths, branch, root)
+             prepare_document_changes(parsed, deleted_paths, branch, root, index)
            end) do
-      evaluate_document_changes(chunks, prefix, paths, branch)
+      evaluate_document_changes(chunks, paths, branch)
     else
       {:atomic, {:error, reason}} ->
-        Logger.error("AL source export rejected #{inspect(paths)}: #{inspect(reason)}")
+        Logger.error("AL serialisation rejected #{inspect(paths)}: #{inspect(reason)}")
         {:error, reason}
 
       {:aborted, reason} ->
-        Logger.error("AL source export could not inspect #{inspect(paths)}: #{inspect(reason)}")
+        Logger.error("AL serialisation could not inspect #{inspect(paths)}: #{inspect(reason)}")
         {:error, reason}
 
       {:error, reason} ->
-        Logger.error("AL source export could not parse #{inspect(paths)}: #{inspect(reason)}")
+        Logger.error("AL serialisation could not parse #{inspect(paths)}: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  defp evaluate_document_changes([], [], _paths, _branch), do: :ok
+  defp evaluate_document_changes([], _paths, _branch), do: :ok
 
-  defp evaluate_document_changes(chunks, prefix, paths, branch) do
+  defp evaluate_document_changes(chunks, paths, branch) do
     with {:ok, result, source} <- capture_document_source(chunks) do
-      result = prepend_program(result, prefix)
-      origin = %{kind: :source_export, label: nil, files: paths, format: :definition_document}
+      origin = %{kind: :serialisation, label: nil, files: paths, format: :definition_document}
 
       case AL.eval_captured(result, source, origin, nil, branch, []) do
         {:atomic, _} ->
           :ok
 
         {:aborted, reason} ->
-          Logger.error("AL source export rejected #{inspect(paths)}: #{inspect(reason)}")
+          Logger.error("AL serialisation rejected #{inspect(paths)}: #{inspect(reason)}")
           {:error, reason}
 
         {:error, reason} ->
-          Logger.error("AL source export could not parse #{inspect(paths)}: #{inspect(reason)}")
+          Logger.error("AL serialisation could not parse #{inspect(paths)}: #{inspect(reason)}")
           {:error, reason}
       end
     end
@@ -623,7 +646,7 @@ defmodule AL.SourceExport do
 
   defp parse_documents(entries) do
     Enum.reduce_while(entries, {:ok, []}, fn {path, text}, {:ok, documents} ->
-      case SourceDocument.parse(text) do
+      case Document.parse(text) do
         {:ok, document} -> {:cont, {:ok, [{path, document} | documents]}}
         {:error, reason} -> {:halt, {:error, {path, reason}}}
       end
@@ -634,14 +657,15 @@ defmodule AL.SourceExport do
     end
   end
 
-  defp prepare_document_changes(parsed, deleted_paths, branch, root) do
-    snapshot = SourceSnapshot.capture_in_transaction(branch)
+  defp prepare_document_changes(parsed, deleted_paths, branch, root, index) do
+    snapshot = Snapshot.capture_in_transaction(branch)
 
     with :ok <- validate_document_paths(parsed, root, branch),
+         :ok <- validate_fresh_base(parsed, snapshot, index),
          deleted_owners <- deleted_owners(deleted_paths, snapshot, root, branch),
          documents <- Enum.map(parsed, &elem(&1, 1)),
-         {:ok, plan} <- SourceSync.plan(snapshot, documents, deleted_owners) do
-      {:ok, plan.chunks, plan.prefix}
+         {:ok, chunks} <- Sync.plan(snapshot, documents, deleted_owners) do
+      {:ok, chunks}
     end
   end
 
@@ -652,6 +676,18 @@ defmodule AL.SourceExport do
         if definition_path(root, branch, owner) == path, do: owner
       end)
       |> List.wrap()
+    end)
+  end
+
+  defp validate_fresh_base(parsed, snapshot, index) do
+    Enum.reduce_while(parsed, :ok, fn {path, document}, :ok ->
+      with %Document{} = current <- Map.get(snapshot.documents, document.owner),
+           recorded when not is_nil(recorded) <- Map.get(index, path),
+           false <- recorded == fingerprint(Document.render(current)) do
+        {:halt, {:error, {:stale_definition, document.owner}}}
+      else
+        _ -> {:cont, :ok}
+      end
     end)
   end
 
@@ -668,83 +704,23 @@ defmodule AL.SourceExport do
   defp capture_document_source(chunks) do
     source = Enum.map_join(chunks, "\n\n", &elem(&1, 0))
 
-    {ranges, _line} =
-      Enum.map_reduce(chunks, 1, fn {text, target}, line ->
-        stop = line + length(String.split(text, "\n")) - 1
-        {{line, stop, target}, stop + 2}
+    {results, _line} =
+      Enum.map_reduce(chunks, 1, fn {text, _target}, line ->
+        {capture_chunk(text, line, source), line + length(String.split(text, "\n")) + 1}
       end)
 
-    with {:ok, ast} <-
-           Code.string_to_quoted(source <> "\n:__source_export_end__",
-             columns: true,
-             token_metadata: true
-           ) do
-      forms =
-        case ast do
-          {:__block__, _, forms} -> Enum.drop(forms, -1)
-          :__source_export_end__ -> []
-        end
-
-      results =
-        Enum.map(forms, fn form ->
-          line = form_line(form)
-
-          target =
-            case Enum.find(ranges, fn {first, last, _target} ->
-                   line >= first and line <= last
-                 end) do
-              {_, _, target} -> target
-              nil -> nil
-            end
-
-          capture_document_form(form, source, target)
-        end)
-
-      case combine_captures(results) do
-        {:ok, result} -> {:ok, result, source}
-        error -> error
-      end
+    case combine_captures(results) do
+      {:ok, result} -> {:ok, result, source}
+      error -> error
     end
   end
 
-  defp capture_document_form(form, source, nil), do: AL.Source.Parser.capture(form, source)
-
-  defp capture_document_form(form, source, {owner, selector}) do
-    case form_target(form, owner) do
-      {^owner, ^selector} ->
-        if qualify_method(form, owner) == form,
-          do: AL.Source.Parser.capture(form, source),
-          else: AL.Source.Parser.capture_method(form, source, owner)
-
-      target ->
-        {:error, {:method_source_mismatch, {owner, selector}, target}}
+  defp capture_chunk(text, line, source) do
+    case AL.Source.Parser.parse_quoted(text, line: line) do
+      {:ok, ast} -> AL.Source.Parser.capture(ast, source)
+      {:error, reason} -> {:error, {:invalid_definition_source, reason}}
     end
   end
-
-  defp form_line({_, metadata, _}) when is_list(metadata), do: Keyword.get(metadata, :line, 0)
-  defp form_line(_form), do: 0
-
-  defp prepend_program(result, []), do: result
-
-  defp prepend_program(result, prefix) do
-    captures =
-      Enum.map(result.captures, fn capture ->
-        [index | rest] = capture.path
-        %{capture | path: [index + length(prefix) | rest]}
-      end)
-
-    %{result | program: prefix ++ result.program, captures: captures}
-  end
-
-  defp file_fingerprint(path) do
-    case File.read(path) do
-      {:ok, text} -> fingerprint(text)
-      {:error, :enoent} -> :missing
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp fingerprint(text), do: {:present, byte_size(text), :erlang.phash2(text)}
 
   defp combine_captures(results) do
     Enum.reduce_while(results, {:ok, %AL.Source.Parser.Result{program: [], captures: []}}, fn
@@ -780,25 +756,39 @@ defmodule AL.SourceExport do
     }
   end
 
-  defp form_target({:defmethod, _, [owner, selector, head | _]}, _fallback_owner)
-       when is_atom(owner) and is_atom(selector) and is_list(head),
-       do: {owner, selector}
+  defp file_fingerprint(path) do
+    case File.read(path) do
+      {:ok, text} -> fingerprint(text)
+      {:error, :enoent} -> :missing
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-  defp form_target({:defmethod, _, [selector, head | _]}, owner)
-       when is_atom(selector) and is_list(head) and not is_nil(owner),
-       do: {owner, selector}
+  defp fingerprint(text), do: {:present, byte_size(text), :erlang.phash2(text)}
 
-  defp form_target(_form, _owner), do: nil
+  defp index_path(root, branch), do: Path.join(branch_dir(root, branch), ".serialised")
 
-  defp qualify_method({:defmethod, meta, [selector, head]}, owner)
-       when is_atom(selector) and is_list(head),
-       do: {:defmethod, meta, [owner, selector, head]}
+  defp write_index(root, branch, index) do
+    case atomic_write(index_path(root, branch), :erlang.term_to_binary(index)) do
+      {:ok, _path} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-  defp qualify_method({:defmethod, meta, [selector, head, body]}, owner)
-       when is_atom(selector) and is_list(head) and is_list(body),
-       do: {:defmethod, meta, [owner, selector, head, body]}
+  defp read_index(root, branch) do
+    with {:ok, binary} <- File.read(index_path(root, branch)),
+         {:ok, index} <- safe_term(binary) do
+      index
+    else
+      _ -> %{}
+    end
+  end
 
-  defp qualify_method(form, _owner), do: form
+  defp safe_term(binary) do
+    {:ok, :erlang.binary_to_term(binary, [:safe])}
+  rescue
+    ArgumentError -> :error
+  end
 
   defp write_derived(root, branch, owner, text),
     do: write_file(definition_path(root, branch, owner), text)

@@ -60,6 +60,38 @@ AL.Branch.discard(fork) <- discard the fork
 
 Further isolation should be accomplished by configuration of the Mnesiastore dir.
 
+## Working with the live AL node over MCP
+
+The AL owner node starts an MCP server on `http://127.0.0.1:3031/mcp`. Joining
+BEAM nodes use the owner's Mnesia tables and do not start competing MCP
+listeners. The server is disabled in the test environment.
+
+Add it to Codex with:
+
+```console
+codex mcp add almcp --url http://localhost:3031/mcp
+```
+
+The repository's `.codex/config.toml` already contains this project-level
+connection. Add it to Claude Code with:
+
+```console
+claude mcp add --transport http --scope project almcp http://localhost:3031/mcp
+```
+
+The initial tools are:
+
+- `evaluate` evaluates Elixir inside the live owner node for inspection and
+  administration.
+- `evaluateSource` parses, retains, and evaluates complete AL source on an
+  existing branch. It uses AL's normal transaction machinery and returns the
+  committed or failed transaction object.
+- `listBranches` identifies the current HEAD and each branch's command-log
+  position.
+
+The server binds only to loopback. Its `evaluate` tool provides arbitrary code
+execution to local MCP clients, like GT MCP's evaluator.
+
 ## Installing into Glamorous Toolkit
 
 The bundled Lepiter notebook **Working with AL in GT** covers bridge setup,
@@ -82,7 +114,7 @@ not start an Elixir runtime or execute the notebook's setup snippets.
 
 ```st
 Metacello new
-	repository: 'github://anoma/AL-Ex:base/src';
+	repository: 'github://anoma/AL-Ex:base/src/gt';
 	baseline: 'AL';
 	load
 ```
@@ -91,7 +123,7 @@ If you have an existing bridge with a different version you want to run this wit
 
 ```st
 Metacello new
-	repository: 'github://anoma/AL-Ex:base/src';
+	repository: 'github://anoma/AL-Ex:base/src/gt';
 	baseline: 'AL';
 	load: #dev
 ```

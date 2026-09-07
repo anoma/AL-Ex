@@ -4,9 +4,9 @@ defmodule Mix.Tasks.Al.Reset do
   @shortdoc "Wipes the local Mnesia store (.mnesiastore/) so boot reinstalls every package fresh"
 
   @moduledoc """
-  Deletes #{AL.Command.mnesia_dir()}, the on-disk Mnesia schema every `mix run`/
-  `mix test` in this checkout shares — gitignored, disposable, rebuilt from
-  scratch (packages reinstalled from current source) on next boot.
+  Deletes #{AL.Command.mnesia_dir()} and the configured AL serialisation tree,
+  the disposable state shared by every `mix run`/`mix test` in this checkout.
+  Both are rebuilt from scratch on next boot.
 
   This is a genuinely destructive, process-wide reset — it takes out `:main`
   *and every fork*, including any other node's, not just yours. Prefer
@@ -27,14 +27,23 @@ defmodule Mix.Tasks.Al.Reset do
   def run(args) do
     {opts, _rest} = OptionParser.parse!(args, aliases: [y: :yes], strict: [yes: :boolean])
     dir = AL.Command.mnesia_dir()
+    serialisation_dir = AL.Serialisation.configured_root()
+    paths = [dir, serialisation_dir] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    existing = Enum.filter(paths, &File.exists?/1)
 
     cond do
-      not File.dir?(dir) ->
-        Mix.shell().info("#{dir} doesn't exist — already clean.")
+      existing == [] ->
+        Mix.shell().info("#{Enum.join(paths, " and ")} don't exist — already clean.")
 
-      opts[:yes] || Mix.shell().yes?("Delete #{dir}? This affects every fork, every node.") ->
-        File.rm_rf!(dir)
-        Mix.shell().info("Deleted #{dir}. Next boot reinstalls every package fresh.")
+      opts[:yes] ||
+          Mix.shell().yes?(
+            "Delete #{Enum.join(existing, " and ")}? This affects every fork, every node."
+          ) ->
+        Enum.each(existing, &File.rm_rf!/1)
+
+        Mix.shell().info(
+          "Deleted #{Enum.join(existing, " and ")}. Next boot reinstalls every package fresh."
+        )
 
       true ->
         Mix.shell().info("Aborted.")

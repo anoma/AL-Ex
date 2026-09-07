@@ -4,4 +4,6 @@ config :logger,
   level: :error
 
 config :al,
-  source_export_dir: nil
+  serialisation_dir: nil
+
+config :al, AL.MCP, enabled: false

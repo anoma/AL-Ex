@@ -12,6 +12,9 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 
 ## Testing workflow
 
+- For an isolated run that cannot touch the checkout's normal Mnesia store,
+  use `../al-internals/scripts/test.sh <test paths or line numbers>`. It selects
+  a fresh local store and removes it afterward.
 - **Examples are the tests.** They live in `lib/examples/e_AL_*.ex` as ExExample
   `example` blocks, wired into `test/al_test.exs` via
   `use ExExample.ExUnit, for: Examples.X`. Run with `mix test`. Examples are

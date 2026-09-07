@@ -7,6 +7,7 @@ config :logger,
 
 # Packages installed at startup.
 config :al,
+  serialisation_dir: "src/al",
   packages: [
     AL.Package.Bootstrap,
     AL.Package.Users,
@@ -23,6 +24,11 @@ config :al,
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
 # {class, selector, module, function, arity} or {..., opts} tuples.
 config :al, natives: []
+
+config :al, AL.MCP,
+  enabled: true,
+  ip: {127, 0, 0, 1},
+  port: 3031
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

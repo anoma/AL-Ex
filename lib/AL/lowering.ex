@@ -83,6 +83,9 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
+  def ast_to_pattern({:comment, _, [text]}) when is_binary(text),
+    do: %Goal.Comment{text: text}
+
   def ast_to_pattern({:vm_oapply, _, [method_id, args]}),
     do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
 

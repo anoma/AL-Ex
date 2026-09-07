@@ -110,7 +110,7 @@
 					"__type" : "uid",
 					"uidString" : "Zm0iHhRrRI6vjDW5/v71Ag=="
 				},
-				"code" : "Metacello new\n    repository: 'tonel:///home/jam/elixir/AL-Ex/src';\n    baseline: 'AL';\n    load: #dev"
+				"code" : "Metacello new\n    repository: 'tonel:///home/jam/elixir/AL-Ex/src/gt';\n    baseline: 'AL';\n    load: #dev"
 			},
 			{
 				"__type" : "textSnippet",

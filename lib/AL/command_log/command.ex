@@ -228,10 +228,10 @@ defmodule AL.Command do
     :mnesia.transaction(fn ->
       branch = AL.Branch.main()
 
-      case read_meta(branch, :source_export_store_identity, :absent, :write) do
+      case read_meta(branch, :store_identity, :absent, :write) do
         :absent ->
           identity = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
-          write_meta(branch, :source_export_store_identity, identity)
+          write_meta(branch, :store_identity, identity)
           identity
 
         identity ->

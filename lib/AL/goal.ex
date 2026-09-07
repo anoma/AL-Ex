@@ -71,6 +71,7 @@ defmodule AL.Goal do
           | AL.Goal.SourceScopeExit.t()
           | AL.Goal.Fail.t()
           | AL.Goal.Pass.t()
+          | AL.Goal.Comment.t()
 
   @type t() :: command() | instructions()
 
@@ -403,6 +404,12 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: Pass do
   end
 
+  # Authored prose, stored so a definition stays fully regenerable. Inert at
+  # run time, like Pass.
+  typedstruct enforce: true, module: Comment do
+    field(:text, String.t())
+  end
+
   @doc "Transform every leaf of a goal term with `fun`."
   @spec map(term(), (term() -> term())) :: term()
   def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
@@ -485,7 +492,8 @@ defmodule AL.Goal do
     {Call, :call, [head: :term, body: :goals, args: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
     {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
-    {CallNextMethod, :call_next_method, [self: :term, args: :term]}
+    {CallNextMethod, :call_next_method, [self: :term, args: :term]},
+    {Comment, :comment, [text: :term]}
   ]
 
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
