@@ -64,8 +64,8 @@ defmodule AL.SourceStore do
 
       for span <- spans, do: :mnesia.write(table(:source_span, destination), span, :write)
 
-      spans
-      |> Enum.map(fn {:source_span, _command_t, tx_id, _kind, _range, _context} -> tx_id end)
+      AL.Command.commands_until(command_cutoff, source)
+      |> Enum.map(fn {:command, _t, tx_id, _command} -> tx_id end)
       |> Enum.uniq()
       |> Enum.each(fn tx_id ->
         case :mnesia.read(table(:source_text, source), tx_id) do

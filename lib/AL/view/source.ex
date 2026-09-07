@@ -123,11 +123,51 @@ defmodule AL.Source do
     end)
   end
 
+  def transaction_method_rows(tx, branch) do
+    commands = AL.Command.commands_for_transaction(tx, branch)
+    cutoff = Enum.reduce(commands, -1, fn {:command, t, _, _}, last -> max(t, last) end)
+
+    {_methods, rows} =
+      AL.Command.commands_until(cutoff, branch)
+      |> Enum.sort_by(fn {:command, t, _, _} -> t end)
+      |> Enum.reduce({%{}, []}, fn
+        {:command, _, _, {:set_method, {class, name, id}}}, {methods, rows} ->
+          {Map.put(methods, id, {class, name}), rows}
+
+        {:command, t, ^tx, {:set_oapply, {id, _seq, head, body}}}, {methods, rows} ->
+          case Map.fetch(methods, id) do
+            {:ok, {class, name}} ->
+              source = retained_method_source(class, name, head, body, t, branch)
+
+              row = [
+                "#{inspect(class)} · #{name}",
+                t,
+                source.text,
+                length(head),
+                source.start_line
+              ]
+
+              {methods, [row | rows]}
+
+            :error ->
+              {methods, rows}
+          end
+
+        _, acc ->
+          acc
+      end)
+
+    Enum.reverse(rows)
+  end
+
   @doc "Source for one clause as `defmethod(class, name, head) do body end`."
   @spec defmethod_source(atom(), atom(), term(), [AL.Goal.stored()]) :: String.t()
   def defmethod_source(class, name, head, body) do
     {head, body} = rename({head, body})
-    Macro.to_string({:defmethod, [], [pat(class), pat(name), pat(head), [do: goals(body)]]})
+
+    {:defmethod, [], [pat(class), pat(name), pat(head), [do: goals(body)]]}
+    |> Macro.to_string()
+    |> restore_comments()
   end
 
   @doc "Source for a body as a do-block."
@@ -137,6 +177,93 @@ defmodule AL.Source do
     |> rename()
     |> goals()
     |> Macro.to_string()
+    |> restore_comments()
+  end
+
+  # A comment is not an AST node, so it renders through a placeholder call and
+  # becomes a real `#` line here.
+  @comment_placeholder :__al_comment__
+
+  defp restore_comments(text) do
+    if String.contains?(text, Atom.to_string(@comment_placeholder)) do
+      text
+      |> String.split("\n")
+      |> Enum.map_join("\n", &restore_comment_line/1)
+    else
+      text
+    end
+  end
+
+  defp restore_comment_line(line) do
+    with %{"indent" => indent, "argument" => argument} <-
+           Regex.named_captures(
+             ~r/^(?<indent>\s*)#{@comment_placeholder}\((?<argument>.*)\)$/,
+             line
+           ),
+         {:ok, text} when is_binary(text) <- Code.string_to_quoted(argument) do
+      indent <> "#" <> text
+    else
+      _ -> line
+    end
+  end
+
+  @doc """
+  Split a retained clause into its Tonel declaration and verbatim body.
+
+  Scans rather than parses: a decompiled body can contain `RAW(...)` terms that
+  are not valid source, and those still have to be sliced.
+  """
+  @spec split_clause_source(String.t()) :: {:ok, String.t(), String.t()} | :error
+  def split_clause_source(text) when is_binary(text) do
+    with {:ok, open} <- open_paren(text),
+         {:ok, close} <- AL.Source.Scanner.close_index(text, open + 1, ?(, ?)) do
+      arguments = binary_part(text, open + 1, close - open - 1)
+      {:ok, declaration(arguments), body(text, close + 1)}
+    else
+      _ -> :error
+    end
+  end
+
+  def split_clause_source(_text), do: :error
+
+  defp open_paren(text) do
+    trimmed = String.trim_leading(text)
+
+    if String.starts_with?(trimmed, "defmethod") do
+      case :binary.match(text, "(") do
+        {index, _length} -> {:ok, index}
+        :nomatch -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp declaration(arguments) do
+    case AL.Source.Scanner.top_level_commas(arguments) do
+      [first | rest] when rest != [] ->
+        arguments
+        |> binary_part(first + 1, byte_size(arguments) - first - 1)
+        |> String.trim()
+
+      _ ->
+        String.trim(arguments)
+    end
+  end
+
+  defp body(text, index) do
+    rest = binary_part(text, index, byte_size(text) - index)
+    trimmed = String.trim_trailing(rest)
+
+    with true <- String.ends_with?(trimmed, "end"),
+         {do_index, _length} <- :binary.match(trimmed, "do") do
+      trimmed
+      |> binary_part(do_index + 2, byte_size(trimmed) - do_index - 5)
+      |> String.trim_leading("\n")
+      |> String.trim_trailing()
+    else
+      _ -> ""
+    end
   end
 
   @type display_source() :: %{
@@ -196,11 +323,20 @@ defmodule AL.Source do
       {:source_span, ^command_t, tx_id, :defmethod, range, context} ->
         case AL.SourceStore.text(tx_id, branch) do
           {:source_text, ^tx_id, text, origin} ->
-            case AL.Source.Parser.slice(text, range) do
+            case AL.Source.Parser.slice(text, range, origin) do
               {:ok, source} ->
+                display_range =
+                  case Map.get(origin, :range) do
+                    %{start: _start, stop: _stop} = container ->
+                      AL.Source.Parser.rebase_range(range, container)
+
+                    _ ->
+                      range
+                  end
+
                 %{
                   text: source,
-                  start_line: range.start.line,
+                  start_line: display_range.start.line,
                   provenance: :retained,
                   origin: origin,
                   authored_as: Map.get(context, :authored_as),
@@ -221,9 +357,17 @@ defmodule AL.Source do
   end
 
   @doc "Prepare a parsed program with retry-stable source capture identities."
+  @spec prepare(AL.Source.Parser.Result.t(), String.t()) ::
+          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
+  def prepare(result, text), do: prepare(result, text, %{kind: :eval_source, label: nil}, text)
+
   @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin()) ::
           {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
-  def prepare(result, text, origin \\ %{kind: :eval_source, label: nil}) do
+  def prepare(result, text, origin), do: prepare(result, text, origin, text)
+
+  @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin(), String.t()) ::
+          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
+  def prepare(result, _text, origin, retained_text) do
     evaluation_ref = make_ref()
 
     try do
@@ -237,7 +381,13 @@ defmodule AL.Source do
           {List.replace_at(program, hd(capture.path), goal), refs}
         end)
 
-      {:ok, %AL.Source.Evaluation{text: text, origin: origin, program: program, refs: refs}}
+      {:ok,
+       %AL.Source.Evaluation{
+         text: retained_text,
+         origin: origin,
+         program: program,
+         refs: refs
+       }}
     rescue
       error ->
         {:error,
@@ -513,12 +663,17 @@ defmodule AL.Source do
   defp goal({:functor, term, name, args}), do: call(:vm_functor, [term, name, args])
   defp goal({:unify, a, b}), do: call(:unify, [a, b])
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
+
+  defp goal({:transaction_source, tx, text, origin}),
+    do: call(:vm_transaction_source, [tx, text, origin])
+
   defp goal({:get_class, o, c}), do: call(:class, [o, c])
   defp goal({:get_super, o, s}), do: call(:super, [o, s])
   defp goal({:set_class, o, c}), do: call(:set_class, [o, c])
   defp goal({:set_super, o, s}), do: call(:set_super, [o, s])
   defp goal({:set_slot, o, k, v}), do: call(:set_slot, [o, k, v])
-  defp goal({:get_slot, o, k, v}), do: call(:get_slot, [o, k, v])
+  defp goal({:get_slot, o, k, v, :aos}), do: call(:vm_get_slot, [o, k, v])
+  defp goal({:get_slot, o, k, v, store}), do: call(:vm_get_slot, [o, k, v, store])
   defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), Enum.map(cond, &goal/1), pat(r)]}
   defp goal({:retract_class, o, c}), do: call(:retract_class, [o, c])
   defp goal({:retract_super, o, s}), do: call(:retract_super, [o, s])
@@ -534,11 +689,19 @@ defmodule AL.Source do
 
   defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
 
-  defp goal({:oapply, op, args}) when op in @arith, do: {op, [], Enum.map(args, &pat/1)}
-  defp goal({:oapply, fun, args}), do: {fun, [], Enum.map(args, &pat/1)}
+  defp goal({:oapply, op, args}) when op in @arith and is_list(args),
+    do: {op, [], Enum.map(args, &pat/1)}
+
+  defp goal({:oapply, fun, args}) when is_atom(fun) and is_list(args) do
+    if AL.Var.var?(fun),
+      do: call(:vm_oapply, [fun, args]),
+      else: {fun, [], Enum.map(args, &pat/1)}
+  end
+
+  defp goal({:oapply, fun, args}), do: call(:vm_oapply, [fun, args])
 
   defp goal({:forall, cond, body}),
-    do: {:forall, [], [Enum.map(cond, &goal/1), Enum.map(body, &goal/1)]}
+    do: {:forall, [], [Enum.map(cond, &goal/1), [do: goals(body)]]}
 
   defp goal({:or, left, right}),
     do: {:alternative, [], [Enum.map(left, &goal/1), Enum.map(right, &goal/1)]}
@@ -554,15 +717,40 @@ defmodule AL.Source do
       {:call, [],
        [pat(head), if(is_list(body), do: Enum.map(body, &goal/1), else: pat(body)), pat(args)]}
 
-  defp goal({:call_next_method, self, args}),
+  defp goal({:call_next_method, self, args}) when is_list(args),
     do: {:call_next_method, [], [pat(self) | Enum.map(args, &pat/1)]}
+
+  defp goal({:call_next_method, self, args}),
+    do: {:call_next_method, [], [pat(self), pat(args)]}
 
   # A var in method position can't use the `method`, emit explicit send.
   defp goal({:send, r, m, args}) do
-    if AL.Var.var?(m),
-      do: {:send, [], [pat(r), pat(m), Enum.map(args, &pat/1)]},
-      else: {m, [], [pat(r) | Enum.map(args, &pat/1)]}
+    cond do
+      not is_list(args) -> {:send, [], [pat(r), pat(m), pat(args)]}
+      AL.Var.var?(m) -> {:send, [], [pat(r), pat(m), Enum.map(args, &pat/1)]}
+      true -> {m, [], [pat(r) | Enum.map(args, &pat/1)]}
+    end
   end
+
+  defp goal({:comment, text}), do: {@comment_placeholder, [], [text]}
+
+  defp goal({:either, left, right}), do: {:or, [], [goal(left), goal(right)]}
+
+  defp goal({:all_dif, vars}), do: call(:all_dif, [vars])
+
+  defp goal({:assert_valid_clause_self, class, head}),
+    do: call(:vm_assert_valid_clause_self, [class, head])
+
+  defp goal({:format, control, args}), do: call(:vm_format, [control, args])
+
+  defp goal({:method_source, object, seq, text, provenance}),
+    do: call(:vm_method_source, [object, seq, text, provenance])
+
+  defp goal({:slot_at, object, key, value, t}),
+    do: call(:vm_slot_at, [object, key, value, t])
+
+  defp goal({:source_scope, capture_id, goals}),
+    do: {:vm_source_scope, [], [pat(capture_id), [do: goals(goals)]]}
 
   defp goal(other), do: {:RAW, [], [Macro.escape(other)]}
 
@@ -583,7 +771,8 @@ defmodule AL.Source do
   defp pat([h | t]) when is_list(t), do: [pat(h) | pat(t)]
   defp pat([h | t]), do: [{:|, [], [pat(h), pat(t)]}]
   defp pat(m) when is_map(m), do: {:%{}, [], Enum.map(m, fn {k, v} -> {pat(k), pat(v)} end)}
-  defp pat({:oapply, op, args}), do: {op, [], Enum.map(args, &pat/1)}
+  defp pat({:oapply, op, args}) when is_list(args), do: {op, [], Enum.map(args, &pat/1)}
+  defp pat({:oapply, op, args}), do: {op, [], [pat(args)]}
   defp pat({a, b}), do: {pat(a), pat(b)}
   defp pat(x), do: x
 end

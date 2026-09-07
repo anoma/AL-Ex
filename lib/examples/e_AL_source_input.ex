@@ -61,6 +61,29 @@ defmodule Examples.ALSourceInput do
     result
   end
 
+  example captures_only_the_authored_al_run_body() do
+    source =
+      "defmodule Examples.SourceCapture do\n" <>
+        "  AL.run do\n" <>
+        "    # retained comment\n" <>
+        "    vm_set_class(:captured_run_object, :object)\n" <>
+        "  end\n" <>
+        "end\n"
+
+    {:ok, range} = Parser.run_range(source, 2)
+    {:ok, retained} = Parser.slice(source, range)
+
+    assert retained ==
+             "\n" <>
+               "    # retained comment\n" <>
+               "    vm_set_class(:captured_run_object, :object)\n" <>
+               "  "
+
+    refute retained =~ "AL.run"
+    refute retained =~ "defmodule"
+    :ok
+  end
+
   example final_definition_ranges_exclude_trailing_comments() do
     source =
       "unify(\"é\", :ok); " <>
@@ -302,7 +325,7 @@ defmodule Examples.ALSourceInput do
     end
   end
 
-  example source_rows_commands_and_projections_roll_back_together() do
+  example failed_source_is_retained_while_definitions_roll_back() do
     branch = AL.Branch.fork_fresh()
     class = fresh_id("source_retention_rollback")
 
@@ -320,7 +343,8 @@ defmodule Examples.ALSourceInput do
       fail()
       """
 
-      assert {:aborted, _reason} = AL.eval_source(source, branch)
+      assert {:aborted, reason} = AL.eval_source(source, branch)
+      tx = reason.state.tx_id
 
       {:atomic, {texts, spans, classes, commands}} =
         :mnesia.transaction(fn ->
@@ -332,7 +356,11 @@ defmodule Examples.ALSourceInput do
           }
         end)
 
-      assert texts == texts_before
+      assert texts_before != texts
+
+      assert {:source_text, ^tx, ^source, %{kind: :eval_source, label: nil}} =
+               Enum.find(texts, fn {:source_text, tx_id, _text, _origin} -> tx_id == tx end)
+
       assert spans == spans_before
       assert classes == []
 

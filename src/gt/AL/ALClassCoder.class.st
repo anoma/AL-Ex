@@ -54,25 +54,8 @@ ALClassCoder >> editorSessionId [
 
 { #category : 'querying' }
 ALClassCoder >> functionEntries [
-	"One BeamFunctionEntry per clause across all my methods — fields name / seq /
-	 source / arity / start. seq drives ordering and (later) reorder; start is
-	 seq+1 so the coder treats clauses as having editable source."
-
-	| elixir rows |
-	elixir := 'o = ' , object resolve
-			, '
-oid = o.id
-branch = %AL.Branch{id: AL.Object.branch_id(o)}
-case :mnesia.transaction(fn ->
-  for {:method, _m, name, id} <- AL.Object.scan_method(oid, :"$n", :"$id", branch),
-      {:oapply, _id, seq, h, b} <- AL.Object.scan_oapply(id, :"$seq", :"$h", :"$b", branch) do
-    [to_string(name), seq, AL.Source.defmethod_source(oid, name, h, b), length(h)]
-  end
-end) do
-  {:atomic, entries} -> entries
-  {:aborted, _gone} -> []
-end'.
-	rows := (application evaluateAndWait: elixir) asList.
+	| rows |
+	rows := self sourceRows.
 	^ rows
 		collect: [ :row | 
 			BeamFunctionEntry
@@ -81,7 +64,7 @@ end'.
 						at: 'seq' put: (row itemAt: 1);
 						at: 'source' put: (row itemAt: 2);
 						at: 'arity' put: (row itemAt: 3);
-						at: 'start' put: (row itemAt: 1) + 1;
+						at: 'start' put: (row itemAt: 4);
 						at: 'kind' put: 'def';
 						yourself) ]
 ]
@@ -151,4 +134,9 @@ ALClassCoder >> setObject: anALObject [
 	application := anALObject application.
 	moduleName := anALObject application
 			evaluateAndWait: 'to_string((' , anALObject resolve , ').id)'
+]
+
+{ #category : 'querying' }
+ALClassCoder >> sourceRows [
+    ^ (application evaluateAndWait: 'o = ' , object resolve , '; AL.Source.method_source_rows(o.id, AL.Object.branch_id(o))') asList
 ]

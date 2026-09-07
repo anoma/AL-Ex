@@ -343,6 +343,19 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
+    defmethod(:class, :delete_class, [self]) do
+      findall(s, [super(self, s)], old_supers)
+      vm_get_slot(self, :ivars, old_ivars)
+
+      class_redefined(
+        self,
+        %{supers: old_supers, ivars: old_ivars},
+        %{supers: [], ivars: []}
+      )
+
+      retract_existing_facts(self)
+    end
+
     defmethod(:object, :reconcile_redefined_instance, [self, added_specs, removed_names]) do
       forall([member(removed_names, key)]) do
         vm_retract_slot(self, key)
@@ -699,6 +712,7 @@ defmodule AL.Package.Bootstrap do
       %{
         id: self,
         classes: classes,
+        class_supers: class_supers,
         objects: objects,
         supers: supers,
         subs: subs,
@@ -709,6 +723,7 @@ defmodule AL.Package.Bootstrap do
       }
     ]) do
       findall(c, [class(self, c)], classes)
+      findall([c, s], [class(self, c), super(c, s)], class_supers)
       findall(c, [class(c, self), label(c)], objects)
       findall(s, [super(self, s)], supers)
       findall(sub, [super(sub, self)], subs)
@@ -721,12 +736,34 @@ defmodule AL.Package.Bootstrap do
 
     new(:class, %{name: :package, super: :object, ivars: [:name, :version, :deps, :tx]}, _)
 
+    new(:class, %{name: :transaction, super: :object, ivars: [:tx, :branch, :status, :reason]}, _)
+
+    defmethod(:transaction, :listing, [self, text]) do
+      get_slot(self, :tx, tx)
+      vm_transaction_source(tx, text, _origin)
+    end
+
     defmethod(:package, :init, [self, args, self]) do
       vm_map_get(args, :name, name)
       vm_map_get(args, :version, version)
       vm_map_get(args, :deps, deps)
       vm_current_tx(tx)
-      set_slots(self, %{name: name, version: version, deps: deps, tx: tx})
+      vm_transaction_object(transaction)
+      set_slots(self, %{name: name, version: version, deps: deps, tx: transaction})
+    end
+
+    defmethod(:package, :source, [self, text]) do
+      get_slot(self, :tx, tx)
+      vm_transaction_source(tx, text, _origin)
+    end
+
+    defmethod(:package, :listing, [self, text]) do
+      source(self, text)
+    end
+
+    defmethod(:package, :listing, [self]) do
+      source(self, text)
+      vm_format("~a~%", [text])
     end
 
     new(:class, %{name: :number, super: :value, ivars: []}, _)

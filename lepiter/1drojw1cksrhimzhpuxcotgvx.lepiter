@@ -55,7 +55,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:03:52.051899+01:00"
+						"dateAndTimeString" : "2026-09-04T16:03:59.262521+01:00"
 					}
 				},
 				"editEmail" : {
@@ -66,17 +66,17 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:06:53.574452+01:00"
+						"dateAndTimeString" : "2026-09-06T17:10:57.571756+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
-					"uidString" : "rGw1aDkwQ72iZnXlxFFRFg=="
+					"uidString" : "7huuSdnwSnaJS1c7/+5xyw=="
 				},
 				"paragraphStyle" : {
 					"__type" : "textStyle"
 				},
-				"string" : "Install the GT tooling\n\nLoad AL and the bridge version pinned by its baseline. The current baseline and Mix dependency target 0.19.4. For an existing development bridge, use the local #dev alternative below instead."
+				"string" : "Local checkout\n\nIf a compatible Gt4beam is already loaded, replace /path/to/AL-Ex below with your checkout path and load AL's #dev group. This skips the bridge dependency. You do not need both installation snippets."
 			},
 			{
 				"__type" : "pharoSnippet",
@@ -92,7 +92,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:03:56.366909+01:00"
+						"dateAndTimeString" : "2026-09-04T16:04:01.901703+01:00"
 					}
 				},
 				"editEmail" : {
@@ -103,14 +103,14 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:50:21.666109+01:00"
+						"dateAndTimeString" : "2026-09-06T18:19:18.23156+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
-					"uidString" : "ARZ9dGm4RnaMhYjJRaLcbg=="
+					"uidString" : "Zm0iHhRrRI6vjDW5/v71Ag=="
 				},
-				"code" : "Metacello new\n    repository: 'tonel:///home/jam/elixir/AL-Ex/src';\n    baseline: 'AL';\n    load"
+				"code" : "Metacello new\n    repository: 'tonel:///home/jam/elixir/AL-Ex/src/gt';\n    baseline: 'AL';\n    load: #dev"
 			},
 			{
 				"__type" : "textSnippet",
@@ -248,7 +248,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:50:43.926427+01:00"
+						"dateAndTimeString" : "2026-09-04T16:16:38.851907+01:00"
 					}
 				},
 				"uid" : {
@@ -271,7 +271,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:18.036235+01:00"
+						"dateAndTimeString" : "2026-09-06T18:00:59.13948+01:00"
 					}
 				},
 				"editEmail" : {
@@ -282,230 +282,17 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:08:38.767628+01:00"
+						"dateAndTimeString" : "2026-09-06T18:01:15.771894+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
-					"uidString" : "F3UGW2zPTCGK9D1MvFMhFg=="
+					"uidString" : "/X3Z7gY7QNClM9JaLJ74Bw=="
 				},
 				"paragraphStyle" : {
 					"__type" : "textStyle"
 				},
-				"string" : "Verify evaluation and the loaded runtime\n\nInspect the result of the next snippet: expect 2. Then check that AL is loaded and that the bridge dependency reports the expected version."
-			},
-			{
-				"__type" : "pharoSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:20.674865+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:16:45.938127+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "Fl6fa9YwRLSHOwf9NiZODQ=="
-				},
-				"code" : "alBridge evaluateAndWait: '1 + 1'"
-			},
-			{
-				"__type" : "pharoSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:25.776941+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:25.776941+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "xEHnKjnTQbWzcqb64ZxcYA=="
-				},
-				"code" : "alBridge evaluateAndWait: '{Code.ensure_loaded?(AL), Application.spec(:gt_bridge, :vsn), File.cwd!()}'"
-			},
-			{
-				"__type" : "textSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:29.487655+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:29.487655+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "LILSx9xpSgqujSFvVS8cww=="
-				},
-				"paragraphStyle" : {
-					"__type" : "textStyle"
-				},
-				"string" : "The runtime check should report true, the bridge version, and /path/to/AL-Ex. Inspect alBridge to explore its Code Browser view. This confirms you connected to the intended AL runtime before running programs.\n\nAL's GT package maps AL.Object values to ALObject proxies. The local lib/AL/gt_bridge.ex contributes Examine and Constraint Graph views; ALObject contributes Methods. Use an existing AL.Object returned by your program to explore these views. Programs and examples are in lib/examples; some change persistent state, so choose them deliberately."
-			},
-			{
-				"__type" : "textSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:32.403091+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:32.403091+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "mNIh2ZsFS7SOm+oug1rbNw=="
-				},
-				"paragraphStyle" : {
-					"__type" : "textStyle"
-				},
-				"string" : "Troubleshooting\n\n• Unknown BeamLinkApplication: load Gt4beam through AL's baseline first.\n• Connection refused: keep IEx running and use the same port on both sides.\n• Address in use: a listener already owns the port. On Linux, inspect it with `ss -ltnp 'sport = :4040'`. Reuse the correct runtime, exit the older IEx, or choose a free port on both sides.\n• Missing Eval module on connection: encountered with gt_bridge 0.17.3. Use the current dependency, run mix deps.get, and restart IEx. Removing deps and _build alone preserves the version in mix.lock.\n• Protocol errors: align the GT and Elixir bridge versions; #dev does not validate compatibility.\n• Missing AL views: load AL's GT package and inspect an actual AL.Object proxy.\n\nThe bridge's own documentation can be loaded below."
-			},
-			{
-				"__type" : "pharoSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:35.535142+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:35.535142+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "i8msF4B4T+CXYh9kBRRgTA=="
-				},
-				"code" : "#BaselineOfGt4beam asClass loadLepiter"
-			},
-			{
-				"__type" : "textSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:37.795263+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:04:37.795263+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "9M1oGz5zSOC24GeMHPca2A=="
-				},
-				"paragraphStyle" : {
-					"__type" : "textStyle"
-				},
-				"string" : "Maintaining this notebook\n\nThis database lives in AL-Ex/lepiter. Load it with BaselineOfAL loadLepiter, or BaselineOfAL loadLepiterFrom: aCheckoutDirectory for a local checkout. Edit the bundled page in GT and review the resulting .lepiter changes with the corresponding code changes.\n\nThe initial connection was verified interactively by the user. This is a setup and exploration guide; a complete GUI demonstration remains to be developed. Sources: README.md, mix.exs, src/BaselineOfAL, src/AL/ALObject.class.st and lib/AL/gt_bridge.ex."
+				"string" : "Run this to import the AL run macros, used for running these snippets "
 			},
 			{
 				"__type" : "elixirSnippet",
@@ -521,7 +308,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:23:36.794643+01:00"
+						"dateAndTimeString" : "2026-09-06T17:11:56.579365+01:00"
 					}
 				},
 				"editEmail" : {
@@ -532,46 +319,12 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:23:42.596041+01:00"
+						"dateAndTimeString" : "2026-09-06T18:43:39.45119+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
-					"uidString" : "KCYYKKvdTTuV4cbMOZaApg=="
-				},
-				"code" : "h(AL.Application)"
-			},
-			{
-				"__type" : "elixirSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:30:38.324979+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:34:15.400751+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "w9nTe67vQpaZy67vPnb+Kg=="
+					"uidString" : "aWDWzzsiRRu0kDgMQo610Q=="
 				},
 				"code" : "use AL\rAL.Branch.head()"
 			},
@@ -589,7 +342,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:31:48.316087+01:00"
+						"dateAndTimeString" : "2026-09-06T17:12:11.051204+01:00"
 					}
 				},
 				"editEmail" : {
@@ -600,14 +353,14 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T17:00:59.935383+01:00"
+						"dateAndTimeString" : "2026-09-06T17:41:46.968867+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
-					"uidString" : "iTGBBgW1SuKgODNMb16ZeA=="
+					"uidString" : "PlwH+BvrQTySgsZwsi7bwQ=="
 				},
-				"code" : "{:atomic, {b, s}} = run do\n  findall(x, [class(x, :package), label(x)], packages)\rend\r\rMap.get(b, :\"$packages\")"
+				"code" : "{:atomic, {b, s}} = run do \r  eq(a, b + c)\r  eq(b, d + e)\r  eq(a, d + 6)\r  eq(d, 4)\r  eq(e, 3)\rend\r\rs\r"
 			},
 			{
 				"__type" : "elixirSnippet",
@@ -623,7 +376,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T16:53:18.21546+01:00"
+						"dateAndTimeString" : "2026-09-06T17:13:05.05472+01:00"
 					}
 				},
 				"editEmail" : {
@@ -634,14 +387,116 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-04T17:03:23.682715+01:00"
+						"dateAndTimeString" : "2026-09-06T17:14:08.823597+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
-					"uidString" : "MCf11m7mSu6DKECXnvgopQ=="
+					"uidString" : "8Su2uZqTQOWoqwDDgMUirw=="
 				},
-				"code" : "%AL.Object{id: :object}"
+				"code" : "%AL.Object{id: :package}"
+			},
+			{
+				"__type" : "elixirSnippet",
+				"children" : {
+					"__type" : "snippets",
+					"items" : [ ]
+				},
+				"createEmail" : {
+					"__type" : "email",
+					"emailString" : "<unknown>"
+				},
+				"createTime" : {
+					"__type" : "time",
+					"time" : {
+						"__type" : "dateAndTime",
+						"dateAndTimeString" : "2026-09-06T17:13:55.06093+01:00"
+					}
+				},
+				"editEmail" : {
+					"__type" : "email",
+					"emailString" : "<unknown>"
+				},
+				"editTime" : {
+					"__type" : "time",
+					"time" : {
+						"__type" : "dateAndTime",
+						"dateAndTimeString" : "2026-09-06T17:14:00.948768+01:00"
+					}
+				},
+				"uid" : {
+					"__type" : "uid",
+					"uidString" : "hXcXUszAQceFa/yrQZA3OQ=="
+				},
+				"code" : "%AL.Object{id: :equations}"
+			},
+			{
+				"__type" : "elixirSnippet",
+				"children" : {
+					"__type" : "snippets",
+					"items" : [ ]
+				},
+				"createEmail" : {
+					"__type" : "email",
+					"emailString" : "<unknown>"
+				},
+				"createTime" : {
+					"__type" : "time",
+					"time" : {
+						"__type" : "dateAndTime",
+						"dateAndTimeString" : "2026-09-06T17:14:04.323411+01:00"
+					}
+				},
+				"editEmail" : {
+					"__type" : "email",
+					"emailString" : "<unknown>"
+				},
+				"editTime" : {
+					"__type" : "time",
+					"time" : {
+						"__type" : "dateAndTime",
+						"dateAndTimeString" : "2026-09-06T17:43:10.528481+01:00"
+					}
+				},
+				"uid" : {
+					"__type" : "uid",
+					"uidString" : "INqmYTzET4ujOwq1mbn4gg=="
+				},
+				"code" : "%AL.Object{id: :tx_476}"
+			},
+			{
+				"__type" : "elixirSnippet",
+				"children" : {
+					"__type" : "snippets",
+					"items" : [ ]
+				},
+				"createEmail" : {
+					"__type" : "email",
+					"emailString" : "<unknown>"
+				},
+				"createTime" : {
+					"__type" : "time",
+					"time" : {
+						"__type" : "dateAndTime",
+						"dateAndTimeString" : "2026-09-06T17:59:08.301392+01:00"
+					}
+				},
+				"editEmail" : {
+					"__type" : "email",
+					"emailString" : "<unknown>"
+				},
+				"editTime" : {
+					"__type" : "time",
+					"time" : {
+						"__type" : "dateAndTime",
+						"dateAndTimeString" : "2026-09-06T18:02:22.755733+01:00"
+					}
+				},
+				"uid" : {
+					"__type" : "uid",
+					"uidString" : "GPUaA+AfRbS5P734kgGNGA=="
+				},
+				"code" : "Examples.ALObjects.shared_ancestor_kahns()\r%AL.Object{id: :mix_obj, branch: :examples}"
 			}
 		]
 	},

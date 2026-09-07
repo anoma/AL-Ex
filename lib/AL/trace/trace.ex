@@ -163,7 +163,10 @@ defmodule AL.Trace do
     {_stack, nodes, _aliases, roots} =
       Enum.reduce(steps, {[], %{}, %{}, []}, &tree_step(&1, &2, store))
 
-    roots |> Enum.reverse() |> Enum.map(&materialize(&1, nodes))
+    roots
+    |> Enum.reverse()
+    |> Enum.reject(&Map.fetch!(nodes, &1).failed)
+    |> Enum.map(&materialize(&1, nodes))
   end
 
   @doc """
@@ -202,7 +205,8 @@ defmodule AL.Trace do
       derived: nil,
       clause: nil,
       parent: nil,
-      child_scopes: []
+      child_scopes: [],
+      failed: false
     })
   end
 
@@ -246,24 +250,13 @@ defmodule AL.Trace do
 
   defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
        when tag in [:method_fail, :clause_fail] do
+    # A failed node is marked in place, not spliced out of its parent's
+    # `child_scopes`/`roots` -- under heavy backtracking a node can pick up
+    # many siblings, and removing one by value is O(siblings) each time.
+    # `materialize/2` (the only reader, and a rare one relative to how often
+    # a choicepoint fails) filters failed nodes out once instead.
     resolved = Map.get(aliases, scope, scope)
-    node = Map.fetch!(nodes, resolved)
-
-    {nodes, roots} =
-      case node.parent do
-        nil ->
-          {nodes, List.delete(roots, resolved)}
-
-        parent ->
-          nodes =
-            Map.update!(
-              nodes,
-              parent,
-              &%{&1 | child_scopes: List.delete(&1.child_scopes, resolved)}
-            )
-
-          {nodes, roots}
-      end
+    nodes = Map.update!(nodes, resolved, &%{&1 | failed: true})
 
     {unwind(stack, resolved), nodes, aliases, roots}
   end
@@ -309,7 +302,8 @@ defmodule AL.Trace do
       derived: constraint_derived(goal, store),
       clause: nil,
       parent: nil,
-      child_scopes: []
+      child_scopes: [],
+      failed: false
     }
 
     case stack do
@@ -319,7 +313,7 @@ defmodule AL.Trace do
       [parent | _] ->
         nodes =
           nodes
-          |> Map.update!(parent, &%{&1 | child_scopes: &1.child_scopes ++ [key]})
+          |> Map.update!(parent, &%{&1 | child_scopes: [key | &1.child_scopes]})
           |> Map.put(key, %{node | parent: parent})
 
         {stack, nodes, aliases, roots}
@@ -343,7 +337,7 @@ defmodule AL.Trace do
       [parent | _] ->
         nodes =
           nodes
-          |> Map.update!(parent, &%{&1 | child_scopes: &1.child_scopes ++ [scope]})
+          |> Map.update!(parent, &%{&1 | child_scopes: [scope | &1.child_scopes]})
           |> Map.put(scope, %{node | parent: parent})
 
         {[push | stack], nodes, aliases, roots}
@@ -364,12 +358,19 @@ defmodule AL.Trace do
       derived: nil,
       clause: nil,
       parent: nil,
-      child_scopes: []
+      child_scopes: [],
+      failed: false
     }
   end
 
   defp materialize(scope, nodes) do
     node = Map.fetch!(nodes, scope)
+
+    children =
+      node.child_scopes
+      |> Enum.reverse()
+      |> Enum.reject(&Map.fetch!(nodes, &1).failed)
+      |> Enum.map(&materialize(&1, nodes))
 
     %{
       kind: node.kind,
@@ -377,7 +378,7 @@ defmodule AL.Trace do
       constraints_in: node.constraints_in,
       derived: node.derived,
       clause: node.clause,
-      children: Enum.map(node.child_scopes, &materialize(&1, nodes))
+      children: children
     }
   end
 

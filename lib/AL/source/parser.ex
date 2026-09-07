@@ -102,6 +102,49 @@ defmodule AL.Source.Parser do
   def slice(_text, _range),
     do: range_error("source range must contain start and stop positions", nil)
 
+  @doc "Find the authored body range of an `AL.run ... do ... end` call."
+  @spec run_range(String.t(), pos_integer(), pos_integer() | nil) ::
+          {:ok, Capture.source_range()} | {:error, Error.t()}
+  def run_range(text, line, column \\ nil)
+
+  def run_range(text, line, column)
+      when is_binary(text) and is_integer(line) and line > 0 and
+             (is_integer(column) or is_nil(column)) do
+    case parse_with_comments(text, @parse_options) do
+      {:ok, ast} -> find_run_range(ast, text, line, column)
+      {:error, reason} -> {:error, parse_error(reason)}
+    end
+  rescue
+    exception -> range_error(Exception.message(exception), nil)
+  end
+
+  @doc "Rebase a range from an archived source container to its sliced text."
+  @spec rebase_range(Capture.source_range(), Capture.source_range()) :: Capture.source_range()
+  def rebase_range(
+        %{start: %{line: start_line, column: start_column}, stop: stop},
+        %{start: %{line: container_line, column: container_column}}
+      ) do
+    %{
+      start:
+        rebase_position(
+          %{line: start_line, column: start_column},
+          container_line,
+          container_column
+        ),
+      stop: rebase_position(stop, container_line, container_column)
+    }
+  end
+
+  @doc "Slice a range after rebasing it through an origin's source container."
+  @spec slice(String.t(), Capture.source_range(), map()) ::
+          {:ok, String.t()} | {:error, Error.t()}
+  def slice(text, range, origin) when is_binary(text) and is_map(origin) do
+    case Map.get(origin, :range) do
+      %{start: _start, stop: _stop} = container -> slice(text, rebase_range(range, container))
+      _ -> slice(text, range)
+    end
+  end
+
   @doc """
   Extract captures and a lowered program from an already-parsed AST, given the
   exact text it was parsed from.
@@ -123,8 +166,77 @@ defmodule AL.Source.Parser do
     end
   end
 
+  @doc "Capture authored method-file shorthand while lowering it with its owner."
+  def capture_method(form, text, owner) do
+    with {:ok, capture, _} <- capture_form(form, text, [0], :nested, 0),
+         {:ok, program} <- lower(qualify_method_form(form, owner)) do
+      {:ok, %Result{program: program, captures: [capture]}}
+    end
+  end
+
+  defp qualify_method_form({:defmethod, meta, args}, owner),
+    do: {:defmethod, meta, [owner | args]}
+
+  defp find_run_range(ast, text, line, column) do
+    {_ast, result} =
+      Macro.prewalk(ast, :not_found, fn node, result ->
+        case {node, result} do
+          {
+            {{:., _dot_metadata, [{:__aliases__, _alias_metadata, [:AL]}, :run]}, metadata,
+             _args},
+            :not_found
+          }
+          when is_list(metadata) ->
+            if call_at?(metadata, line, column) do
+              {node, {:found, metadata}}
+            else
+              {node, result}
+            end
+
+          {{:defpackage, metadata, _args}, :not_found} when is_list(metadata) ->
+            if call_at?(metadata, line, column) do
+              {node, {:found, metadata}}
+            else
+              {node, result}
+            end
+
+          _ ->
+            {node, result}
+        end
+      end)
+
+    case result do
+      {:found, metadata} ->
+        with {:ok, do_position} <-
+               require_position(metadata_position(metadata[:do]), "run body start is missing"),
+             {:ok, start} <- token_stop(text, do_position, "do"),
+             {:ok, stop} <-
+               require_position(metadata_position(metadata[:end]), "run end is missing"),
+             range = %{start: start, stop: stop},
+             {:ok, _source} <- slice(text, range) do
+          {:ok, range}
+        end
+
+      :not_found ->
+        range_error("AL.run call is missing from the caller source", %{line: line, column: 1})
+    end
+  end
+
+  defp call_at?(metadata, line, nil), do: Keyword.get(metadata, :line) == line
+
+  defp call_at?(metadata, line, column),
+    do: Keyword.get(metadata, :line) == line and Keyword.get(metadata, :column) == column
+
+  defp rebase_position(%{line: line, column: column}, container_line, container_column) do
+    if line == container_line do
+      %{line: 1, column: max(column - container_column + 1, 1)}
+    else
+      %{line: line - container_line + 1, column: column}
+    end
+  end
+
   defp parse_valid_text(text) do
-    case Code.string_to_quoted(text, @parse_options) do
+    case parse_with_comments(text, @parse_options) do
       {:ok, ast} ->
         with {:ok, metadata_forms} <- metadata_forms(text),
              {:ok, captures, _next_ordinal} <- capture_forms(metadata_forms, text, 0, 0, []),
@@ -143,7 +255,7 @@ defmodule AL.Source.Parser do
   defp metadata_forms(text) do
     augmented = text <> "\n:" <> Atom.to_string(@range_sentinel)
 
-    case Code.string_to_quoted(augmented, @parse_options) do
+    case parse_with_comments(augmented, @parse_options) do
       {:ok, ast} ->
         forms = top_level_forms(ast)
 
@@ -357,11 +469,79 @@ defmodule AL.Source.Parser do
     end
   end
 
+  @doc """
+  Parse AL source with comments spliced into method bodies as inert goals.
+
+  Every caller that lowers AL text must use this rather than
+  `Code.string_to_quoted/2`, or a body containing a comment will disagree with
+  the range check in `verify_round_trip/3`.
+  """
+  @spec parse_quoted(String.t(), keyword()) :: {:ok, Macro.t()} | {:error, term()}
+  def parse_quoted(text, options),
+    do: parse_with_comments(text, Keyword.merge(@parse_options, options))
+
+  # Elixir discards comments before lowering, so a definition could not be
+  # regenerated from its stored goals. Capture them and splice them into method
+  # bodies as ordinary statements, which lower to inert `AL.Goal.Comment` goals.
+  # Only method bodies are spliced: top-level form indices carry capture paths,
+  # and class bodies carry method indices, so neither may shift.
+  defp parse_with_comments(text, options) do
+    case Code.string_to_quoted_with_comments(text, options) do
+      {:ok, ast, []} -> {:ok, ast}
+      {:ok, ast, comments} -> {:ok, splice_comments(ast, comments)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp splice_comments(ast, comments) do
+    Macro.prewalk(ast, fn
+      {:defmethod, meta, args} = form when is_list(args) and args != [] ->
+        with [{:do, block}] <- List.last(args),
+             opening when is_list(opening) <- Keyword.get(meta, :do),
+             closing when is_list(closing) <- Keyword.get(meta, :end),
+             inner when inner != [] <- enclosed(comments, opening[:line], closing[:line]) do
+          {:defmethod, meta, List.replace_at(args, -1, [{:do, splice_block(block, inner)}])}
+        else
+          _ -> form
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  defp enclosed(comments, opening, closing),
+    do: Enum.filter(comments, &(&1.line > opening and &1.line < closing))
+
+  defp splice_block(block, comments) do
+    statements =
+      case block do
+        {:__block__, _meta, list} when is_list(list) -> list
+        single -> [single]
+      end
+
+    {:__block__, [], merge_comments(statements, Enum.sort_by(comments, & &1.line))}
+  end
+
+  defp merge_comments([], comments), do: Enum.map(comments, &comment_node/1)
+  defp merge_comments(statements, []), do: statements
+
+  defp merge_comments([statement | rest], comments) do
+    {leading, trailing} = Enum.split_while(comments, &(&1.line <= statement_line(statement)))
+    Enum.map(leading, &comment_node/1) ++ [statement | merge_comments(rest, trailing)]
+  end
+
+  defp comment_node(%{text: "#" <> text}), do: {:comment, [], [text]}
+  defp comment_node(%{text: text}), do: {:comment, [], [text]}
+
+  defp statement_line({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :line, 0)
+  defp statement_line(_statement), do: 0
+
   defp advance_column(%{line: line, column: column}, amount),
     do: %{line: line, column: column + amount}
 
   defp verify_round_trip(form, source, position) do
-    case Code.string_to_quoted(source) do
+    case parse_with_comments(source, @parse_options) do
       {:ok, parsed} ->
         if strip_metadata(parsed) == strip_metadata(form) do
           :ok
@@ -374,8 +554,21 @@ defmodule AL.Source.Parser do
     end
   end
 
+  # Comments are dropped on both sides: this check verifies that a captured
+  # range round-trips to its definition, and `AL.run` hands us a compile-time
+  # AST that never carried comments in the first place.
   defp strip_metadata(ast) do
     Macro.prewalk(ast, fn
+      {:__block__, metadata, statements} when is_list(statements) ->
+        case Enum.reject(statements, &match?({:comment, _, _}, &1)) do
+          [single] -> single
+          rest -> {:__block__, metadata, rest}
+        end
+
+      node ->
+        node
+    end)
+    |> Macro.prewalk(fn
       {name, metadata, args} when is_atom(name) and is_list(metadata) -> {name, [], args}
       node -> node
     end)

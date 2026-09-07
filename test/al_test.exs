@@ -181,3 +181,11 @@ end
 defmodule ALPackagesTest do
   use ExExample.ExUnit, for: Examples.ALPackages
 end
+
+defmodule ALMnesiaTest do
+  use ExExample.ExUnit, for: Examples.ALMnesia
+end
+
+defmodule ALGtBridgeTest do
+  use ExExample.ExUnit, for: Examples.ALGtBridge
+end
