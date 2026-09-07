@@ -1,7 +1,7 @@
 defmodule AL.SourceExport do
   @moduledoc """
   I project a branch's retained AL transactions into an append-only directory,
-  with derived class and method files alongside them.
+  with Tonel-like definition documents alongside them.
 
   Mnesia and `AL.SourceStore` remain authoritative. The filesystem is a
   repairable, human-facing projection: each retained source transaction gets
@@ -9,14 +9,10 @@ defmodule AL.SourceExport do
   are repaired from retained source when missing or different, and removed
   when their transactions no longer exist in the store.
 
-  Class and method files draw the same line Tonel and classic Smalltalk
-  fileout draw: a class file is metadata (`super`, `ivars`), always
-  regenerated from live facts, never treated as retained text -- there's no
-  meaningful "verbatim class statement" once facts can enter from
-  `vm_set_super`/`vm_set_class` outside `defclass` too. A method file is
-  retained source when a clause has one (via `AL.Source`, comments and
-  formatting intact), decompiled straight from the live head/body otherwise,
-  clearly marked as such.
+  Each definition owner has one document. Its class metadata and method
+  identity/order metadata are regenerated from live facts. Only method bodies
+  are source: retained source is written verbatim, while clauses without it use
+  a decompiled body explicitly marked as such.
 
   Both directions are event-driven, no polling. An `inotify` watcher (via
   `:file_system`) reports definition file edits directly; retracted or
@@ -35,6 +31,10 @@ defmodule AL.SourceExport do
   use GenServer
 
   require Logger
+
+  alias AL.SourceDocument
+  alias AL.SourceSnapshot
+  alias AL.SourceSync
 
   @supervisor AL.SourceExport.Supervisor
 
@@ -167,10 +167,11 @@ defmodule AL.SourceExport do
   def export_definitions(_branch, nil), do: {:error, :source_export_not_configured}
 
   def export_definitions(branch, root) do
-    case :mnesia.transaction(fn -> definition_rows(branch) end) do
-      {:atomic, rows} ->
-        case Enum.reduce_while(rows, {:ok, []}, fn {kind, target, text}, {:ok, paths} ->
-               case write_derived(root, branch, kind, target, text) do
+    case SourceSnapshot.capture(branch) do
+      {:ok, snapshot} ->
+        case Enum.reduce_while(SourceSnapshot.rendered(snapshot), {:ok, []}, fn {owner, text},
+                                                                                {:ok, paths} ->
+               case write_derived(root, branch, owner, text) do
                  {:ok, path} -> {:cont, {:ok, [path | paths]}}
                  {:error, reason} -> {:halt, {:error, reason}}
                end
@@ -187,8 +188,8 @@ defmodule AL.SourceExport do
             other
         end
 
-      {:aborted, reason} ->
-        {:error, {:mnesia, reason}}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -202,22 +203,21 @@ defmodule AL.SourceExport do
   @spec definitions_dir(root(), AL.Branch.t()) :: Path.t()
   def definitions_dir(root, branch), do: Path.join(branch_dir(root, branch), "definitions")
 
-  @doc "Return the derived class file path for `class`."
-  @spec class_path(root(), AL.Branch.t(), term()) :: Path.t()
-  def class_path(root, branch, class) do
-    Path.join([definitions_dir(root, branch), "classes", identifier(class) <> ".al"])
+  @doc "Return the definition document path for an owner."
+  @spec definition_path(root(), AL.Branch.t(), term()) :: Path.t()
+  def definition_path(root, branch, owner) do
+    Path.join([definitions_dir(root, branch), identifier(owner) <> ".class.al"])
   end
 
-  @doc "Return the derived method file path for `class` and `method`."
-  @spec method_path(root(), AL.Branch.t(), term(), term()) :: Path.t()
-  def method_path(root, branch, class, method) do
-    Path.join([
-      definitions_dir(root, branch),
-      "methods",
-      identifier(class),
-      identifier(method) <> ".al"
-    ])
+  @doc "Return the definition document path for `class`."
+  @spec class_path(root(), AL.Branch.t(), term()) :: Path.t()
+  def class_path(root, branch, class) do
+    definition_path(root, branch, class)
   end
+
+  @doc "Return the owner document containing `class` and `method`."
+  @spec method_path(root(), AL.Branch.t(), term(), term()) :: Path.t()
+  def method_path(root, branch, class, _method), do: definition_path(root, branch, class)
 
   @doc "Return the path used for a branch-local transaction sequence number."
   @spec transaction_path(root(), AL.Branch.t(), non_neg_integer()) :: Path.t()
@@ -247,8 +247,10 @@ defmodule AL.SourceExport do
     root = Path.expand(root)
     source_text_table = AL.SourceStore.table(:source_text, branch)
     soa_table = AL.Object.table(:soa, branch)
+    aos_table = AL.Object.table(:aos, branch)
     :mnesia.subscribe({:table, source_text_table, :detailed})
     :mnesia.subscribe({:table, soa_table, :detailed})
+    :mnesia.subscribe({:table, aos_table, :detailed})
 
     with :ok <- reconcile_store(root),
          {:ok, _transaction_paths} <- export_branch(branch, root),
@@ -260,8 +262,11 @@ defmodule AL.SourceExport do
         definitions_root: definitions_dir(root, branch),
         source_text_table: source_text_table,
         soa_table: soa_table,
+        aos_table: aos_table,
         definition_snapshot: definition_snapshot(root, branch),
         export_pending: false,
+        import_pending: MapSet.new(),
+        import_timer: nil,
         watcher: nil
       }
 
@@ -286,6 +291,46 @@ defmodule AL.SourceExport do
   end
 
   @impl true
+  def handle_info(:import_definitions, state) do
+    paths = state.import_pending |> MapSet.to_list() |> Enum.sort()
+
+    entries =
+      Enum.flat_map(paths, fn path ->
+        case File.read(path) do
+          {:ok, text} ->
+            [{path, text}]
+
+          {:error, :enoent} ->
+            []
+
+          {:error, reason} ->
+            Logger.warning("AL source export could not read #{path}: #{inspect(reason)}")
+            []
+        end
+      end)
+
+    deleted = Enum.reject(paths, &File.exists?/1)
+    result = import_document_batch(entries, deleted, state.branch, state.root)
+
+    snapshot =
+      Enum.reduce(paths, state.definition_snapshot, fn path, snapshot ->
+        case file_fingerprint(path) do
+          :missing -> Map.delete(snapshot, path)
+          fingerprint -> Map.put(snapshot, path, fingerprint)
+        end
+      end)
+
+    state =
+      state
+      |> Map.put(:import_pending, MapSet.new())
+      |> Map.put(:import_timer, nil)
+      |> Map.put(:definition_snapshot, snapshot)
+      |> Map.put(:last_import, %{paths: paths, result: result})
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(
         {:mnesia_table_event, {:write, table, {:source_text, tx, text, _origin}, _old, _tid}},
         %{source_text_table: table, branch: branch, root: root} = state
@@ -305,6 +350,13 @@ defmodule AL.SourceExport do
   def handle_info(
         {:mnesia_table_event, {_op, table, _record, _old, _tid}},
         %{soa_table: table} = state
+      ) do
+    {:noreply, mark_definitions_dirty(state)}
+  end
+
+  def handle_info(
+        {:mnesia_table_event, {_op, table, _record, _old, _tid}},
+        %{aos_table: table} = state
       ) do
     {:noreply, mark_definitions_dirty(state)}
   end
@@ -343,7 +395,10 @@ defmodule AL.SourceExport do
 
   def handle_call(:quiescent?, _from, state) do
     {:message_queue_len, pending} = Process.info(self(), :message_queue_len)
-    {:reply, pending == 0 and not state.export_pending, state}
+
+    {:reply,
+     pending == 0 and not state.export_pending and is_nil(state.import_timer) and
+       MapSet.size(state.import_pending) == 0, state}
   end
 
   def handle_call(:status, _from, state) do
@@ -435,91 +490,21 @@ defmodule AL.SourceExport do
     %{state | export_pending: true}
   end
 
+  @definitions_import_delay_ms 120
+
   defp handle_definition_file_event(state, path) do
     current = file_fingerprint(path)
     previous = Map.get(state.definition_snapshot, path)
 
-    cond do
-      previous == current ->
-        state
+    if previous == current do
+      state
+    else
+      timer =
+        state.import_timer ||
+          Process.send_after(self(), :import_definitions, @definitions_import_delay_ms)
 
-      current == :missing and match?({:present, _, _}, previous) ->
-        retract_deleted_definition(state, path)
-
-      true ->
-        state
-        |> Map.update!(:definition_snapshot, &Map.put(&1, path, current))
-        |> import_changed_definitions([path])
+      %{state | import_pending: MapSet.put(state.import_pending, path), import_timer: timer}
     end
-  end
-
-  defp retract_deleted_definition(state, path) do
-    state = Map.update!(state, :definition_snapshot, &Map.delete(&1, path))
-
-    case resolve_deleted_definition(state.root, state.branch, path) do
-      {:method, class, method} ->
-        case AL.eval(retract_method_program(class, method), nil, state.branch, []) do
-          {:atomic, _} ->
-            :ok
-
-          {:aborted, reason} ->
-            Logger.error(
-              "AL source export could not retract #{inspect({class, method})}: #{inspect(reason)}"
-            )
-        end
-
-      {:class, class} ->
-        case AL.eval_source("delete_class(#{inspect(class)})\n", state.branch) do
-          {:atomic, _} ->
-            :ok
-
-          {:aborted, reason} ->
-            Logger.error(
-              "AL source export could not retract class #{inspect(class)}: #{inspect(reason)}"
-            )
-
-          {:error, reason} ->
-            Logger.error(
-              "AL source export could not delete class #{inspect(class)}: #{inspect(reason)}"
-            )
-        end
-
-      nil ->
-        Logger.warning("AL source export could not resolve deleted definition #{path}")
-    end
-
-    state
-  end
-
-  defp resolve_deleted_definition(root, branch, path) do
-    case :mnesia.transaction(fn -> definition_rows(branch) end) do
-      {:atomic, rows} ->
-        Enum.find_value(rows, fn
-          {:class, class, _text} ->
-            if class_path(root, branch, class) == path, do: {:class, class}
-
-          {:method, {class, method}, _text} ->
-            if method_path(root, branch, class, method) == path, do: {:method, class, method}
-        end)
-
-      {:aborted, _reason} ->
-        nil
-    end
-  end
-
-  defp retract_method_program(class, method) do
-    method_id = AL.Var.var("source_export_delete_method")
-    head = AL.Var.var("source_export_delete_head")
-
-    [
-      %AL.Goal.Forall{
-        condition: [%AL.Goal.GetMethod{object: class, name: method, id: method_id}],
-        body: [
-          %AL.Goal.RetractOapply{object: method_id, head: head},
-          %AL.Goal.RetractMethod{object: class, name: method, id: method_id}
-        ]
-      }
-    ]
   end
 
   defp reconcile_store(root) do
@@ -554,26 +539,201 @@ defmodule AL.SourceExport do
   end
 
   defp import_external_definitions(root, branch) do
-    case :mnesia.transaction(fn -> definition_rows(branch) end) do
-      {:atomic, rows} ->
+    case SourceSnapshot.capture(branch) do
+      {:ok, snapshot} ->
         expected =
-          Map.new(rows, fn
-            {:class, class, text} ->
-              {class_path(root, branch, class), text}
-
-            {:method, {class, method}, text} ->
-              {method_path(root, branch, class, method), text}
+          Map.new(SourceSnapshot.rendered(snapshot), fn {owner, text} ->
+            {definition_path(root, branch, owner), text}
           end)
 
-        expected
-        |> changed_definition_sources()
-        |> import_definition_batch(branch, root)
+        existing =
+          definitions_dir(root, branch)
+          |> Path.join("*.class.al")
+          |> Path.wildcard()
+
+        entries =
+          existing
+          |> Enum.flat_map(fn path ->
+            case File.read(path) do
+              {:ok, text} ->
+                if Map.get(expected, path) == text, do: [], else: [{path, text}]
+
+              {:error, reason} ->
+                Logger.warning("AL source export could not read #{path}: #{inspect(reason)}")
+                []
+            end
+          end)
+
+        import_document_batch(entries, [], branch, root)
 
         :ok
 
-      {:aborted, reason} ->
-        {:error, {:mnesia, reason}}
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  defp import_document_batch([], [], _branch, _root), do: :ok
+
+  defp import_document_batch(entries, deleted_paths, branch, root) do
+    paths = Enum.map(entries, &elem(&1, 0)) ++ deleted_paths
+
+    with {:ok, parsed} <- parse_documents(entries),
+         {:atomic, {:ok, chunks, prefix}} <-
+           :mnesia.transaction(fn ->
+             prepare_document_changes(parsed, deleted_paths, branch, root)
+           end) do
+      evaluate_document_changes(chunks, prefix, paths, branch)
+    else
+      {:atomic, {:error, reason}} ->
+        Logger.error("AL source export rejected #{inspect(paths)}: #{inspect(reason)}")
+        {:error, reason}
+
+      {:aborted, reason} ->
+        Logger.error("AL source export could not inspect #{inspect(paths)}: #{inspect(reason)}")
+        {:error, reason}
+
+      {:error, reason} ->
+        Logger.error("AL source export could not parse #{inspect(paths)}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp evaluate_document_changes([], [], _paths, _branch), do: :ok
+
+  defp evaluate_document_changes(chunks, prefix, paths, branch) do
+    with {:ok, result, source} <- capture_document_source(chunks) do
+      result = prepend_program(result, prefix)
+      origin = %{kind: :source_export, label: nil, files: paths, format: :definition_document}
+
+      case AL.eval_captured(result, source, origin, nil, branch, []) do
+        {:atomic, _} ->
+          :ok
+
+        {:aborted, reason} ->
+          Logger.error("AL source export rejected #{inspect(paths)}: #{inspect(reason)}")
+          {:error, reason}
+
+        {:error, reason} ->
+          Logger.error("AL source export could not parse #{inspect(paths)}: #{inspect(reason)}")
+          {:error, reason}
+      end
+    end
+  end
+
+  defp parse_documents(entries) do
+    Enum.reduce_while(entries, {:ok, []}, fn {path, text}, {:ok, documents} ->
+      case SourceDocument.parse(text) do
+        {:ok, document} -> {:cont, {:ok, [{path, document} | documents]}}
+        {:error, reason} -> {:halt, {:error, {path, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, documents} -> {:ok, Enum.reverse(documents)}
+      error -> error
+    end
+  end
+
+  defp prepare_document_changes(parsed, deleted_paths, branch, root) do
+    snapshot = SourceSnapshot.capture_in_transaction(branch)
+
+    with :ok <- validate_document_paths(parsed, root, branch),
+         deleted_owners <- deleted_owners(deleted_paths, snapshot, root, branch),
+         documents <- Enum.map(parsed, &elem(&1, 1)),
+         {:ok, plan} <- SourceSync.plan(snapshot, documents, deleted_owners) do
+      {:ok, plan.chunks, plan.prefix}
+    end
+  end
+
+  defp deleted_owners(paths, snapshot, root, branch) do
+    Enum.flat_map(paths, fn path ->
+      snapshot.documents
+      |> Enum.find_value(fn {owner, _document} ->
+        if definition_path(root, branch, owner) == path, do: owner
+      end)
+      |> List.wrap()
+    end)
+  end
+
+  defp validate_document_paths(parsed, root, branch) do
+    Enum.reduce_while(parsed, :ok, fn {path, document}, :ok ->
+      if definition_path(root, branch, document.owner) == path do
+        {:cont, :ok}
+      else
+        {:halt, {:error, {:owner_path_mismatch, path, document.owner}}}
+      end
+    end)
+  end
+
+  defp capture_document_source(chunks) do
+    source = Enum.map_join(chunks, "\n\n", &elem(&1, 0))
+
+    {ranges, _line} =
+      Enum.map_reduce(chunks, 1, fn {text, target}, line ->
+        stop = line + length(String.split(text, "\n")) - 1
+        {{line, stop, target}, stop + 2}
+      end)
+
+    with {:ok, ast} <-
+           Code.string_to_quoted(source <> "\n:__source_export_end__",
+             columns: true,
+             token_metadata: true
+           ) do
+      forms =
+        case ast do
+          {:__block__, _, forms} -> Enum.drop(forms, -1)
+          :__source_export_end__ -> []
+        end
+
+      results =
+        Enum.map(forms, fn form ->
+          line = form_line(form)
+
+          target =
+            case Enum.find(ranges, fn {first, last, _target} ->
+                   line >= first and line <= last
+                 end) do
+              {_, _, target} -> target
+              nil -> nil
+            end
+
+          capture_document_form(form, source, target)
+        end)
+
+      case combine_captures(results) do
+        {:ok, result} -> {:ok, result, source}
+        error -> error
+      end
+    end
+  end
+
+  defp capture_document_form(form, source, nil), do: AL.Source.Parser.capture(form, source)
+
+  defp capture_document_form(form, source, {owner, selector}) do
+    case form_target(form, owner) do
+      {^owner, ^selector} ->
+        if qualify_method(form, owner) == form,
+          do: AL.Source.Parser.capture(form, source),
+          else: AL.Source.Parser.capture_method(form, source, owner)
+
+      target ->
+        {:error, {:method_source_mismatch, {owner, selector}, target}}
+    end
+  end
+
+  defp form_line({_, metadata, _}) when is_list(metadata), do: Keyword.get(metadata, :line, 0)
+  defp form_line(_form), do: 0
+
+  defp prepend_program(result, []), do: result
+
+  defp prepend_program(result, prefix) do
+    captures =
+      Enum.map(result.captures, fn capture ->
+        [index | rest] = capture.path
+        %{capture | path: [index + length(prefix) | rest]}
+      end)
+
+    %{result | program: prefix ++ result.program, captures: captures}
   end
 
   defp file_fingerprint(path) do
@@ -585,173 +745,6 @@ defmodule AL.SourceExport do
   end
 
   defp fingerprint(text), do: {:present, byte_size(text), :erlang.phash2(text)}
-
-  defp import_changed_definitions(state, paths) do
-    result =
-      paths
-      |> Enum.sort()
-      |> Enum.flat_map(fn path ->
-        case File.read(path) do
-          {:ok, text} ->
-            [{path, text}]
-
-          {:error, :enoent} ->
-            Logger.warning("AL source export ignored deleted definition #{path}")
-            []
-
-          {:error, reason} ->
-            Logger.warning("AL source export could not read #{path}: #{inspect(reason)}")
-            []
-        end
-      end)
-      |> import_definition_batch(state.branch, state.root)
-
-    Map.put(state, :last_import, %{paths: paths, result: result})
-  end
-
-  defp changed_definition_sources(expected) do
-    expected
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.flat_map(fn {path, expected_text} ->
-      case File.read(path) do
-        {:ok, ^expected_text} ->
-          []
-
-        {:ok, text} ->
-          [{path, text}]
-
-        {:error, :enoent} ->
-          []
-
-        {:error, reason} ->
-          Logger.warning("AL source export could not read #{path}: #{inspect(reason)}")
-          []
-      end
-    end)
-  end
-
-  defp import_definition_batch([], _branch, _root), do: :ok
-
-  defp import_definition_batch(entries, branch, root) do
-    source = Enum.map_join(entries, "\n\n", &elem(&1, 1))
-    paths = Enum.map(entries, &elem(&1, 0))
-
-    case prepare_definition_batch(entries, source, branch, root) do
-      {:ok, result} ->
-        result = redefine_classes(result)
-        origin = %{kind: :source_export, label: nil, files: paths, redefine_classes: true}
-
-        case AL.eval_captured(result, source, origin, nil, branch, []) do
-          {:atomic, _} ->
-            :ok
-
-          {:aborted, reason} ->
-            Logger.error("AL source export rejected #{inspect(paths)}: #{inspect(reason)}")
-            {:error, reason}
-
-          {:error, reason} ->
-            Logger.error("AL source export could not parse #{inspect(paths)}: #{inspect(reason)}")
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        Logger.error("AL source export could not parse #{inspect(paths)}: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp prepare_definition_batch(entries, source, branch, root) do
-    with {:atomic, methods} <-
-           :mnesia.transaction(fn ->
-             AL.Object.scan_method(
-               AL.Var.var("source_export_owner"),
-               AL.Var.var("source_export_selector"),
-               AL.Var.var("source_export_method"),
-               branch
-             )
-           end),
-         {:ok, ast} <-
-           Code.string_to_quoted(source <> "\n:__source_export_end__",
-             columns: true,
-             token_metadata: true
-           ) do
-      targets =
-        Map.new(methods, fn {:method, owner, selector, _id} ->
-          {method_path(root, branch, owner, selector), {owner, selector}}
-        end)
-
-      {ranges, _line} =
-        Enum.map_reduce(entries, 1, fn {path, text}, line ->
-          stop = line + length(String.split(text, "\n")) - 1
-          {{line, stop, Map.get(targets, path)}, stop + 2}
-        end)
-
-      forms =
-        case ast do
-          {:__block__, _, forms} -> Enum.drop(forms, -1)
-          :__source_export_end__ -> []
-        end
-
-      results =
-        Enum.map(forms, fn form ->
-          line =
-            case form do
-              {_, meta, _} when is_list(meta) -> Keyword.get(meta, :line, 0)
-              _ -> 0
-            end
-
-          case Enum.find(ranges, fn {first, last, _} -> line >= first and line <= last end) do
-            {_, _, {owner, selector}} ->
-              qualified = qualify_method(form, owner, selector)
-
-              if qualified == form do
-                AL.Source.Parser.capture(form, source)
-              else
-                AL.Source.Parser.capture_method(form, source, owner)
-              end
-
-            _ ->
-              AL.Source.Parser.capture(form, source)
-          end
-        end)
-
-      with {:ok, result} <- combine_captures(results) do
-        replacements =
-          entries
-          |> Enum.map(fn {path, _} -> Map.get(targets, path) end)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.uniq()
-
-        prefix =
-          Enum.map(replacements, fn {owner, selector} ->
-            method = AL.Var.var("source_export_replace_#{System.unique_integer([:positive])}")
-
-            %AL.Goal.Forall{
-              condition: [%AL.Goal.GetMethod{object: owner, name: selector, id: method}],
-              body: [
-                %AL.Goal.RetractOapply{
-                  object: method,
-                  head: AL.Var.var("source_export_head_#{System.unique_integer([:positive])}")
-                }
-              ]
-            }
-          end)
-
-        captures =
-          Enum.map(result.captures, fn capture ->
-            [index | rest] = capture.path
-            %{capture | path: [index + length(prefix) | rest]}
-          end)
-
-        {:ok, %{result | program: prefix ++ result.program, captures: captures}}
-      end
-    else
-      {:aborted, reason} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
-    end
-  rescue
-    error in ArgumentError -> {:error, Exception.message(error)}
-  end
 
   defp combine_captures(results) do
     Enum.reduce_while(results, {:ok, %AL.Source.Parser.Result{program: [], captures: []}}, fn
@@ -787,180 +780,28 @@ defmodule AL.SourceExport do
     }
   end
 
-  defp qualify_method({:defmethod, meta, [selector, head]}, owner, selector)
-       when is_list(head),
+  defp form_target({:defmethod, _, [owner, selector, head | _]}, _fallback_owner)
+       when is_atom(owner) and is_atom(selector) and is_list(head),
+       do: {owner, selector}
+
+  defp form_target({:defmethod, _, [selector, head | _]}, owner)
+       when is_atom(selector) and is_list(head) and not is_nil(owner),
+       do: {owner, selector}
+
+  defp form_target(_form, _owner), do: nil
+
+  defp qualify_method({:defmethod, meta, [selector, head]}, owner)
+       when is_atom(selector) and is_list(head),
        do: {:defmethod, meta, [owner, selector, head]}
 
-  defp qualify_method({:defmethod, meta, [selector, head, body]}, owner, selector)
-       when is_list(head) and is_list(body),
+  defp qualify_method({:defmethod, meta, [selector, head, body]}, owner)
+       when is_atom(selector) and is_list(head) and is_list(body),
        do: {:defmethod, meta, [owner, selector, head, body]}
 
-  defp qualify_method({:defmethod, _, [owner, selector, head | _]} = form, owner, selector)
-       when is_list(head),
-       do: form
+  defp qualify_method(form, _owner), do: form
 
-  defp qualify_method(_form, owner, selector),
-    do: raise(ArgumentError, "method file must define #{inspect(owner)}.#{selector}")
-
-  # Method files always show the fully-qualified `defmethod(class, name,
-  # head)` form, even for a clause originally authored via class-body
-  # shorthand -- one format regardless of how it was written, so a file
-  # freshly created by hand needs no different treatment than an edited one.
-  # Parsing is only to classify shorthand vs. already-qualified -- the
-  # written-out text is never a reserialized AST (that drops comments), it's
-  # either the original text untouched or the original text with the owner
-  # spliced into the argument list.
-  defp qualify_method_text(text, class, method) do
-    {:ok, ast} = Code.string_to_quoted(text, columns: true, token_metadata: true)
-
-    case qualify_method(ast, class, method) do
-      ^ast -> text
-      _qualified -> splice_owner(text, class)
-    end
-  end
-
-  defp splice_owner(text, class) do
-    case Regex.run(~r/\Adefmethod\(/, text) do
-      [prefix] -> String.replace_prefix(text, prefix, "defmethod(#{inspect(class)}, ")
-      nil -> raise ArgumentError, "expected a defmethod(...) call, got: #{inspect(text)}"
-    end
-  end
-
-  defp redefine_classes(result) do
-    program =
-      Enum.reduce(result.captures, result.program, fn
-        %{kind: :defclass, path: [index]}, program ->
-          List.update_at(program, index, fn %AL.Goal.OApply{method_id: :defclass, args: args} =
-                                              goal ->
-            %{goal | args: List.replace_at(args, 6, true)}
-          end)
-
-        _capture, program ->
-          program
-      end)
-
-    %{result | program: program}
-  end
-
-  defp definition_rows(branch) do
-    method_bindings =
-      AL.Object.scan_open_method_versions(
-        AL.Var.var("source_export_method_class"),
-        AL.Var.var("source_export_method_name"),
-        AL.Var.var("source_export_method_id"),
-        branch
-      )
-
-    # A class file is metadata (super, ivars), always regenerated from live
-    # facts -- never treated as retained text. There's no meaningful
-    # "verbatim class statement" to preserve once facts can enter from
-    # `vm_set_super`/`vm_set_class` outside `defclass` too (Tonel and
-    # classic Smalltalk fileout draw the same line: class header
-    # regenerated, method body retained). This also means any object
-    # classified via raw `vm_set_class` gets a file, not just ones defined
-    # through `defclass`.
-    class_metaclasses = class_metaclass_closure(branch)
-
-    class_rows =
-      AL.Object.scan_class(
-        AL.Var.var("source_export_class_self"),
-        AL.Var.var("source_export_class_meta"),
-        branch
-      )
-      |> Enum.filter(fn {:class, _o, _seq, meta} -> MapSet.member?(class_metaclasses, meta) end)
-      |> Enum.map(fn {:class, o, _seq, meta} -> {o, meta} end)
-      |> Enum.uniq()
-      |> Enum.map(fn {class, meta} -> {:class, class, class_source(class, meta, branch)} end)
-
-    # Per clause, `AL.Source` returns the retained span when one exists and
-    # slices cleanly, decompiled straight from the live head/body otherwise
-    # (the same fallback the GT bridge's method-coder view already relies
-    # on) -- so a clause changed by any path other than `defmethod` still
-    # gets a file, not silent absence.
-    method_rows =
-      Enum.map(method_bindings, fn {:method, class, name, _seq, _method_t, :open, method_id} ->
-        text =
-          method_id
-          |> AL.Source.method_object_source_rows(branch)
-          |> Enum.sort_by(fn {:method_source, _id, clause_seq, _text, _provenance} ->
-            clause_seq
-          end)
-          |> Enum.map_join("\n\n", fn {:method_source, _id, _clause_seq, source, provenance} ->
-            render_method_clause(provenance, source, class, name)
-          end)
-
-        {:method, {class, name}, text}
-      end)
-
-    class_rows ++ method_rows
-  end
-
-  defp render_method_clause(:retained, text, class, method),
-    do: qualify_method_text(text, class, method)
-
-  defp render_method_clause(:decompiled, text, _class, _method),
-    do: "# decompiled -- no retained source for this clause\n" <> text
-
-  # All class-like metaclasses: `:class` itself plus every descendant
-  # reachable by following `super` -- so a custom metaclass (or `:behaviour`
-  # itself, which is a `:class` instance even though *its own* instances
-  # like `:map_get` are method-implementation holders, not classes) is
-  # included, while a plain `:behaviour`-classed atom is not.
-  defp class_metaclass_closure(branch) do
-    children_by_parent =
-      AL.Object.scan_super(
-        AL.Var.var("source_export_meta_child"),
-        AL.Var.var("source_export_meta_parent"),
-        branch
-      )
-      |> Enum.reduce(%{}, fn {:super, child, _seq, parent}, acc ->
-        Map.update(acc, parent, [child], &[child | &1])
-      end)
-
-    metaclass_closure(children_by_parent, [:class], MapSet.new([:class]))
-  end
-
-  defp metaclass_closure(_children_by_parent, [], seen), do: seen
-
-  defp metaclass_closure(children_by_parent, [node | rest], seen) do
-    new_nodes =
-      children_by_parent
-      |> Map.get(node, [])
-      |> Enum.reject(&MapSet.member?(seen, &1))
-
-    metaclass_closure(children_by_parent, new_nodes ++ rest, Enum.into(new_nodes, seen))
-  end
-
-  defp class_source(class, meta, branch) do
-    supers =
-      AL.Object.scan_super(class, AL.Var.var("source_export_class_super"), branch)
-      |> Enum.map(fn {:super, ^class, _seq, s} -> s end)
-
-    ivars = class_ivars(class, branch)
-
-    opts =
-      if meta == :class,
-        do: [super: supers, ivars: ivars],
-        else: [metaclass: meta, super: supers, ivars: ivars]
-
-    {:defclass, [], [class, Macro.escape(opts), [do: {:__block__, [], []}]]}
-    |> Macro.to_string()
-    |> Code.format_string!()
-    |> IO.iodata_to_binary()
-  end
-
-  defp class_ivars(class, branch) do
-    case AL.Object.read_slots(class, branch) do
-      [{:slots, ^class, %{ivars: ivars}}] -> ivars
-      _ -> []
-    end
-  end
-
-  defp write_derived(root, branch, :class, class, text),
-    do: write_file(class_path(root, branch, class), text)
-
-  defp write_derived(root, branch, :method, {class, method}, text),
-    do: write_file(method_path(root, branch, class, method), text)
+  defp write_derived(root, branch, owner, text),
+    do: write_file(definition_path(root, branch, owner), text)
 
   defp write_file(path, text) do
     with :ok <- File.mkdir_p(Path.dirname(path)), {:ok, ^path} <- atomic_write(path, text) do
