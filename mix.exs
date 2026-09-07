@@ -39,6 +39,7 @@ defmodule AL.MixProject do
       {:typed_struct, "~> 0.3.0"},
       {:ex_example, "~> 0.1.2"},
       {:gt_bridge, "~> 0.20.1", override: true},
+      {:file_system, "~> 1.0"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end

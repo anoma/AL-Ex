@@ -127,6 +127,7 @@ defmodule AL.Branch do
     AL.Object.hydrate_since(0, branch)
     register(branch, from)
     AL.Scheduler.start(branch)
+    AL.SourceExport.start(branch)
     branch
   end
 
@@ -135,6 +136,7 @@ defmodule AL.Branch do
   def discard(branch) do
     unregister(branch)
     if stored_head() == branch, do: set_head(main())
+    AL.SourceExport.stop(branch)
     AL.Scheduler.stop(branch)
     AL.Object.drop_tables(branch)
     AL.ResolutionCache.drop_tables(branch)

@@ -14,13 +14,17 @@ defmodule AL.Application do
     opts = [strategy: :one_for_one, name: Al.Supervisor]
 
     {:ok, pid} =
-      Supervisor.start_link([AL.Scheduler.supervisor_spec(), AL.Native.Registry], opts)
+      Supervisor.start_link(
+        [AL.Scheduler.supervisor_spec(), AL.SourceExport.supervisor_spec(), AL.Native.Registry],
+        opts
+      )
 
     AL.Scheduler.start_all()
 
     bootstrap()
     register_natives()
     AL.Branch.ensure_examples()
+    AL.SourceExport.start_all()
 
     {:ok, pid}
   end

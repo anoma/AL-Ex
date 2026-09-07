@@ -166,6 +166,17 @@ defmodule AL.Source.Parser do
     end
   end
 
+  @doc "Capture authored method-file shorthand while lowering it with its owner."
+  def capture_method(form, text, owner) do
+    with {:ok, capture, _} <- capture_form(form, text, [0], :nested, 0),
+         {:ok, program} <- lower(qualify_method_form(form, owner)) do
+      {:ok, %Result{program: program, captures: [capture]}}
+    end
+  end
+
+  defp qualify_method_form({:defmethod, meta, args}, owner),
+    do: {:defmethod, meta, [owner | args]}
+
   defp find_run_range(ast, text, line, column) do
     {_ast, result} =
       Macro.prewalk(ast, :not_found, fn node, result ->

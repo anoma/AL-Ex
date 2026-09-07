@@ -223,6 +223,23 @@ defmodule AL.Command do
     :ok
   end
 
+  @doc "The persistent identity of this store, shared by all of its branches."
+  def store_identity do
+    :mnesia.transaction(fn ->
+      branch = AL.Branch.main()
+
+      case read_meta(branch, :source_export_store_identity, :absent, :write) do
+        :absent ->
+          identity = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
+          write_meta(branch, :source_export_store_identity, identity)
+          identity
+
+        identity ->
+          identity
+      end
+    end)
+  end
+
   @spec become_or_join_owner() :: :owner | :joined
   defp become_or_join_owner() do
     cond do

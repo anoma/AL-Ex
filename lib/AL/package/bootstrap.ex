@@ -343,6 +343,19 @@ defmodule AL.Package.Bootstrap do
       end
     end
 
+    defmethod(:class, :delete_class, [self]) do
+      findall(s, [super(self, s)], old_supers)
+      vm_get_slot(self, :ivars, old_ivars)
+
+      class_redefined(
+        self,
+        %{supers: old_supers, ivars: old_ivars},
+        %{supers: [], ivars: []}
+      )
+
+      retract_existing_facts(self)
+    end
+
     defmethod(:object, :reconcile_redefined_instance, [self, added_specs, removed_names]) do
       forall([member(removed_names, key)]) do
         vm_retract_slot(self, key)

@@ -1626,7 +1626,8 @@ defmodule AL do
       |> Enum.uniq()
 
     case relevant_diagnostics do
-      [{receiver, selector, arity, suggestions} | _] ->
+      [{receiver, selector, arity, branch} | _] ->
+        suggestions = AL.Dispatch.suggest(receiver, selector, branch)
         receiver = AL.Trace.pretty(receiver)
 
         hint =
