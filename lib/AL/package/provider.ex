@@ -1,5 +1,5 @@
-defmodule AL.Package.Candidate do
-  @moduledoc "An exact package definition discovered in a channel."
+defmodule AL.Package.Provider do
+  @moduledoc "A channel-specific definition capable of producing a package."
 
   @enforce_keys [
     :channel,
@@ -10,7 +10,7 @@ defmodule AL.Package.Candidate do
     :definitions,
     :source_digest
   ]
-  defstruct @enforce_keys
+  defstruct [:id | @enforce_keys]
 
   @type definition() :: %{
           path: Path.t(),
@@ -19,6 +19,7 @@ defmodule AL.Package.Candidate do
         }
 
   @type t() :: %__MODULE__{
+          id: atom() | nil,
           channel: AL.Package.Channel.t(),
           directory: Path.t(),
           manifest_path: Path.t(),

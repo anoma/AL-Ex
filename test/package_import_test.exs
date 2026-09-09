@@ -36,6 +36,8 @@ defmodule ALPackageImportTest do
     assert {:ok, %{package: :fixture, build: build, definitions: [:fixture_value]}} =
              AL.Package.import(root, branch: branch)
 
+    assert [%{id: provider}] = AL.Package.providers(:fixture, branch)
+
     result =
       AL.run branch: branch.id do
         class(:fixture, :package)
@@ -49,8 +51,13 @@ defmodule ALPackageImportTest do
         build_version(^build, 1)
         dependency_builds(^build, [])
         build_digest(^build, _)
-        build_source(^build, _)
+        build_provider(^build, ^provider)
         build_status(^build, :complete)
+        class(^provider, :package_provider)
+        provides(^provider, :fixture)
+        provider_version(^provider, 1)
+        provider_requirements(^provider, [])
+        provider_source(^provider, _)
       end
 
     assert {:atomic, _} = result
@@ -70,7 +77,7 @@ defmodule ALPackageImportTest do
                  }
                }
              }
-           ] = AL.Package.builds(:fixture, branch)
+           ] = AL.Package.providers(:fixture, branch)
   end
 
   test "discovers dependencies through a channel and reuses realised builds", %{
@@ -86,14 +93,16 @@ defmodule ALPackageImportTest do
 
     assert {:ok, catalog} = AL.Package.discover([{:fixtures, root}])
 
-    assert Enum.map(catalog.candidates, & &1.document.name) == [
+    assert Enum.map(catalog.providers, & &1.document.name) == [
              :application_package,
              :dependency
            ]
 
+    assert Enum.all?(catalog.providers, &is_atom(&1.id))
+
     assert {:ok, plan} = AL.Package.resolve(catalog, [:application_package])
 
-    assert Enum.map(plan.builds, & &1.candidate.document.name) == [
+    assert Enum.map(plan.builds, & &1.provider.document.name) == [
              :dependency,
              :application_package
            ]
@@ -175,6 +184,7 @@ defmodule ALPackageImportTest do
     second_build = AL.Package.active_build(:configured_fixture, branch)
     assert second_build != first_build
     assert length(AL.Package.builds(:configured_fixture, branch)) == 2
+    assert length(AL.Package.providers(:configured_fixture, branch)) == 2
 
     result =
       AL.run branch: branch.id do
@@ -185,7 +195,61 @@ defmodule ALPackageImportTest do
     assert {:atomic, _} = result
   end
 
-  test "rejects dependency cycles and unsupported requirement syntax", %{root: root} do
+  test "distinct channel providers can realise the same package build", %{
+    branch: branch,
+    root: root
+  } do
+    first_root = Path.join(root, "first")
+    second_root = Path.join(root, "second")
+    first_package = Path.join(first_root, "shared")
+    second_package = Path.join(second_root, "shared")
+
+    write_bundle(first_package, :shared, [])
+    write_definition(first_package, :shared_value)
+    write_bundle(second_package, :shared, [])
+    write_definition(second_package, :shared_value)
+
+    assert {:ok, first_catalog} =
+             AL.Package.discover([{:first, first_root}, {:second, second_root}], branch: branch)
+
+    assert [first_provider, second_provider] = first_catalog.providers
+    assert first_provider.id != second_provider.id
+    assert first_provider.source_digest == second_provider.source_digest
+    assert first_provider.channel.id != second_provider.channel.id
+    assert AL.Package.installed?(:shared, branch)
+    assert length(AL.Package.providers(:shared, branch)) == 2
+    assert AL.Package.builds(:shared, branch) == []
+
+    assert {:ok, first_plan} = AL.Package.resolve(first_catalog, [:shared])
+    assert [%{provider: %{id: first_provider_id}}] = first_plan.builds
+    assert first_provider_id == first_provider.id
+    assert {:ok, first_realisation} = AL.Package.realise(first_plan, branch: branch)
+    first_build = Map.fetch!(first_realisation.builds, :shared)
+
+    assert {:ok, second_catalog} =
+             AL.Package.discover([{:second, second_root}, {:first, first_root}], branch: branch)
+
+    assert {:ok, second_plan} = AL.Package.resolve(second_catalog, [:shared])
+    assert [%{provider: %{id: second_provider_id}}] = second_plan.builds
+    assert second_provider_id == second_provider.id
+    assert {:ok, second_realisation} = AL.Package.realise(second_plan, branch: branch)
+    assert second_realisation.created == []
+    assert Map.fetch!(second_realisation.builds, :shared) == first_build
+
+    result =
+      AL.run branch: branch.id do
+        build_provider(^first_build, ^first_provider_id)
+        provider_channel(^first_provider_id, first_channel)
+        provider_channel(^second_provider_id, second_channel)
+        provides(^first_provider_id, :shared)
+        provides(^second_provider_id, :shared)
+      end
+
+    assert {:atomic, {bindings, _}} = result
+    assert bindings[:"$first_channel"] != bindings[:"$second_channel"]
+  end
+
+  test "rejects dependency cycles", %{root: root} do
     left = Path.join(root, "left")
     right = Path.join(root, "right")
     write_bundle(left, :left, [:right])
@@ -193,16 +257,8 @@ defmodule ALPackageImportTest do
 
     assert {:ok, cyclic_catalog} = AL.Package.discover([{:fixtures, root}])
 
-    assert {:error, {:package_dependency_cycle, [:left, :right, :left]}} =
+    assert {:error, {:package_resolution_failed, [:left]}} =
              AL.Package.resolve(cyclic_catalog, [:left])
-
-    File.rm_rf!(right)
-    write_bundle(left, :left, [{:right, ">= 2"}])
-
-    assert {:ok, constrained_catalog} = AL.Package.discover([{:fixtures, root}])
-
-    assert {:error, {:unsupported_package_requirement, :left, :right, ">= 2"}} =
-             AL.Package.resolve(constrained_catalog, [:left])
   end
 
   test "replacement activation removes definitions outside the new exact set", %{
@@ -300,10 +356,12 @@ defmodule ALPackageImportTest do
     write_bundle(root, :dependent, [:missing])
     write_definition(root, :dependent_value)
 
-    assert {:error, {:package_not_found, :missing}} =
+    assert {:error, {:package_resolution_failed, [:dependent]}} =
              AL.Package.import(root, branch: branch)
 
-    refute AL.Package.installed?(:dependent, branch)
+    assert AL.Package.installed?(:dependent, branch)
+    refute AL.Package.active?(:dependent, branch)
+    assert [_provider] = AL.Package.providers(:dependent, branch)
   end
 
   test "reclaims a matching old transaction-program receipt as the package class", %{
@@ -376,10 +434,10 @@ defmodule ALPackageImportTest do
 
     assert {:atomic, {bindings, _}} = setup_old_package
     old_build = bindings[:"$old_build"]
-    refute AL.TransactionProgram.current?(:package_system, 3, branch)
+    refute AL.TransactionProgram.current?(:package_system, 6, branch)
 
     assert {:atomic, _} = AL.TransactionProgram.PackageSystem.install()
-    assert AL.TransactionProgram.current?(:package_system, 3, branch)
+    assert AL.TransactionProgram.current?(:package_system, 6, branch)
 
     query =
       AL.run branch: branch.id do

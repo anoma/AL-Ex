@@ -302,6 +302,78 @@ defmodule Examples.ALBranch do
            "2000 slot writes in one transaction took #{div(microseconds, 1000)}ms"
   end
 
+  example the_projection_is_a_pure_function_of_the_command_log() do
+    branch = AL.Branch.fork()
+
+    for source <- rebuild_workload() do
+      assert {:atomic, _} = AL.eval_source(source, branch)
+    end
+
+    soa_before = projection_rows(branch)
+    aos_before = slot_rows(branch)
+
+    assert Enum.any?(aos_before, fn {:aos, _object, _from, to, _map} -> to != :open end)
+    assert Enum.any?(soa_before, fn {:soa, _o, _k, _s, _f, to, _v} -> to != :open end)
+
+    :ok = AL.Object.drop_tables(branch)
+    :ok = AL.Object.create_tables(branch)
+    assert {:atomic, _} = AL.Object.hydrate_since(0, branch)
+
+    assert projection_rows(branch) == soa_before
+    assert slot_rows(branch) == aos_before
+
+    AL.Branch.discard(branch)
+    length(soa_before)
+  end
+
+  defp rebuild_workload do
+    [
+      """
+      defclass :gadget, super: :object, ivars: [:size, :name] do
+        defmethod(:describe, [self, size]) do
+          get_slot(self, :size, size)
+        end
+      end
+      """,
+      """
+      new(:gadget, %{size: 1, name: :a}, g)
+      set_slot(g, :size, 2)
+      set_slot(g, :size, 3)
+      set_slots(g, %{size: 4, name: :b})
+      """,
+      """
+      defmethod(:gadget, :describe, [self, size]) do
+        get_slot(self, :size, size)
+        is(size, size)
+      end
+      """,
+      """
+      vm_set_class(:temp_thing, :object)
+      vm_set_super(:temp_thing, :gadget)
+      vm_retract_super(:temp_thing, :gadget)
+      vm_retract_class(:temp_thing, :object)
+      """,
+      """
+      vm_set_slot(:temp_thing, :k, 1)
+      vm_set_slot(:temp_thing, :k, 2)
+      vm_retract_slot(:temp_thing, :k)
+      """
+    ]
+  end
+
+  defp slot_rows(branch) do
+    {:atomic, rows} =
+      :mnesia.transaction(fn ->
+        :mnesia.match_object(
+          AL.Object.table(:aos, branch),
+          {:aos, :_, :_, :_, :_},
+          :read
+        )
+      end)
+
+    Enum.sort(rows)
+  end
+
   defp projection_rows(branch) do
     {:atomic, rows} =
       :mnesia.transaction(fn ->

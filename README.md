@@ -66,24 +66,41 @@ receipts remain readable through internal migration support. New receipts use
 
 The term *package* is reserved for package classes and the build system.
 `:package` is now a metaclass for package classes, and instances of those classes
-are builds. The class identity is the package name. Candidate definitions carry
-dependency requirements; realised builds retain their exact source, source
-digest, channel revision, and dependency builds. Package metadata is durable and
+are concrete package builds. The class identity is the package name. Channels
+hold durable provider objects containing source, version, and symbolic dependency
+requirements. Realised builds reference the provider that produced them and the
+exact builds chosen for every dependency. Package metadata is durable and
 branch-specific.
 
 Channels discover portable package bundles separately from the live `src/al`
 projection. A bundle contains a literal `package.al` manifest and Tonel-like
 class or extension documents under `definitions/`. Directory containment
 establishes which definitions belong to the package, so the manifest does not
-repeat members or list executable transactions. Resolution follows name-based
-requirements and produces an exact build graph. Realisation creates or reuses
-build instances by their content digest without installing their definitions;
-activation then applies the retained definitions and records each package
-class's `active_build`. Ordinary startup reuses the retained active graph. Call
+repeat members or list executable transactions. Discovery registers each channel
+provider in AL. The stateless `:package_resolver` relation searches the frozen,
+ordered provider list and backtracks when a preferred provider cannot satisfy
+the complete dependency graph. Elixir validates the dependency-first solution
+and turns it into an exact build plan. Requirements may be package names or
+`{package, requirement}` pairs. The resolver uses the package name only to find
+the MOP receiver and passes the complete requirement term to that package's
+`accepts_build` protocol. Realisation creates or reuses build instances by their
+content digest without installing their definitions; activation then applies
+the source retained by their providers and records each package class's
+`active_build`.
+Ordinary startup reuses the retained active graph. Call
 `AL.Package.update_configured/0` to rediscover changed channel contents and
 activate newly selected builds. `AL.Package.import/2` remains available for
 direct, additive bundle import. Interval, Users, and Elixir Process are bundled
 under `priv/packages`.
+
+The paired channels under `lib/examples/package_channels/stable` and
+`lib/examples/package_channels/experimental` demonstrate provider selection.
+Both offer `:greeting`, `:punctuation`, and the dependent `:welcome` package.
+Their Greeting sources differ, their Punctuation sources are identical, and
+their Welcome sources are identical but depend on Greeting. Reversing channel
+priority therefore reuses the Punctuation build while producing new Greeting
+and Welcome builds. The runnable example is
+`Examples.ALPackages.channels_offer_providers_and_builds_track_dependency_choices/0`.
 
 The files under `src/al` are projections of the store. On startup, AL regenerates
 them from the store: offline definition edits are overwritten, deleted files are

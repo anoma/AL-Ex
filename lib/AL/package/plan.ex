@@ -5,7 +5,7 @@ defmodule AL.Package.Plan do
   defstruct @enforce_keys
 
   @type t() :: %__MODULE__{
-          requested: [atom()],
+          requested: [AL.Package.Document.dependency()],
           catalog: AL.Package.Catalog.t(),
           builds: [AL.Package.BuildSpec.t()]
         }

@@ -10,8 +10,6 @@ defmodule AL.Source do
   Goals I don't recognise render as `RAW(<term>)` so there is something to see
   """
 
-  @arith [:+, :-, :*, :/, :**]
-
   @doc """
   `[name, defmethod-source]` pairs for every method on `class`, decompiled from
   the stored clauses. The store-facing convenience over the pure printers above;
@@ -657,6 +655,7 @@ defmodule AL.Source do
   defp goal({:gensym, v}), do: call(:gensym, [v])
   defp goal({:ground, t}), do: call(:ground, [t])
   defp goal({:var, x}), do: call(:var, [x])
+  defp goal({:call_term, t}), do: call(:call_term, [t])
   defp goal({:dif, a, b}), do: call(:dif, [a, b])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
@@ -684,13 +683,12 @@ defmodule AL.Source do
   defp goal({:send_elixir, pid, msg}), do: call(:send_elixir, [pid, msg])
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
-  defp goal({:get_oapply, o, _seq, h, b}), do: call(:vm_clause, [o, h, b])
-  defp goal({:set_oapply, o, _seq, h, b}), do: call(:vm_set_oapply, [o, h, b])
+  defp goal({:get_oapply, o, :"$_", h, b}), do: call(:vm_clause, [o, h, b])
+  defp goal({:get_oapply, o, seq, h, b}), do: call(:vm_clause, [o, seq, h, b])
+  defp goal({:set_oapply, o, :next, h, b}), do: call(:vm_set_oapply, [o, h, b])
+  defp goal({:set_oapply, o, seq, h, b}), do: call(:vm_set_oapply, [o, seq, h, b])
 
   defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
-
-  defp goal({:oapply, op, args}) when op in @arith and is_list(args),
-    do: {op, [], Enum.map(args, &pat/1)}
 
   defp goal({:oapply, fun, args}) when is_atom(fun) and is_list(args) do
     if AL.Var.var?(fun),
@@ -773,6 +771,9 @@ defmodule AL.Source do
   defp pat(m) when is_map(m), do: {:%{}, [], Enum.map(m, fn {k, v} -> {pat(k), pat(v)} end)}
   defp pat({:oapply, op, args}) when is_list(args), do: {op, [], Enum.map(args, &pat/1)}
   defp pat({:oapply, op, args}), do: {op, [], [pat(args)]}
-  defp pat({a, b}), do: {pat(a), pat(b)}
+
+  defp pat(tuple) when is_tuple(tuple),
+    do: {:{}, [], tuple |> Tuple.to_list() |> Enum.map(&pat/1)}
+
   defp pat(x), do: x
 end

@@ -195,6 +195,8 @@ defmodule Examples.ALTransactionPrograms do
       assert {:ok, retained} = AL.TransactionProgram.source(object)
       assert retained =~ "retained_original"
 
+      :code.purge(Examples.RetainedProgramFixture)
+      :code.delete(Examples.RetainedProgramFixture)
       Code.compile_string(String.replace(source, "retained_original", "retained_changed"))
       assert {:ok, ^retained} = AL.TransactionProgram.source(object)
 

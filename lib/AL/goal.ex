@@ -490,6 +490,7 @@ defmodule AL.Goal do
     {Functor, :functor, [term: :term, name: :term, args: :term]},
     {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
+    {CallTerm, :call_term, [term: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
     {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
     {CallNextMethod, :call_next_method, [self: :term, args: :term]},

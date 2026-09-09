@@ -1,11 +1,11 @@
 defmodule AL.Package.BuildSpec do
   @moduledoc "One exact build selected by package resolution."
 
-  @enforce_keys [:candidate, :dependencies, :digest]
+  @enforce_keys [:provider, :dependencies, :digest]
   defstruct @enforce_keys
 
   @type t() :: %__MODULE__{
-          candidate: AL.Package.Candidate.t(),
+          provider: AL.Package.Provider.t(),
           dependencies: [{atom(), t()}],
           digest: String.t()
         }

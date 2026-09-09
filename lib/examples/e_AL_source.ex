@@ -36,6 +36,15 @@ defmodule Examples.ALSource do
     source
   end
 
+  example tuple_patterns_with_variables_to_source() do
+    stored = [{:unify, {:"$package", :"$requirement"}, :"$pair"}]
+    source = AL.Source.body_source(stored)
+
+    assert source == "unify({package, requirement}, pair)"
+    assert round_trip(stored) == stored
+    source
+  end
+
   example branch_scoped_method_sources() do
     branch = AL.Branch.fork()
 
@@ -150,12 +159,18 @@ defmodule Examples.ALSource do
   end
 
   defp round_trip(stored) do
-    {:ok, ast} = AL.Source.Parser.parse_quoted(AL.Source.body_source(stored), [])
+    text = AL.Source.body_source(stored)
 
-    ast
-    |> AL.Lowering.ast_to_pattern()
-    |> List.wrap()
-    |> Enum.map(&AL.Goal.to_stored/1)
+    case AL.Source.Parser.parse_quoted(text, []) do
+      {:ok, ast} ->
+        ast
+        |> AL.Lowering.ast_to_pattern()
+        |> List.wrap()
+        |> Enum.map(&AL.Goal.to_stored/1)
+
+      {:error, _reason} ->
+        {:unparseable, text}
+    end
   end
 
   defp shape(term),
@@ -175,6 +190,8 @@ defmodule Examples.ALSource do
       {:retract_oapply, :"$o", [:"$a"]},
       {:get_oapply, :"$o", :"$_", [:"$a"], :"$b"},
       {:set_oapply, :"$o", :next, [:"$a"], []},
+      {:get_oapply, :"$o", 2, [:"$a"], :"$b"},
+      {:set_oapply, :"$o", 3, [:"$a"], []},
       {:oapply, :map_get, [:"$m", :key, :"$v"]},
       {:oapply, :map_put, [:"$m", :key, :"$v", :"$out"]},
       {:oapply, :fresh_id, [:"$id"]},
@@ -184,6 +201,8 @@ defmodule Examples.ALSource do
       {:oapply, :cached_find_ivar_spec, [:"$o", :"$key", :"$spec"]},
       {:oapply, :source_method_parts, [:"$a", :"$b", :"$c", :"$d"]},
       {:oapply, :is, [:"$x", 1]},
+      {:oapply, :rem, [:"$x", 2]},
+      {:oapply, :+, [:"$x", 1]},
       {:get_class, :"$o", :"$c"},
       {:get_super, :"$o", :"$s"},
       {:get_slot, :"$o", :key, :"$v", :aos},
@@ -193,6 +212,7 @@ defmodule Examples.ALSource do
       {:functor, :"$t", :"$n", :"$args"},
       {:gensym, :"$x"},
       {:label, :"$x"},
+      {:call_term, :"$x"},
       {:dif, :"$a", :"$b"},
       {:unify, :"$a", :"$b"},
       {:in_domain, :"$x", [1, 2]},

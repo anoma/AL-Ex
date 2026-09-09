@@ -6,7 +6,7 @@ defmodule AL.Package.Document do
   @enforce_keys @fields
   defstruct @fields
 
-  @type dependency() :: atom() | {atom(), String.t()}
+  @type dependency() :: atom() | {atom(), term()}
   @type t() :: %__MODULE__{
           name: atom(),
           version: pos_integer(),
@@ -114,8 +114,7 @@ defmodule AL.Package.Document do
 
   defp valid_dependency?(name) when is_atom(name), do: true
 
-  defp valid_dependency?({name, requirement}) when is_atom(name) and is_binary(requirement),
-    do: true
+  defp valid_dependency?({name, _requirement}) when is_atom(name), do: true
 
   defp valid_dependency?(_dependency), do: false
 

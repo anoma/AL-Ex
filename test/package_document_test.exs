@@ -20,11 +20,8 @@ defmodule ALPackageDocumentTest do
   end
 
   test "dependency requirements remain literal data" do
-    document = document(deps: [{:values, "> 0.1"}])
+    document = document(deps: [{:values, %{version: {:at_least, [0, 1]}}}])
     assert {:ok, ^document} = document |> Document.render() |> Document.parse()
-
-    invalid = document(deps: [{:values, System}]) |> Document.render()
-    assert {:error, {:invalid_package_document, _reason}} = Document.parse(invalid)
   end
 
   test "the manifest has no transaction or member fields" do
