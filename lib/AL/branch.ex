@@ -38,11 +38,13 @@ defmodule AL.Branch do
 
     if stored_head() not in [main() | list()], do: set_head(main())
 
+    owner? = node() == AL.Command.owner_node()
+
     for branch <- [main() | list()] do
       AL.Object.create_tables(branch)
       AL.SourceStore.create_tables(branch)
       AL.ResolutionCache.create_tables(branch)
-      AL.Object.hydrate_since(0, branch)
+      if owner?, do: AL.Object.hydrate_since(0, branch)
     end
 
     :ok

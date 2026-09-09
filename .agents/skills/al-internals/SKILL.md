@@ -55,6 +55,16 @@ generative/durable/domain dispatch convergence specifically, read
 - Mnesia calls that require transaction context must stay inside a transaction.
   Prefer a public wrapper plus a clearly named `*_in_transaction` function when
   both external and composing callers need the operation.
+- A write path inside a transaction must read by key. Mnesia's transaction
+  store is indexed by `{table, key}`, so `read/2,3` reaches one key, while
+  `select` and `match_object` merge by scanning every operation the transaction
+  has already recorded for that table. Reading by pattern in a write path is
+  therefore quadratic in the transaction's own size, which is invisible in a
+  small transaction and catastrophic in a large one. Reach for the pattern scan
+  only when the key is genuinely non-ground, and filter in Elixir otherwise.
+- Only the process that owns a projection may rebuild it. A joining node shares
+  the owner's `ram_copies` tables, so replaying the log there duplicates live
+  rows rather than reconstructing them.
 
 ## Serialisation boundary
 

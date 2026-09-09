@@ -265,4 +265,68 @@ defmodule Examples.ALBranch do
     AL.Branch.discard(branch)
     branch
   end
+
+  example joining_process_does_not_rehydrate_the_projection() do
+    branch = AL.Branch.main()
+    before = projection_rows(branch)
+
+    assert before != []
+
+    as_joiner(fn -> AL.Branch.setup() end)
+
+    assert projection_rows(branch) == before
+
+    {:atomic, _} =
+      run do
+        class(:object, :class)
+      end
+
+    :ok
+  end
+
+  example many_slot_writes_in_one_transaction_stay_linear() do
+    branch = AL.Branch.fork()
+
+    {microseconds, {:atomic, _}} =
+      :timer.tc(fn ->
+        :mnesia.transaction(fn ->
+          for i <- 1..2000 do
+            AL.Object.set_slot(:"perf_#{rem(i, 50)}", :"k#{i}", i, :aos, i, branch)
+          end
+        end)
+      end)
+
+    AL.Branch.discard(branch)
+
+    assert microseconds < 1_000_000,
+           "2000 slot writes in one transaction took #{div(microseconds, 1000)}ms"
+  end
+
+  defp projection_rows(branch) do
+    {:atomic, rows} =
+      :mnesia.transaction(fn ->
+        :mnesia.match_object(
+          AL.Object.table(:soa, branch),
+          {:soa, :_, :_, :_, :_, :_, :_},
+          :read
+        )
+      end)
+
+    Enum.sort(rows)
+  end
+
+  defp as_joiner(fun) do
+    key = {AL.Command, :owner_node}
+    previous = :persistent_term.get(key, :absent)
+    :persistent_term.put(key, :"al_joiner@127.0.0.1")
+
+    try do
+      fun.()
+    after
+      case previous do
+        :absent -> :persistent_term.erase(key)
+        node -> :persistent_term.put(key, node)
+      end
+    end
+  end
 end

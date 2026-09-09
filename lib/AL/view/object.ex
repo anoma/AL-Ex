@@ -340,6 +340,32 @@ defmodule AL.Object do
     :mnesia.select(table(relation, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
   end
 
+  defp wildcard?(term), do: is_atom(term) and AL.Var.var?(term)
+
+  defp open_aos_rows(object, branch) do
+    if wildcard?(object) do
+      open_rows(:aos, {:aos, object, :"$tx_from", :open, :"$m"}, branch)
+    else
+      for {:aos, _object, _tx_from, :open, _map} = row <-
+            :mnesia.read(table(:aos, branch), object, :write),
+          do: row
+    end
+  end
+
+  defp open_soa_slot_rows(object, key, branch) do
+    if wildcard?(object) or wildcard?(key) do
+      pattern =
+        {:soa, object, key, fresh_wildcard("seq"), fresh_wildcard("tx_from"), :open,
+         fresh_wildcard("value")}
+
+      open_rows(:soa, pattern, branch)
+    else
+      for {:soa, _object, ^key, _seq, _tx_from, :open, _value} = row <-
+            :mnesia.read(table(:soa, branch), object, :write),
+          do: row
+    end
+  end
+
   # A bag record can't be updated in place -- delete the exact old tuple,
   # write back the same one with `tx_to` replaced. `tx_to` is always the
   # second-to-last element (right before the row's own value) regardless of
@@ -508,7 +534,7 @@ defmodule AL.Object do
   # written for `object`, open and closed alike, since closed rows are
   # never deleted.
   defp set_aos_slot(object, key, value, tx, branch) do
-    rows = open_rows(:aos, {:aos, object, :"$tx_from", :open, :"$m"}, branch)
+    rows = open_aos_rows(object, branch)
 
     existing =
       case rows do
@@ -532,8 +558,7 @@ defmodule AL.Object do
   end
 
   defp close_current_soa_slot(object, key, tx, branch) do
-    pattern = {:soa, object, key, :"$seq", :"$tx_from", :open, :"$value"}
-    close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
+    close_rows(:soa, open_soa_slot_rows(object, key, branch), tx, branch)
   end
 
   @spec retract_slot(AL.Var.t(), AL.Var.t(), :aos | :soa, non_neg_integer(), AL.Branch.t()) :: :ok
@@ -542,7 +567,7 @@ defmodule AL.Object do
   def retract_slot(object, key, :aos, tx, branch), do: retract_aos_slot(object, key, tx, branch)
 
   defp retract_aos_slot(object, key, tx, branch) do
-    rows = open_rows(:aos, {:aos, object, :"$tx_from", :open, :"$m"}, branch)
+    rows = open_aos_rows(object, branch)
 
     case rows do
       [{:aos, ^object, _tx_from, :open, existing}] when is_map(existing) ->
