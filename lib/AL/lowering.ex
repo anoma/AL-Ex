@@ -10,7 +10,7 @@ defmodule AL.Lowering do
   @arithmetic_ops [:+, :-, :*, :/, :**, :rem]
   @comparison_ops [:<, :>, :<=, :>=]
   @oapply_primitives %{
-    vm_is: :is,
+    is: :is,
     vm_map_get: :map_get,
     vm_map_put: :map_put,
     vm_fresh_id: :fresh_id,
@@ -21,6 +21,12 @@ defmodule AL.Lowering do
     vm_source_method_parts: :source_method_parts
   }
   @oapply_primitive_names Map.keys(@oapply_primitives)
+  @surface_by_method_id Map.new(@oapply_primitives, fn {surface, id} -> {id, surface} end)
+
+  @doc "The surface spelling a primitive's stored `method_id` is written as."
+  @spec primitive_surface_name(term()) :: term()
+  def primitive_surface_name(method_id),
+    do: Map.get(@surface_by_method_id, method_id, method_id)
 
   def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
 
@@ -194,16 +200,16 @@ defmodule AL.Lowering do
   def ast_to_pattern({:vm_retract_slot, _, [object, key]}),
     do: %Goal.RetractSlot{object: ast_to_pattern(object), key: ast_to_pattern(key)}
 
-  def ast_to_pattern({:vm_gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
+  def ast_to_pattern({:gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 
   def ast_to_pattern({:vm_format, _, [control, args]}),
     do: %Goal.Format{control: ast_to_pattern(control), args: ast_to_pattern(args)}
 
-  def ast_to_pattern({:vm_ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
+  def ast_to_pattern({:ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
   def ast_to_pattern({:label, _, [term]}), do: %Goal.Label{term: ast_to_pattern(term)}
 
-  def ast_to_pattern({:vm_functor, _, [term, name, args]}),
+  def ast_to_pattern({:functor, _, [term, name, args]}),
     do: %Goal.Functor{
       term: ast_to_pattern(term),
       name: ast_to_pattern(name),
@@ -263,7 +269,7 @@ defmodule AL.Lowering do
 
   # #=/2 (CLP(FD) naming) — `#` starts a comment at the Elixir lexer level, so
   # `eq/2` is the closest spellable surface form. Arithmetic equality as a
-  # constraint, not `vm_is`'s immediate evaluation: sound with either side
+  # constraint, not `is`'s immediate evaluation: sound with either side
   # still open, narrowing/auto-binding through AL.Var.Bounds the same way
   # `< > <= >=` do.
   def ast_to_pattern({:eq, _, [a, b]}),

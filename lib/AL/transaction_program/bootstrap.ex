@@ -50,7 +50,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:object, :between, [self, low, high, value]) do
       low < high
-      vm_is(next, low + 1)
+      is(next, low + 1)
       between(self, next, high, value)
     end
 
@@ -317,7 +317,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :ivar_names, [[], []])
 
     defmethod(:list, :ivar_names, [[spec | rest], [name | names]]) do
-      vm_functor(spec, name, _)
+      functor(spec, name, _)
       ivar_names(rest, names)
     end
 
@@ -330,7 +330,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       findall(
         spec,
-        [member(new_ivars, spec), vm_functor(spec, name, _), not [member(old_names, name)]],
+        [member(new_ivars, spec), functor(spec, name, _), not [member(old_names, name)]],
         added_specs
       )
 
@@ -368,7 +368,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:object, :backfill_ivar, [self, spec]) do
       implies do
-        [vm_functor(spec, name, [opts]), member(opts, {:default, default})] ->
+        [functor(spec, name, [opts]), member(opts, {:default, default})] ->
           set_slot(self, name, default)
 
         :else ->
@@ -400,7 +400,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       implies do
         [vm_map_get(args, :name, name)] -> claim_name(self, name, redef)
-        :else -> vm_gensym(name)
+        :else -> gensym(name)
       end
 
       vm_set_class(name, meta)
@@ -463,7 +463,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       apply_ivar_spec(self, args, spec, name, value)
 
       implies do
-        [vm_ground(value)] ->
+        [ground(value)] ->
           vm_map_put(partial, name, value, output)
 
         :else ->
@@ -575,7 +575,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     # ordered after a `{name, opts}`-pattern clause -- Prolog tries every
     # clause whose head unifies, not just the first, so the bare fallback
     # would still fire (and win, non-deterministically) on a real {name,
-    # opts} spec too, same bug just caught in `rank_value`. `vm_functor` is a
+    # opts} spec too, same bug just caught in `rank_value`. `functor` is a
     # real function (decompose direction, deterministic), not another
     # relational alternative -- it either decomposes spec into {name,
     # [opts]} (only possible when spec really is a 2-tuple, since a bare
@@ -593,7 +593,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     # class atom itself resolves as).
     defmethod(:object, :apply_ivar_spec, [self, args, spec, name, value]) do
       implies do
-        [vm_functor(spec, name, [opts])] ->
+        [functor(spec, name, [opts])] ->
           implies do
             [member(opts, {:domain, domain})] -> in_domain(value, domain)
           end
@@ -619,7 +619,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     # :aos default when storage: absent.
     defmethod(:object, :ivar_spec_storage, [self, spec, storage]) do
       implies do
-        [vm_functor(spec, _name, [opts]), member(opts, {:storage, given})] ->
+        [functor(spec, _name, [opts]), member(opts, {:storage, given})] ->
           unify(storage, given)
 
         :else ->
@@ -782,9 +782,9 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       label(n)
 
-      vm_is(n1, n - 1)
+      is(n1, n - 1)
       factorial(n1, factorial1)
-      vm_is(factorial, factorial1 * n)
+      is(factorial, factorial1 * n)
     end
 
     defmethod(:number, :fibonacci, [1, 1])
@@ -809,13 +809,13 @@ defmodule AL.TransactionProgram.Bootstrap do
     # Linear recursion, one reduction per step — deliberately the opposite
     # shape from fibonacci's naive-exponential one, for isolating raw
     # per-call dispatch/reduction overhead from combinatorial blowup
-    # (bench/succ.exs). `vm_is`, not `eq` — matches :count_to_via_oapply's
+    # (bench/succ.exs). `is`, not `eq` — matches :count_to_via_oapply's
     # own increment exactly, so the two differ *only* in how the recursive
     # step is reached (full dispatch vs raw oapply), not also in how much
     # constraint machinery the increment itself pays for.
     defmethod(:number, :count_to, [n, target]) do
       n < target
-      vm_is(n1, n + 1)
+      is(n1, n + 1)
       count_to(n1, target)
     end
 
@@ -838,7 +838,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:number, :count_to_oapply_loop, [n, target, id]) do
       n < target
-      vm_is(n1, n + 1)
+      is(n1, n + 1)
       vm_oapply(id, [n1, target, id])
     end
 
@@ -852,7 +852,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :length, [self, n]) do
       implies do
-        [vm_ground(n)] -> length_of_size(self, n)
+        [ground(n)] -> length_of_size(self, n)
         :else -> length_count(self, n)
       end
     end
@@ -861,7 +861,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :length_of_size, [[_h | t], n]) do
       n > 0
-      vm_is(n1, n - 1)
+      is(n1, n - 1)
       length_of_size(t, n1)
     end
 
@@ -869,7 +869,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :length_count, [[_h | t], n]) do
       length_count(t, n1)
-      vm_is(n, n1 + 1)
+      is(n, n1 + 1)
     end
 
     defmethod(:list, :at, [xs, n, x]) do
@@ -879,7 +879,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :at, [[h | _t], n, n, h])
 
     defmethod(:list, :at, [[h | t], n, i, v]) do
-      vm_is(i1, i + 1)
+      is(i1, i + 1)
       at(t, n, i1, v)
     end
 
@@ -1078,7 +1078,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :increment_degrees, [[s | ss], acc, degrees]) do
       vm_map_get(acc, s, old)
-      vm_is(new, old + 1)
+      is(new, old + 1)
       vm_map_put(acc, s, new, acc2)
       increment_degrees(ss, acc2, degrees)
     end
@@ -1111,7 +1111,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, ready]) do
       vm_map_get(degrees, s, old)
-      vm_is(new, old - 1)
+      is(new, old - 1)
       vm_map_put(degrees, s, new, degrees2)
 
       implies do

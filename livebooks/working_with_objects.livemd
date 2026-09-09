@@ -120,7 +120,7 @@ run do
     
     defmethod(:flick, [self]) do
       get_slot(self, :count, c)
-      vm_is(c1, c + 1)
+      is(c1, c + 1)
       set_slot(self, :count, c1)
       call_next_method(self)
     end

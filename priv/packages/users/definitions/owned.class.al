@@ -14,7 +14,7 @@ Class {
 ]
 
 :owned >> :may, [self, caller, _method, _args] [
-  vm_ground(caller)
+  ground(caller)
   get_slot(self, :owner, caller)
 ]
 

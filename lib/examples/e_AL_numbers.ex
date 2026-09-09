@@ -26,7 +26,7 @@ defmodule Examples.ALNumbers do
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         defmethod(:number, :double, [self, result]) do
-          vm_is(result, self * 2)
+          is(result, self * 2)
         end
 
         double(21, out)

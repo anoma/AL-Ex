@@ -43,7 +43,7 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: :examples do
-          vm_is(x, 2 + 2)
+          is(x, 2 + 2)
           vm_format("x is ~d~%", [x])
         end
       end)

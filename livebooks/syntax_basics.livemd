@@ -53,11 +53,11 @@ end
 
 ## WAM Arithmetic
 
-`vm_is` evaluates an arithmetic expression and unifies the result against the first argument.
+`is` evaluates an arithmetic expression and unifies the result against the first argument.
 
 ```elixir
 run do
-  vm_is(x, 2 + 3 * 4)
+  is(x, 2 + 3 * 4)
 end
 ```
 
@@ -65,7 +65,7 @@ Comparisons are written directly.
 
 ```elixir
 run do
-  vm_is(x, 10)
+  is(x, 10)
   x > 5
   x < 20
 end
@@ -127,7 +127,7 @@ end
 
 ```elixir
 run do
-  vm_is(x, 5)
+  is(x, 5)
   implies do
     [x > 3] -> unify(result, :big)
     :else -> unify(result, :small)
@@ -162,15 +162,15 @@ end
 
 ## Inspecting and building terms
 
-`vm_functor` is Prolog's `functor/3`. Given a ground tuple, it splits off the first element as a name and the rest as args. Given a name and args instead, it builds the tuple.
+`functor` is Prolog's `functor/3`. Given a ground tuple, it splits off the first element as a name and the rest as args. Given a name and args instead, it builds the tuple.
 
 ```elixir
 run do
-  vm_functor({:point, 1, 2}, name, args)
+  functor({:point, 1, 2}, name, args)
 end
 ```
 
-`var` succeeds if its argument is still open. `vm_ground` succeeds if a term has no open variables left in it anywhere.
+`var` succeeds if its argument is still open. `ground` succeeds if a term has no open variables left in it anywhere.
 
 ```elixir
 run do
@@ -184,6 +184,6 @@ AL has no first-class lambda syntax. `call(head, body, args)` is the closest thi
 
 ```elixir
 run do
-  call([a, b], [vm_is(b, a * 2)], [5, result])
+  call([a, b], [is(b, a * 2)], [5, result])
 end
 ```

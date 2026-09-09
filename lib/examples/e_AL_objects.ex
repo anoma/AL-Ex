@@ -154,11 +154,11 @@ defmodule Examples.ALObjects do
     slots
   end
 
-  example vm_gensym() do
+  example gensym() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        vm_gensym(a)
-        vm_gensym(b)
+        gensym(a)
+        gensym(b)
       end
 
     assert Map.get(bindings, :"$a") != Map.get(bindings, :"$b")

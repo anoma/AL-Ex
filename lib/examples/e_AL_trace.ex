@@ -429,12 +429,12 @@ defmodule Examples.ALTrace do
 
           defmethod(:probe_mid, [self, v]) do
             probe_leaf(self, w)
-            vm_is(v, w + 1)
+            is(v, w + 1)
           end
 
           defmethod(:probe_top, [self, v]) do
             probe_mid(self, w)
-            vm_is(v, w + 1)
+            is(v, w + 1)
           end
 
           defmethod(:probe_answer, [self, v]) do

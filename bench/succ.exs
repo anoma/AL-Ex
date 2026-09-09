@@ -3,12 +3,12 @@
 # mix run bench/succ.exs --profile oapply N
 #
 # `count_to(0, N)` — one reduction per recursive step (`n < target`,
-# `vm_is(n1, n + 1)`, recurse), deliberately the opposite shape from
+# `is(n1, n + 1)`, recurse), deliberately the opposite shape from
 # fibonacci.exs's naive-exponential one. Timing should scale ~linearly with
 # N, not blow up — this isolates raw per-call dispatch/reduction overhead
 # from the combinatorial cost fibonacci's own sweep is dominated by.
 #
-# `count_to_via_oapply(0, N)` is the *same* computation (same `vm_is`
+# `count_to_via_oapply(0, N)` is the *same* computation (same `is`
 # increment, so the two don't also differ in how much constraint machinery
 # the arithmetic itself pays for) — but resolves its own method id once
 # (`vm_method`) instead of re-running `providers_for`/`method_scopes`

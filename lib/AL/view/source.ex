@@ -655,12 +655,12 @@ defmodule AL.Source do
   defp goal({:not, cond}), do: {:not, [], [Enum.map(cond, &goal/1)]}
   defp goal({:freeze, v, gs}), do: {:freeze, [], [pat(v), Enum.map(gs, &goal/1)]}
   defp goal({:gensym, v}), do: call(:gensym, [v])
-  defp goal({:ground, t}), do: call(:vm_ground, [t])
+  defp goal({:ground, t}), do: call(:ground, [t])
   defp goal({:var, x}), do: call(:var, [x])
   defp goal({:dif, a, b}), do: call(:dif, [a, b])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
-  defp goal({:functor, term, name, args}), do: call(:vm_functor, [term, name, args])
+  defp goal({:functor, term, name, args}), do: call(:functor, [term, name, args])
   defp goal({:unify, a, b}), do: call(:unify, [a, b])
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
 
@@ -669,23 +669,23 @@ defmodule AL.Source do
 
   defp goal({:get_class, o, c}), do: call(:class, [o, c])
   defp goal({:get_super, o, s}), do: call(:super, [o, s])
-  defp goal({:set_class, o, c}), do: call(:set_class, [o, c])
-  defp goal({:set_super, o, s}), do: call(:set_super, [o, s])
-  defp goal({:set_slot, o, k, v}), do: call(:set_slot, [o, k, v])
+  defp goal({:set_class, o, c}), do: call(:vm_set_class, [o, c])
+  defp goal({:set_super, o, s}), do: call(:vm_set_super, [o, s])
+  defp goal({:set_slot, o, k, v}), do: call(:vm_set_slot, [o, k, v])
   defp goal({:get_slot, o, k, v, :aos}), do: call(:vm_get_slot, [o, k, v])
   defp goal({:get_slot, o, k, v, store}), do: call(:vm_get_slot, [o, k, v, store])
   defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), Enum.map(cond, &goal/1), pat(r)]}
-  defp goal({:retract_class, o, c}), do: call(:retract_class, [o, c])
-  defp goal({:retract_super, o, s}), do: call(:retract_super, [o, s])
-  defp goal({:retract_slot, o, k}), do: call(:retract_slot, [o, k])
-  defp goal({:get_method, o, n, i}), do: call(:method, [o, n, i])
-  defp goal({:set_method, o, n, i}), do: call(:set_method, [o, n, i])
+  defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
+  defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])
+  defp goal({:retract_slot, o, k}), do: call(:vm_retract_slot, [o, k])
+  defp goal({:get_method, o, n, i}), do: call(:vm_method, [o, n, i])
+  defp goal({:set_method, o, n, i}), do: call(:vm_set_method, [o, n, i])
   defp goal({:send_async, o, m, a}), do: call(:send_async, [o, m, a])
   defp goal({:send_elixir, pid, msg}), do: call(:send_elixir, [pid, msg])
-  defp goal({:retract_oapply, o, head}), do: call(:retract_oapply, [o, head])
-  defp goal({:retract_method, o, n, i}), do: call(:retract_method, [o, n, i])
-  defp goal({:get_oapply, o, _seq, h, b}), do: call(:clause, [o, h, b])
-  defp goal({:set_oapply, o, _seq, h, b}), do: call(:set_oapply, [o, h, b])
+  defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
+  defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
+  defp goal({:get_oapply, o, _seq, h, b}), do: call(:vm_clause, [o, h, b])
+  defp goal({:set_oapply, o, _seq, h, b}), do: call(:vm_set_oapply, [o, h, b])
 
   defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
 
@@ -695,7 +695,7 @@ defmodule AL.Source do
   defp goal({:oapply, fun, args}) when is_atom(fun) and is_list(args) do
     if AL.Var.var?(fun),
       do: call(:vm_oapply, [fun, args]),
-      else: {fun, [], Enum.map(args, &pat/1)}
+      else: {AL.Lowering.primitive_surface_name(fun), [], Enum.map(args, &pat/1)}
   end
 
   defp goal({:oapply, fun, args}), do: call(:vm_oapply, [fun, args])

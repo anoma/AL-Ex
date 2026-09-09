@@ -535,7 +535,7 @@ diff/merge and valid-time queries are unbuilt.
   live on `:object`, not `:map` (a classed map dispatches via its own
   `:class` field, never through `:map`). `ivars: []` (every pre-existing
   value class) keeps the old default-`:init` behavior untouched. Decomposing
-  a `{name, opts}` ivar entry uses `vm_functor`, not a bare-var fallback
+  a `{name, opts}` ivar entry uses `functor`, not a bare-var fallback
   clause — see [[feedback-prolog-clause-selection-not-elixir]] for why that
   distinction matters. Explicitly deferred: numeric-range generation, durable
   (`:object`-super) classes. Demo in `lib/AL/transaction_program/blackjack.ex`'s `:card`.
@@ -565,7 +565,7 @@ diff/merge and valid-time queries are unbuilt.
   reconstructing a literal 3+-element tuple from Elixir's `{:{}, meta, list}`
   quoted form — writing `{:foo, 1, 2}` directly in AL surface syntax silently
   misparses as `send(:foo, :"{}", [1, 2])` instead of a tuple literal.
-  (2-tuples are unaffected.) Workaround: build 3+-tuples via `vm_functor`
+  (2-tuples are unaffected.) Workaround: build 3+-tuples via `functor`
   instead of writing them as literals. Not fixed.
 
 - **Atom-identity leak.** `fresh_id`/`gensym` mint atoms (`:"#N"`); the BEAM

@@ -104,4 +104,106 @@ defmodule Examples.ALSource do
       AL.Branch.discard(branch)
     end
   end
+
+  example stored_goals_round_trip_through_decompiled_source() do
+    failures =
+      for stored <- round_trip_cases(), round_trip([stored]) != [stored] do
+        {stored, AL.Source.body_source([stored]), round_trip([stored])}
+      end
+
+    assert failures == []
+    length(round_trip_cases())
+  end
+
+  example an_op_and_a_send_of_the_same_name_decompile_differently() do
+    op = {:set_class, :"$o", :"$c"}
+    message = {:send, :"$o", :set_class, [:"$c"]}
+
+    assert AL.Source.body_source([op]) != AL.Source.body_source([message])
+    assert round_trip([op]) == [op]
+    assert round_trip([message]) == [message]
+
+    AL.Source.body_source([op])
+  end
+
+  example every_installed_clause_body_round_trips() do
+    {:atomic, clauses} =
+      :mnesia.transaction(fn ->
+        AL.Object.scan_oapply(
+          AL.Var.var("object"),
+          AL.Var.var("seq"),
+          AL.Var.var("head"),
+          AL.Var.var("body")
+        )
+      end)
+
+    bodies = for {:oapply, object, _seq, _head, body} <- clauses, body != [], do: {object, body}
+
+    failures =
+      for {object, body} <- bodies,
+          shape(round_trip(body)) != shape(body),
+          do: {object, AL.Source.body_source(body)}
+
+    assert failures == []
+    assert bodies != []
+    length(bodies)
+  end
+
+  defp round_trip(stored) do
+    {:ok, ast} = AL.Source.Parser.parse_quoted(AL.Source.body_source(stored), [])
+
+    ast
+    |> AL.Lowering.ast_to_pattern()
+    |> List.wrap()
+    |> Enum.map(&AL.Goal.to_stored/1)
+  end
+
+  defp shape(term),
+    do: AL.Goal.map(term, fn leaf -> if AL.Var.var?(leaf), do: :_, else: leaf end)
+
+  defp round_trip_cases do
+    [
+      {:set_class, :"$o", :thing},
+      {:set_super, :"$o", :object},
+      {:set_slot, :"$o", :key, :"$v"},
+      {:retract_class, :"$o", :thing},
+      {:retract_super, :"$o", :object},
+      {:retract_slot, :"$o", :key},
+      {:get_method, :"$o", :sel, :"$id"},
+      {:set_method, :"$o", :sel, :"$id"},
+      {:retract_method, :"$o", :sel, :"$id"},
+      {:retract_oapply, :"$o", [:"$a"]},
+      {:get_oapply, :"$o", :"$_", [:"$a"], :"$b"},
+      {:set_oapply, :"$o", :next, [:"$a"], []},
+      {:oapply, :map_get, [:"$m", :key, :"$v"]},
+      {:oapply, :map_put, [:"$m", :key, :"$v", :"$out"]},
+      {:oapply, :fresh_id, [:"$id"]},
+      {:oapply, :current_tx, [:"$tx"]},
+      {:oapply, :transaction_object, [:"$tx", :"$object"]},
+      {:oapply, :cached_ivar_specs, [:"$class", :"$specs"]},
+      {:oapply, :cached_find_ivar_spec, [:"$o", :"$key", :"$spec"]},
+      {:oapply, :source_method_parts, [:"$a", :"$b", :"$c", :"$d"]},
+      {:oapply, :is, [:"$x", 1]},
+      {:get_class, :"$o", :"$c"},
+      {:get_super, :"$o", :"$s"},
+      {:get_slot, :"$o", :key, :"$v", :aos},
+      {:slot_at, :"$o", :key, :"$v", 3},
+      {:ground, :"$x"},
+      {:var, :"$x"},
+      {:functor, :"$t", :"$n", :"$args"},
+      {:gensym, :"$x"},
+      {:label, :"$x"},
+      {:dif, :"$a", :"$b"},
+      {:unify, :"$a", :"$b"},
+      {:in_domain, :"$x", [1, 2]},
+      {:all_dif, [:"$a", :"$b"]},
+      {:format, "~a", [:"$x"]},
+      {:send, :"$o", :sel, [:"$a"]},
+      {:send_async, :"$o", :sel, [:"$a"]},
+      {:compare, :>, :"$x", 1},
+      {:not, [{:get_class, :"$o", :thing}]},
+      {:findall, :"$x", [{:get_class, :"$x", :thing}], :"$xs"},
+      {:forall, [{:get_class, :"$x", :thing}], [{:unify, :"$x", 1}]}
+    ]
+  end
 end

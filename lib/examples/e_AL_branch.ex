@@ -182,7 +182,7 @@ defmodule Examples.ALBranch do
         defmethod(:fork_worker, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
           get_slot(:fork_worker_subscriber, :pid, p)
-          vm_functor(message, :handled, [object])
+          functor(message, :handled, [object])
           send_elixir(p, message)
         end
       end

@@ -40,7 +40,7 @@ defmodule Bench.Regsm do
           a + 1 > 0
           q + 1 > 0
           unify(b, a1)
-          vm_is(x1, x - 1)
+          is(x1, x - 1)
           regsm_entry(x1, a1, b1, q1)
         end
 
@@ -49,7 +49,7 @@ defmodule Bench.Regsm do
         defmethod(:number, :regsm_body, [x, a, b, q]) do
           x > 1
           unify(b, a1)
-          vm_is(x1, x - 1)
+          is(x1, x - 1)
           regsm_body(x1, a1, b1, q1)
           eq(a1 + b1, q * ^p + a)
           a < ^p

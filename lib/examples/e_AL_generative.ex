@@ -435,13 +435,13 @@ defmodule Examples.ALGenerative do
             get_slot(self, :side, side)
 
             implies do
-              [vm_ground(side)] ->
-                vm_is(result, side * side)
+              [ground(side)] ->
+                is(result, side * side)
 
               :else ->
-                vm_ground(result)
+                ground(result)
                 between(self, 1, result, side)
-                vm_is(check, side * side)
+                is(check, side * side)
                 unify(check, result)
             end
           end
@@ -481,7 +481,7 @@ defmodule Examples.ALGenerative do
 
         defmethod(:coins, :change, [self, amount, [c | rest], [c | combo]]) do
           amount >= c
-          vm_is(remaining, amount - c)
+          is(remaining, amount - c)
           change(self, remaining, [c | rest], combo)
         end
 

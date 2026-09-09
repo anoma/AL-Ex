@@ -66,7 +66,7 @@ defmodule ALSourceProjectionTest do
     body = [{:ground, :"$caller"}]
     rendered = AL.Source.defmethod_source(:owned, :may, [:"$self", :"$caller"], body)
 
-    assert rendered =~ "vm_ground(caller)"
+    assert rendered =~ "ground(caller)"
 
     assert {:ok, ast} = Code.string_to_quoted(rendered)
 

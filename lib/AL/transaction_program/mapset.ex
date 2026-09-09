@@ -12,7 +12,7 @@ defmodule AL.TransactionProgram.Mapset do
       get_slot(args, :elems, list)
 
       implies do
-        [vm_ground(list)] ->
+        [ground(list)] ->
           list_to_elems(list, elems)
           unify(new, %{class: :mapset_value, elems: elems})
 
@@ -22,25 +22,25 @@ defmodule AL.TransactionProgram.Mapset do
     end
 
     defmethod(:mapset_value, :elem, [self, e]) do
-      vm_ground(self)
+      ground(self)
       get_slot(self, :elems, elems)
       get_slot(elems, e, _)
     end
 
     defmethod(:mapset_value, :elem, [self, e]) do
-      not [vm_ground(self)]
-      vm_ground(e)
+      not [ground(self)]
+      ground(e)
       unify(self, %{class: :mapset_value, elems: %{e => true}})
     end
 
     defmethod(:mapset_value, :members, [self, list]) do
-      vm_ground(self)
+      ground(self)
       get_slot(self, :elems, elems)
       findall(k, [get_slot(elems, k, _)], list)
     end
 
     defmethod(:mapset_value, :members, [self, list]) do
-      not [vm_ground(self)]
+      not [ground(self)]
       list_to_elems(list, elems)
       unify(self, %{class: :mapset_value, elems: elems})
     end
