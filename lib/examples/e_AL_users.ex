@@ -53,8 +53,8 @@ defmodule Examples.ALUsers do
     :ok
   end
 
-  # An unspecified caller must be denied: the guard is structural equality, not
-  # unification, so an unbound caller can't be silently bound to the owner.
+  # An unspecified caller must be denied: ground is checked before the
+  # relational slot lookup, so an unbound caller can't be bound to the owner.
   example owner_gate_rejects_unbound_caller() do
     {:atomic, {b, _}} =
       run branch: :examples do

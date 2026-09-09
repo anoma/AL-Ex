@@ -105,18 +105,18 @@ defmodule Examples.ALGtBridge do
         AL.run branch: branch.id do
           vm_set_super(:inspector_execution_class, :program_execution)
           vm_set_class(:inspector_execution, :inspector_execution_class)
-          get_slot(:equations, :tx, installed_tx)
-          set_slots(:inspector_execution, %{name: :equations, tx: installed_tx})
+          get_slot(:blackjack, :tx, installed_tx)
+          set_slots(:inspector_execution, %{name: :blackjack, tx: installed_tx})
           vm_set_class(:inspector_unknown_execution, :program_execution)
           set_slots(:inspector_unknown_execution, %{name: :inspector_unknown_execution})
         end
 
       object = %AL.Object{id: :inspector_execution, branch: branch.id}
       assert {:ok, source} = AL.TransactionProgram.source(object)
-      assert source =~ "vm_set_class(:equation_solver, :object)"
+      assert source =~ "defclass :card"
 
       assert {:ok, ^source} =
-               AL.TransactionProgram.source(%AL.Object{id: :equations, branch: branch.id})
+               AL.TransactionProgram.source(%AL.Object{id: :blackjack, branch: branch.id})
 
       assert :not_program_execution =
                AL.TransactionProgram.source(%AL.Object{id: :object, branch: branch.id})
@@ -231,7 +231,7 @@ defmodule Examples.ALGtBridge do
   example unnamed_object_uses_identity() do
     assert AL.GtBridge.display_name(%AL.Object{id: :object}) == "object"
     assert AL.GtBridge.display_name(%AL.Object{id: :inspector_missing}) == "inspector_missing"
-    assert AL.GtBridge.object_title(%AL.Object{id: :equations}) == "AL.Object · :equations"
+    assert AL.GtBridge.object_title(%AL.Object{id: :blackjack}) == "AL.Object · :blackjack"
     :ok
   end
 

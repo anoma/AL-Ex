@@ -124,7 +124,7 @@ class-membership predicate.
   class shares its own name (a natural, common pattern) durably classifies
   the *same atom* as both `:program_execution` (the receipt) and `:class` (the class
   declaration). Fixed by renaming the colliding class in each affected
-  package (`elixir_process`, `interval`, `sudoku`, `mapset`, `equations`),
+  package (`elixir_process`, `interval`, `sudoku`, `mapset`),
   not by changing `defprogram`'s own receipt mechanism — simpler for now,
   though it doesn't automatically prevent the same collision in a future
   transaction program.

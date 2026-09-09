@@ -655,7 +655,7 @@ defmodule AL.Source do
   defp goal({:not, cond}), do: {:not, [], [Enum.map(cond, &goal/1)]}
   defp goal({:freeze, v, gs}), do: {:freeze, [], [pat(v), Enum.map(gs, &goal/1)]}
   defp goal({:gensym, v}), do: call(:gensym, [v])
-  defp goal({:ground, t}), do: call(:ground, [t])
+  defp goal({:ground, t}), do: call(:vm_ground, [t])
   defp goal({:var, x}), do: call(:var, [x])
   defp goal({:dif, a, b}), do: call(:dif, [a, b])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])

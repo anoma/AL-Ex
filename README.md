@@ -50,8 +50,15 @@ Dependencies order execution. Startup compares both the recorded name and
 version, allowing an updated program to replace its execution receipt after its
 body performs the required redefinitions.
 
-Startup programs are configured with `config :al, transaction_programs: [...]`;
-portable bundles use `config :al, package_imports: [...]`.
+Startup programs are configured with `config :al, transaction_programs: [...]`.
+Package sources and the desired package roots are configured separately:
+
+```elixir
+config :al,
+  package_channels: [{:builtin, {:priv, "packages"}}],
+  package_environment: [:interval, :users, :elixir_process]
+```
+
 Use `AL.TransactionProgram`, `defprogram`, and `:transaction_programs`; the former
 package API and configuration aliases have been removed. Historical `:package`
 receipts remain readable through internal migration support. New receipts use
@@ -59,28 +66,32 @@ receipts remain readable through internal migration support. New receipts use
 
 The term *package* is reserved for package classes and the build system.
 `:package` is now a metaclass for package classes, and instances of those classes
-are builds. The class identity is the package name. Package classes record their
-dependencies; builds record their package, version, resolved dependency builds,
-and status. Package metadata is durable and branch-specific.
+are builds. The class identity is the package name. Candidate definitions carry
+dependency requirements; realised builds retain their exact source, source
+digest, channel revision, and dependency builds. Package metadata is durable and
+branch-specific.
 
-Portable package bundles are explicit inputs, separate from the live `src/al`
-projection. A bundle contains a literal `package.al` manifest and Tonel-like class
-or extension documents under `definitions/`. Directory containment establishes
-which definitions belong to the package, so the manifest does not repeat members
-or list executable transactions. Import one into a selected branch with
-`AL.Package.import(path, branch: branch)`. Import validates all documents and
-dependencies, then installs the definitions, package class, and completed build
-in one retained command-log transaction. Interval, Users, and Elixir Process are
-bundled under `priv/packages`. Existing stores replace matching historical
-execution receipts with package classes without replaying the old programs.
+Channels discover portable package bundles separately from the live `src/al`
+projection. A bundle contains a literal `package.al` manifest and Tonel-like
+class or extension documents under `definitions/`. Directory containment
+establishes which definitions belong to the package, so the manifest does not
+repeat members or list executable transactions. Resolution follows name-based
+requirements and produces an exact build graph. Realisation creates or reuses
+build instances by their content digest without installing their definitions;
+activation then applies the retained definitions and records each package
+class's `active_build`. Ordinary startup reuses the retained active graph. Call
+`AL.Package.update_configured/0` to rediscover changed channel contents and
+activate newly selected builds. `AL.Package.import/2` remains available for
+direct, additive bundle import. Interval, Users, and Elixir Process are bundled
+under `priv/packages`.
 
 The files under `src/al` are projections of the store. On startup, AL regenerates
 them from the store: offline definition edits are overwritten, deleted files are
 restored, and extra definition files are removed. Only definition edits observed
 while AL's serialiser is running are imported as new transactions. If the store
-is missing, the configured transaction programs and package imports rebuild it
-and the files are regenerated from that new state. Transaction files in the live
-projection are history and are never executed automatically.
+is missing, the configured transaction programs and package environment rebuild
+it and the files are regenerated from that new state. Transaction files in the
+live projection are history and are never executed automatically.
 
 ## Livebooks
 

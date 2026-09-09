@@ -17,10 +17,11 @@ defmodule Examples.ALPackages do
       AL.run do
         class(:interval, :package)
         super(:interval, :package_build)
-        deps(:interval, [])
         class(:interval_value, :class)
         class(build, :interval)
+        active_build(:interval, build)
         build_version(build, 1)
+        build_digest(build, _)
         build_status(build, :complete)
       end
 
@@ -48,10 +49,11 @@ defmodule Examples.ALPackages do
       result =
         AL.run branch: branch.id do
           class(:interval, :package)
-          deps(:interval, [])
           class(^build, :interval)
+          active_build(:interval, ^build)
           build_package(^build, :interval)
           build_version(^build, 1)
+          build_source(^build, _)
           build_status(^build, :complete)
           new(:interval_value, %{lo: 3, hi: 7}, interval)
           elem(interval, 5)
@@ -72,18 +74,29 @@ defmodule Examples.ALPackages do
     try do
       update =
         AL.run branch: branch.id do
-          set_slot(:interval, :deps, [:fork_dependency])
-          build(:interval, 2, [:dependency_build], build)
-          set_slot(build, :status, :complete)
+          build(
+            :interval,
+            %{
+              name: :branch_specific_interval_build,
+              package: :interval,
+              version: 2,
+              dependency_builds: [],
+              digest: "branch-specific",
+              channel: {:channel, :fixture},
+              channel_revision: "fixture",
+              source: %{format: 1, manifest: "", definitions: []},
+              status: :complete
+            },
+            build
+          )
         end
 
       assert {:atomic, _} = update
 
       fork_result =
         AL.run branch: branch.id do
-          deps(:interval, [:fork_dependency])
           class(build, :interval)
-          dependency_builds(build, [:dependency_build])
+          dependency_builds(build, [])
           build_version(build, 2)
           build_status(build, :complete)
         end
@@ -92,8 +105,6 @@ defmodule Examples.ALPackages do
 
       main_result =
         AL.run do
-          deps(:interval, [])
-
           findall(
             build,
             [class(build, :interval), build_version(build, 2)],

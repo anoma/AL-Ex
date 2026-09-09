@@ -42,32 +42,22 @@ defmodule AL.Application do
         AL.TransactionProgram.current?(program.name, program.version)
       end)
 
-    packages =
-      AL.Package.configured()
-      |> Enum.map(fn path ->
-        case AL.Package.manifest(path) do
-          {:ok, document} -> {path, document}
-          {:error, reason} -> raise "AL package manifest #{path} is invalid: #{inspect(reason)}"
-        end
-      end)
-      |> Enum.reject(fn {_path, document} -> AL.Package.installed?(document.name) end)
-
-    install_startup(programs, packages)
+    install_startup(programs, true)
   end
 
-  defp install_startup([], []), do: :ok
+  defp install_startup([], false), do: :ok
 
-  defp install_startup(programs, packages) do
+  defp install_startup(programs, packages_pending?) do
     ready_programs =
       Enum.filter(programs, fn module ->
         Enum.all?(module.__program__().deps, &dependency_installed?/1)
       end)
 
-    ready_packages = Enum.filter(packages, fn {path, _document} -> AL.Package.ready?(path) end)
+    packages_ready? = packages_pending? and AL.Package.system_available?()
 
-    if ready_programs == [] and ready_packages == [] do
+    if ready_programs == [] and not packages_ready? do
       program_names = Enum.map(programs, & &1.__program__().name)
-      package_names = Enum.map(packages, fn {_path, document} -> document.name end)
+      package_names = AL.Package.configured_environment()
 
       raise "AL startup dependencies cannot be satisfied: programs #{inspect(program_names)}, packages #{inspect(package_names)}"
     end
@@ -77,21 +67,21 @@ defmodule AL.Application do
       :ok = AL.TransactionProgram.ensure_current(program.name, program.version, &module.install/0)
     end)
 
-    Enum.each(ready_packages, fn {path, document} ->
-      case AL.Package.ensure_imported(path) do
+    if packages_ready? do
+      case AL.Package.ensure_configured() do
         :ok ->
           :ok
 
         {:error, reason} ->
-          raise "AL package #{inspect(document.name)} failed to import: #{inspect(reason)}"
+          raise "AL package environment failed to activate: #{inspect(reason)}"
       end
-    end)
+    end
 
-    install_startup(programs -- ready_programs, packages -- ready_packages)
+    install_startup(programs -- ready_programs, packages_pending? and not packages_ready?)
   end
 
   defp dependency_installed?(name),
-    do: AL.TransactionProgram.installed?(name) or AL.Package.installed?(name)
+    do: AL.TransactionProgram.installed?(name) or AL.Package.active?(name)
 
   # Re-run on every boot, same as bootstrap/0 -- a native's durable binding
   # fact survives an image restart, but the implementation itself doesn't

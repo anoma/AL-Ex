@@ -12,15 +12,17 @@ config :al,
     AL.TransactionProgram.PackageSystem,
     AL.TransactionProgram.Mapset,
     AL.TransactionProgram.Constraints,
-    AL.TransactionProgram.Equations,
     AL.TransactionProgram.Sudoku,
     AL.TransactionProgram.Blackjack,
     AL.TransactionProgram.Euler
   ],
-  package_imports: [
-    {:priv, "packages/interval"},
-    {:priv, "packages/users"},
-    {:priv, "packages/elixir_process"}
+  package_channels: [
+    {:builtin, {:priv, "packages"}}
+  ],
+  package_environment: [
+    :interval,
+    :users,
+    :elixir_process
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.

@@ -62,6 +62,20 @@ defmodule ALSourceProjectionTest do
     end
   end
 
+  test "ground goals retain their primitive meaning when decompiled" do
+    body = [{:ground, :"$caller"}]
+    rendered = AL.Source.defmethod_source(:owned, :may, [:"$self", :"$caller"], body)
+
+    assert rendered =~ "vm_ground(caller)"
+
+    assert {:ok, ast} = Code.string_to_quoted(rendered)
+
+    assert %AL.Goal.OApply{method_id: :defmethod, args: [_class, _name, _head, parsed_body]} =
+             AL.Lowering.ast_to_pattern(ast)
+
+    assert AL.Goal.to_stored(parsed_body) == body
+  end
+
   test "comments are stored as inert goals and render back as comments" do
     branch = AL.Branch.fork()
 

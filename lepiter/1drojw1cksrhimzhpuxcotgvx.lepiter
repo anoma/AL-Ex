@@ -428,7 +428,7 @@
 					"__type" : "uid",
 					"uidString" : "hXcXUszAQceFa/yrQZA3OQ=="
 				},
-				"code" : "%AL.Object{id: :equations}"
+				"code" : "%AL.Object{id: :blackjack}"
 			},
 			{
 				"__type" : "elixirSnippet",
