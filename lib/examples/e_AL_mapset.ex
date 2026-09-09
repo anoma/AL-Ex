@@ -1,6 +1,6 @@
 defmodule Examples.ALMapset do
   @moduledoc """
-  I provide examples for the `:mapset_value` package — a set is `%{class: :mapset_value,
+  I provide examples for the `:mapset_value` class — a set is `%{class: :mapset_value,
   elems: map}`, where `elems` holds each member as a key (value unused).
   Elixir/Erlang map equality is content-based regardless of insertion order,
   so two mapsets with the same members are the identical term and `==` is

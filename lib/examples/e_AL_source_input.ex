@@ -749,7 +749,7 @@ defmodule Examples.ALSourceInput do
     end
   end
 
-  example al_run_retains_source_for_compile_time_defined_packages() do
+  example al_run_retains_source_for_compile_time_defined_programs() do
     branch = AL.Branch.fork_fresh()
 
     try do
@@ -765,7 +765,7 @@ defmodule Examples.ALSourceInput do
                diagnostic: nil
              } = AL.Source.method_clause_source(:object, :between, method_id, 0, branch)
 
-      assert String.ends_with?(file, "lib/AL/package/bootstrap.ex")
+      assert String.ends_with?(file, "lib/AL/transaction_program/bootstrap.ex")
       assert is_integer(line)
 
       assert text ==

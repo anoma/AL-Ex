@@ -59,9 +59,9 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Fork an empty branch and install all packages fresh from currently
-  compiled source — decoupled from `:main`'s own install state, which is
-  sticky by name (`AL.Package.ensure/2`) and can be stale across sessions.
+  Fork an empty branch and install all configured transaction programs and package
+  bundles fresh from current source — decoupled from `:main`'s own install state,
+  which is sticky by name and can be stale across sessions.
   Non-destructive; doesn't touch `:main` or HEAD. Use to verify a source
   change without `mix al.reset`.
 
@@ -76,7 +76,7 @@ defmodule AL.Branch do
     original_head = head()
 
     checkout(branch)
-    AL.Package.install_all(Application.get_env(:al, :packages, []))
+    AL.Application.bootstrap()
     checkout(original_head)
 
     branch

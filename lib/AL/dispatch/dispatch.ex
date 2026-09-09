@@ -97,7 +97,7 @@ defmodule AL.Dispatch do
   # the other (real inheritance, not a coincidence): `:number`/`:list`/`:map`
   # can't overlap, no two unrelated `super: :value` classes can (`:card` vs
   # `:number`), and neither can a value class and an unrelated durable one
-  # (`:number` vs `:package`) -- there's no special "exclusive" subset, every
+  # (`:number` vs `:program_execution`) -- there's no special "exclusive" subset, every
   # class is exclusive of every other unrelated class. Used both to filter
   # which candidates dispatch offers (here) and by `GetClass`'s
   # no-witness-needed isa fast path (`AL.Interp.Relations`), which used to be able to

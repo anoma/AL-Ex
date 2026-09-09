@@ -1,7 +1,7 @@
-defmodule AL.Package.Euler do
-  use AL.Package
+defmodule AL.TransactionProgram.Euler do
+  use AL.TransactionProgram
 
-  defpackage :euler, version: 1, deps: [:bootstrap] do
+  defprogram :euler, version: 1, deps: [:bootstrap] do
     # Find the sum of all multiples of 3 or 5 below n
     defmethod(:number, :euler_1, [n, sum]) do
       findall(

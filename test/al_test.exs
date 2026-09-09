@@ -178,6 +178,10 @@ defmodule ALPendingLinksTest do
   use ExExample.ExUnit, for: Examples.ALPendingLinks
 end
 
+defmodule ALTransactionProgramsTest do
+  use ExExample.ExUnit, for: Examples.ALTransactionPrograms
+end
+
 defmodule ALPackagesTest do
   use ExExample.ExUnit, for: Examples.ALPackages
 end

@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Al.Reset do
   use Mix.Task
 
-  @shortdoc "Wipes the local Mnesia store (.mnesiastore/) so boot reinstalls every package fresh"
+  @shortdoc "Wipes the local Mnesia store (.mnesiastore/) so boot reinstalls every transaction program fresh"
 
   @moduledoc """
   Deletes #{AL.Command.mnesia_dir()} and the configured AL serialisation tree,
@@ -42,7 +42,7 @@ defmodule Mix.Tasks.Al.Reset do
         Enum.each(existing, &File.rm_rf!/1)
 
         Mix.shell().info(
-          "Deleted #{Enum.join(existing, " and ")}. Next boot reinstalls every package fresh."
+          "Deleted #{Enum.join(existing, " and ")}. Next boot reinstalls every transaction program fresh."
         )
 
       true ->

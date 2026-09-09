@@ -52,7 +52,9 @@ history, but it does not replace the command that produced it.
 | Definition serialisation codec | `lib/AL/serialisation/document.ex` | `serialisation/layout.ex`, `serialisation/snapshot.ex`, `serialisation/sync.ex` |
 | Filesystem synchronization | `lib/AL/serialisation.ex` | file-system dependency and application supervision |
 | GT inspection | `lib/AL/gt_bridge.ex` | `lib/AL/view/` |
-| Bootstrap language behavior | `lib/AL/package/bootstrap.ex` | package modules and `al-practices` |
+| Bootstrap language behavior | `lib/AL/transaction_program/bootstrap.ex` | transaction program modules and `al-practices` |
+| Package object protocol | `lib/AL/transaction_program/package_system.ex` | `lib/examples/e_AL_packages.ex` |
+| Portable package import | `lib/AL/package.ex` | `lib/AL/package/document.ex`, package definition documents |
 
 ## Durable mutation checklist
 

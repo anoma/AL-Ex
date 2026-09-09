@@ -601,7 +601,7 @@ defmodule Examples.ALObjects do
   end
 
   # `:object`'s `:init` now fills in ivars the same way `:value`'s already
-  # does (`AL.Package.Blackjack`'s `:card`), reusing the exact same
+  # does (`AL.TransactionProgram.Blackjack`'s `:card`), reusing the exact same
   # `apply_ivar_spec` -- an explicit `args` value is validated against the
   # domain and durably persisted as-is.
   example durable_construction_respects_explicit_ivar_args() do

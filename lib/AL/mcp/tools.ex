@@ -5,7 +5,7 @@ defmodule AL.MCP.Tools do
   @maximum_max_length 100_000
   @evaluation_prelude """
   import AL
-  alias AL.{Branch, Command, Object, Package, Scheduler, Source, SourceStore, Trace, Transaction, Var}
+  alias AL.{Branch, Command, Object, Scheduler, Source, SourceStore, Trace, Transaction, TransactionProgram, Var}
   """
 
   @spec list() :: [map()]

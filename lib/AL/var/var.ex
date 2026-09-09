@@ -604,7 +604,7 @@ defmodule AL.Var do
   # can never be violated. Without this clause, once `obj` (or whatever it
   # gets bound to) derefs to something concrete, the fallback clause below
   # would wrongly treat *that* as a class name to check membership against
-  # (e.g. "is `:package` an instance of `:bootstrap`") and reject an
+  # (e.g. "is `:program_execution` an instance of `:bootstrap`") and reject an
   # otherwise-valid bind.
   defp isa_violation_class({:object_link, _obj}, _term, _store, _branch), do: nil
 

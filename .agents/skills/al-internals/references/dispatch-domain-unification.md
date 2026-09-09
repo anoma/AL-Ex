@@ -66,7 +66,7 @@ class-membership predicate.
   out.
 - End state: one dispatch loop asking each candidate class how it wants to
   describe its domain (an AL-level category/behaviour hook, not an Elixir
-  special case per leg — consistent with "package means defpackage"), with
+  special case per leg — consistent with "transaction program means defprogram"), with
   durable staying the sole leg whose *labeling* is genuinely expensive and
   lazy, not because it's special-cased but because it's touching a
   different kind of resource than the other two. Sharper framing: durable
@@ -118,16 +118,16 @@ class-membership predicate.
   intentional. Supers/inheritance (`vm_set_super`) stay a free-form,
   unrestricted DAG — this only constrains an object's own class row, not
   its ancestry. Building this surfaced a real, previously-unresolved bug:
-  `AL.Package`'s `defpackage` macro creates a durable receipt object via
-  `new(:package, %{name: ...}, _)`, and `:object`'s default `:allocate`
-  uses `args[:name]` as the durable identity — so a package whose main
+  `AL.TransactionProgram`'s `defprogram` macro creates a durable receipt object via
+  `new(:program_execution, %{name: ...}, _)`, and `:object`'s default `:allocate`
+  uses `args[:name]` as the durable identity — so a transaction program whose main
   class shares its own name (a natural, common pattern) durably classifies
-  the *same atom* as both `:package` (the receipt) and `:class` (the class
+  the *same atom* as both `:program_execution` (the receipt) and `:class` (the class
   declaration). Fixed by renaming the colliding class in each affected
   package (`elixir_process`, `interval`, `sudoku`, `mapset`, `equations`),
-  not by changing `defpackage`'s own receipt mechanism — simpler for now,
+  not by changing `defprogram`'s own receipt mechanism — simpler for now,
   though it doesn't automatically prevent the same collision in a future
-  package.
+  transaction program.
 - **The durable and generative legs' requery step is now one shared
   helper**, not two hardcoded paths chosen up front by which leg you're in.
   `AL.Dispatch.requery_goals/4` splices an `Implies`/`IsVar` fragment that

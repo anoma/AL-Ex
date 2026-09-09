@@ -1,8 +1,11 @@
-defmodule AL.Package do
+defmodule AL.TransactionProgram do
   @moduledoc """
-  I define and install AL packages. A package is a durable object created as the
-  receipt of running its definitions, authored with `defpackage/3`.
+  I define named transaction programs with `defprogram/3` and retain their execution receipts.
   """
+
+  def configured do
+    Application.get_env(:al, :transaction_programs, [])
+  end
 
   def source(self = %AL.Object{}) do
     branch = %AL.Branch{id: AL.Object.branch_id(self)}
@@ -22,7 +25,7 @@ defmodule AL.Package do
            end
          end) do
       {:atomic, result} -> result
-      _ -> :not_package
+      _ -> :not_program_execution
     end
   end
 
@@ -52,24 +55,26 @@ defmodule AL.Package do
   defp transaction_id(tx, _branch), do: tx
 
   defp installation_tx(self, branch) do
-    if :package in AL.Dispatch.MethodOrder.method_scopes(self.id, branch) do
+    scopes = AL.Dispatch.MethodOrder.method_scopes(self.id, branch)
+
+    if Enum.any?(receipt_classes(branch), &(&1 in scopes)) do
       case AL.Object.read_slots(self.id, branch) do
         [{:slots, _, %{tx: tx}}] -> {:ok, tx}
         _ -> {:error, :source_unavailable}
       end
     else
-      :not_package
+      :not_program_execution
     end
   end
 
   defmacro __using__(_opts) do
     quote do
       require AL
-      import AL.Package, only: [defpackage: 3]
+      import AL.TransactionProgram, only: [defprogram: 3]
     end
   end
 
-  defmacro defpackage(name, opts, do: body) do
+  defmacro defprogram(name, opts, do: body) do
     version = Keyword.get(opts, :version, 1)
     deps = Keyword.get(opts, :deps, [])
 
@@ -81,22 +86,37 @@ defmodule AL.Package do
 
     receipt =
       quote do
-        new(:package, %{name: unquote(name), version: unquote(version), deps: unquote(deps)}, _)
+        new(
+          :program_execution,
+          %{
+            name: unquote(name),
+            version: unquote(version),
+            deps: unquote(deps),
+            redef: true
+          },
+          _
+        )
       end
 
     program = {:__block__, [], statements ++ [receipt]}
 
-    source_ast = {:defpackage, [], [name, opts, [do: body]]}
+    source_ast = {:defprogram, [], [name, opts, [do: body]]}
     source = Macro.to_string(source_ast)
-    origin = %{kind: :package, file: __CALLER__.file, line: __CALLER__.line}
+    origin = %{kind: :transaction_program, file: __CALLER__.file, line: __CALLER__.line}
 
     quote do
-      def __package__ do
+      def __program__ do
         %{name: unquote(name), version: unquote(version), deps: unquote(deps)}
       end
 
       def install do
-        AL.Package.retain_install(unquote(source), unquote(Macro.escape(origin)), fn ->
+        :ok = AL.TransactionProgram.ensure_execution_class()
+
+        AL.TransactionProgram.retain_install(unquote(source), unquote(Macro.escape(origin)), fn ->
+          if function_exported?(__MODULE__, :__prepare_program_install__, 0) do
+            :ok = apply(__MODULE__, :__prepare_program_install__, [])
+          end
+
           AL.run do
             unquote(program)
           end
@@ -152,21 +172,40 @@ defmodule AL.Package do
 
   @spec install_all([module()]) :: :ok
   def install_all(modules) do
-    by_name = Map.new(modules, fn m -> {m.__package__().name, m} end)
+    :ok = ensure_execution_class()
+    by_name = Map.new(modules, fn m -> {metadata(m).name, m} end)
 
     modules
     |> order(by_name)
-    |> Enum.each(fn m -> ensure(m.__package__().name, &m.install/0) end)
+    |> Enum.each(fn m ->
+      program = metadata(m)
+      ensure_current(program.name, program.version, &m.install/0)
+    end)
   end
 
-  @spec installed?(atom()) :: boolean()
-  def installed?(name) do
+  @spec installed?(atom(), AL.Branch.t()) :: boolean()
+  def installed?(name, branch \\ AL.Branch.head()) do
     case :mnesia.transaction(fn ->
-           Enum.any?(AL.Object.scan_class(:"$p", :package), fn {:class, p, _seq, :package} ->
-             match?([{:slots, ^p, %{name: ^name}}], AL.Object.read_slots(p))
+           Enum.any?(execution_rows(branch), fn {:class, p, _seq, _class} ->
+             match?([{:slots, ^p, %{name: ^name}}], AL.Object.read_slots(p, branch))
            end)
          end) do
       {:atomic, installed?} -> installed?
+      _ -> false
+    end
+  end
+
+  @spec current?(atom(), pos_integer(), AL.Branch.t()) :: boolean()
+  def current?(name, version, branch \\ AL.Branch.head()) do
+    case :mnesia.transaction(fn ->
+           Enum.any?(execution_rows(branch), fn {:class, execution, _seq, _class} ->
+             match?(
+               [{:slots, ^execution, %{name: ^name, version: ^version}}],
+               AL.Object.read_slots(execution, branch)
+             )
+           end)
+         end) do
+      {:atomic, current?} -> current?
       _ -> false
     end
   end
@@ -176,28 +215,38 @@ defmodule AL.Package do
     if installed?(name) do
       :ok
     else
-      # An install program that fails aborts its transaction rather than raising,
-      # which would otherwise leave a half-installed package behind silently. Turn
-      # that abort into a loud crash so a broken package can't pass for installed.
       case install.() do
         {:atomic, _} ->
           :ok
 
         {:aborted, reason} ->
-          raise "AL package #{inspect(name)} failed to install: #{explain(reason)}"
+          raise "AL transaction program #{inspect(name)} failed to install: #{explain(reason)}"
       end
     end
   end
 
-  # Prefer the legible failure message AL's interpreter now attaches; fall back to
-  # inspecting whatever the abort carried.
+  @spec ensure_current(atom(), pos_integer(), (-> any())) :: :ok
+  def ensure_current(name, version, install) do
+    if current?(name, version) do
+      :ok
+    else
+      case install.() do
+        {:atomic, _} ->
+          :ok
+
+        {:aborted, reason} ->
+          raise "AL transaction program #{inspect(name)} failed to install: #{explain(reason)}"
+      end
+    end
+  end
+
   defp explain(%{message: message}), do: message
   defp explain(reason), do: inspect(reason)
 
   @doc """
-  I retract everything a package installed by reversing the commands of its
+  I retract the supported facts a transaction program installed by reversing the commands of its
   install transaction (recorded in the receipt's `:tx` slot). I refuse if another
-  installed package depends on this one.
+  installed transaction program depends on this one.
   """
   @spec uninstall(atom()) :: {:atomic, any()} | {:aborted, term()} | {:error, term()}
   def uninstall(name) do
@@ -211,7 +260,7 @@ defmodule AL.Package do
     branch = AL.Branch.head()
 
     case :mnesia.transaction(fn ->
-           case find_package(name) do
+           case find_execution(name) do
              {_p, %{tx: tx}} ->
                AL.Command.commands_for_transaction(transaction_id(tx, branch), branch)
 
@@ -236,7 +285,7 @@ defmodule AL.Package do
   defp dependents(name) do
     {:atomic, names} =
       :mnesia.transaction(fn ->
-        for {:class, p, _seq, :package} <- AL.Object.scan_class(:"$p", :package),
+        for {:class, p, _seq, _class} <- execution_rows(),
             {:slots, ^p, %{name: dependent, deps: deps}} <- AL.Object.read_slots(p),
             name in deps,
             do: dependent
@@ -245,8 +294,8 @@ defmodule AL.Package do
     names
   end
 
-  defp find_package(name) do
-    Enum.find_value(AL.Object.scan_class(:"$p", :package), fn {:class, p, _seq, :package} ->
+  defp find_execution(name) do
+    Enum.find_value(execution_rows(), fn {:class, p, _seq, _class} ->
       case AL.Object.read_slots(p) do
         [{:slots, ^p, %{name: ^name} = slots}] -> {p, slots}
         _ -> nil
@@ -273,25 +322,100 @@ defmodule AL.Package do
   end
 
   defp visit(m, by_name, {ordered, seen}, stack) do
-    name = m.__package__().name
+    name = metadata(m).name
 
     cond do
       name in seen ->
         {ordered, seen}
 
       name in stack ->
-        raise "AL package dependency cycle: #{inspect(Enum.reverse([name | stack]))}"
+        raise "AL transaction program dependency cycle: #{inspect(Enum.reverse([name | stack]))}"
 
       true ->
         {ordered, seen} =
-          Enum.reduce(m.__package__().deps, {ordered, seen}, fn dep, acc ->
+          Enum.reduce(metadata(m).deps, {ordered, seen}, fn dep, acc ->
             case Map.fetch(by_name, dep) do
-              {:ok, dep_module} -> visit(dep_module, by_name, acc, [name | stack])
-              :error -> raise "AL package #{inspect(name)} depends on unknown #{inspect(dep)}"
+              {:ok, dep_module} ->
+                visit(dep_module, by_name, acc, [name | stack])
+
+              :error ->
+                raise "AL transaction program #{inspect(name)} depends on unknown #{inspect(dep)}"
             end
           end)
 
         {[m | ordered], MapSet.put(seen, name)}
+    end
+  end
+
+  defp metadata(module) do
+    Code.ensure_loaded!(module)
+
+    module.__program__()
+  end
+
+  defp receipt_classes(branch) do
+    if legacy_receipt_class?(branch),
+      do: [:program_execution, :package],
+      else: [:program_execution]
+  end
+
+  defp legacy_receipt_class?(branch) do
+    case AL.Object.read_slots(:package, branch) do
+      [{:slots, :package, %{ivars: [:name, :version, :deps, :tx]}}] -> true
+      _ -> false
+    end
+  end
+
+  defp execution_rows(branch \\ AL.Branch.head()) do
+    receipt_classes(branch)
+    |> Enum.flat_map(&AL.Object.scan_class(:"$execution", &1, branch))
+    |> Enum.uniq_by(fn {:class, object, _seq, _class} -> object end)
+  end
+
+  def ensure_execution_class do
+    branch = AL.Branch.head()
+
+    result =
+      :mnesia.transaction(fn ->
+        if legacy_receipt_class?(branch) do
+          program_execution_definition =
+            if AL.Object.scan_class(:program_execution, :class, branch) == [] do
+              """
+              new(:class, %{name: :program_execution, super: :object, ivars: [:name, :version, :deps, :tx]}, _)
+              import(:program_execution, :package)
+              """
+            else
+              ""
+            end
+
+          receipt_migration =
+            AL.Object.scan_class(AL.Var.var("legacy_program_receipt"), :package, branch)
+            |> Enum.map_join("\n", fn {:class, receipt, _seq, :package} ->
+              """
+              vm_retract_class(#{inspect(receipt)}, :package)
+              vm_set_class(#{inspect(receipt)}, :program_execution)
+              """
+            end)
+
+          source =
+            program_execution_definition <>
+              receipt_migration <>
+              """
+              delete_class(:package)
+              """
+
+          case AL.eval_source(source, branch) do
+            {:atomic, _} -> :ok
+            {:aborted, reason} -> :mnesia.abort(reason)
+          end
+        else
+          :ok
+        end
+      end)
+
+    case result do
+      {:atomic, :ok} -> :ok
+      {:aborted, reason} -> raise "AL program execution receipt setup failed: #{explain(reason)}"
     end
   end
 end

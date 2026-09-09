@@ -244,7 +244,7 @@ defmodule Examples.ALGenerative do
   # `:value`) on top of an already shape-committed var sailed through
   # unchecked, producing an unsatisfiable isa set like `{:number,
   # :some_durable_class}` (nothing can be both a generative number-value and
-  # a durable object). Found via `class(x, :package)` on the AL.Package.
+  # a durable object). Found via `class(x, :program_execution)` on the AL.TransactionProgram.
   example exclusive_class_conflicts_with_unrelated_durable_class() do
     {:atomic, _} =
       run branch: :examples do
@@ -269,7 +269,7 @@ defmodule Examples.ALGenerative do
   # value classes above. Before the fix, the wrong candidate's `class/2` call
   # silently succeeded (contradictory isa unioned in, no witness ever
   # constructed), so `findall` reported the same fact once per candidate
-  # instead of once. Bug found via AL.Package.Blackjack's :card class.
+  # instead of once. Bug found via AL.TransactionProgram.Blackjack's :card class.
   example class_dispatch_does_not_report_ghost_duplicates() do
     {:atomic, _} =
       run branch: :examples do
@@ -292,7 +292,7 @@ defmodule Examples.ALGenerative do
   # reuses the exact construction dispatch already runs for a var receiver
   # (AL.Dispatch.witness_choicepoints/3) -- no separate `:domain`-method
   # convention needed (nothing in this codebase ever defined one). `:card`
-  # (AL.Package.Blackjack) is a real `super: :value` class with ivar specs,
+  # (AL.TransactionProgram.Blackjack) is a real `super: :value` class with ivar specs,
   # so the witness comes back a genuine constructed map, ivars left open
   # (further labeling, same as `new(:card, _, c)` already leaves them).
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do
@@ -314,8 +314,8 @@ defmodule Examples.ALGenerative do
   # picking an *already-existing* instance rather than constructing one --
   # the same "durable is a finite set of real ids, not a constructible
   # domain" distinction dispatch's own durable leg already relies on. Also
-  # covers why the real `class`/`:package` relation always labels: every
-  # installed package, every `defmethod`'s own method object, etc. are all
+  # covers why the real `class`/`:program_execution` relation always labels: every
+  # installed program, every `defmethod`'s own method object, etc. are all
   # exactly this shape (durable-only, no `super: :value`).
   example labeling_an_isa_with_only_a_durable_witness_finds_it() do
     {:atomic, {bindings, _}} =

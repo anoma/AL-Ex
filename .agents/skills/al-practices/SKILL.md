@@ -97,8 +97,9 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
     delegates to `new/3`.
 - **A map-shaped value class's `:init` must `unify` its output with a
   freshly literal-constructed map, not `set_slot`/`vm_set_slots` the input
-  scaffold** (`:interval`'s own `:init`, `lib/AL/package/interval.ex`, is the
-  reference pattern). Durable objects can `set_slot` because `self` is a
+  scaffold** (`:interval`'s own `:init` in
+  `priv/packages/interval/definitions/interval_value.class.al` is the reference
+  pattern). Durable objects can `set_slot` because `self` is a
   stable atom id and slots live in a separate keyed table — growing them is
   just another row. A map-shaped `self` *is* the map itself, already a
   concrete value by the time `:init` runs; `set_slot`/`vm_set_slots` on it
@@ -143,21 +144,21 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
   checkout — see the README's "Working with multiple people" section for
   the concrete workflow, `mix al.reset` for the rare genuine-full-reset case.
 - **Getting a changed definition picked up, three ways, cheapest-safe first:**
-  1. **A fork with a fresh install, no wipe at all**: package install is
-     idempotent by name only, so editing an already-installed package's
+  1. **A fork with a fresh install, no wipe at all**: transaction program installation is
+     idempotent by recorded name and version, so editing an already-installed program's
      source (e.g. `bootstrap.ex`) has no effect on an *existing* branch until
      it's reinstalled — and `defmethod` *accretes* a clause rather than
      replacing, so even an explicit reinstall on the same branch needs an
-     `uninstall` first, which can fail outright for a foundational package
-     with dependents (`AL.Package.uninstall(:bootstrap)` refuses if anything
+     `uninstall` first, which can fail outright for a foundational program
+     with dependents (`AL.TransactionProgram.uninstall(:bootstrap)` refuses if anything
      else installed depends on it — true of `:bootstrap` itself). Sidestep
      all of that by forking from **before anything's installed** instead of
      an existing branch: `AL.Branch.fork(0, AL.Branch.main())` (a fork only
      copies whatever's already in its source's log — `at: 0` means "copy
-     nothing," a genuinely empty branch), checkout it, then
-     `AL.Package.install_all(Application.get_env(:al, :packages))` installs
-     every package fresh from *currently compiled* source. Verified
-     `:main`'s own state is untouched before/after.
+     nothing," a genuinely empty branch). `AL.Branch.fork_fresh()` performs
+     that fork and installs every configured transaction program and portable
+     package bundle from current source. Verified `:main`'s own state is
+     untouched before/after.
   2. **`mix al.reset`** (`--yes` to skip the confirmation prompt) when a
      fork genuinely isn't enough — coordinate first if anyone else might
      have a node up, since this wipes the *whole* store, every branch on it.

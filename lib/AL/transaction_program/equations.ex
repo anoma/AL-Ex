@@ -1,4 +1,4 @@
-defmodule AL.Package.Equations do
+defmodule AL.TransactionProgram.Equations do
   @moduledoc """
   I am declarative integer arithmetic: `equation(self, t, u)` holds
   `t = u` over prefix terms (`[:add, a, b]`, `[:mul, a, b]`, leaves
@@ -8,9 +8,9 @@ defmodule AL.Package.Equations do
   re-posts itself when that binds.
   """
 
-  use AL.Package
+  use AL.TransactionProgram
 
-  defpackage :equations, version: 1, deps: [:bootstrap] do
+  defprogram :equations, version: 1, deps: [:bootstrap] do
     vm_set_class(:equation_solver, :object)
 
     defmethod(:equation_solver, :equation, [self, t, u]) do

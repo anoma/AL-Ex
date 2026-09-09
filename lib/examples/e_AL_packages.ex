@@ -1,111 +1,110 @@
 defmodule Examples.ALPackages do
-  @moduledoc """
-  I provide examples for `AL.Package`: package install/uninstall.
-  """
+  @moduledoc "I provide examples for definition packages and their build instances."
 
   use ExExample
   use AL
   import ExUnit.Assertions
 
-  @doc "Uninstall reverses a package's install commands into retract goals that eval cleanly, on a throwaway fork."
-  example uninstall_reverses_a_package() do
-    branch = AL.Branch.fork()
-    AL.Branch.checkout(branch)
+  example configured_interval_is_imported_as_a_package() do
+    refute Enum.any?(AL.TransactionProgram.configured(), fn module ->
+             module.__program__().name == :interval
+           end)
 
-    assert AL.Package.installed?(:constraints)
-    result = AL.Package.uninstall(:constraints)
+    assert AL.Package.installed?(:interval)
+    refute AL.TransactionProgram.installed?(:interval)
+
+    result =
+      AL.run do
+        class(:interval, :package)
+        super(:interval, :package_build)
+        deps(:interval, [])
+        class(:interval_value, :class)
+        class(build, :interval)
+        build_version(build, 1)
+        build_status(build, :complete)
+      end
+
     assert {:atomic, _} = result
-    refute AL.Package.installed?(:constraints)
-
-    AL.Branch.checkout(AL.Branch.main())
-    AL.Branch.discard(branch)
-    result
+    :ok
   end
 
-  example listing_uses_installed_source_after_recompile() do
-    branch = AL.Branch.fork()
+  example imports_a_portable_interval_package() do
+    branch = AL.Branch.fork(0, AL.Branch.main())
     previous = AL.Branch.head()
     AL.Branch.checkout(branch)
 
-    source = """
-    defmodule Examples.RetainedPackageFixture do
-      use AL.Package
-      defpackage :retained_package_fixture, version: 1, deps: [] do
-        vm_set_class(:retained_original, :object)
-      end
-    end
-    """
-
     try do
-      Code.compile_string(source)
-      assert {:atomic, _} = apply(Examples.RetainedPackageFixture, :install, [])
-      object = %AL.Object{id: :retained_package_fixture, branch: branch.id}
-      assert {:ok, retained} = AL.Package.source(object)
-      assert retained =~ "retained_original"
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.Bootstrap,
+                 AL.TransactionProgram.PackageSystem
+               ])
 
-      Code.compile_string(String.replace(source, "retained_original", "retained_changed"))
-      assert {:ok, ^retained} = AL.Package.source(object)
+      bundle = Application.app_dir(:al, "priv/packages/interval")
+
+      assert {:ok, %{package: :interval, build: build, definitions: [:interval_value]}} =
+               AL.Package.import(bundle, branch: branch)
 
       result =
-        AL.run do
-          listing(:retained_package_fixture, text)
+        AL.run branch: branch.id do
+          class(:interval, :package)
+          deps(:interval, [])
+          class(^build, :interval)
+          build_package(^build, :interval)
+          build_version(^build, 1)
+          build_status(^build, :complete)
+          new(:interval_value, %{lo: 3, hi: 7}, interval)
+          elem(interval, 5)
         end
 
-      assert {:atomic, {bindings, _}} = result
-
-      assert bindings[:"$text"] == retained
-
-      printed =
-        ExUnit.CaptureIO.capture_io(fn ->
-          result =
-            AL.run do
-              listing(:retained_package_fixture)
-            end
-
-          assert {:atomic, _} = result
-        end)
-
-      assert printed == retained <> "\n"
-
-      child = AL.Branch.fork(:tip, branch)
-
-      try do
-        assert {:ok, ^retained} =
-                 AL.Package.source(%AL.Object{id: :retained_package_fixture, branch: child.id})
-      after
-        AL.Branch.discard(child)
-      end
-
-      assert {:atomic, _} = AL.Package.uninstall(:retained_package_fixture)
-      assert :not_package = AL.Package.source(object)
+      assert {:atomic, _} = result
+      refute AL.TransactionProgram.installed?(:interval, branch)
       :ok
     after
       AL.Branch.checkout(previous)
       AL.Branch.discard(branch)
-      :code.purge(Examples.RetainedPackageFixture)
-      :code.delete(Examples.RetainedPackageFixture)
     end
   end
 
-  example failed_install_does_not_retain_source() do
+  example package_builds_are_branch_specific() do
     branch = AL.Branch.fork()
-    previous = AL.Branch.head()
-    AL.Branch.checkout(branch)
 
     try do
-      tx = AL.Command.system_time(branch)
+      update =
+        AL.run branch: branch.id do
+          set_slot(:interval, :deps, [:fork_dependency])
+          build(:interval, 2, [:dependency_build], build)
+          set_slot(build, :status, :complete)
+        end
 
-      assert {:aborted, :failed_install} =
-               AL.Package.retain_install("never committed", %{kind: :test}, fn ->
-                 {:aborted, :failed_install}
-               end)
+      assert {:atomic, _} = update
 
-      assert {:atomic, :absent} =
-               :mnesia.transaction(fn -> AL.SourceStore.text(tx, branch) end)
+      fork_result =
+        AL.run branch: branch.id do
+          deps(:interval, [:fork_dependency])
+          class(build, :interval)
+          dependency_builds(build, [:dependency_build])
+          build_version(build, 2)
+          build_status(build, :complete)
+        end
 
+      assert {:atomic, _} = fork_result
+
+      main_result =
+        AL.run do
+          deps(:interval, [])
+
+          findall(
+            build,
+            [class(build, :interval), build_version(build, 2)],
+            version_two_builds
+          )
+        end
+
+      assert {:atomic, {bindings, _}} = main_result
+      assert bindings[:"$version_two_builds"] == []
       :ok
     after
-      AL.Branch.checkout(previous)
       AL.Branch.discard(branch)
     end
   end

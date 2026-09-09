@@ -1,7 +1,7 @@
 defmodule Examples.ALEquationsCompile do
   @moduledoc """
   I show `AL.Equations` compiling an equation into oriented goals at
-  translate time, agreeing with what the runtime package derives.
+  translate time, agreeing with what the runtime program derives.
   """
 
   use ExExample
@@ -49,7 +49,7 @@ defmodule Examples.ALEquationsCompile do
     :ok
   end
 
-  example compiled_matches_the_package() do
+  example compiled_matches_the_program() do
     branch = install_compiled_kernel()
 
     {:atomic, {compiled, _}} =

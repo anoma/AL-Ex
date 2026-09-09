@@ -2,4 +2,4 @@
 # available directly in the shell, plus short aliases for the common submodules.
 import AL
 
-alias AL.{Branch, Command, Object, Package, Scheduler, Trace, Var}
+alias AL.{Branch, Command, Object, TransactionProgram, Scheduler, Trace, Var}

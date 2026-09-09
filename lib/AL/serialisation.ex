@@ -19,9 +19,10 @@ defmodule AL.Serialisation do
   redefined objects reach the filesystem through a Mnesia table subscription
   on the branch's `soa` and `source_text` tables. Valid AL edits become new
   retained transactions; parse and evaluation failures are logged and leave
-  the live branch unchanged. Existing edits are reconciled once at startup
-  (before the first regeneration and before the watcher attaches), so edits
-  made while AL is stopped are deserialised on restart.
+  the live branch unchanged. Startup regenerates files from the store before
+  attaching the watcher. Offline edits are overwritten, missing files restored,
+  and definitions absent from the store removed. Only definition file edits
+  observed by the running watcher are deserialised.
 
   Serialisation is enabled by default under `src/al/`. Set
   `config :al, :serialisation_dir, "path"` to choose another root, or set it
@@ -276,7 +277,6 @@ defmodule AL.Serialisation do
 
     with :ok <- reconcile_store(root),
          {:ok, _transaction_paths} <- serialise_branch(branch, root),
-         :ok <- deserialise_external_definitions(root, branch),
          {:ok, _definition_paths} <- serialise_definitions(branch, root) do
       state = %{
         branch: branch,
@@ -583,47 +583,6 @@ defmodule AL.Serialisation do
     |> Map.new(fn path -> {path, file_fingerprint(path)} end)
   end
 
-  defp deserialise_external_definitions(root, branch) do
-    case Snapshot.capture(branch) do
-      {:ok, snapshot} ->
-        expected =
-          Map.new(Snapshot.rendered(snapshot), fn {owner, text} ->
-            {definition_path(root, branch, owner), text}
-          end)
-
-        existing =
-          definitions_dir(root, branch)
-          |> Path.join("*.class.al")
-          |> Path.wildcard()
-
-        deleted =
-          root
-          |> read_index(branch)
-          |> Map.keys()
-          |> Enum.reject(&File.exists?/1)
-
-        entries =
-          existing
-          |> Enum.flat_map(fn path ->
-            case File.read(path) do
-              {:ok, text} ->
-                if Map.get(expected, path) == text, do: [], else: [{path, text}]
-
-              {:error, reason} ->
-                Logger.warning("AL serialisation could not read #{path}: #{inspect(reason)}")
-                []
-            end
-          end)
-
-        deserialise_document_batch(entries, deleted, branch, root)
-
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
   defp deserialise_document_batch([], [], _branch, _root), do: :ok
 
   defp deserialise_document_batch(entries, deleted_paths, branch, root) do
@@ -654,7 +613,7 @@ defmodule AL.Serialisation do
   defp evaluate_document_changes([], _paths, _branch), do: :ok
 
   defp evaluate_document_changes(chunks, paths, branch) do
-    with {:ok, result, source} <- capture_document_source(chunks) do
+    with {:ok, result, source} <- compile_chunks(chunks) do
       origin = %{kind: :serialisation, label: nil, files: paths, format: :definition_document}
 
       case AL.eval_captured(result, source, origin, nil, branch, []) do
@@ -751,7 +710,10 @@ defmodule AL.Serialisation do
     end)
   end
 
-  defp capture_document_source(chunks) do
+  @doc false
+  @spec compile_chunks([Sync.chunk()]) ::
+          {:ok, AL.Source.Parser.Result.t(), String.t()} | {:error, term()}
+  def compile_chunks(chunks) do
     source = Enum.map_join(chunks, "\n\n", &elem(&1, 0))
 
     {results, _line} =

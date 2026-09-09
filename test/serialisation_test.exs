@@ -322,7 +322,7 @@ defmodule ALSerialisationTest do
     end
   end
 
-  test "deserialises an edited definition document after the serialiser restarts" do
+  test "overwrites offline definition edits before watching live edits" do
     branch = AL.Branch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline")
@@ -339,6 +339,8 @@ defmodule ALSerialisationTest do
       path = AL.Serialisation.definition_path(root, branch, class)
       assert eventually(fn -> File.exists?(path) end)
       AL.Serialisation.stop(branch)
+      before = source_count(branch)
+      [{:method, ^class, :pick, id}] = method_rows(class, :pick, branch)
 
       document = read_document(path)
       [method] = document.methods
@@ -346,9 +348,16 @@ defmodule ALSerialisationTest do
       write_document(path, %{document | methods: [%{method | declaration: edited, body: ""}]})
 
       assert :ok = AL.Serialisation.start(branch, root)
-      [{:method, ^class, :pick, id}] = method_rows(class, :pick, branch)
-      assert clause_values(id, branch) == [:offline]
-      assert retained_source?(branch, edited)
+      assert [{:method, ^class, :pick, ^id}] = method_rows(class, :pick, branch)
+      assert clause_values(id, branch) == [:old]
+      assert File.read!(path) == rendered_document(class, branch)
+      assert source_count(branch) == before
+      refute retained_source?(branch, edited)
+
+      live = ":pick, [self, :live]"
+      write_document(path, %{document | methods: [%{method | declaration: live, body: ""}]})
+      assert eventually(fn -> clause_values(id, branch) == [:live] end)
+      assert eventually(fn -> retained_source?(branch, live) end)
     after
       AL.Serialisation.stop(branch)
       AL.Branch.discard(branch)
@@ -356,7 +365,7 @@ defmodule ALSerialisationTest do
     end
   end
 
-  test "deserialises an offline definition deletion after the serialiser restarts" do
+  test "restores an offline definition deletion from the store on restart" do
     branch = AL.Branch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline_delete")
@@ -369,11 +378,47 @@ defmodule ALSerialisationTest do
       path = AL.Serialisation.definition_path(root, branch, class)
       assert eventually(fn -> File.exists?(path) end)
       AL.Serialisation.stop(branch)
+      before = source_count(branch)
 
       File.rm!(path)
       assert :ok = AL.Serialisation.start(branch, root)
+      assert class_rows(class, branch) != []
+      assert File.read!(path) == rendered_document(class, branch)
+      assert source_count(branch) == before
+    after
+      AL.Serialisation.stop(branch)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "startup removes offline definition additions without creating transactions" do
+    branch = AL.Branch.fork()
+    root = temporary_root()
+    class = fresh_id("serialisation_offline_added")
+
+    document = %Document{
+      kind: :class,
+      owner: class,
+      metaclass: :class,
+      supers: [:object],
+      ivars: [],
+      comment: nil,
+      methods: []
+    }
+
+    try do
+      assert :ok = AL.Serialisation.start(branch, root)
+      assert :ok = AL.Serialisation.stop(branch)
+      before = source_count(branch)
+      path = AL.Serialisation.definition_path(root, branch, class)
+      write_document(path, document)
+
+      assert :ok = AL.Serialisation.start(branch, root)
       assert class_rows(class, branch) == []
       refute File.exists?(path)
+      assert source_count(branch) == before
+      assert AL.Serialisation.status(branch).last_deserialisation == :none
     after
       AL.Serialisation.stop(branch)
       AL.Branch.discard(branch)
@@ -397,7 +442,7 @@ defmodule ALSerialisationTest do
       AL.Serialisation.stop(branch)
 
       assert {:atomic, _} = AL.eval_source("vm_set_super(#{inspect(class)}, :value)\n", branch)
-      write_document(path, %{stale | supers: [:package]})
+      write_document(path, %{stale | supers: [:program_execution]})
 
       capture_log(fn -> assert :ok = AL.Serialisation.start(branch, root) end)
       assert live_supers(class, branch) == [:object, :value]
@@ -409,7 +454,7 @@ defmodule ALSerialisationTest do
     end
   end
 
-  test "a stale offline deletion is rejected and regenerated" do
+  test "an offline deletion is regenerated from the latest store state" do
     branch = AL.Branch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_stale_delete")

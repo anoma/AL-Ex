@@ -3,7 +3,7 @@ defmodule Examples.ALStorage do
   Examples for `storage: :soa`, an ivar-spec option (same shape as
   `domain:`/`type:`/`default:`) routing an ivar to `AL.Object`'s `soa`
   relation instead of the default `aos`. `set_slot`/`get_slot` are the
-  only entry point either way -- storage is invisible to package authors.
+  only entry point either way -- storage is invisible to program authors.
   """
 
   use ExExample

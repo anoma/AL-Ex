@@ -97,30 +97,41 @@ defmodule Examples.ALGtBridge do
     end
   end
 
-  example package_source_follows_inheritance() do
+  example program_execution_source_follows_inheritance() do
     branch = AL.Branch.fork()
 
     try do
       {:atomic, _} =
         AL.run branch: branch.id do
-          vm_set_super(:inspector_package_class, :package)
-          vm_set_class(:inspector_package, :inspector_package_class)
+          vm_set_super(:inspector_execution_class, :program_execution)
+          vm_set_class(:inspector_execution, :inspector_execution_class)
           get_slot(:equations, :tx, installed_tx)
-          set_slots(:inspector_package, %{name: :equations, tx: installed_tx})
-          vm_set_class(:inspector_unknown_package, :package)
-          set_slots(:inspector_unknown_package, %{name: :inspector_unknown_package})
+          set_slots(:inspector_execution, %{name: :equations, tx: installed_tx})
+          vm_set_class(:inspector_unknown_execution, :program_execution)
+          set_slots(:inspector_unknown_execution, %{name: :inspector_unknown_execution})
         end
 
-      object = %AL.Object{id: :inspector_package, branch: branch.id}
-      assert {:ok, source} = AL.Package.source(object)
+      object = %AL.Object{id: :inspector_execution, branch: branch.id}
+      assert {:ok, source} = AL.TransactionProgram.source(object)
       assert source =~ "vm_set_class(:equation_solver, :object)"
-      assert {:ok, ^source} = AL.Package.source(%AL.Object{id: :equations, branch: branch.id})
-      assert :not_package = AL.Package.source(%AL.Object{id: :object, branch: branch.id})
-      assert :not_package = AL.Package.source(%AL.Object{id: :package, branch: branch.id})
-      assert :not_package = AL.Package.source(%AL.Object{id: :inspector_package, branch: :main})
+
+      assert {:ok, ^source} =
+               AL.TransactionProgram.source(%AL.Object{id: :equations, branch: branch.id})
+
+      assert :not_program_execution =
+               AL.TransactionProgram.source(%AL.Object{id: :object, branch: branch.id})
+
+      assert :not_program_execution =
+               AL.TransactionProgram.source(%AL.Object{id: :program_execution, branch: branch.id})
+
+      assert :not_program_execution =
+               AL.TransactionProgram.source(%AL.Object{id: :inspector_execution, branch: :main})
 
       assert {:error, :source_unavailable} =
-               AL.Package.source(%AL.Object{id: :inspector_unknown_package, branch: branch.id})
+               AL.TransactionProgram.source(%AL.Object{
+                 id: :inspector_unknown_execution,
+                 branch: branch.id
+               })
 
       :ok
     after
@@ -173,25 +184,25 @@ defmodule Examples.ALGtBridge do
     end
   end
 
-  example package_coders_show_installation_clauses() do
+  example program_execution_coders_show_installation_clauses() do
     branch = AL.Branch.fork()
 
     text = """
-    vm_set_class(:package_receiver_a, :object)
-    vm_set_class(:package_receiver_b, :object)
-    defmethod(:package_receiver_a, :hello, [self, result]) do
+    vm_set_class(:program_execution_receiver_a, :object)
+    vm_set_class(:program_execution_receiver_b, :object)
+    defmethod(:program_execution_receiver_a, :hello, [self, result]) do
       unify(result, :original_a)
     end
-    defmethod(:package_receiver_b, :hello, [self, result]) do
+    defmethod(:program_execution_receiver_b, :hello, [self, result]) do
       unify(result, :original_b)
     end
-    new(:package, %{name: :package_coder_fixture, version: 1, deps: []}, _)
+    new(:program_execution, %{name: :program_execution_coder_fixture, version: 1, deps: []}, _)
     """
 
     try do
       assert {:atomic, _} = AL.eval_source(text, branch)
-      object = %AL.Object{id: :package_coder_fixture, branch: branch.id}
-      rows = AL.Package.source_rows(object)
+      object = %AL.Object{id: :program_execution_coder_fixture, branch: branch.id}
+      rows = AL.TransactionProgram.source_rows(object)
       assert length(rows) == 2
       assert length(Enum.uniq_by(rows, fn [name, seq | _] -> {name, seq} end)) == 2
 
@@ -202,15 +213,15 @@ defmodule Examples.ALGtBridge do
       assert {:atomic, _} =
                AL.eval_source(
                  """
-                 defmethod(:package_receiver_a, :hello, [self, result]) do
+                 defmethod(:program_execution_receiver_a, :hello, [self, result]) do
                    unify(result, :later)
                  end
                  """,
                  branch
                )
 
-      assert AL.Package.source_rows(object) == rows
-      assert AL.Package.source_rows(%AL.Object{id: :object, branch: branch.id}) == []
+      assert AL.TransactionProgram.source_rows(object) == rows
+      assert AL.TransactionProgram.source_rows(%AL.Object{id: :object, branch: branch.id}) == []
       :ok
     after
       AL.Branch.discard(branch)

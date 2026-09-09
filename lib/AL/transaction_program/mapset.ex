@@ -1,7 +1,7 @@
-defmodule AL.Package.Mapset do
-  use AL.Package
+defmodule AL.TransactionProgram.Mapset do
+  use AL.TransactionProgram
 
-  defpackage :mapset, version: 1, deps: [:bootstrap] do
+  defprogram :mapset, version: 1, deps: [:bootstrap] do
     new(:class, %{name: :mapset_value, super: :value, ivars: [:elems]}, _)
 
     defmethod(:mapset_value, :get_slot, [self, k, v]) do

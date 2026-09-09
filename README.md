@@ -39,8 +39,48 @@ Install from terminal using `iex -S mix` or as a mix dependency.
 From IEx, you can run `require AL`.
 
 `lib/examples` contains examples.
-`lib/AL/package` contains the bundled packages (the `bootstrap` package is the foundational one).
+`lib/AL/transaction_program` contains the bundled transaction programs (`bootstrap` establishes the language).
 `lib/AL` contains the runtime code.
+
+A transaction program is named executable AL code, defined with
+`use AL.TransactionProgram` and `defprogram`. Its `install/0` function executes
+the body atomically and creates a `:program_execution` receipt linked to the
+transaction. Bodies can define classes and methods or create and update data.
+Dependencies order execution. Startup compares both the recorded name and
+version, allowing an updated program to replace its execution receipt after its
+body performs the required redefinitions.
+
+Startup programs are configured with `config :al, transaction_programs: [...]`;
+portable bundles use `config :al, package_imports: [...]`.
+Use `AL.TransactionProgram`, `defprogram`, and `:transaction_programs`; the former
+package API and configuration aliases have been removed. Historical `:package`
+receipts remain readable through internal migration support. New receipts use
+`:program_execution`, without rewriting old transactions.
+
+The term *package* is reserved for package classes and the build system.
+`:package` is now a metaclass for package classes, and instances of those classes
+are builds. The class identity is the package name. Package classes record their
+dependencies; builds record their package, version, resolved dependency builds,
+and status. Package metadata is durable and branch-specific.
+
+Portable package bundles are explicit inputs, separate from the live `src/al`
+projection. A bundle contains a literal `package.al` manifest and Tonel-like class
+or extension documents under `definitions/`. Directory containment establishes
+which definitions belong to the package, so the manifest does not repeat members
+or list executable transactions. Import one into a selected branch with
+`AL.Package.import(path, branch: branch)`. Import validates all documents and
+dependencies, then installs the definitions, package class, and completed build
+in one retained command-log transaction. Interval, Users, and Elixir Process are
+bundled under `priv/packages`. Existing stores replace matching historical
+execution receipts with package classes without replaying the old programs.
+
+The files under `src/al` are projections of the store. On startup, AL regenerates
+them from the store: offline definition edits are overwritten, deleted files are
+restored, and extra definition files are removed. Only definition edits observed
+while AL's serialiser is running are imported as new transactions. If the store
+is missing, the configured transaction programs and package imports rebuild it
+and the files are regenerated from that new state. Transaction files in the live
+projection are history and are never executed automatically.
 
 ## Livebooks
 

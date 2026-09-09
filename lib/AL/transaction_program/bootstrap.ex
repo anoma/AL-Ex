@@ -1,7 +1,7 @@
-defmodule AL.Package.Bootstrap do
-  use AL.Package
+defmodule AL.TransactionProgram.Bootstrap do
+  use AL.TransactionProgram
 
-  defpackage :bootstrap, version: 1, deps: [] do
+  defprogram :bootstrap, version: 1, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -734,7 +734,11 @@ defmodule AL.Package.Bootstrap do
       findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
     end
 
-    new(:class, %{name: :package, super: :object, ivars: [:name, :version, :deps, :tx]}, _)
+    new(
+      :class,
+      %{name: :program_execution, super: :object, ivars: [:name, :version, :deps, :tx]},
+      _
+    )
 
     new(:class, %{name: :transaction, super: :object, ivars: [:tx, :branch, :status, :reason]}, _)
 
@@ -743,7 +747,7 @@ defmodule AL.Package.Bootstrap do
       vm_transaction_source(tx, text, _origin)
     end
 
-    defmethod(:package, :init, [self, args, self]) do
+    defmethod(:program_execution, :init, [self, args, self]) do
       vm_map_get(args, :name, name)
       vm_map_get(args, :version, version)
       vm_map_get(args, :deps, deps)
@@ -752,16 +756,16 @@ defmodule AL.Package.Bootstrap do
       set_slots(self, %{name: name, version: version, deps: deps, tx: transaction})
     end
 
-    defmethod(:package, :source, [self, text]) do
+    defmethod(:program_execution, :source, [self, text]) do
       get_slot(self, :tx, tx)
       vm_transaction_source(tx, text, _origin)
     end
 
-    defmethod(:package, :listing, [self, text]) do
+    defmethod(:program_execution, :listing, [self, text]) do
       source(self, text)
     end
 
-    defmethod(:package, :listing, [self]) do
+    defmethod(:program_execution, :listing, [self]) do
       source(self, text)
       vm_format("~a~%", [text])
     end

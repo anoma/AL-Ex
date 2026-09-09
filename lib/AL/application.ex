@@ -34,10 +34,64 @@ defmodule AL.Application do
   end
 
   def bootstrap() do
-    :al
-    |> Application.get_env(:packages, [])
-    |> AL.Package.install_all()
+    programs =
+      AL.TransactionProgram.configured()
+      |> Enum.reject(fn module ->
+        Code.ensure_loaded!(module)
+        program = module.__program__()
+        AL.TransactionProgram.current?(program.name, program.version)
+      end)
+
+    packages =
+      AL.Package.configured()
+      |> Enum.map(fn path ->
+        case AL.Package.manifest(path) do
+          {:ok, document} -> {path, document}
+          {:error, reason} -> raise "AL package manifest #{path} is invalid: #{inspect(reason)}"
+        end
+      end)
+      |> Enum.reject(fn {_path, document} -> AL.Package.installed?(document.name) end)
+
+    install_startup(programs, packages)
   end
+
+  defp install_startup([], []), do: :ok
+
+  defp install_startup(programs, packages) do
+    ready_programs =
+      Enum.filter(programs, fn module ->
+        Enum.all?(module.__program__().deps, &dependency_installed?/1)
+      end)
+
+    ready_packages = Enum.filter(packages, fn {path, _document} -> AL.Package.ready?(path) end)
+
+    if ready_programs == [] and ready_packages == [] do
+      program_names = Enum.map(programs, & &1.__program__().name)
+      package_names = Enum.map(packages, fn {_path, document} -> document.name end)
+
+      raise "AL startup dependencies cannot be satisfied: programs #{inspect(program_names)}, packages #{inspect(package_names)}"
+    end
+
+    Enum.each(ready_programs, fn module ->
+      program = module.__program__()
+      :ok = AL.TransactionProgram.ensure_current(program.name, program.version, &module.install/0)
+    end)
+
+    Enum.each(ready_packages, fn {path, document} ->
+      case AL.Package.ensure_imported(path) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          raise "AL package #{inspect(document.name)} failed to import: #{inspect(reason)}"
+      end
+    end)
+
+    install_startup(programs -- ready_programs, packages -- ready_packages)
+  end
+
+  defp dependency_installed?(name),
+    do: AL.TransactionProgram.installed?(name) or AL.Package.installed?(name)
 
   # Re-run on every boot, same as bootstrap/0 -- a native's durable binding
   # fact survives an image restart, but the implementation itself doesn't

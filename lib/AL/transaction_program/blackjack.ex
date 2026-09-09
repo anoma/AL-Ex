@@ -1,7 +1,7 @@
-defmodule AL.Package.Blackjack do
-  use AL.Package
+defmodule AL.TransactionProgram.Blackjack do
+  use AL.TransactionProgram
 
-  defpackage :blackjack, version: 1, deps: [:bootstrap] do
+  defprogram :blackjack, version: 1, deps: [:bootstrap] do
     defclass :card,
       super: :value,
       ivars: [

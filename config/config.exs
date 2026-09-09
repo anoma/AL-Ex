@@ -5,20 +5,22 @@ config :logger,
   handle_otp_reports: false,
   handle_sasl_reports: false
 
-# Packages installed at startup.
 config :al,
   serialisation_dir: "src/al",
-  packages: [
-    AL.Package.Bootstrap,
-    AL.Package.Users,
-    AL.Package.ElixirProcess,
-    AL.Package.Mapset,
-    AL.Package.Interval,
-    AL.Package.Constraints,
-    AL.Package.Equations,
-    AL.Package.Sudoku,
-    AL.Package.Blackjack,
-    AL.Package.Euler
+  transaction_programs: [
+    AL.TransactionProgram.Bootstrap,
+    AL.TransactionProgram.PackageSystem,
+    AL.TransactionProgram.Mapset,
+    AL.TransactionProgram.Constraints,
+    AL.TransactionProgram.Equations,
+    AL.TransactionProgram.Sudoku,
+    AL.TransactionProgram.Blackjack,
+    AL.TransactionProgram.Euler
+  ],
+  package_imports: [
+    {:priv, "packages/interval"},
+    {:priv, "packages/users"},
+    {:priv, "packages/elixir_process"}
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.

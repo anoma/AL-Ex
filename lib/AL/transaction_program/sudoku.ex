@@ -1,7 +1,7 @@
-defmodule AL.Package.Sudoku do
-  use AL.Package
+defmodule AL.TransactionProgram.Sudoku do
+  use AL.TransactionProgram
 
-  defpackage :sudoku, version: 1, deps: [:bootstrap] do
+  defprogram :sudoku, version: 1, deps: [:bootstrap, :constraints] do
     # :value, not durable — a puzzle is scratch, and self already being a
     # map means it's already its own printable/reified form.
     defclass :sudoku_puzzle, super: :value, ivars: [:rows] do

@@ -209,11 +209,17 @@ also starts/stops the Scheduler per branch.
   `AL.Command`/`AL.Object`/`AL.Branch` *are* the append-only substrate
   (`lib/AL/command_log/`, `lib/AL/view/`, `lib/AL/branch.ex` respectively) —
   nothing else in the interpreter reaches into Mnesia directly.
-- **`AL.Package` (lib/AL/package/package.ex)** — `defpackage` installs
-  definitions as a durable receipt object; dependency-ordered, reversible
+- **`AL.TransactionProgram` (lib/AL/transaction_program.ex)** — `defprogram` executes
+  AL code and creates a durable execution receipt; dependency-ordered, reversible
   `uninstall`. `bootstrap` is foundational (class/object/method machinery
-  **and** the list protocol). Every installed package lives alongside it in
-  `lib/AL/package/`.
+  **and** the list protocol). The bundled transaction programs live alongside it in
+  `lib/AL/transaction_program/`.
+- **Package protocol (`lib/AL/transaction_program/package_system.ex`)** —
+  `:package` is the metaclass of package classes and `:package_build` supplies
+  their instances' common build protocol. Package metadata and builds are
+  durable branch state. `AL.Package.import/2` validates and atomically imports a
+  portable manifest plus Tonel-like definition documents into an explicit branch;
+  export and live package projection are not implemented yet.
 - **`AL.Scheduler` (lib/AL/scheduler.ex)** — async. `send_async`/`send_elixir`
   are goals that only *write a command*; the scheduler reacts. **One scheduler
   per store** under a DynamicSupervisor, each subscribed to its own command
@@ -532,7 +538,7 @@ diff/merge and valid-time queries are unbuilt.
   a `{name, opts}` ivar entry uses `vm_functor`, not a bare-var fallback
   clause — see [[feedback-prolog-clause-selection-not-elixir]] for why that
   distinction matters. Explicitly deferred: numeric-range generation, durable
-  (`:object`-super) classes. Demo in `lib/AL/package/blackjack.ex`'s `:card`.
+  (`:object`-super) classes. Demo in `lib/AL/transaction_program/blackjack.ex`'s `:card`.
 
 - **Dispatch legs converged to one domain-constraint mechanism** —
   mechanically done, semantically still in progress. Every leg (generative,
@@ -578,4 +584,3 @@ diff/merge and valid-time queries are unbuilt.
   Vars)`** (a pluggable policy for how an unbound finite-domain var gets
   concretized — `ff`/`min`/`max`/`bisect`) plus attributed-variable hooks
   (`attr_unify_hook/2`, `verify_attributes/3`, `freeze/2`).
-

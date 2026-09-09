@@ -1,6 +1,6 @@
 defmodule Examples.ALBlackjack do
   @moduledoc """
-  `AL.Package.Blackjack`'s `:card`: a `super: :value` class whose `suit`/
+  `AL.TransactionProgram.Blackjack`'s `:card`: a `super: :value` class whose `suit`/
   `rank` are ivar specs (`domain: [...]`) -- validated when supplied, left
   open-but-domain-constrained when omitted (see `e_AL_ivar_specs.ex` for the
   mechanism itself). `hand_total` sums a hand via `eq`; ace's dual value (1

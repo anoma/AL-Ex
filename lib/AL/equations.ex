@@ -2,7 +2,7 @@ defmodule AL.Equations do
   @moduledoc """
   I compile an equation over prefix terms into DSL goals: each
   solvable direction isolated and frozen on its inputs, no direction
-  a frozen check. I am `AL.Package.Equations` inlined at translate
+  a frozen check. I am `AL.TransactionProgram.Equations` inlined at translate
   time, for clients that know their terms before they run.
 
       AL.Equations.equation([:add, :a, 1], :b, "e0")

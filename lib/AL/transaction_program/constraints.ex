@@ -1,7 +1,7 @@
-defmodule AL.Package.Constraints do
-  use AL.Package
+defmodule AL.TransactionProgram.Constraints do
+  use AL.TransactionProgram
 
-  defpackage :constraints, version: 1, deps: [:bootstrap, :elixir_process, :mapset, :interval] do
+  defprogram :constraints, version: 1, deps: [:bootstrap, :elixir_process, :mapset, :interval] do
     ### Cell
 
     new(:class, %{name: :cell, super: :object, ivars: [:subscribers, :domain, :name]}, _)

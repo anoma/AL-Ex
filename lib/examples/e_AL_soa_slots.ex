@@ -2,7 +2,7 @@ defmodule Examples.ALSoaSlots do
   @moduledoc """
   examples for vm_get_slot/4 (store: :soa).
   one row per (object, key), not one row per whole-map version.
-  package authors never call this directly -- set_slot/get_slot route
+  program authors never call this directly -- set_slot/get_slot route
   storage: :soa ivars here transparently.
   """
 

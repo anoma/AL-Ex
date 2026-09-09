@@ -193,7 +193,7 @@ defmodule AL.Source.Parser do
               {node, result}
             end
 
-          {{:defpackage, metadata, _args}, :not_found} when is_list(metadata) ->
+          {{:defprogram, metadata, _args}, :not_found} when is_list(metadata) ->
             if call_at?(metadata, line, column) do
               {node, {:found, metadata}}
             else

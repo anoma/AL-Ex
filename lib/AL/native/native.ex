@@ -164,7 +164,7 @@ defmodule AL.Native do
   tolerating individual failures -- one bad entry (e.g. a module not
   loaded in this deployment) must not block boot. Called from
   AL.Application after `bootstrap/0`, driven by `config :al, natives:
-  [...]` -- the same "re-run on every boot" pattern packages already use.
+  [...]` -- the same "re-run on every boot" pattern transaction programs already use.
   """
   @spec register_all([tuple()]) :: :ok
   def register_all(entries) do
