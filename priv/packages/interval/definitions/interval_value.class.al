@@ -14,8 +14,8 @@ Class {
   get(args, :hi, hi)
 
   implies do
-    [lo > hi] -> unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
-    :else -> unify(new, %{class: :interval_value, lo: lo, hi: hi})
+    [lo > hi] -> unify(new, %{lo: :empty, class: :interval_value, hi: :empty})
+    :else -> unify(new, %{lo: lo, class: :interval_value, hi: hi})
   end
 ]
 
@@ -29,14 +29,14 @@ Class {
 
 :interval_value >> :intersection, [self, _other, new] [
   get(self, :lo, :empty)
-  unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
+  unify(new, %{lo: :empty, class: :interval_value, hi: :empty})
 ]
 
 :interval_value >> :intersection, [self, other, new] [
   get(self, :lo, lo)
   not [lo == :empty]
   get(other, :lo, :empty)
-  unify(new, %{class: :interval_value, lo: :empty, hi: :empty})
+  unify(new, %{lo: :empty, class: :interval_value, hi: :empty})
 ]
 
 :interval_value >> :intersection, [self, other, new] [

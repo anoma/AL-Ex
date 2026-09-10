@@ -269,7 +269,7 @@ defmodule Examples.ALGenerative do
   # value classes above. Before the fix, the wrong candidate's `class/2` call
   # silently succeeded (contradictory isa unioned in, no witness ever
   # constructed), so `findall` reported the same fact once per candidate
-  # instead of once. Bug found via AL.TransactionProgram.Blackjack's :card class.
+  # instead of once. Bug found via :blackjack package's :card class.
   example class_dispatch_does_not_report_ghost_duplicates() do
     {:atomic, _} =
       run branch: :examples do
@@ -292,7 +292,7 @@ defmodule Examples.ALGenerative do
   # reuses the exact construction dispatch already runs for a var receiver
   # (AL.Dispatch.witness_choicepoints/3) -- no separate `:domain`-method
   # convention needed (nothing in this codebase ever defined one). `:card`
-  # (AL.TransactionProgram.Blackjack) is a real `super: :value` class with ivar specs,
+  # (:blackjack package) is a real `super: :value` class with ivar specs,
   # so the witness comes back a genuine constructed map, ivars left open
   # (further labeling, same as `new(:card, _, c)` already leaves them).
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do

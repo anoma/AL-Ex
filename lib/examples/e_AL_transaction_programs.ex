@@ -159,21 +159,6 @@ defmodule Examples.ALTransactionPrograms do
     end
   end
 
-  @doc "I reverse a program's installation commands on a throwaway fork."
-  example uninstall_reverses_a_program() do
-    branch = AL.Branch.fork()
-    AL.Branch.checkout(branch)
-
-    assert AL.TransactionProgram.installed?(:sudoku)
-    result = AL.TransactionProgram.uninstall(:sudoku)
-    assert {:atomic, _} = result
-    refute AL.TransactionProgram.installed?(:sudoku)
-
-    AL.Branch.checkout(AL.Branch.main())
-    AL.Branch.discard(branch)
-    result
-  end
-
   example listing_uses_installed_source_after_recompile() do
     branch = AL.Branch.fork()
     previous = AL.Branch.head()

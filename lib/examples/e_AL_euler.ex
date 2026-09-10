@@ -1,6 +1,6 @@
 defmodule Examples.ALEuler do
   @moduledoc """
-  `AL.TransactionProgram.Euler`'s `:euler_1` -- sum every multiple of 3 or 5 below `n`,
+  `:euler package`'s `:euler_1` -- sum every multiple of 3 or 5 below `n`,
   via `either` (real disjunctive constraint, see `e_AL_bounds.ex`) instead
   of an `alternative` choicepoint, so 15 (a multiple of both) is counted
   once, not twice.

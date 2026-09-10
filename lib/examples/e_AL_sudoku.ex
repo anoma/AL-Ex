@@ -1,6 +1,6 @@
 defmodule Examples.ALSudoku do
   @moduledoc """
-  I provide examples for `AL.TransactionProgram.Sudoku`'s `:sudoku_puzzle` class:
+  I provide examples for `:sudoku package`'s `:sudoku_puzzle` class:
   `new(:sudoku_puzzle, %{givens: rows}, puzzle)` builds the cell grid and posts
   every row/column/3x3-box `all_dif` (pairwise `dif`, no dedicated global
   all-different propagator) plus each cell's `[1,9]` domain; `solve(puzzle,

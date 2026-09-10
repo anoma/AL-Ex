@@ -185,3 +185,7 @@ end
 defmodule ALGtBridgeTest do
   use ExExample.ExUnit, for: Examples.ALGtBridge
 end
+
+defmodule ALEulerTest do
+  use ExExample.ExUnit, for: Examples.ALEuler
+end

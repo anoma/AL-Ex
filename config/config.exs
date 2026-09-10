@@ -9,12 +9,7 @@ config :al,
   serialisation_dir: "src/al",
   transaction_programs: [
     AL.TransactionProgram.Bootstrap,
-    AL.TransactionProgram.PackageSystem,
-    AL.TransactionProgram.Mapset,
-    AL.TransactionProgram.Constraints,
-    AL.TransactionProgram.Sudoku,
-    AL.TransactionProgram.Blackjack,
-    AL.TransactionProgram.Euler
+    AL.TransactionProgram.PackageSystem
   ],
   package_channels: [
     {:builtin, {:priv, "packages"}}
@@ -22,7 +17,12 @@ config :al,
   package_environment: [
     :interval,
     :users,
-    :elixir_process
+    :elixir_process,
+    :mapset,
+    :constraints,
+    :sudoku,
+    :blackjack,
+    :euler
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.

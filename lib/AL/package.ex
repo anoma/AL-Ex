@@ -1395,9 +1395,12 @@ defmodule AL.Package do
     final = if replace?, do: selected, else: Map.merge(current, selected)
 
     with :ok <- validate_build_closure(final, branch),
-         {:ok, old_documents} <- documents_for_builds(current, branch),
-         {:ok, new_documents} <- documents_for_builds(final, branch),
+         {:ok, old_sources} <- sources_for_builds(current, branch),
+         {:ok, new_sources} <- sources_for_builds(final, branch),
          snapshot <- Snapshot.capture_in_transaction(branch),
+         runtime <- runtime_definition_sources(old_sources, new_sources, snapshot),
+         {:ok, old_documents} <- compose_build_documents(runtime ++ old_sources),
+         {:ok, new_documents} <- compose_build_documents(runtime ++ new_sources),
          deleted <-
            old_documents
            |> Map.keys()
@@ -1443,7 +1446,7 @@ defmodule AL.Package do
     end)
   end
 
-  defp documents_for_builds(builds, branch) do
+  defp sources_for_builds(builds, branch) do
     builds
     |> Enum.sort_by(fn {name, _build} -> name end)
     |> Enum.reduce_while({:ok, []}, fn {package, build}, {:ok, sources} ->
@@ -1462,10 +1465,40 @@ defmodule AL.Package do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
-    |> case do
-      {:ok, sources} -> compose_build_documents(sources)
-      error -> error
-    end
+  end
+
+  defp runtime_definition_sources(old_sources, new_sources, snapshot) do
+    documents = Enum.flat_map(old_sources ++ new_sources, & &1.documents)
+    origins = documents |> Enum.filter(&(&1.kind == :class)) |> MapSet.new(& &1.owner)
+
+    old_extensions =
+      old_sources
+      |> Enum.flat_map(& &1.documents)
+      |> Enum.filter(&(&1.kind == :extension))
+      |> Enum.group_by(& &1.owner)
+
+    documents
+    |> Enum.filter(&(&1.kind == :extension and not MapSet.member?(origins, &1.owner)))
+    |> Enum.uniq_by(& &1.owner)
+    |> Enum.flat_map(fn extension ->
+      case Map.get(snapshot.documents, extension.owner) do
+        %DefinitionDocument{kind: :class} = document ->
+          previous = Map.get(old_extensions, document.owner, [])
+          methods = previous |> Enum.flat_map(& &1.methods) |> MapSet.new(& &1.selector)
+          supers = previous |> Enum.flat_map(& &1.supers) |> MapSet.new()
+
+          base = %{
+            document
+            | methods: Enum.reject(document.methods, &MapSet.member?(methods, &1.selector)),
+              supers: Enum.reject(document.supers, &MapSet.member?(supers, &1))
+          }
+
+          [%{package: nil, build: nil, dependencies: [], documents: [base]}]
+
+        _ ->
+          []
+      end
+    end)
   end
 
   defp validate_unique_build_documents(build, documents) do
@@ -1518,6 +1551,15 @@ defmodule AL.Package do
       owner = extension.document.owner
 
       case Map.fetch(origins, owner) do
+        {:ok, %{build: nil, document: runtime}} ->
+          shared_supers = Enum.filter(extension.document.supers, &(&1 in runtime.supers))
+
+          if shared_supers == [] do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:duplicate_runtime_superclass_contribution, owner, shared_supers}}}
+          end
+
         {:ok, origin} ->
           reachable = dependency_builds(extension.build, dependencies, MapSet.new())
 

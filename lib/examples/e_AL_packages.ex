@@ -7,6 +7,54 @@ defmodule Examples.ALPackages do
 
   alias AL.Package.Document
 
+  example packages_extend_runtime_classes_without_owning_them() do
+    branch = AL.Branch.fork(0, AL.Branch.main())
+    previous = AL.Branch.head()
+    AL.Branch.checkout(branch)
+
+    try do
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.Bootstrap,
+                 AL.TransactionProgram.PackageSystem
+               ])
+
+      assert {:ok, before} = AL.Serialisation.Snapshot.capture(branch)
+      assert {:ok, catalog} = AL.Package.discover(AL.Package.configured_channels(), branch: branch)
+      assert {:ok, plan} = AL.Package.resolve(catalog, [:euler, :blackjack], branch: branch)
+      assert {:ok, realisation} = AL.Package.realise(plan, branch: branch)
+      assert {:ok, _} = AL.Package.activate(realisation, branch: branch)
+      assert {:ok, _} = AL.Package.activate(realisation, branch: branch)
+      assert {:ok, %{changed?: false}} = AL.Package.diff(:euler, branch: branch)
+      assert {:ok, %{changed?: false}} = AL.Package.diff(:blackjack, branch: branch)
+
+      result =
+        AL.run branch: branch.id do
+          euler_1(10, 23)
+          factorial(5, 120)
+          active_build(:euler, build)
+          extends_class(build, :number)
+          not [originates_class(build, :number)]
+        end
+
+      assert {:atomic, _} = result
+
+      assert {:ok, empty_plan} = AL.Package.resolve(catalog, [], branch: branch)
+      assert {:ok, empty} = AL.Package.realise(empty_plan, branch: branch)
+      assert {:ok, _} = AL.Package.activate(empty, branch: branch, replace: true)
+      assert {:ok, after_removal} = AL.Serialisation.Snapshot.capture(branch)
+      assert after_removal.documents[:number] == before.documents[:number]
+      assert after_removal.documents[:list] == before.documents[:list]
+      refute Map.has_key?(after_removal.documents, :card)
+      refute AL.Package.active?(:euler, branch)
+      assert {:ok, _} = AL.Package.activate(realisation, branch: branch)
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+    end
+  end
+
   example configured_interval_is_imported_as_a_package() do
     refute Enum.any?(AL.TransactionProgram.configured(), fn module ->
              module.__program__().name == :interval

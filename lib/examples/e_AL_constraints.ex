@@ -1,6 +1,6 @@
 defmodule Examples.ALConstraints do
   @moduledoc """
-  I provide examples for the `:constraints` transaction program — cells hold a `:domain`
+  I provide examples for the `:constraints` package — cells hold a `:domain`
   (a `:mapset_value` of possible values, not a single scalar), `constrain` narrows a
   cell's domain by intersecting it with a candidate set, and a propagator maps
   its own `constrain` function over the cartesian product of its input cells'
