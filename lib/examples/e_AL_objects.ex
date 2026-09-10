@@ -187,7 +187,7 @@ defmodule Examples.ALObjects do
       run branch: :examples do
         defclass :durable_meta, super: :object do
           defmethod(:allocate, [self, args, name]) do
-            get_slot(args, :name, name)
+            get(args, :name, name)
 
             class(self, meta)
 
@@ -245,9 +245,9 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, program_state}} =
       run branch: :examples do
         examine(:class, info)
-        get_slot(info, :methods, methods)
-        get_slot(info, :classes, classes)
-        get_slot(info, :supers, supers)
+        get(info, :methods, methods)
+        get(info, :classes, classes)
+        get(info, :supers, supers)
       end
 
     assert Map.get(bindings, :"$classes") == [:class]
@@ -265,7 +265,7 @@ defmodule Examples.ALObjects do
 
         examine(obj, obj_info)
 
-        get_slot(obj_info, :direct_slots, direct_slots)
+        get(obj_info, :direct_slots, direct_slots)
       end
 
     assert Map.get(slot_bindings, :"$direct_slots") == [[:name, :rex]]
@@ -280,12 +280,12 @@ defmodule Examples.ALObjects do
         end
 
         examine(:examine_objects_class, info_before)
-        get_slot(info_before, :objects, objects_before)
+        get(info_before, :objects, objects_before)
 
         new(:examine_objects_class, obj)
 
         examine(:examine_objects_class, info_after)
-        get_slot(info_after, :objects, objects_after)
+        get(info_after, :objects, objects_after)
       end
 
     assert Map.get(bindings, :"$objects_before") == []
@@ -450,7 +450,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        get_slot(:tripwire, :tripped, t)
+        get(:tripwire, :tripped, t)
       end
 
     assert Map.get(b2, :"$t") == :no
@@ -463,7 +463,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b3, _}} =
       run branch: :examples do
-        get_slot(:tripwire, :tripped, t)
+        get(:tripwire, :tripped, t)
       end
 
     assert Map.get(b3, :"$t") == :yes
@@ -528,7 +528,7 @@ defmodule Examples.ALObjects do
     bindings
   end
 
-  example get_slot_inherits_from_class() do
+  example get_inherits_from_class() do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         defclass :slot_inherit_class, super: :object, ivars: [:legs] do
@@ -538,14 +538,14 @@ defmodule Examples.ALObjects do
 
         new(:slot_inherit_class, obj)
 
-        get_slot(obj, :legs, legs)
+        get(obj, :legs, legs)
       end
 
     assert Map.get(bindings, :"$legs") == 4
     bindings
   end
 
-  example get_slot_does_not_fall_through_to_inherited_on_value_mismatch() do
+  example get_does_not_fall_through_to_inherited_on_value_mismatch() do
     {:atomic, _} =
       run branch: :examples do
         defclass :slot_override_class, super: :object, ivars: [:legs] do
@@ -558,14 +558,14 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        get_slot(:slot_override_instance, :legs, legs)
+        get(:slot_override_instance, :legs, legs)
       end
 
     assert Map.get(bindings, :"$legs") == 8
 
     {:aborted, _} =
       run branch: :examples do
-        get_slot(:slot_override_instance, :legs, 4)
+        get(:slot_override_instance, :legs, 4)
       end
 
     :ok
@@ -587,7 +587,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings, _}} =
       run branch: :examples do
-        get_slot(:set_slot_domain_instance, :state, state)
+        get(:set_slot_domain_instance, :state, state)
       end
 
     assert Map.get(bindings, :"$state") == "off"
@@ -669,8 +669,8 @@ defmodule Examples.ALObjects do
   # A *bare* ivar (no domain/type spec) with no explicit arg has nothing
   # for `label` to search -- rather than fail construction over it,
   # `build_durable_slots` just omits it from the durable row entirely
-  # (confirmed directly here, complementing `get_slot_inherits_from_class`
-  # above, which only observes the class-level fallback `get_slot` provides
+  # (confirmed directly here, complementing `get_inherits_from_class`
+  # above, which only observes the class-level fallback `get` provides
   # -- this checks the instance's own row has no such key at all).
   example durable_construction_leaves_unspecified_bare_ivars_unset() do
     {:atomic, _} =
@@ -718,7 +718,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:durable_ivar_defaulted, %{}, obj)
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings, :"$count") == 0
@@ -726,7 +726,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _}} =
       run branch: :examples do
         new(:durable_ivar_defaulted, %{count: 5}, obj)
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings2, :"$count") == 5
@@ -740,7 +740,7 @@ defmodule Examples.ALObjects do
         end
 
         new(:value_ivar_open_default, %{}, obj)
-        get_slot(obj, :tag, tag)
+        get(obj, :tag, tag)
       end
 
     refute AL.Var.var?(Map.get(bindings, :"$obj"))
@@ -771,8 +771,8 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _}} =
       run branch: :examples do
         new(:durable_ivar_child, %{}, obj)
-        get_slot(obj, :suit, suit)
-        get_slot(obj, :count, count)
+        get(obj, :suit, suit)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings, :"$suit") == :hearts
@@ -781,8 +781,8 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _}} =
       run branch: :examples do
         new(:durable_ivar_child, %{suit: :diamonds, count: 3}, obj)
-        get_slot(obj, :suit, suit)
-        get_slot(obj, :count, count)
+        get(obj, :suit, suit)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings2, :"$suit") == :diamonds
@@ -814,8 +814,8 @@ defmodule Examples.ALObjects do
         end
 
         new(:value_ivar_child, %{}, obj)
-        get_slot(obj, :suit, suit)
-        get_slot(obj, :count, count)
+        get(obj, :suit, suit)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings, :"$suit") == :hearts
@@ -824,8 +824,8 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _}} =
       run branch: :examples do
         new(:value_ivar_child, %{suit: :diamonds, count: 3}, obj)
-        get_slot(obj, :suit, suit)
-        get_slot(obj, :count, count)
+        get(obj, :suit, suit)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings2, :"$suit") == :diamonds

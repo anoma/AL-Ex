@@ -227,7 +227,7 @@ defmodule AL.Goal do
   end
 
   # store defaults :aos (vm_get_slot/3); explicit :soa via vm_get_slot/4,
-  # used by get_slot's ancestor-walk fallback.
+  # used by get's ancestor-walk fallback.
   typedstruct enforce: true, module: GetSlots do
     field(:object, AL.Var.t())
     field(:key, AL.Var.t())

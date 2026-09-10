@@ -2,7 +2,7 @@ defmodule Examples.ALStorage do
   @moduledoc """
   Examples for `storage: :soa`, an ivar-spec option (same shape as
   `domain:`/`type:`/`default:`) routing an ivar to `AL.Object`'s `soa`
-  relation instead of the default `aos`. `set_slot`/`get_slot` are the
+  relation instead of the default `aos`. `set_slot`/`get` are the
   only entry point either way -- storage is invisible to program authors.
   """
 
@@ -10,10 +10,10 @@ defmodule Examples.ALStorage do
   use AL
   import ExUnit.Assertions
 
-  # Both ivars go through the exact same `set_slot`/`get_slot` calls --
+  # Both ivars go through the exact same `set_slot`/`get` calls --
   # `storage: :soa` on `concentration`'s spec is invisible at every call
   # site, only observable via the explicit `vm_get_slot/4` checks below.
-  example set_slot_and_get_slot_route_by_declared_storage() do
+  example set_slot_and_get_route_by_declared_storage() do
     {:atomic, _} =
       run branch: :examples do
         defclass :storage_probe,
@@ -28,8 +28,8 @@ defmodule Examples.ALStorage do
         set_slot(obj, :regulators, [:geneA])
         set_slot(obj, :concentration, 5)
 
-        get_slot(obj, :regulators, regulators)
-        get_slot(obj, :concentration, concentration)
+        get(obj, :regulators, regulators)
+        get(obj, :concentration, concentration)
 
         vm_get_slot(obj, :regulators, regulators_direct)
         vm_get_slot(obj, :concentration, concentration_direct, :soa)
@@ -91,8 +91,8 @@ defmodule Examples.ALStorage do
         set_slot(obj, :regulators, [:geneA])
         set_slot(obj, :regulators, [:geneA, :geneB])
 
-        get_slot(obj, :concentration, concentration)
-        get_slot(obj, :regulators, regulators)
+        get(obj, :concentration, concentration)
+        get(obj, :regulators, regulators)
       end
 
     assert Map.get(bindings, :"$concentration") == 5

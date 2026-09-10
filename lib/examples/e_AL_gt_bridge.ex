@@ -105,7 +105,7 @@ defmodule Examples.ALGtBridge do
         AL.run branch: branch.id do
           vm_set_super(:inspector_execution_class, :program_execution)
           vm_set_class(:inspector_execution, :inspector_execution_class)
-          get_slot(:blackjack, :tx, installed_tx)
+          get(:blackjack, :tx, installed_tx)
           set_slots(:inspector_execution, %{name: :blackjack, tx: installed_tx})
           vm_set_class(:inspector_unknown_execution, :program_execution)
           set_slots(:inspector_unknown_execution, %{name: :inspector_unknown_execution})

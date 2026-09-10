@@ -83,24 +83,24 @@ defmodule AL.TransactionProgram.Bootstrap do
       end
     end
 
-    defmethod(:object, :get_slot, [self, key, value]) do
+    defmethod(:object, :get, [self, key, value]) do
       vm_map_get(self, key, value)
     end
 
     # aos direct lookup, common case
-    defmethod(:object, :get_slot, [self, key, value]) do
+    defmethod(:object, :get, [self, key, value]) do
       vm_get_slot(self, key, value)
     end
 
     # soa direct lookup, fallback
-    defmethod(:object, :get_slot, [self, key, value]) do
+    defmethod(:object, :get, [self, key, value]) do
       not [vm_get_slot(self, key, _)]
       vm_get_slot(self, key, value, :soa)
     end
 
     # neither table has it directly -- storage resolved once via self
     # (vm_cached_find_ivar_spec), then walk ancestors on that same store.
-    defmethod(:object, :get_slot, [self, key, value]) do
+    defmethod(:object, :get, [self, key, value]) do
       not [vm_get_slot(self, key, _)]
       not [vm_get_slot(self, key, _, :soa)]
       vm_cached_find_ivar_spec(self, key, spec)
@@ -161,7 +161,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:object, :slots, [self, [slot_name | slot_names], m]) do
       slots(self, slot_names, m1)
-      get_slot(self, slot_name, slot_val)
+      get(self, slot_name, slot_val)
       vm_map_put(m1, slot_name, slot_val, m)
     end
 
@@ -463,7 +463,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     # `args` value ever gets included; an ivar nobody supplied a value for
     # (bare or spec'd, constrained or not) is just omitted from the durable
     # slots map entirely (an existing, legitimate pattern:
-    # `get_slot_inherits_from_class` in e_AL_objects.ex relies on an unset
+    # `get_inherits_from_class` in e_AL_objects.ex relies on an unset
     # instance slot falling back to the class's own slot value).
     #
     # every ground ivar folds in regardless of storage -- routing happens
@@ -624,7 +624,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       get_optional(args, name, value)
     end
 
-    # only get_slot's ancestor-walk fallback still needs this -- set_slot
+    # only get's ancestor-walk fallback still needs this -- set_slot
     # and build_durable_slots route via vm_set_slot's interp handler now.
     # :aos default when storage: absent.
     defmethod(:object, :ivar_spec_storage, [self, spec, storage]) do
@@ -753,7 +753,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     new(:class, %{name: :transaction, super: :object, ivars: [:tx, :branch, :status, :reason]}, _)
 
     defmethod(:transaction, :listing, [self, text]) do
-      get_slot(self, :tx, tx)
+      get(self, :tx, tx)
       vm_transaction_source(tx, text, _origin)
     end
 
@@ -767,7 +767,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:program_execution, :source, [self, text]) do
-      get_slot(self, :tx, tx)
+      get(self, :tx, tx)
       vm_transaction_source(tx, text, _origin)
     end
 

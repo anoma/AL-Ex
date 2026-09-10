@@ -181,7 +181,7 @@ defmodule Examples.ALBranch do
 
         defmethod(:fork_worker, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
-          get_slot(:fork_worker_subscriber, :pid, p)
+          get(:fork_worker_subscriber, :pid, p)
           functor(message, :handled, [object])
           send_elixir(p, message)
         end
@@ -331,7 +331,7 @@ defmodule Examples.ALBranch do
       """
       defclass :gadget, super: :object, ivars: [:size, :name] do
         defmethod(:describe, [self, size]) do
-          get_slot(self, :size, size)
+          get(self, :size, size)
         end
       end
       """,
@@ -343,7 +343,7 @@ defmodule Examples.ALBranch do
       """,
       """
       defmethod(:gadget, :describe, [self, size]) do
-        get_slot(self, :size, size)
+        get(self, :size, size)
         is(size, size)
       end
       """,

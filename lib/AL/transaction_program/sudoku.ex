@@ -5,21 +5,21 @@ defmodule AL.TransactionProgram.Sudoku do
     # :value, not durable — a puzzle is scratch, and self already being a
     # map means it's already its own printable/reified form.
     defclass :sudoku_puzzle, super: :value, ivars: [:rows] do
-      defmethod(:get_slot, [self, k, v]) do
+      defmethod(:get, [self, k, v]) do
         vm_map_get(self, k, v)
       end
 
       # givens: 9x9 list of 0..9, 0 = blank. Blanks come out open via
       # ordinary unification against build_row's fresh output list.
       defmethod(:init, [self, args, new]) do
-        get_slot(args, :givens, givens)
+        get(args, :givens, givens)
         build_rows(givens, rows)
         constrain_rows(rows)
         unify(new, %{class: :sudoku_puzzle, rows: rows})
       end
 
       defmethod(:solve, [self, solved]) do
-        get_slot(self, :rows, rows)
+        get(self, :rows, rows)
         label_rows(rows)
         unify(solved, rows)
       end

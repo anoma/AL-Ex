@@ -45,7 +45,7 @@ defmodule ALDocumentTest do
           method(
             selector: :rank,
             declaration: ":rank, [self, rank]",
-            body: "  get_slot(self, :rank, rank)"
+            body: "  get(self, :rank, rank)"
           )
         ]
       )

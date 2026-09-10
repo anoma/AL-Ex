@@ -32,8 +32,8 @@ defmodule Examples.ALTransactionPrograms do
       result =
         AL.run do
           class(:transaction_program_fixture, :program_execution)
-          get_slot(:program_created_object, :answer, answer)
-          get_slot(:transaction_program_fixture, :tx, transaction)
+          get(:program_created_object, :answer, answer)
+          get(:transaction_program_fixture, :tx, transaction)
           class(transaction, :transaction)
           listing(:transaction_program_fixture, source)
         end

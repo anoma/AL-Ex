@@ -32,7 +32,7 @@ AL.Branch.head()
 
 AL has an object system in the style of CLOS and Smalltalk, and aims to make writing live, open polymorphisms easy. The details of this will become more apparent later, but the basic ideas you need to know right now are that you can create classes with `defclass`, and instances of those classes with `new`. Let's try the well-known example of a light switch, which has on/off state.
 
-We use the `redef` flag so that the class & instance can be redefined by re-evaluating the block. Inside `:flick` below you'll see `get_slot`/`set_slot`, which read and write an object's own state. They're ordinary methods on `:object`, not special syntax, so `get_slot(obj, :key, value)` is itself a message send, the same as `flick(self)` is.
+We use the `redef` flag so that the class & instance can be redefined by re-evaluating the block. Inside `:flick` below you'll see `get`/`set_slot`, which read and write an object's own state. They're ordinary methods on `:object`, not special syntax, so `get(obj, :key, value)` is itself a message send, the same as `flick(self)` is.
 
 ```elixir
 run do
@@ -42,12 +42,12 @@ run do
     ivars: [state: [domain: ["on", "off"], default: "off"]] do
 
     defmethod(:flick, [self]) do
-      get_slot(self, :state, "on")
+      get(self, :state, "on")
       set_slot(self, :state, "off")
     end
     
     defmethod(:flick, [self]) do
-      get_slot(self, :state, "off")
+      get(self, :state, "off")
       set_slot(self, :state, "on")
     end
   end
@@ -86,7 +86,7 @@ Let's see what happens if we 'flick' the 'switch'.
 ```elixir
 run do
   flick(:switch_instance_1)
-  get_slot(:switch_instance_1, :state, state)
+  get(:switch_instance_1, :state, state)
 end
 ```
 
@@ -95,7 +95,7 @@ It should work! And if you evaluate again, you'll see the state change too. `fli
 ```elixir
 run do
   send(:switch_instance_1, :flick, [])
-  get_slot(:switch_instance_1, :state, state)
+  get(:switch_instance_1, :state, state)
 end
 ```
 
@@ -119,7 +119,7 @@ run do
     ivars: [count: [type: :number, default: 0]] do
     
     defmethod(:flick, [self]) do
-      get_slot(self, :count, c)
+      get(self, :count, c)
       is(c1, c + 1)
       set_slot(self, :count, c1)
       call_next_method(self)
@@ -148,8 +148,8 @@ run do
     ivars: [colour: [domain: ["red", "green", "blue"]]] do
 
     defmethod(:flick, [self]) do
-      get_slot(self, :state, "off")
-      get_slot(self, :colour, c)
+      get(self, :state, "off")
+      get(self, :colour, c)
       in_domain(c1, ["red", "green", "blue"])
       dif(c, c1)
       label(c1)
@@ -158,7 +158,7 @@ run do
     end
     
     defmethod(:flick, [self]) do
-      get_slot(self, :state, "on")
+      get(self, :state, "on")
       call_next_method(self)
     end
   end
@@ -245,7 +245,7 @@ Any class can override `:print_object` to describe its own instances better, the
 ```elixir
 run do
   defmethod(:switch, :print_object, [self, description]) do
-    get_slot(self, :state, s)
+    get(self, :state, s)
     unify(description, {:switch, s})
   end
 

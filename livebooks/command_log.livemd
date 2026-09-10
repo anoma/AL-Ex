@@ -125,7 +125,7 @@ obj = Map.get(bindings, :"$obj")
 
 run do
   class(^obj, c)
-  get_slot(^obj, :greeting, g)
+  get(^obj, :greeting, g)
 end
 ```
 

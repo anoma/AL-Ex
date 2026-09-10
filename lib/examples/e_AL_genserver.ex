@@ -23,7 +23,7 @@ defmodule Examples.ALGenserver do
         new(:process, %{name: ^object_id, pid: ^pid}, _)
 
         defmethod(^object_id, :increment, [self, amount]) do
-          get_slot(self, :pid, p)
+          get(self, :pid, p)
           functor(message, :increment, [amount])
           send_elixir(p, message)
         end

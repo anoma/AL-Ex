@@ -22,12 +22,12 @@ defmodule Examples.ALDefclass do
           ivars: [:label],
           categories: [:widget_behaviour] do
           defmethod(:init, [self, args, new]) do
-            get_slot(args, :label, l)
+            get(args, :label, l)
             unify(new, %{class: :widget, label: l})
           end
 
           defmethod(:label, [self, l]) do
-            get_slot(self, :label, l)
+            get(self, :label, l)
           end
         end
 
@@ -204,7 +204,7 @@ defmodule Examples.ALDefclass do
       run branch: :examples do
         new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
         set_slot(obj, :count, 99)
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings1, :"$count") == 99
@@ -212,7 +212,7 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings2, _}} =
       run branch: :examples do
         new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings2, :"$count") == 0
@@ -236,7 +236,7 @@ defmodule Examples.ALDefclass do
       run branch: :examples do
         new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
         set_slot(obj, :count, 99)
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings1, :"$count") == 99
@@ -244,7 +244,7 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings2, _}} =
       run branch: :examples do
         new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings2, :"$count") == 0
@@ -344,7 +344,7 @@ defmodule Examples.ALDefclass do
           redef: true do
         end
 
-        get_slot(:logged_thing, :redef_log, log)
+        get(:logged_thing, :redef_log, log)
       end
 
     assert Map.get(bindings, :"$log") == [[:object], [:value]]
@@ -370,7 +370,7 @@ defmodule Examples.ALDefclass do
           ivars: [count: [type: :number, default: 0]] do
         end
 
-        get_slot(obj, :count, count)
+        get(obj, :count, count)
       end
 
     assert Map.get(bindings, :"$count") == 0
@@ -391,7 +391,7 @@ defmodule Examples.ALDefclass do
         defclass :redef_backfill_probe2, super: :object, redef: true, ivars: [nickname: []] do
         end
 
-        not [get_slot(obj, :nickname, _)]
+        not [get(obj, :nickname, _)]
       end
 
     :ok
@@ -414,7 +414,7 @@ defmodule Examples.ALDefclass do
         defclass :redef_shrink_probe, super: :object, redef: true, ivars: [] do
         end
 
-        not [get_slot(obj, :legs, _)]
+        not [get(obj, :legs, _)]
       end
 
     :ok

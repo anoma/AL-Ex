@@ -26,7 +26,7 @@ defmodule Examples.ALTasks do
 
         defmethod(^name, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
-          get_slot(^subscriber, :pid, p)
+          get(^subscriber, :pid, p)
           functor(message, :handled, [object])
           send_elixir(p, message)
         end

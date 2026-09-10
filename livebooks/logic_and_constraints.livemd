@@ -69,13 +69,13 @@ run do
       unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
     end
 
-    defmethod(:get_slot, [self, k, v]) do
+    defmethod(:get, [self, k, v]) do
       vm_map_get(self, k, v)
     end
 
     defmethod(:area, [self, result]) do
-      get_slot(self, :width, w)
-      get_slot(self, :height, h)
+      get(self, :width, w)
+      get(self, :height, h)
       is(result, w * h)
     end
   end
@@ -152,7 +152,7 @@ run do
   new(:fire_hydrant, hydrant)
 
   class(x, :vehicle)
-  get_slot(x, :color, :red)
+  get(x, :color, :red)
 end
 ```
 

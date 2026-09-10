@@ -12,7 +12,7 @@ defmodule AL.TransactionProgram.Constraints do
 
     defmethod(:cell, :constrain, [self, candidate]) do
       implies do
-        [get_slot(self, :domain, old_domain)] ->
+        [get(self, :domain, old_domain)] ->
           intersection(old_domain, candidate, new_domain)
 
           implies do
@@ -31,7 +31,7 @@ defmodule AL.TransactionProgram.Constraints do
     end
 
     defmethod(:cell, :notify, [self, domain]) do
-      forall([get_slot(self, :subscribers, subscribers), member(subscribers, subscriber)]) do
+      forall([get(self, :subscribers, subscribers), member(subscribers, subscriber)]) do
         send_async(subscriber, :cell_updated, [self, domain])
       end
 
@@ -39,7 +39,7 @@ defmodule AL.TransactionProgram.Constraints do
     end
 
     defmethod(:cell, :subscribe, [self, subscriber]) do
-      get_slot(self, :subscribers, subscribers)
+      get(self, :subscribers, subscribers)
       set_slot(self, :subscribers, [subscriber | subscribers])
     end
 
@@ -49,11 +49,11 @@ defmodule AL.TransactionProgram.Constraints do
 
     defmethod(:cell, :dependents, [self, acc, dependents]) do
       implies do
-        [get_slot(acc, self, seen)] ->
+        [get(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
-          get_slot(self, :subscribers, subscribers)
+          get(self, :subscribers, subscribers)
           put(acc, self, subscribers, new_acc)
           dependents(self, new_acc, subscribers, dependents)
       end
@@ -75,8 +75,8 @@ defmodule AL.TransactionProgram.Constraints do
     )
 
     defmethod(:propagator, :init, [self, args, self]) do
-      get_slot(args, :input_cells, input_cells)
-      get_slot(args, :output_cell, output_cell)
+      get(args, :input_cells, input_cells)
+      get(args, :output_cell, output_cell)
 
       set_slots(self, %{input_cells: input_cells, output_cell: output_cell, name: self})
 
@@ -89,12 +89,12 @@ defmodule AL.TransactionProgram.Constraints do
 
     # narrow_output picks the domain strategy; constrain does the actual work.
     defmethod(:propagator, :cell_updated, [self, _cell_name, _domain]) do
-      get_slot(self, :input_cells, input_cells)
-      get_slot(self, :output_cell, output_cell)
+      get(self, :input_cells, input_cells)
+      get(self, :output_cell, output_cell)
 
       findall(
         input_domain,
-        [member(input_cells, input_cell), get_slot(input_cell, :domain, input_domain)],
+        [member(input_cells, input_cell), get(input_cell, :domain, input_domain)],
         input_domains
       )
 
@@ -136,11 +136,11 @@ defmodule AL.TransactionProgram.Constraints do
 
     defmethod(:propagator, :dependents, [self, acc, dependents]) do
       implies do
-        [get_slot(acc, self, seen)] ->
+        [get(acc, self, seen)] ->
           unify(acc, dependents)
 
         :else ->
-          get_slot(self, :output_cell, output_cell)
+          get(self, :output_cell, output_cell)
           put(acc, self, [output_cell], new_acc)
           dependents(output_cell, new_acc, dependents)
       end

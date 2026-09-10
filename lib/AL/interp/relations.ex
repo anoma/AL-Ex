@@ -175,7 +175,7 @@ defmodule AL.Interp.Relations do
     end)
   end
 
-  # store can be literal or a var (get_slot's ancestor-walk fallback
+  # store can be literal or a var (get's ancestor-walk fallback
   # passes a resolved spec var through) -- deref before branching.
   def interp(%Goal.GetSlots{object: object, key: key, value: value, store: store_pattern}, state) do
     case AL.Var.deref(store(state), store_pattern) do

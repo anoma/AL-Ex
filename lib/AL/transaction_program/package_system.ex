@@ -10,15 +10,15 @@ defmodule AL.TransactionProgram.PackageSystem do
       ivars: [:channel_name, :location, :revision],
       redef: true do
       defmethod(:channel_name, [self, name]) do
-        get_slot(self, :channel_name, name)
+        get(self, :channel_name, name)
       end
 
       defmethod(:channel_location, [self, location]) do
-        get_slot(self, :location, location)
+        get(self, :location, location)
       end
 
       defmethod(:channel_revision, [self, revision]) do
-        get_slot(self, :revision, revision)
+        get(self, :revision, revision)
       end
     end
 
@@ -35,31 +35,31 @@ defmodule AL.TransactionProgram.PackageSystem do
       ],
       redef: true do
       defmethod(:provider_channel, [self, channel]) do
-        get_slot(self, :channel, channel)
+        get(self, :channel, channel)
       end
 
       defmethod(:provider_channel_revision, [self, revision]) do
-        get_slot(self, :channel_revision, revision)
+        get(self, :channel_revision, revision)
       end
 
       defmethod(:provides, [self, package]) do
-        get_slot(self, :provides, package)
+        get(self, :provides, package)
       end
 
       defmethod(:provider_version, [self, version]) do
-        get_slot(self, :version, version)
+        get(self, :version, version)
       end
 
       defmethod(:provider_requirements, [self, requirements]) do
-        get_slot(self, :requirements, requirements)
+        get(self, :requirements, requirements)
       end
 
       defmethod(:provider_source_digest, [self, digest]) do
-        get_slot(self, :source_digest, digest)
+        get(self, :source_digest, digest)
       end
 
       defmethod(:provider_source, [self, source]) do
-        get_slot(self, :source, source)
+        get(self, :source, source)
       end
     end
 
@@ -79,43 +79,43 @@ defmodule AL.TransactionProgram.PackageSystem do
       ],
       redef: true do
       defmethod(:build_package, [self, package]) do
-        get_slot(self, :package, package)
+        get(self, :package, package)
       end
 
       defmethod(:build_version, [self, version]) do
-        get_slot(self, :version, version)
+        get(self, :version, version)
       end
 
       defmethod(:build_requirements, [self, requirements]) do
-        get_slot(self, :requirements, requirements)
+        get(self, :requirements, requirements)
       end
 
       defmethod(:dependency_builds, [self, dependency_builds]) do
-        get_slot(self, :dependency_builds, dependency_builds)
+        get(self, :dependency_builds, dependency_builds)
       end
 
       defmethod(:build_digest, [self, digest]) do
-        get_slot(self, :digest, digest)
+        get(self, :digest, digest)
       end
 
       defmethod(:build_provider, [self, provider]) do
-        get_slot(self, :provider, provider)
+        get(self, :provider, provider)
       end
 
       defmethod(:build_status, [self, status]) do
-        get_slot(self, :status, status)
+        get(self, :status, status)
       end
 
       defmethod(:originated_classes, [self, classes]) do
-        get_slot(self, :originated_classes, classes)
+        get(self, :originated_classes, classes)
       end
 
       defmethod(:added_methods, [self, methods]) do
-        get_slot(self, :added_methods, methods)
+        get(self, :added_methods, methods)
       end
 
       defmethod(:added_superclasses, [self, superclasses]) do
-        get_slot(self, :added_superclasses, superclasses)
+        get(self, :added_superclasses, superclasses)
       end
 
       defmethod(:originates_class, [self, class]) do
@@ -163,12 +163,12 @@ defmodule AL.TransactionProgram.PackageSystem do
       end
 
       defmethod(:include_contribution, [self, slot, contribution]) do
-        get_slot(self, slot, contributions)
+        get(self, slot, contributions)
         member(contributions, contribution)
       end
 
       defmethod(:include_contribution, [self, slot, contribution]) do
-        get_slot(self, slot, contributions)
+        get(self, slot, contributions)
         not [member(contributions, contribution)]
         concat(contributions, [contribution], updated)
         set_slot(self, slot, updated)
@@ -231,7 +231,7 @@ defmodule AL.TransactionProgram.PackageSystem do
       end
 
       defmethod(:active_build, [self, build]) do
-        get_slot(self, :active_build, build)
+        get(self, :active_build, build)
       end
 
       defmethod(:build, [self, specification, build]) do

@@ -4,12 +4,12 @@ defmodule AL.TransactionProgram.Mapset do
   defprogram :mapset, version: 1, deps: [:bootstrap] do
     new(:class, %{name: :mapset_value, super: :value, ivars: [:elems]}, _)
 
-    defmethod(:mapset_value, :get_slot, [self, k, v]) do
+    defmethod(:mapset_value, :get, [self, k, v]) do
       vm_map_get(self, k, v)
     end
 
     defmethod(:mapset_value, :init, [self, args, new]) do
-      get_slot(args, :elems, list)
+      get(args, :elems, list)
 
       implies do
         [ground(list)] ->
@@ -23,8 +23,8 @@ defmodule AL.TransactionProgram.Mapset do
 
     defmethod(:mapset_value, :elem, [self, e]) do
       ground(self)
-      get_slot(self, :elems, elems)
-      get_slot(elems, e, _)
+      get(self, :elems, elems)
+      get(elems, e, _)
     end
 
     defmethod(:mapset_value, :elem, [self, e]) do
@@ -35,8 +35,8 @@ defmodule AL.TransactionProgram.Mapset do
 
     defmethod(:mapset_value, :members, [self, list]) do
       ground(self)
-      get_slot(self, :elems, elems)
-      findall(k, [get_slot(elems, k, _)], list)
+      get(self, :elems, elems)
+      findall(k, [get(elems, k, _)], list)
     end
 
     defmethod(:mapset_value, :members, [self, list]) do
@@ -46,23 +46,23 @@ defmodule AL.TransactionProgram.Mapset do
     end
 
     defmethod(:mapset_value, :insert, [self, x, new]) do
-      get_slot(self, :elems, elems)
+      get(self, :elems, elems)
       put(elems, x, true, new_elems)
       unify(new, %{class: :mapset_value, elems: new_elems})
     end
 
     defmethod(:mapset_value, :union, [self, s, new]) do
-      get_slot(self, :elems, elems1)
-      get_slot(s, :elems, elems2)
-      findall(k, [get_slot(elems2, k, _)], list2)
+      get(self, :elems, elems1)
+      get(s, :elems, elems2)
+      findall(k, [get(elems2, k, _)], list2)
       fold_left(list2, :map_insert, elems1, merged)
       unify(new, %{class: :mapset_value, elems: merged})
     end
 
     defmethod(:mapset_value, :intersection, [self, s, new]) do
-      get_slot(self, :elems, elems1)
-      get_slot(s, :elems, elems2)
-      findall(k, [get_slot(elems1, k, _), get_slot(elems2, k, _)], common)
+      get(self, :elems, elems1)
+      get(s, :elems, elems2)
+      findall(k, [get(elems1, k, _), get(elems2, k, _)], common)
       list_to_elems(common, merged)
       unify(new, %{class: :mapset_value, elems: merged})
     end

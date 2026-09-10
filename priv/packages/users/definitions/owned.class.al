@@ -15,7 +15,7 @@ Class {
 
 :owned >> :may, [self, caller, _method, _args] [
   ground(caller)
-  get_slot(self, :owner, caller)
+  get(self, :owner, caller)
 ]
 
 :owned >> :guarded_send, [self, caller, method, args] [
