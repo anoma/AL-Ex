@@ -87,11 +87,61 @@ the MOP receiver and passes the complete requirement term to that package's
 content digest without installing their definitions; activation then applies
 the source retained by their providers and records each package class's
 `active_build`.
-Ordinary startup reuses the retained active graph. Call
+Activation treats a `Class` document as the origin of a class and an
+`Extension` document as a contribution to a class originated by a dependency.
+It composes their methods and superclass edges into the live class while
+retaining the attribution through `originates_class`, `adds_method`,
+`adds_superclass`, and `extends_class`. The package manifest does not repeat
+this information.
+`AL.Package.source_snapshot/2` uses those relations to capture only the active
+package's current live definitions. `AL.Package.diff/2` compares that snapshot
+with the parsed provider documents and reports semantic class, method, and
+superclass changes without treating formatting differences as changes. Changes
+and removals to loaded contributions are detected. An otherwise unclaimed
+method or superclass added to a class defaults to the build that originates
+that class. New classes and changes to foreign classes will require
+package-attributed transactions.
+Ordinary startup hydrates the retained image without re-running package
+resolution. Configured packages are applied when the package system is first
+introduced into an image. Call
 `AL.Package.update_configured/0` to rediscover changed channel contents and
 activate newly selected builds. `AL.Package.import/2` remains available for
 direct, additive bundle import. Interval, Users, and Elixir Process are bundled
 under `priv/packages`.
+
+`AL.Package.ensure_configured/0` treats the configured package environment as
+required roots and keeps additional live packages, including open working
+packages. An explicit `AL.Package.update_configured/0` replaces the active set
+with the exact configured environment.
+
+Packages can be born in the live system with an empty open build:
+
+```elixir
+AL.run do
+  new(:package, %{name: :my_package, version: 1, deps: []}, :my_package)
+  active_build(:my_package, build)
+
+  defclass :my_class, super: :object
+  include_class(build, :my_class)
+end
+```
+
+`include_class` attributes the class, its current methods, and its superclass
+edges to the open build. `include_method` and `include_superclass` attribute
+individual extension contributions. The package constructor resolves declared
+requirements to their currently active builds.
+
+An active package's current filtered source can then be exported directly:
+
+```elixir
+AL.Package.export(:my_package, to: "path/to/channel/my_package")
+```
+
+The first export registers the resulting source as a direct provider, computes
+the build digest, and seals the same build as `:complete`. Later exports use the
+active provider manifest as their default version and requirements. Export
+rewrites `package.al` and makes `definitions/` match the package-filtered
+snapshot. The resulting directory can also be discovered through a channel.
 
 The paired channels under `lib/examples/package_channels/stable` and
 `lib/examples/package_channels/experimental` demonstrate provider selection.

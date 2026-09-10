@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 1, deps: [] do
+  defprogram :bootstrap, version: 4, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -181,11 +181,29 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     vm_set_class(:map, :class)
 
-    vm_set_class(:map_get, :behaviour)
-    vm_set_method(:map, :get, :map_get)
+    defmethod(:map, :get, [self, key, value]) do
+      vm_map_get(self, key, value)
+    end
 
-    vm_set_class(:map_put, :behaviour)
-    vm_set_method(:map, :put, :map_put)
+    defmethod(:map, :get, [self, key, default, value]) do
+      implies do
+        [vm_map_get(self, key, provided)] -> unify(value, provided)
+        :else -> unify(value, default)
+      end
+    end
+
+    defmethod(:map, :put, [self, key, value, updated]) do
+      vm_map_put(self, key, value, updated)
+    end
+
+    defmethod(:map, :put_new, [self, key, _default, self]) do
+      get(self, key, _value)
+    end
+
+    defmethod(:map, :put_new, [self, key, default, updated]) do
+      not [get(self, key, _value)]
+      put(self, key, default, updated)
+    end
 
     # On :object, not :map -- a *classed* map (e.g. a constructed value
     # instance, `%{class: :card, ...}`) dispatches via its own :class field
@@ -266,18 +284,10 @@ defmodule AL.TransactionProgram.Bootstrap do
     vm_set_class(:allocate_class, :behaviour)
 
     vm_set_oapply(:allocate_class, [self, args, name]) do
-      vm_map_get(args, :name, name)
-      vm_map_get(args, :super, super)
-
-      implies do
-        [vm_map_get(args, :ivars, ivars)] -> pass
-        :else -> unify(ivars, [])
-      end
-
-      implies do
-        [vm_map_get(args, :redef, redef)] -> pass
-        :else -> unify(redef, false)
-      end
+      get(args, :name, name)
+      get(args, :super, :object, super)
+      get(args, :ivars, [], ivars)
+      get(args, :redef, false, redef)
 
       class(self, meta)
 

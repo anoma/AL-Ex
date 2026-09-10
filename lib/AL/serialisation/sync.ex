@@ -51,7 +51,8 @@ defmodule AL.Serialisation.Sync do
         [{"delete_class(#{literal(document.owner)})", nil}]
 
       %Document{kind: :extension} = document ->
-        method_chunks(document, %{document | methods: []})
+        metadata_chunks(document, %{document | supers: []}) ++
+          method_chunks(document, %{document | methods: []})
     end)
   end
 
@@ -74,7 +75,12 @@ defmodule AL.Serialisation.Sync do
     [{Enum.join(operations, "\n"), nil}]
   end
 
-  defp metadata_chunks(nil, %Document{kind: :extension}), do: []
+  defp metadata_chunks(nil, %Document{kind: :extension} = document) do
+    operations =
+      Enum.map(document.supers, &"vm_set_super(#{literal(document.owner)}, #{literal(&1)})")
+
+    if operations == [], do: [], else: [{Enum.join(operations, "\n"), nil}]
+  end
 
   defp metadata_chunks(%Document{} = old, %Document{} = new) do
     class_operations =

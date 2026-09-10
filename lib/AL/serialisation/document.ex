@@ -72,7 +72,12 @@ defmodule AL.Serialisation.Document do
   end
 
   defp render_type(%__MODULE__{kind: :extension} = document) do
-    render_metadata("Extension", name: document.owner)
+    metadata = [name: document.owner]
+
+    metadata =
+      if document.supers == [], do: metadata, else: metadata ++ [superclass: document.supers]
+
+    render_metadata("Extension", metadata)
   end
 
   defp render_method(owner, %Method{} = method),
@@ -165,13 +170,14 @@ defmodule AL.Serialisation.Document do
   end
 
   defp document("Extension", metadata, comment) do
-    with {:ok, owner} <- required(metadata, :name) do
+    with {:ok, owner} <- required(metadata, :name),
+         {:ok, supers} <- optional_list(metadata, :superclass, []) do
       {:ok,
        %__MODULE__{
          kind: :extension,
          owner: owner,
          metaclass: nil,
-         supers: [],
+         supers: supers,
          ivars: [],
          comment: comment,
          methods: []
@@ -265,6 +271,14 @@ defmodule AL.Serialisation.Document do
     else
       false -> invalid("#{key} metadata must be a list")
       error -> error
+    end
+  end
+
+  defp optional_list(metadata, key, default) do
+    case Keyword.fetch(metadata, key) do
+      {:ok, value} when is_list(value) -> {:ok, value}
+      {:ok, _value} -> invalid("#{key} metadata must be a list")
+      :error -> {:ok, default}
     end
   end
 

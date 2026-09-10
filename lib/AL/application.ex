@@ -34,6 +34,8 @@ defmodule AL.Application do
   end
 
   def bootstrap() do
+    packages_pending? = not AL.Package.system_available?()
+
     programs =
       AL.TransactionProgram.configured()
       |> Enum.reject(fn module ->
@@ -42,7 +44,7 @@ defmodule AL.Application do
         AL.TransactionProgram.current?(program.name, program.version)
       end)
 
-    install_startup(programs, true)
+    install_startup(programs, packages_pending?)
   end
 
   defp install_startup([], false), do: :ok

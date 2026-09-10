@@ -3,6 +3,7 @@
   {"lib/AL/transaction_program/bootstrap.ex", :improper_list_constr},
   {"lib/AL/transaction_program/constraints.ex", :improper_list_constr},
   {"lib/AL/transaction_program/mapset.ex", :improper_list_constr},
+  {"lib/AL/transaction_program/package_system.ex", :improper_list_constr},
   {"lib/AL/transaction_program/sudoku.ex", :improper_list_constr},
   {"lib/examples/e_AL_clauses.ex", :improper_list_constr},
   {"lib/examples/e_AL_generative.ex", :improper_list_constr},

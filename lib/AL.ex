@@ -1626,150 +1626,118 @@ defmodule AL do
       |> Enum.map(fn {_scope, inner} -> inner end)
       |> Enum.uniq()
 
-    case relevant_diagnostics do
-      [{receiver, selector, arity, branch} | _] ->
-        suggestions = AL.Dispatch.suggest(receiver, selector, branch)
-        receiver = AL.Trace.pretty(receiver)
+    {message, reason} = failure_cause(relevant_diagnostics, ancestry, failed_on, state)
 
-        hint =
-          case suggestions do
-            [top | _] -> " Did you mean #{inspect(top)}?"
-            [] -> ""
-          end
+    %{
+      message: message,
+      reason: reason,
+      failed_on: failed_on,
+      trace: steps,
+      state: state
+    }
+  end
 
-        %{
-          message:
-            "#{inspect(receiver)} does not understand #{inspect(selector)}/#{arity}." <> hint,
-          reason: {:does_not_understand, receiver, selector, arity, suggestions},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+  defp failure_cause([{receiver, selector, arity, branch} | _], _ancestry, _failed_on, _state) do
+    suggestions = AL.Dispatch.suggest(receiver, selector, branch)
+    receiver = AL.Trace.pretty(receiver)
 
-      [{:constraint_violated, violation} | _] ->
-        %{
-          message: constraint_violation_message(violation),
-          reason: {:constraint_violated, pretty_violation(violation)},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+    hint =
+      case suggestions do
+        [top | _] -> " Did you mean #{inspect(top)}?"
+        [] -> ""
+      end
 
-      [{:domain_violated, resolved, values} | _] ->
-        %{
-          message: "#{inspect(resolved)} is not in the domain #{inspect(values)}.",
-          reason: {:domain_violated, resolved, values},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+    {"#{inspect(receiver)} does not understand #{inspect(selector)}/#{arity}." <> hint,
+     {:does_not_understand, receiver, selector, arity, suggestions}}
+  end
 
-      # Every native diagnostic below is a tagged 2-tuple ({:tag, payload})
-      # rather than a flat N-tuple -- the DNU clause above pattern-matches
-      # an *untyped* 4-tuple ({receiver, selector, arity, suggestions}), so
-      # any native diagnostic shaped as a bare 4-tuple would silently and
-      # incorrectly match it first regardless of its actual tag.
-      [{:native_missing, {method_id, {module, function, arity, _style}}} | _] ->
-        label = native_label(method_id, state.branch)
+  defp failure_cause([{:constraint_violated, violation} | _], _ancestry, _failed_on, _state) do
+    {constraint_violation_message(violation), {:constraint_violated, pretty_violation(violation)}}
+  end
 
-        %{
-          message:
-            "method #{label} is declared native (#{inspect(module)}.#{function}/#{arity}) " <>
-              "but that implementation is not registered in this image.",
-          reason: {:native_missing, method_id, {module, function, arity}},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+  defp failure_cause([{:domain_violated, resolved, values} | _], _ancestry, _failed_on, _state) do
+    {"#{inspect(resolved)} is not in the domain #{inspect(values)}.",
+     {:domain_violated, resolved, values}}
+  end
 
-      [
-        {:native_mismatch,
-         {method_id, {expected_module, expected_fun, expected_arity, _},
-          {actual_module, actual_fun, actual_arity, _}}}
-        | _
-      ] ->
-        label = native_label(method_id, state.branch)
+  # Every native diagnostic below is a tagged 2-tuple ({:tag, payload})
+  # rather than a flat N-tuple -- the DNU clause above pattern-matches
+  # an *untyped* 4-tuple ({receiver, selector, arity, suggestions}), so
+  # any native diagnostic shaped as a bare 4-tuple would silently and
+  # incorrectly match it first regardless of its actual tag.
+  defp failure_cause(
+         [{:native_missing, {method_id, {module, function, arity, _style}}} | _],
+         _ancestry,
+         _failed_on,
+         state
+       ) do
+    label = native_label(method_id, state.branch)
 
-        %{
-          message:
-            "method #{label} is declared native backed by " <>
-              "#{inspect(expected_module)}.#{expected_fun}/#{expected_arity}, but this image " <>
-              "has #{inspect(actual_module)}.#{actual_fun}/#{actual_arity} registered instead.",
-          reason:
-            {:native_mismatch, method_id, {expected_module, expected_fun, expected_arity},
-             {actual_module, actual_fun, actual_arity}},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+    {"method #{label} is declared native (#{inspect(module)}.#{function}/#{arity}) " <>
+       "but that implementation is not registered in this image.",
+     {:native_missing, method_id, {module, function, arity}}}
+  end
 
-      [{:native_input_not_ground, {method_id, position}} | _] ->
-        label = native_label(method_id, state.branch)
+  defp failure_cause(
+         [
+           {:native_mismatch,
+            {method_id, {expected_module, expected_fun, expected_arity, _},
+             {actual_module, actual_fun, actual_arity, _}}}
+           | _
+         ],
+         _ancestry,
+         _failed_on,
+         state
+       ) do
+    label = native_label(method_id, state.branch)
 
-        %{
-          message:
-            "native method #{label} needs input ##{position} to be ground, but it's " <>
-              "still an open variable.",
-          reason: {:native_input_not_ground, method_id, position},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+    {"method #{label} is declared native backed by " <>
+       "#{inspect(expected_module)}.#{expected_fun}/#{expected_arity}, but this image " <>
+       "has #{inspect(actual_module)}.#{actual_fun}/#{actual_arity} registered instead.",
+     {:native_mismatch, method_id, {expected_module, expected_fun, expected_arity},
+      {actual_module, actual_fun, actual_arity}}}
+  end
 
-      [{:native_error, {method_id, {module, function}, exception_message}} | _] ->
-        label = native_label(method_id, state.branch)
+  defp failure_cause(
+         [{:native_input_not_ground, {method_id, position}} | _],
+         _ancestry,
+         _failed_on,
+         state
+       ) do
+    label = native_label(method_id, state.branch)
 
-        %{
-          message:
-            "native method #{label} (#{inspect(module)}.#{function}) raised: " <>
-              exception_message,
-          reason: {:native_error, method_id, {module, function}, exception_message},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+    {"native method #{label} needs input ##{position} to be ground, but it's " <>
+       "still an open variable.", {:native_input_not_ground, method_id, position}}
+  end
 
-      [{:unify_failed, a, b} | _] ->
-        %{
-          message: "#{inspect(a)} and #{inspect(b)} can't be the same.",
-          reason: {:unify_failed, a, b},
-          failed_on: failed_on,
-          trace: steps,
-          state: state
-        }
+  defp failure_cause(
+         [{:native_error, {method_id, {module, function}, exception_message}} | _],
+         _ancestry,
+         _failed_on,
+         state
+       ) do
+    label = native_label(method_id, state.branch)
 
-      [] ->
-        case root_cause_call(state.domino.trace, ancestry) do
-          {:method_call, _scope, self, method, args, _} ->
-            %{
-              message: "Goal failed: #{format_call(self, method, args)} had no matching clause.",
-              reason:
-                {:goal_failed,
-                 {:method_call, AL.Trace.pretty(self), method, AL.Trace.pretty(args)}},
-              failed_on: failed_on,
-              trace: steps,
-              state: state
-            }
+    {"native method #{label} (#{inspect(module)}.#{function}) raised: " <> exception_message,
+     {:native_error, method_id, {module, function}, exception_message}}
+  end
 
-          {:clause_call, _scope, method_id, call_args, _} ->
-            %{
-              message:
-                "Goal failed: #{inspect(method_id)}#{inspect(AL.Trace.pretty(call_args))} didn't match.",
-              reason: {:goal_failed, {:clause_call, method_id, AL.Trace.pretty(call_args)}},
-              failed_on: failed_on,
-              trace: steps,
-              state: state
-            }
+  defp failure_cause([{:unify_failed, a, b} | _], _ancestry, _failed_on, _state) do
+    {"#{inspect(a)} and #{inspect(b)} can't be the same.", {:unify_failed, a, b}}
+  end
 
-          nil ->
-            %{
-              message: "Goal failed: #{inspect(failed_on)}",
-              reason: {:goal_failed, failed_on},
-              failed_on: failed_on,
-              trace: steps,
-              state: state
-            }
-        end
+  defp failure_cause([], ancestry, failed_on, state) do
+    case root_cause_call(state.domino.trace, ancestry) do
+      {:method_call, _scope, self, method, args, _} ->
+        {"Goal failed: #{format_call(self, method, args)} had no matching clause.",
+         {:goal_failed, {:method_call, AL.Trace.pretty(self), method, AL.Trace.pretty(args)}}}
+
+      {:clause_call, _scope, method_id, call_args, _} ->
+        {"Goal failed: #{inspect(method_id)}#{inspect(AL.Trace.pretty(call_args))} didn't match.",
+         {:goal_failed, {:clause_call, method_id, AL.Trace.pretty(call_args)}}}
+
+      nil ->
+        {"Goal failed: #{inspect(failed_on)}", {:goal_failed, failed_on}}
     end
   end
 

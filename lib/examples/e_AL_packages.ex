@@ -31,6 +31,302 @@ defmodule Examples.ALPackages do
     :ok
   end
 
+  example active_users_build_relates_to_its_definitions() do
+    result =
+      AL.run do
+        active_build(:users, build)
+        findall(class, [originates_class(build, class)], classes)
+        findall([owner, selector], [adds_method(build, owner, selector)], methods)
+        findall([owner, superclass], [adds_superclass(build, owner, superclass)], superclasses)
+        findall(owner, [extends_class(build, owner)], extensions)
+      end
+
+    assert {:atomic, {bindings, _state}} = result
+    assert Enum.sort(bindings[:"$classes"]) == [:owned, :user]
+
+    assert Enum.sort(bindings[:"$methods"]) ==
+             Enum.sort([
+               [:owned, :does_not_understand],
+               [:owned, :guarded_send],
+               [:owned, :init],
+               [:owned, :may],
+               [:owned, :update]
+             ])
+
+    assert bindings[:"$extensions"] == []
+
+    assert Enum.sort(bindings[:"$superclasses"]) ==
+             Enum.sort([[:owned, :object], [:user, :object]])
+
+    :ok
+  end
+
+  example new_package_starts_with_an_empty_build_and_exports_its_live_source() do
+    branch = AL.Branch.fork(0, AL.Branch.main())
+    previous = AL.Branch.head()
+
+    root =
+      Path.join(System.tmp_dir!(), "al_new_package_#{System.unique_integer([:positive])}")
+
+    AL.Branch.checkout(branch)
+
+    try do
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.Bootstrap,
+                 AL.TransactionProgram.PackageSystem
+               ])
+
+      creation =
+        AL.run branch: branch.id do
+          new(
+            :package,
+            %{
+              name: :handmade_package,
+              version: 1,
+              deps: []
+            },
+            :handmade_package
+          )
+
+          active_build(:handmade_package, build)
+          class(build, :handmade_package)
+          build_status(build, :open)
+          originated_classes(build, [])
+          added_methods(build, [])
+          added_superclasses(build, [])
+
+          defclass :handmade_value, super: :object do
+            defmethod(:value, [_self, :made_in_al]) do
+              pass
+            end
+          end
+
+          include_class(build, :handmade_value)
+          originates_class(build, :handmade_value)
+          adds_method(build, :handmade_value, :value)
+          adds_superclass(build, :handmade_value, :object)
+        end
+
+      assert {:atomic, {creation_bindings, _}} = creation
+      build = creation_bindings[:"$build"]
+
+      assert {:ok,
+              %{
+                package: :handmade_package,
+                directory: ^root,
+                definitions: [:handmade_value],
+                build: ^build,
+                provider: provider
+              }} = AL.Package.export(:handmade_package, to: root, branch: branch)
+
+      assert is_atom(provider)
+
+      assert {:ok, %Document{name: :handmade_package, version: 1, deps: []}} =
+               AL.Package.manifest(root)
+
+      definition = File.read!(Path.join(root, "definitions/handmade_value.class.al"))
+      assert {:ok, document} = AL.Serialisation.Document.parse(definition)
+      assert document.owner == :handmade_value
+      assert document.supers == [:object]
+      assert Enum.map(document.methods, & &1.selector) == [:value]
+
+      sealed =
+        AL.run branch: branch.id do
+          active_build(:handmade_package, ^build)
+          build_status(^build, :complete)
+          build_provider(^build, ^provider)
+          build_digest(^build, _digest)
+          provides(^provider, :handmade_package)
+        end
+
+      assert {:atomic, _} = sealed
+
+      assert {:ok, %{build: ^build, provider: ^provider, changed?: false}} =
+               AL.Package.diff(:handmade_package, branch: branch)
+
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
+  example application_bootstrap_preserves_an_additional_live_package() do
+    branch = AL.Branch.fork()
+    previous = AL.Branch.head()
+    AL.Branch.checkout(branch)
+
+    try do
+      creation =
+        AL.run branch: branch.id do
+          new(:package, %{name: :working_package}, :working_package)
+          new(:class, %{name: :working_class}, :working_class)
+          active_build(:working_package, build)
+          include_class(build, :working_class)
+        end
+
+      assert {:atomic, _} = creation
+      assert :ok = AL.Application.bootstrap()
+
+      retained =
+        AL.run branch: branch.id do
+          active_build(:working_package, build)
+          build_status(build, :open)
+          class(:working_class, :class)
+          originates_class(build, :working_class)
+        end
+
+      assert {:atomic, _} = retained
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+    end
+  end
+
+  example package_builds_distinguish_class_origins_from_extensions() do
+    branch = AL.Branch.fork(0, AL.Branch.main())
+    previous = AL.Branch.head()
+    root = Path.expand("package_channels/composition", __DIR__)
+
+    export_root =
+      Path.join(System.tmp_dir!(), "al_package_composition_#{System.unique_integer([:positive])}")
+
+    AL.Branch.checkout(branch)
+
+    try do
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.Bootstrap,
+                 AL.TransactionProgram.PackageSystem
+               ])
+
+      assert {:ok, catalog} = AL.Package.discover([{:composition, root}], branch: branch)
+      assert {:ok, plan} = AL.Package.resolve(catalog, [:widget_rendering], branch: branch)
+      assert {:ok, realisation} = AL.Package.realise(plan, branch: branch)
+      assert {:ok, _} = AL.Package.activate(realisation, branch: branch, replace: true)
+
+      result =
+        AL.run branch: branch.id do
+          active_build(:widget_core, originator)
+          active_build(:widget_rendering, extender)
+          originates_class(originator, :composable_widget)
+          originates_class(extender, :renderable)
+          not [originates_class(extender, :composable_widget)]
+          adds_superclass(extender, :composable_widget, :renderable)
+          adds_method(extender, :composable_widget, :rendering_package)
+          findall(class, [extends_class(extender, class)], extensions)
+          super(:composable_widget, :renderable)
+          new(:composable_widget, widget)
+          rendering_package(widget, :widget_rendering)
+        end
+
+      assert {:atomic, {bindings, _}} = result
+      assert bindings[:"$extensions"] == [:composable_widget]
+
+      assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_core, branch: branch)
+      assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_rendering, branch: branch)
+
+      core_export = Path.join(export_root, "core")
+      rendering_export = Path.join(export_root, "rendering")
+
+      assert {:ok, _} = AL.Package.export(:widget_core, to: core_export, branch: branch)
+      assert {:ok, _} = AL.Package.export(:widget_rendering, to: rendering_export, branch: branch)
+
+      assert {:ok, core_document} =
+               core_export
+               |> Path.join("definitions/composable_widget.class.al")
+               |> File.read!()
+               |> AL.Serialisation.Document.parse()
+
+      assert core_document.kind == :class
+      assert core_document.supers == [:object]
+
+      assert {:ok, extension_document} =
+               rendering_export
+               |> Path.join("definitions/composable_widget.extension.al")
+               |> File.read!()
+               |> AL.Serialisation.Document.parse()
+
+      assert extension_document.kind == :extension
+      assert extension_document.supers == [:renderable]
+      assert Enum.map(extension_document.methods, & &1.selector) == [:rendering_package]
+
+      assert {:ok, core_plan} = AL.Package.resolve(catalog, [:widget_core], branch: branch)
+      assert {:ok, core_realisation} = AL.Package.realise(core_plan, branch: branch)
+      assert {:ok, _} = AL.Package.activate(core_realisation, branch: branch, replace: true)
+
+      after_removal =
+        AL.run branch: branch.id do
+          active_build(:widget_core, _originator)
+          not [active_build(:widget_rendering, _extender)]
+          not [super(:composable_widget, :renderable)]
+          not [vm_method(:composable_widget, :rendering_package, _method)]
+          new(:composable_widget, widget)
+          package_origin(widget, :widget_core)
+        end
+
+      assert {:atomic, _} = after_removal
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+      File.rm_rf!(export_root)
+    end
+  end
+
+  example package_diff_compares_live_definitions_with_provider_source() do
+    branch = AL.Branch.fork()
+    previous = AL.Branch.head()
+    AL.Branch.checkout(branch)
+
+    root =
+      Path.join(System.tmp_dir!(), "al_package_diff_#{System.unique_integer([:positive])}")
+
+    try do
+      assert {:ok, %{changed?: false, classes: clean_classes, methods: clean_methods}} =
+               AL.Package.diff(:users, branch: branch)
+
+      assert clean_classes == %{added: [], changed: [], removed: []}
+      assert clean_methods == %{added: [], changed: [], removed: []}
+
+      change =
+        AL.run branch: branch.id do
+          defmethod(:user, :blah, [self])
+        end
+
+      assert {:atomic, _} = change
+
+      assert {:ok,
+              %{
+                changed?: true,
+                classes: %{added: [], changed: [], removed: []},
+                methods: %{
+                  added: [[:user, :blah]],
+                  changed: [],
+                  removed: []
+                }
+              }} = AL.Package.diff(:users, branch: branch)
+
+      assert {:ok, %{package: :users, definitions: exported_definitions}} =
+               AL.Package.export(:users, to: root, branch: branch)
+
+      assert Enum.sort(exported_definitions) == [:owned, :user]
+
+      user_source = File.read!(Path.join(root, "definitions/user.class.al"))
+      assert {:ok, user_document} = AL.Serialisation.Document.parse(user_source)
+      assert Enum.any?(user_document.methods, &(&1.selector == :blah))
+
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
   example imports_a_portable_interval_package() do
     branch = AL.Branch.fork(0, AL.Branch.main())
     previous = AL.Branch.head()
@@ -71,6 +367,79 @@ defmodule Examples.ALPackages do
     after
       AL.Branch.checkout(previous)
       AL.Branch.discard(branch)
+    end
+  end
+
+  example exports_live_definitions_as_a_portable_package() do
+    author = AL.Branch.fork(0, AL.Branch.main())
+    consumer = AL.Branch.fork(0, AL.Branch.main())
+    previous = AL.Branch.head()
+
+    root =
+      Path.join(System.tmp_dir!(), "al_package_export_#{System.unique_integer([:positive])}")
+
+    try do
+      AL.Branch.checkout(author)
+
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.Bootstrap,
+                 AL.TransactionProgram.PackageSystem
+               ])
+
+      definition =
+        AL.run branch: author.id do
+          defclass :exported_value, super: :object do
+            defmethod(:value, [_self, :from_export]) do
+              pass
+            end
+          end
+        end
+
+      assert {:atomic, _} = definition
+
+      assert {:ok,
+              %{
+                package: :exported_tools,
+                directory: ^root,
+                definitions: [:exported_value]
+              }} =
+               AL.Package.export(:exported_tools,
+                 version: 3,
+                 deps: [],
+                 definitions: [:exported_value],
+                 to: root,
+                 branch: author
+               )
+
+      assert {:ok, %Document{name: :exported_tools, version: 3, deps: []}} =
+               AL.Package.manifest(root)
+
+      AL.Branch.checkout(consumer)
+
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.Bootstrap,
+                 AL.TransactionProgram.PackageSystem
+               ])
+
+      assert {:ok, %{package: :exported_tools, definitions: [:exported_value]}} =
+               AL.Package.import(root, branch: consumer)
+
+      result =
+        AL.run branch: consumer.id do
+          new(:exported_value, value)
+          value(value, :from_export)
+        end
+
+      assert {:atomic, _} = result
+
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(author)
+      AL.Branch.discard(consumer)
+      File.rm_rf!(root)
     end
   end
 

@@ -16,8 +16,14 @@ defmodule AL.Serialisation.Layout do
 
   @spec definition_path(root(), AL.Branch.t(), term()) :: Path.t()
   def definition_path(root, branch, owner) do
-    Path.join(definitions_dir(root, branch), segment(owner) <> ".class.al")
+    Path.join(definitions_dir(root, branch), definition_filename(owner))
   end
+
+  @spec definition_filename(term()) :: String.t()
+  def definition_filename(owner), do: segment(owner) <> ".class.al"
+
+  @spec definition_filename(term(), :class | :extension) :: String.t()
+  def definition_filename(owner, kind), do: segment(owner) <> ".#{kind}.al"
 
   @spec transaction_path(root(), AL.Branch.t(), non_neg_integer()) :: Path.t()
   def transaction_path(root, branch, tx) when is_integer(tx) and tx >= 0 do

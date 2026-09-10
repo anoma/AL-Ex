@@ -408,6 +408,8 @@ defmodule ALPackageImportTest do
   end
 
   test "package-system upgrades remove the experimental package classes", %{branch: branch} do
+    %{version: version} = AL.TransactionProgram.PackageSystem.__program__()
+
     setup_old_package =
       AL.run branch: branch.id do
         new(
@@ -434,10 +436,10 @@ defmodule ALPackageImportTest do
 
     assert {:atomic, {bindings, _}} = setup_old_package
     old_build = bindings[:"$old_build"]
-    refute AL.TransactionProgram.current?(:package_system, 6, branch)
+    refute AL.TransactionProgram.current?(:package_system, version, branch)
 
     assert {:atomic, _} = AL.TransactionProgram.PackageSystem.install()
-    assert AL.TransactionProgram.current?(:package_system, 6, branch)
+    assert AL.TransactionProgram.current?(:package_system, version, branch)
 
     query =
       AL.run branch: branch.id do
