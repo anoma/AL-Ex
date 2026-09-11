@@ -713,6 +713,7 @@ defmodule AL do
   def interp(%Goal.GetClass{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.GetCommand{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.TransactionSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
 

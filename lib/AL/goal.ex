@@ -32,6 +32,7 @@ defmodule AL.Goal do
           AL.Goal.GetClass.t()
           | AL.Goal.GetSuper.t()
           | AL.Goal.GetMethod.t()
+          | AL.Goal.GetCommand.t()
           | AL.Goal.GetOapply.t()
           | AL.Goal.MethodSource.t()
           | AL.Goal.TransactionSource.t()
@@ -160,6 +161,12 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:name, AL.Var.t())
     field(:id, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: GetCommand do
+    field(:transaction, AL.Var.t())
+    field(:time, AL.Var.t())
+    field(:operation, AL.Var.t())
   end
 
   typedstruct enforce: true, module: GetOapply do
@@ -461,6 +468,7 @@ defmodule AL.Goal do
     {GetClass, :get_class, [object: :term, class: :term]},
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
+    {GetCommand, :get_command, [transaction: :term, time: :term, operation: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
     {TransactionSource, :transaction_source, [tx: :term, text: :term, origin: :term]},
     {MethodSource, :method_source, [object: :term, seq: :term, text: :term, provenance: :term]},

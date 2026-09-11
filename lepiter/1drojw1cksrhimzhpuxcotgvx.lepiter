@@ -103,14 +103,14 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-06T18:19:18.23156+01:00"
+						"dateAndTimeString" : "2026-09-10T19:36:16.797295+01:00"
 					}
 				},
 				"uid" : {
 					"__type" : "uid",
 					"uidString" : "Zm0iHhRrRI6vjDW5/v71Ag=="
 				},
-				"code" : "Metacello new\n    repository: 'tonel:///home/jam/elixir/AL-Ex/src/gt';\n    baseline: 'AL';\n    load: #dev"
+				"code" : "Metacello new\n    repository: 'tonel:///home/jam/elixir/AL-Ex/src/gt';\n    baseline: 'AL';\r    onConflictUseIncoming ;\n    load."
 			},
 			{
 				"__type" : "textSnippet",
@@ -421,7 +421,7 @@
 					"__type" : "time",
 					"time" : {
 						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-06T17:14:00.948768+01:00"
+						"dateAndTimeString" : "2026-09-10T19:38:02.734431+01:00"
 					}
 				},
 				"uid" : {
@@ -429,40 +429,6 @@
 					"uidString" : "hXcXUszAQceFa/yrQZA3OQ=="
 				},
 				"code" : "%AL.Object{id: :blackjack}"
-			},
-			{
-				"__type" : "elixirSnippet",
-				"children" : {
-					"__type" : "snippets",
-					"items" : [ ]
-				},
-				"createEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"createTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-06T17:14:04.323411+01:00"
-					}
-				},
-				"editEmail" : {
-					"__type" : "email",
-					"emailString" : "<unknown>"
-				},
-				"editTime" : {
-					"__type" : "time",
-					"time" : {
-						"__type" : "dateAndTime",
-						"dateAndTimeString" : "2026-09-06T17:43:10.528481+01:00"
-					}
-				},
-				"uid" : {
-					"__type" : "uid",
-					"uidString" : "INqmYTzET4ujOwq1mbn4gg=="
-				},
-				"code" : "%AL.Object{id: :tx_476}"
 			},
 			{
 				"__type" : "elixirSnippet",

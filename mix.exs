@@ -8,6 +8,7 @@ defmodule AL.MixProject do
       app: :al,
       version: "0.2.2",
       elixir: "~> 1.18",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       dialyzer: dialyzer()
@@ -23,6 +24,9 @@ defmodule AL.MixProject do
       flags: [:no_opaque]
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 
   # Run "mix help compile.app" to learn about applications.
   def application do

@@ -22,7 +22,7 @@ defmodule ALSourceProjectionTest do
   end
 
   test "every stored clause decompiles to renderable source" do
-    branch = AL.Branch.fork_fresh()
+    branch = AL.TestBranch.fork()
 
     try do
       offenders =
@@ -40,7 +40,7 @@ defmodule ALSourceProjectionTest do
   end
 
   test "rendering, reparsing and rerendering any clause is a fixpoint" do
-    branch = AL.Branch.fork_fresh()
+    branch = AL.TestBranch.fork()
 
     try do
       offenders =

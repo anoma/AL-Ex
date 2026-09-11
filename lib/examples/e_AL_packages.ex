@@ -20,7 +20,10 @@ defmodule Examples.ALPackages do
                ])
 
       assert {:ok, before} = AL.Serialisation.Snapshot.capture(branch)
-      assert {:ok, catalog} = AL.Package.discover(AL.Package.configured_channels(), branch: branch)
+
+      assert {:ok, catalog} =
+               AL.Package.discover(AL.Package.configured_channels(), branch: branch)
+
       assert {:ok, plan} = AL.Package.resolve(catalog, [:euler, :blackjack], branch: branch)
       assert {:ok, realisation} = AL.Package.realise(plan, branch: branch)
       assert {:ok, _} = AL.Package.activate(realisation, branch: branch)

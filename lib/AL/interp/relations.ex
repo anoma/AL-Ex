@@ -133,6 +133,27 @@ defmodule AL.Interp.Relations do
         {:method, object, name, id}
       )
 
+  def interp(
+        %Goal.GetCommand{transaction: transaction, time: time, operation: operation},
+        state
+      ) do
+    transaction = AL.Var.deref(store(state), transaction)
+
+    rows =
+      if AL.Var.var?(transaction) do
+        AL.Command.commands_since(0, state.branch)
+      else
+        AL.Command.commands_for_transaction(transaction, state.branch)
+      end
+
+    rows =
+      Enum.map(rows, fn {:command, command_time, command_transaction, command_operation} ->
+        {command_transaction, command_time, command_operation}
+      end)
+
+    scan_relation(state, rows, {transaction, time, operation})
+  end
+
   def interp(%Goal.TransactionSource{tx: tx, text: text, origin: origin}, state) do
     rows =
       if AL.Var.var?(tx) do

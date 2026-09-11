@@ -197,18 +197,48 @@ connection. Add it to Claude Code with:
 claude mcp add --transport http --scope project almcp http://localhost:3031/mcp
 ```
 
-The initial tools are:
+The server exposes:
 
 - `evaluate` evaluates Elixir inside the live owner node for inspection and
-  administration.
+  administration. It is an expert escape hatch and may mutate runtime state.
 - `evaluateSource` parses, retains, and evaluates complete AL source on an
   existing branch. It uses AL's normal transaction machinery and returns the
   committed or failed transaction object.
+- `queryAL` executes complete retained AL source as an ordinary transaction and
+  returns structured bindings plus public constraint summaries. Its tagged term
+  encoding distinguishes variables, atoms, binaries, integers, floats, tuples,
+  maps, proper lists, and improper-list tails without changing AL identities.
 - `listBranches` identifies the current HEAD and each branch's command-log
   position.
+- `searchDefinitions` searches owners, comments, selectors, declarations, and
+  method bodies, returning names that can be passed to the inspection tools.
+- `findReferences` runs an AL relational observation to find structural uses of
+  a class, selector, method, or other named object.
+- `inspectObject`, `inspectMethod`, and `explainMethodLookup` run AL observations
+  over the object model and dispatch order without requiring raw Elixir.
+- `inspectTransaction` runs an AL observation for semantic transaction data and
+  combines it with paginated durable commands.
+- `inspectFailure` runs an AL relational observation over a failed transaction
+  and returns its cause, source, method path, state summary, and trace.
+- `diffBranches` compares definition snapshots and reports semantic metadata and
+  method changes rather than raw table rows.
+- `listPackages` and `inspectPackage` query the active package environment,
+  builds, and providers through ordinary AL relations.
+
+Read tools accept an explicit branch and return both structured JSON and a text
+rendering. Named object, method, and package inputs resolve existing atoms only;
+client input never creates atoms. This MCP work does not change AL's identity
+representation.
+
+Semantic inspectors deliberately create ordinary AL history. Their results
+identify the observation transaction, and their MCP annotations mark them as
+history-producing but non-destructive rather than read-only. Definition search
+and branch diffing remain read-only projection-index operations.
 
 The server binds only to loopback. Its `evaluate` tool provides arbitrary code
-execution to local MCP clients, like GT MCP's evaluator.
+execution to local MCP clients, like GT MCP's evaluator. Prefer `queryAL` for
+ad hoc AL queries and `evaluateSource` when a compact human-readable binding
+summary is sufficient; both create normal retained AL history and may write.
 
 ## Installing into Glamorous Toolkit
 

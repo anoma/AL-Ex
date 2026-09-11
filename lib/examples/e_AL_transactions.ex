@@ -54,4 +54,30 @@ defmodule Examples.ALTransactions do
     assert tx_of.(a) != tx_of.(b)
     :ok
   end
+
+  example commands_are_available_as_a_relation() do
+    object = fresh_id()
+
+    {:atomic, {_bindings, written}} =
+      run branch: :examples do
+        vm_set_class(^object, :object)
+      end
+
+    {:atomic, {bindings, _}} =
+      run branch: :examples do
+        findall(
+          [time, operation],
+          [vm_command(^written.tx_id, time, operation)],
+          commands
+        )
+      end
+
+    assert [[time, {:set_class, {^object, :object}}]] =
+             Enum.filter(Map.get(bindings, :"$commands"), fn
+               [_time, {:set_class, {^object, :object}}] -> true
+               _command -> false
+             end)
+
+    assert is_integer(time)
+  end
 end

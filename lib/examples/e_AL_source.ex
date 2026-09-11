@@ -89,7 +89,7 @@ defmodule Examples.ALSource do
   end
 
   example listing_prints_a_methods_clauses_via_print_object_dispatch() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     class = fresh_id("listing_class")
 
     try do

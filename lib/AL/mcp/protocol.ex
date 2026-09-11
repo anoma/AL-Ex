@@ -37,7 +37,7 @@ defmodule AL.MCP.Protocol do
        "capabilities" => %{"tools" => %{"listChanged" => false}},
        "serverInfo" => %{"name" => "al", "version" => version},
        "instructions" =>
-         "This server operates inside the live AL owner node. Use evaluateSource for AL mutations so source retention and transaction objects are preserved."
+         "AL is a branch-aware object-oriented logic system. Start with listBranches, use searchDefinitions to discover names, and pass explicit branches to semantic tools. Semantic inspectors execute ordinary AL observation runs and return the history they create; searchDefinitions and diffBranches are projection-index operations and remain read-only. Prefer semantic tools over evaluate. Use queryAL for ad hoc AL execution with losslessly tagged bindings and public constraints; use evaluateSource when its compact human-readable binding summary is sufficient. Both execute retained AL source as normal transactions and may write. evaluate is an expert Elixir escape hatch and may mutate runtime state. Named inputs refer only to existing atoms."
      }}
   end
 

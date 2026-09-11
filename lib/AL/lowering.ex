@@ -73,6 +73,13 @@ defmodule AL.Lowering do
       id: ast_to_pattern(id)
     }
 
+  def ast_to_pattern({:vm_command, _, [transaction, time, operation]}),
+    do: %Goal.GetCommand{
+      transaction: ast_to_pattern(transaction),
+      time: ast_to_pattern(time),
+      operation: ast_to_pattern(operation)
+    }
+
   def ast_to_pattern({:vm_clause, _, [object, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),

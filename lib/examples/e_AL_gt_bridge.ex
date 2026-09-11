@@ -140,7 +140,7 @@ defmodule Examples.ALGtBridge do
   end
 
   example failed_transactions_remain_inspectable() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     source = "fail()\n"
 
     try do
