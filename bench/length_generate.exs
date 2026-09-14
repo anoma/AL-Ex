@@ -18,7 +18,7 @@ defmodule Bench.LengthGenerate do
   use AL
 
   def generate(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       length(xs, ^n)
     end
   end

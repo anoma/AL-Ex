@@ -66,7 +66,7 @@ Self-modify Autolith only when recurring AL work exposes stable workflow frictio
 
 1. State the behavioral contract and the AL invariants it touches.
 2. Reproduce before editing. Prefer a disposable AL branch or isolated Mnesia store.
-3. Use existing structured traces before adding instrumentation: `run vm_trace: true do ... end`, `AL.Trace.render/1`, failure diagnostics, and `reason.state`.
+3. Use existing structured traces before adding instrumentation: `run trace_mode: :full_trace do ... end`, `AL.Trace.render/1`, failure diagnostics, and `reason.state`.
 4. Reduce the failure to the owning subsystem.
 5. For a subtle semantic change, build a minimal S-expression model or executable Lisp counterexample.
 6. Design the smallest complete vertical change. For durable behavior, include event, projection, hydration, cache, branch, and trace consequences.

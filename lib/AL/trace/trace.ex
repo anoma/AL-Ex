@@ -73,9 +73,9 @@ defmodule AL.Trace do
   defp level_label(:method), do: "Method "
   defp level_label(:clause), do: "Clause "
 
-  # Post-hoc readable rendering of a completed run's `trace` -- domino
-  # events always, a raw goal or `:backtrack`/`:flounder` interleaved in
-  # only when the run opted in (`run vm_trace: true do ... end`). One
+  # Post-hoc readable rendering of an opted-in run's `trace` -- domino
+  # events in derivation mode, with raw goals and `:backtrack`/`:flounder`
+  # interleaved in `:full_trace` mode. One
   # walk, one function: depth is reconstructed as it goes (Call opens a
   # level, Exit/Fail closes it back to its own Call's depth, Redo doesn't
   # change depth -- it's a sibling attempt, not a new level), and anything
@@ -272,7 +272,7 @@ defmodule AL.Trace do
   defp tree_step(%AL.Goal.InDomain{} = goal, acc, store),
     do: attach_constraint_leaf(goal, acc, store)
 
-  # A raw goal (vm_trace was on, not one of the four constraint types above),
+  # A raw goal from `:full_trace` mode (not one of the constraint types above),
   # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
   # `render/1`'s job.
   defp tree_step(_other, acc, _store), do: acc

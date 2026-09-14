@@ -748,8 +748,7 @@ defmodule AL.Dispatch do
   # diagnostic that's actually reported.
   defp record_dnu(state, self, method, args) do
     inner = {self, method, length(args), state.branch}
-    entry = {state.active_choicepoint.scope_pointer, inner}
-    %AL{state | diagnostics: [entry | state.diagnostics]}
+    AL.record_diagnostic(state, inner)
   end
 
   @doc "Rank known selectors on `self` by similarity to `method`, for a \"did you mean\"."

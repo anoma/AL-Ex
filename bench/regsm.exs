@@ -32,7 +32,7 @@ defmodule Bench.Regsm do
 
   def install(branch, p) do
     {:atomic, _} =
-      run branch: branch.id do
+      run branch: branch.id, trace_mode: :no_trace do
         defmethod(:number, :regsm_entry, [1, 1, 1, 0])
 
         defmethod(:number, :regsm_entry, [x, a, b, q]) do
@@ -64,13 +64,13 @@ defmodule Bench.Regsm do
   end
 
   def entry(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       regsm_entry(^n, out, _b, _q)
     end
   end
 
   def body(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       regsm_body(^n, out, _b, _q)
     end
   end

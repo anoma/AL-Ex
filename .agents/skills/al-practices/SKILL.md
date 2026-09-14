@@ -179,8 +179,10 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 
 ## Reading a trace
 
-- `run vm_trace: true do ... end` interleaves raw goals into a run's own
-  `state.domino.trace`; `AL.Trace.render/1` prints it readably. `iex -S mix
+- `run trace_mode: :full_trace do ... end` interleaves raw goals into a run's
+  own `state.domino.trace`; `AL.Trace.render/1` prints it readably.
+  `:derivation_trace` retains structured evidence for extraction and ZK
+  verification. The default `:no_trace` retains no execution history. `iex -S mix
   debug` configures `IEx.configure(inspect: [limit: :infinity, charlists:
   :as_lists])` so a long trace doesn't truncate mid-read. See al-internals'
   "The domino tracing model" for what the trace actually contains and why.

@@ -391,8 +391,11 @@ takes a trailing `branch \\ :main`.
 
 ## The domino tracing model (`AL.Domino`, `lib/AL/trace/`)
 
-`state.domino.trace` is a structured call-tree log, always on and cheap
-(bounded by call structure, not reduction count): 4 ports — Call/Exit/Redo/
+`state.domino.trace` is a structured call-tree log controlled by
+`trace_mode`. `:no_trace` is the default and retains no execution history,
+`:derivation_trace` produces structured evidence for extraction and ZK
+verification, and `:full_trace` also interleaves every VM goal. The traced
+modes record 4 ports — Call/Exit/Redo/
 Fail — at 2 levels, **method** (dispatch picking a provider, can itself
 backtrack over candidate classes) wrapping **clause** (which clause of the
 chosen method runs). Same Byrd-box framing classic Prolog tracers use, doubled
@@ -409,7 +412,7 @@ scope: `%{parent, kind, open_vars, exited}`) is the bookkeeping that makes
 this possible — set at Call, read at Exit/Redo/Fail, deleted at Fail.
 
 Raw goals plus `:backtrack`/`:flounder` only join the same list when a run
-opts in (`run vm_trace: true do ... end`) — interleaved in chronological
+uses `trace_mode: :full_trace` — interleaved in chronological
 order, so a raw goal sits right next to the Call that's its context, no
 cross-referencing needed. `AL.Trace.render/1` prints either shape
 (reconstructs depth by walking Call/Exit as it goes), through the same

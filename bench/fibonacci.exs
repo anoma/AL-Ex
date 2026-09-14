@@ -24,13 +24,13 @@ defmodule Bench.Fibonacci do
   use AL
 
   def forward(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       fibonacci(^n, out)
     end
   end
 
   def backward(branch, target) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       fibonacci(n, ^target)
     end
   end

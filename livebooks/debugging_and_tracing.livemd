@@ -77,13 +77,13 @@ end
 
 ## The domino tracing model
 
-AL's trace is called "domino" internally, and and is built on the classic Prolog tracer model: a "Byrd box" for every call, with four ports — `Call`, `Exit`, `Redo`, `Fail`. Plain Prolog needs one box per predicate call. AL needs two, stacked: a **method** box (dispatch choosing which provider answers a selector), which wraps a **clause** box (which clause of the chosen method actually runs). Every send opens because AL has dispatch sitting on top of clause selection, whereas Prolog only has the latter.
+AL's trace is called "domino" internally and is built on the classic Prolog tracer model: a "Byrd box" for every call, with four ports — `Call`, `Exit`, `Redo`, `Fail`. Plain Prolog needs one box per predicate call. AL needs two, stacked: a **method** box (dispatch choosing which provider answers a selector), which wraps a **clause** box (which clause of the chosen method actually runs). Every send opens because AL has dispatch sitting on top of clause selection, whereas Prolog only has the latter.
 
-The trace is always being recorded, cheaply, whether or not you ask to see it printed- `state.domino.trace` holds it on every run, traced or not.
+Retained traces are opt-in. Use `trace_mode: :derivation_trace` when you need the structured evidence stream; ordinary runs retain no trace.
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run do
+  run trace_mode: :derivation_trace do
     fibonacci(3, x)
   end
 
@@ -124,7 +124,7 @@ end
 AL.notrace()
 ```
 
-There's also a `vm_trace: true` option on `run` that interleaves the raw goals themselves into the same trace, alongside the `Call`/`Exit` events. It is a deeper knob than most debugging needs, but there if you want to see every goal AL actually executed, not just the method/clause ports.
+`run` accepts three trace modes. The default, `trace_mode: :no_trace`, retains no execution history. `trace_mode: :derivation_trace` retains structured method/clause and constraint evidence for extraction and ZK verification. `trace_mode: :full_trace` also interleaves every raw goal into that same trace when you need to inspect everything AL executed.
 
 Dispatch on an open receiver can have several candidate legs- a value/ephemeral leg and a durable leg, at minimum. Tracing shows which legs are being considered before a match is even found.
 
@@ -152,7 +152,7 @@ AL.notrace()
 `AL.Trace.derivation_tree/1` turns a run's trace into real nested nodes instead of indented text you have to read by eye. 
 ```elixir
 {:atomic, {bindings, state}} =
-  run do
+  run trace_mode: :derivation_trace do
     fibonacci(3, x)
   end
 
@@ -175,7 +175,7 @@ end
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run do
+  run trace_mode: :derivation_trace do
     new(:redo_demo, %{}, obj)
     pick(obj, result)
     unify(result, :second)
@@ -218,7 +218,7 @@ end
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run do
+  run trace_mode: :derivation_trace do
     new(:probe_box, %{}, obj)
     probe_answer(obj, r)
   end
@@ -249,7 +249,7 @@ end
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run do
+  run trace_mode: :derivation_trace do
     new(:triple_class, %{}, obj)
     triple(obj, 4, r)
   end

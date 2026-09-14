@@ -239,29 +239,21 @@ defmodule AL.Native do
   # pre-existing DNU clause would otherwise silently swallow any
   # same-arity native diagnostic tuple regardless of its actual tag.
   defp record_native_missing(state, method_id, mfa) do
-    entry = {state.active_choicepoint.scope_pointer, {:native_missing, {method_id, mfa}}}
-    %AL{state | diagnostics: [entry | state.diagnostics]}
+    AL.record_diagnostic(state, {:native_missing, {method_id, mfa}})
   end
 
   defp record_native_mismatch(state, method_id, expected, actual) do
-    entry =
-      {state.active_choicepoint.scope_pointer, {:native_mismatch, {method_id, expected, actual}}}
-
-    %AL{state | diagnostics: [entry | state.diagnostics]}
+    AL.record_diagnostic(state, {:native_mismatch, {method_id, expected, actual}})
   end
 
   defp record_input_not_ground(state, method_id, position) do
-    entry =
-      {state.active_choicepoint.scope_pointer, {:native_input_not_ground, {method_id, position}}}
-
-    %AL{state | diagnostics: [entry | state.diagnostics]}
+    AL.record_diagnostic(state, {:native_input_not_ground, {method_id, position}})
   end
 
   defp record_native_error(state, method_id, {module, function}, exception) do
-    entry =
-      {state.active_choicepoint.scope_pointer,
-       {:native_error, {method_id, {module, function}, Exception.message(exception)}}}
-
-    %AL{state | diagnostics: [entry | state.diagnostics]}
+    AL.record_diagnostic(
+      state,
+      {:native_error, {method_id, {module, function}, Exception.message(exception)}}
+    )
   end
 end

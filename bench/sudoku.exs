@@ -45,7 +45,7 @@ defmodule Bench.Sudoku do
   def hard_puzzle, do: @hard_puzzle
 
   def solve(branch, givens) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
       solve(puzzle, solved)
     end

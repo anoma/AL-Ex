@@ -14,6 +14,11 @@ defmodule AL.Choicepoint do
   """
   use TypedStruct
 
+  @type failure_call() ::
+          {:method_call, AL.scope(), term(), term(), [term()], %{}}
+          | {:clause_call, AL.scope(), term(), term(), %{}}
+  @type failure_frame() :: {AL.scope(), AL.scope(), :method | :clause, failure_call()}
+
   typedstruct enforce: true do
     field(:goals, [AL.Goal.t()], enforce: true, default: [])
     field(:done, [AL.Goal.t()], enforce: true, default: [])
@@ -23,5 +28,6 @@ defmodule AL.Choicepoint do
     field(:source_scopes, [AL.Source.Ref.capture_id()], default: [])
     field(:suspensions, %{optional(AL.Var.t()) => [AL.Goal.t()]}, default: %{})
     field(:clause, non_neg_integer() | nil, default: nil)
+    field(:failure_context, [failure_frame()], default: [])
   end
 end

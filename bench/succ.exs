@@ -1,4 +1,5 @@
 # mix run bench/succ.exs                     -- Benchee sweep, both variants
+# mix run bench/succ.exs N                   -- benchmark one input size
 # mix run bench/succ.exs --profile dispatch N -- per-function time via :eprof
 # mix run bench/succ.exs --profile oapply N
 #
@@ -30,13 +31,13 @@ defmodule Bench.Succ do
   use AL
 
   def dispatch(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       count_to(0, ^n)
     end
   end
 
   def oapply(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       count_to_via_oapply(0, ^n)
     end
   end
@@ -50,6 +51,19 @@ defmodule Bench.Succ do
       AL.Branch.discard(branch)
     end
   end
+end
+
+run_benchmark = fn ns ->
+  inputs = for n <- ns, do: {"n=#{n}", n}
+
+  Bench.Support.run(
+    %{
+      "full dispatch every step" => Bench.Support.branch_job(&Bench.Succ.dispatch/2),
+      "resolve once, raw oapply loop" => Bench.Support.branch_job(&Bench.Succ.oapply/2)
+    },
+    title: "Successor dispatch",
+    inputs: inputs
+  )
 end
 
 case System.argv() do
@@ -71,15 +85,12 @@ case System.argv() do
       fn -> Bench.Succ.profile(:oapply, n) end
     )
 
-  _ ->
-    inputs = for n <- [1_000, 5_000, 10_000, 50_000], do: {"n=#{n}", n}
+  [] ->
+    run_benchmark.([1_000, 5_000, 10_000, 50_000])
 
-    Bench.Support.run(
-      %{
-        "full dispatch every step" => Bench.Support.branch_job(&Bench.Succ.dispatch/2),
-        "resolve once, raw oapply loop" => Bench.Support.branch_job(&Bench.Succ.oapply/2)
-      },
-      title: "Successor dispatch",
-      inputs: inputs
-    )
+  [n] ->
+    run_benchmark.([String.to_integer(n)])
+
+  args ->
+    raise ArgumentError, "unexpected arguments: #{inspect(args)}"
 end
