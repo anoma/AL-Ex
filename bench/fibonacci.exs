@@ -1,4 +1,4 @@
-# mix run bench/fibonacci.exs                    -- timing sweep, forward + backward
+# mix run bench/fibonacci.exs                    -- Benchee sweep, forward + backward
 # mix run bench/fibonacci.exs --profile forward N -- per-function time via :eprof
 # mix run bench/fibonacci.exs --profile backward N
 #
@@ -18,122 +18,73 @@
 # were tried — this sweep is what confirms that empirically rather than by
 # argument.
 
+Code.require_file("support.exs", __DIR__)
+
 defmodule Bench.Fibonacci do
   use AL
 
-  def forward_one(n) do
-    branch = AL.Branch.fork()
-
-    {time_us, result} =
-      :timer.tc(fn ->
-        run branch: branch.id do
-          fibonacci(^n, out)
-        end
-      end)
-
-    AL.Branch.discard(branch)
-    {time_us, result}
+  def forward(branch, n) do
+    run branch: branch.id do
+      fibonacci(^n, out)
+    end
   end
 
-  def backward_one(target) do
-    branch = AL.Branch.fork()
-
-    {time_us, result} =
-      :timer.tc(fn ->
-        run branch: branch.id do
-          fibonacci(n, ^target)
-        end
-      end)
-
-    AL.Branch.discard(branch)
-    {time_us, result}
+  def backward(branch, target) do
+    run branch: branch.id do
+      fibonacci(n, ^target)
+    end
   end
 
-  def profile_forward(n) do
-    branch = AL.Branch.fork()
-
-    result =
-      run branch: branch.id do
-        fibonacci(^n, out)
-      end
-
-    AL.Branch.discard(branch)
-    result
+  def fibonacci_number(n) do
+    Stream.unfold({0, 1}, fn {a, b} -> {a, {b, a + b}} end) |> Enum.at(n)
   end
 
-  def profile_backward(target) do
+  def profile(function, input) do
     branch = AL.Branch.fork()
 
-    result =
-      run branch: branch.id do
-        fibonacci(n, ^target)
-      end
-
-    AL.Branch.discard(branch)
-    result
+    try do
+      apply(__MODULE__, function, [branch, input])
+    after
+      AL.Branch.discard(branch)
+    end
   end
-end
-
-GtBridge.Xref.wait_until_ready()
-
-# The nth Fibonacci number, computed natively — used to pick backward-mode
-# targets that actually have a solution, and to label the sweep with n
-# instead of forcing the reader to do this arithmetic themselves.
-fib = fn n ->
-  Stream.unfold({0, 1}, fn {a, b} -> {a, {b, a + b}} end) |> Enum.at(n)
-end
-
-status = fn
-  {:atomic, _} -> "ok"
-  {:aborted, %{reason: reason}} -> "aborted: #{inspect(reason)}"
 end
 
 case System.argv() do
   ["--profile", "forward", n] ->
     n = String.to_integer(n)
-    IO.puts("Profiling forward fibonacci(#{n}, X)...")
 
-    Bench.Fibonacci.profile_forward(1)
-
-    :eprof.start()
-    {status, _} = :eprof.profile([self()], Bench.Fibonacci, :profile_forward, [n])
-    IO.puts("status: #{inspect(status)}")
-    :eprof.stop_profiling()
-    :eprof.analyze(:total)
-    :eprof.stop()
+    Bench.Support.profile(
+      "forward fibonacci(#{n}, X)",
+      fn -> Bench.Fibonacci.profile(:forward, 1) end,
+      fn -> Bench.Fibonacci.profile(:forward, n) end
+    )
 
   ["--profile", "backward", n] ->
     n = String.to_integer(n)
-    target = fib.(n)
-    IO.puts("Profiling backward fibonacci(N, #{target})... (n = #{n})")
+    target = Bench.Fibonacci.fibonacci_number(n)
 
-    Bench.Fibonacci.profile_backward(1)
-
-    :eprof.start()
-    {status, _} = :eprof.profile([self()], Bench.Fibonacci, :profile_backward, [target])
-    IO.puts("status: #{inspect(status)}")
-    :eprof.stop_profiling()
-    :eprof.analyze(:total)
-    :eprof.stop()
+    Bench.Support.profile(
+      "backward fibonacci(N, #{target}) (n = #{n})",
+      fn -> Bench.Fibonacci.profile(:backward, 1) end,
+      fn -> Bench.Fibonacci.profile(:backward, target) end
+    )
 
   _ ->
     # Forward mode is genuinely exponential (~13x per +5 here) — n=25 takes
     # ~15s, n=30 ~3min. This range finishes in a few seconds; pass a larger
     # single n via --profile to look past it deliberately.
-    ns = [5, 10, 15, 20]
+    inputs = for n <- [5, 10, 15, 20], do: {"n=#{n}", n}
 
-    IO.puts("forward fibonacci(n, X):")
-
-    for n <- ns do
-      {time_us, result} = Bench.Fibonacci.forward_one(n)
-      IO.puts("  n=#{n}\t#{Float.round(time_us / 1000, 2)}ms\t#{status.(result)}")
-    end
-
-    IO.puts("backward fibonacci(N, x) for x = fibonacci(n):")
-
-    for n <- ns do
-      target = fib.(n)
-      {time_us, result} = Bench.Fibonacci.backward_one(target)
-      IO.puts("  n=#{n} (x=#{target})\t#{Float.round(time_us / 1000, 2)}ms\t#{status.(result)}")
-    end
+    Bench.Support.run(
+      %{
+        "forward fibonacci(n, X)" => Bench.Support.branch_job(&Bench.Fibonacci.forward/2),
+        "backward fibonacci(N, fibonacci(n))" =>
+          Bench.Support.branch_job(fn branch, n ->
+            Bench.Fibonacci.backward(branch, Bench.Fibonacci.fibonacci_number(n))
+          end)
+      },
+      title: "Fibonacci",
+      inputs: inputs
+    )
 end

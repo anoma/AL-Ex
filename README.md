@@ -178,6 +178,25 @@ AL.Branch.discard(fork) <- discard the fork
 
 Further isolation should be accomplished by configuration of the Mnesiastore dir.
 
+## Benchmarks
+
+The benchmark suites under `bench/` use Benchee. Run a suite with `mix run`, for
+example:
+
+```console
+mix run bench/succ.exs
+mix run bench/fibonacci.exs
+mix run bench/length_generate.exs
+mix run bench/sudoku.exs --hard
+mix run bench/regsm.exs entry 1000 7919
+```
+
+Benchee defaults to two seconds of warmup and five seconds of measurement per
+scenario. Set `BENCH_WARMUP` and `BENCH_TIME` to non-negative numbers to adjust
+those durations. `BENCH_MEMORY_TIME` and `BENCH_REDUCTION_TIME` opt into Benchee's
+memory and reduction measurements. The existing `--profile` modes remain
+available for targeted `:eprof` runs.
+
 ## Working with the live AL node over MCP
 
 The AL owner node starts an MCP server on `http://127.0.0.1:3031/mcp`. Joining

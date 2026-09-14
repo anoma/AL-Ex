@@ -46,6 +46,7 @@ defmodule AL.MixProject do
       {:file_system, "~> 1.0"},
       {:jason, "~> 1.4"},
       {:plug_cowboy, "~> 2.7"},
+      {:benchee, "~> 1.5", only: :dev},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
