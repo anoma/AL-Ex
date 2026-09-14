@@ -10,13 +10,6 @@ defmodule Examples.ALTasks do
   use AL
   import ExUnit.Assertions
 
-  # A worker whose handler both performs its effect and notifies a registered
-  # `:process` — the same synchronization `Examples.ALConstraints` uses:
-  # `send_async`'s scheduler pickup has no ordering guarantee against the test
-  # process's own next line, so waiting means an actual signal (a blocking
-  # `receive`), not a guessed `Process.sleep` duration. `name`/`subscriber` are
-  # unique per caller so two examples registering their own worker never
-  # accrete onto (or race with) each other's clauses.
   defp register_worker(name, subscriber, pid) do
     {:atomic, _} =
       run branch: :examples do
@@ -75,5 +68,140 @@ defmodule Examples.ALTasks do
 
     await_handled(:async_obj_2)
     assert processed?(:async_obj_2)
+  end
+
+  example watcher_receives_changed_after_a_watched_object_commits() do
+    pid = self()
+
+    {:atomic, _} =
+      run branch: :examples do
+        new(:process, %{name: :watch_signal, pid: ^pid}, _)
+        defclass :watch_target_class, super: :object, ivars: [:value] do
+        end
+
+        new(:watch_target_class, %{name: :watch_target, value: 0}, _)
+        new(:watcher, %{name: :watcher_instance, watch: :watch_target}, _)
+
+        defmethod(:watcher_instance, :changed, [self, object]) do
+          get(:watch_signal, :pid, p)
+          get(object, :value, value)
+          functor(message, :changed, [object, value])
+          send_elixir(p, message)
+        end
+      end
+
+    refute_receive {:changed, :watch_target, _}, 50
+
+    {:atomic, _} =
+      run branch: :examples do
+        set_slot(:watch_target, :value, 1)
+      end
+
+    assert_receive {:changed, :watch_target, 1}, 1000
+  end
+
+  example watcher_can_replace_a_multi_object_watch_set() do
+    pid = self()
+
+    {:atomic, _} =
+      run branch: :examples do
+        new(:process, %{name: :multi_watch_signal, pid: ^pid}, _)
+        defclass :multi_watch_target_class, super: :object, ivars: [:value] do
+        end
+
+        new(:multi_watch_target_class, %{name: :multi_watch_a, value: 0}, _)
+        new(:multi_watch_target_class, %{name: :multi_watch_b, value: 0}, _)
+        new(:watcher, %{name: :multi_watcher, watch: [:multi_watch_a]}, _)
+
+        defmethod(:multi_watcher, :changed, [self, object]) do
+          get(:multi_watch_signal, :pid, p)
+          functor(message, :changed, [object])
+          send_elixir(p, message)
+        end
+
+        set_slot(:multi_watcher, :watch, [:multi_watch_b])
+        set_slot(:multi_watch_a, :value, 1)
+        set_slot(:multi_watch_b, :value, 1)
+      end
+
+    assert_receive {:changed, :multi_watch_b}, 1000
+    refute_receive {:changed, :multi_watch_a}, 100
+  end
+
+  example watcher_delivery_rolls_back_with_a_failed_mutation() do
+    pid = self()
+
+    {:atomic, _} =
+      run branch: :examples do
+        new(:process, %{name: :rollback_watch_signal, pid: ^pid}, _)
+        vm_set_class(:rollback_watch_target, :object)
+        new(:watcher, %{name: :rollback_watcher, watch: :rollback_watch_target}, _)
+
+        defmethod(:rollback_watcher, :changed, [self, object]) do
+          get(:rollback_watch_signal, :pid, p)
+          functor(message, :changed, [object])
+          send_elixir(p, message)
+        end
+      end
+
+    {:aborted, _} =
+      run branch: :examples do
+        vm_set_slot(:rollback_watch_target, :value, 1)
+        fail()
+      end
+
+    refute_receive {:changed, :rollback_watch_target}, 100
+  end
+
+  example watcher_index_rehydrates_on_a_fork() do
+    pid = self()
+
+    {:atomic, _} =
+      run branch: :examples do
+        new(:process, %{name: :fork_watch_signal, pid: ^pid}, _)
+        vm_set_class(:fork_watch_target, :object)
+        new(:watcher, %{name: :fork_watcher, watch: :fork_watch_target}, _)
+
+        defmethod(:fork_watcher, :changed, [self, object]) do
+          get(:fork_watch_signal, :pid, p)
+          functor(message, :changed, [object])
+          send_elixir(p, message)
+        end
+      end
+
+    branch = AL.Branch.fork(:tip, %AL.Branch{id: :examples})
+
+    try do
+      {:atomic, _} =
+        run branch: branch.id do
+          vm_set_slot(:fork_watch_target, :value, 1)
+        end
+
+      assert_receive {:changed, :fork_watch_target}, 1000
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
+  example a_watch_slot_does_not_make_an_object_a_watcher() do
+    pid = self()
+
+    {:atomic, _} =
+      run branch: :examples do
+        new(:process, %{name: :lookalike_watch_signal, pid: ^pid}, _)
+        vm_set_class(:lookalike_watch_target, :object)
+        vm_set_class(:lookalike_watcher, :object)
+        vm_set_slot(:lookalike_watcher, :watch, :lookalike_watch_target)
+
+        defmethod(:lookalike_watcher, :changed, [self, object]) do
+          get(:lookalike_watch_signal, :pid, p)
+          functor(message, :changed, [object])
+          send_elixir(p, message)
+        end
+
+        vm_set_slot(:lookalike_watch_target, :value, 1)
+      end
+
+    refute_receive {:changed, :lookalike_watch_target}, 100
   end
 end

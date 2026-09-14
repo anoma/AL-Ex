@@ -4,7 +4,9 @@ defmodule AL.Object do
   command log. I am parameterised by a `branch` (a namespace): `:main` is the main
   branch (base table names); any other branch uses suffixed tables (`:class@name`,
   ...) created with `record_name:` the base relation, so record tags — and every
-  scan pattern — are identical across stores.
+  scan pattern — are identical across stores. The `watch` relation is a reverse
+  index projected from objects' `:watch` slots; watcher class membership decides
+  whether an indexed object receives notifications.
   """
 
   use GtBridge.View
@@ -19,6 +21,7 @@ defmodule AL.Object do
           {:oapply, AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}
   @type soa_slot_record() :: {:soa_slot, AL.Var.t(), AL.Var.t(), AL.Var.t()}
   @type native_record() :: {:native, AL.Var.t(), non_neg_integer(), AL.Command.native_mfa()}
+  @type watch_record() :: {:watch, AL.Var.t(), AL.Var.t()}
 
   # aos: array of structs, one row per object. at most one open row per
   # object by construction.
@@ -26,9 +29,10 @@ defmodule AL.Object do
   # live here too, as reserved keys.
   @relations %{
     aos: [:object, :tx_from, :tx_to, :slots],
-    soa: [:object, :key, :seq, :tx_from, :tx_to, :value]
+    soa: [:object, :key, :seq, :tx_from, :tx_to, :value],
+    watch: [:target, :watcher]
   }
-  @bags [:aos, :soa]
+  @bags [:aos, :soa, :watch]
   @tx_indexed [:aos, :soa]
 
   typedstruct enforce: true do
@@ -62,6 +66,7 @@ defmodule AL.Object do
   defp create_table(relation, branch) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
     opts = if relation in @tx_indexed, do: [{:index, [:tx_to]} | opts], else: opts
+    opts = if relation == :watch, do: [{:index, [:watcher]} | opts], else: opts
     opts = if branch.id == :main, do: opts, else: [{:record_name, relation} | opts]
 
     case :mnesia.create_table(table(relation, branch), opts) do
@@ -288,6 +293,11 @@ defmodule AL.Object do
   def read_slots(object, branch \\ AL.Branch.head()) do
     for {:aos, ^object, _tx_from, :open, m} <- :mnesia.read(table(:aos, branch), object),
         do: {:slots, object, m}
+  end
+
+  @spec watchers(AL.Var.t(), AL.Branch.t()) :: [AL.Var.t()]
+  def watchers(target, branch \\ AL.Branch.head()) do
+    for {:watch, ^target, watcher} <- :mnesia.read(table(:watch, branch), target), do: watcher
   end
 
   # `tx` is the `system_time` this retract happens at (see AL.Command) --
@@ -545,6 +555,7 @@ defmodule AL.Object do
     close_rows(:aos, rows, tx, branch)
     merged = Map.put(existing, key, value)
     :mnesia.write(table(:aos, branch), {:aos, object, tx, :open, merged}, :write)
+    if key == :watch, do: replace_watches(object, value, branch)
     AL.ResolutionCache.invalidate_providers(branch)
     invalidate_class_metadata_caches(branch, [key])
   end
@@ -554,6 +565,7 @@ defmodule AL.Object do
     close_current_soa_slot(object, key, tx, branch)
     seq = next_soa_seq(object, key, branch)
     :mnesia.write(table(:soa, branch), {:soa, object, key, seq, tx, :open, value}, :write)
+    if key == :watch, do: replace_watches(object, value, branch)
     AL.ResolutionCache.invalidate_providers(branch)
   end
 
@@ -585,6 +597,7 @@ defmodule AL.Object do
         :ok
     end
 
+    if key == :watch, do: clear_watches(object, branch)
     AL.ResolutionCache.invalidate_providers(branch)
     invalidate_class_metadata_caches(branch, [key])
   end
@@ -592,6 +605,7 @@ defmodule AL.Object do
   @spec retract_soa_slot(AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def retract_soa_slot(object, key, tx, branch \\ AL.Branch.head()) do
     close_current_soa_slot(object, key, tx, branch)
+    if key == :watch, do: clear_watches(object, branch)
     AL.ResolutionCache.invalidate_providers(branch)
     invalidate_class_metadata_caches(branch, [key])
   end
@@ -609,6 +623,36 @@ defmodule AL.Object do
       seqs -> Enum.max(seqs) + 1
     end
   end
+
+  defp replace_watches(watcher, value, branch) do
+    clear_watches(watcher, branch)
+
+    for target <- watch_targets(value) do
+      :mnesia.write(table(:watch, branch), {:watch, target, watcher}, :write)
+    end
+
+    :ok
+  end
+
+  defp clear_watches(watcher, branch) do
+    for row <- :mnesia.index_read(table(:watch, branch), watcher, :watcher) do
+      :mnesia.delete_object(table(:watch, branch), row, :write)
+    end
+
+    :ok
+  end
+
+  defp watch_targets(targets) when is_list(targets) do
+    targets
+    |> Enum.filter(&(is_atom(&1) and not AL.Var.var?(&1)))
+    |> Enum.uniq()
+  end
+
+  defp watch_targets(target) when is_atom(target) do
+    if AL.Var.var?(target), do: [], else: [target]
+  end
+
+  defp watch_targets(_target), do: []
 
   # `t` is the command's own `system_time` (its position in the log, from
   # the `{:command, t, tx_id, {op, event}}` tuple `hydrate/2` replays) --

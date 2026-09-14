@@ -152,9 +152,16 @@ defmodule AL.Interp.Store do
 
   defp write(state, fun, args) when fun in @tx_stamped do
     :ok = AL.Goal.validate_storable!(args)
+    watchers = watchers_for(args, state.branch)
     tx = apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [tx, state.branch])
-    AL.Source.anchor(state, fun, args, tx)
+    state = AL.Source.anchor(state, fun, args, tx)
+
+    for watcher <- watchers do
+      AL.Command.send_async(state.tx_id, watcher, :changed, [hd(args)], state.branch)
+    end
+
+    state
   end
 
   defp write(state, fun, args) do
@@ -176,5 +183,13 @@ defmodule AL.Interp.Store do
     for {:class, _o, _seq, class} <-
           AL.Object.scan_class(o, AL.Var.var("direct_class_check_#{scope}"), branch),
         do: class
+  end
+
+  defp watchers_for([object | _args], branch) do
+    object
+    |> AL.Object.watchers(branch)
+    |> Enum.filter(fn watcher ->
+      :watcher in AL.Dispatch.MethodOrder.method_scopes(watcher, branch)
+    end)
   end
 end

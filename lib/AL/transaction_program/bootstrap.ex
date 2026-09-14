@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 4, deps: [] do
+  defprogram :bootstrap, version: 5, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -307,6 +307,15 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       vm_set_class(name, meta)
       set_supers(name, super)
+
+      implies do
+        [vm_get_slot(:class, :inheritance_validation_ready, true)] ->
+          validate_inheritance(name)
+
+        :else ->
+          pass
+      end
+
       vm_set_slot(name, :ivars, ivars)
 
       implies do
@@ -398,6 +407,17 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:object, :set_super_list, [name, [s | rest]]) do
       vm_set_super(name, s)
       set_super_list(name, rest)
+    end
+
+    defmethod(:class, :validate_inheritance, [self]) do
+      reachable_classes([self], [], chain)
+
+      forall([
+        member(chain, ancestor),
+        vm_get_slot(ancestor, :forbidden_inheritance, forbidden)
+      ]) do
+        not [member(forbidden, disallowed), member(chain, disallowed)]
+      end
     end
 
     defmethod(:object, :allocate, [self, args, name]) do
@@ -533,6 +553,8 @@ defmodule AL.TransactionProgram.Bootstrap do
       copy_methods(self, pairs)
     end
 
+    new(:class, %{name: :watcher, super: :object, ivars: [:watch]}, _)
+
     # A real class, not a category import: a value class's own :init override
     # then gets a fresh method (real inheritance), not another clause on a
     # shared imported one. allocate = identity (skip :object's durable
@@ -540,6 +562,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     # own clauses/relational logic to work with directly (self never gets
     # unified with output here).
     new(:class, %{name: :value, super: :object, ivars: []}, _)
+    vm_set_slot(:value, :forbidden_inheritance, [:watcher])
 
     defmethod(:value, :allocate, [self, _, self])
 
@@ -1133,5 +1156,7 @@ defmodule AL.TransactionProgram.Bootstrap do
           decrement_ready(ss, degrees2, degrees_out, ready)
       end
     end
+
+    vm_set_slot(:class, :inheritance_validation_ready, true)
   end
 end

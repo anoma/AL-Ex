@@ -104,6 +104,16 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
+  example value_construction_rejects_watcher_inheritance() do
+    result =
+      run branch: :examples do
+        defclass :watched_value, super: [:value, :watcher], ivars: [] do
+        end
+      end
+
+    assert {:aborted, _} = result
+  end
+
   # Regression: two methods-list entries sharing a selector used to have the
   # second's retract-before-define step wipe out the first's fresh clause --
   # defclass now retracts every entry's prior clauses in one pass before

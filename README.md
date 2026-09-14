@@ -27,6 +27,7 @@ This runtime is the prototypical version of AL, written in Elixir. The irony of 
 - ACID transactions.
 - Constraint solving over finite domains: bounds consistency, `dif`, global constraints like `all_dif` (Régin's algorithm). Objects can be reasoned about via constraints.
 - Git-like branching. Fork state, work in isolation, discard or keep.
+- Durable object watchers. A `:watcher` object's ordinary `:watch` slot names one target or a list of targets; each committed target mutation enqueues `changed(watcher, target)` in the same transaction.
 - Execution tracing. Every run reconstructs a derivation tree: what was called, what was asserted, what it resolved to.
 - Nascent bitemporality features: Query objects as of certain times, working with system and business time separately
 
