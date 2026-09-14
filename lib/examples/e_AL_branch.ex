@@ -181,8 +181,8 @@ defmodule Examples.ALBranch do
 
         defmethod(:fork_worker, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
-          get_slot(:fork_worker_subscriber, :pid, p)
-          vm_functor(message, :handled, [object])
+          get(:fork_worker_subscriber, :pid, p)
+          functor(message, :handled, [object])
           send_elixir(p, message)
         end
       end
@@ -264,5 +264,141 @@ defmodule Examples.ALBranch do
     assert Enum.any?(AL.Branch.list(), &(&1.id == branch.id))
     AL.Branch.discard(branch)
     branch
+  end
+
+  example joining_process_does_not_rehydrate_the_projection() do
+    branch = AL.Branch.main()
+    before = projection_rows(branch)
+
+    assert before != []
+
+    as_joiner(fn -> AL.Branch.setup() end)
+
+    assert projection_rows(branch) == before
+
+    {:atomic, _} =
+      run do
+        class(:object, :class)
+      end
+
+    :ok
+  end
+
+  example many_slot_writes_in_one_transaction_stay_linear() do
+    branch = AL.Branch.fork()
+
+    {microseconds, {:atomic, _}} =
+      :timer.tc(fn ->
+        :mnesia.transaction(fn ->
+          for i <- 1..2000 do
+            AL.Object.set_slot(:"perf_#{rem(i, 50)}", :"k#{i}", i, :aos, i, branch)
+          end
+        end)
+      end)
+
+    AL.Branch.discard(branch)
+
+    assert microseconds < 1_000_000,
+           "2000 slot writes in one transaction took #{div(microseconds, 1000)}ms"
+  end
+
+  example the_projection_is_a_pure_function_of_the_command_log() do
+    branch = AL.Branch.fork()
+
+    for source <- rebuild_workload() do
+      assert {:atomic, _} = AL.eval_source(source, branch)
+    end
+
+    soa_before = projection_rows(branch)
+    aos_before = slot_rows(branch)
+
+    assert Enum.any?(aos_before, fn {:aos, _object, _from, to, _map} -> to != :open end)
+    assert Enum.any?(soa_before, fn {:soa, _o, _k, _s, _f, to, _v} -> to != :open end)
+
+    :ok = AL.Object.drop_tables(branch)
+    :ok = AL.Object.create_tables(branch)
+    assert {:atomic, _} = AL.Object.hydrate_since(0, branch)
+
+    assert projection_rows(branch) == soa_before
+    assert slot_rows(branch) == aos_before
+
+    AL.Branch.discard(branch)
+    length(soa_before)
+  end
+
+  defp rebuild_workload do
+    [
+      """
+      defclass :gadget, super: :object, ivars: [:size, :name] do
+        defmethod(:describe, [self, size]) do
+          get(self, :size, size)
+        end
+      end
+      """,
+      """
+      new(:gadget, %{size: 1, name: :a}, g)
+      set_slot(g, :size, 2)
+      set_slot(g, :size, 3)
+      set_slots(g, %{size: 4, name: :b})
+      """,
+      """
+      defmethod(:gadget, :describe, [self, size]) do
+        get(self, :size, size)
+        is(size, size)
+      end
+      """,
+      """
+      vm_set_class(:temp_thing, :object)
+      vm_set_super(:temp_thing, :gadget)
+      vm_retract_super(:temp_thing, :gadget)
+      vm_retract_class(:temp_thing, :object)
+      """,
+      """
+      vm_set_slot(:temp_thing, :k, 1)
+      vm_set_slot(:temp_thing, :k, 2)
+      vm_retract_slot(:temp_thing, :k)
+      """
+    ]
+  end
+
+  defp slot_rows(branch) do
+    {:atomic, rows} =
+      :mnesia.transaction(fn ->
+        :mnesia.match_object(
+          AL.Object.table(:aos, branch),
+          {:aos, :_, :_, :_, :_},
+          :read
+        )
+      end)
+
+    Enum.sort(rows)
+  end
+
+  defp projection_rows(branch) do
+    {:atomic, rows} =
+      :mnesia.transaction(fn ->
+        :mnesia.match_object(
+          AL.Object.table(:soa, branch),
+          {:soa, :_, :_, :_, :_, :_, :_},
+          :read
+        )
+      end)
+
+    Enum.sort(rows)
+  end
+
+  defp as_joiner(fun) do
+    key = {AL.Command, :owner_node}
+    previous = :persistent_term.get(key, :absent)
+    :persistent_term.put(key, :"al_joiner@127.0.0.1")
+
+    try do
+      fun.()
+    after
+      case previous do
+        :absent -> :persistent_term.erase(key)
+        node -> :persistent_term.put(key, node)
+      end
+    end
   end
 end

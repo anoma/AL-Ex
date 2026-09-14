@@ -43,6 +43,10 @@ jobs:
       - name: Compile (warnings as errors)
         run: mix compile --warnings-as-errors
 
+      - name: Install inotify-tools
+        run: |
+         sudo apt-get update
+         sudo apt-get install -y inotify-tools
       - name: Run tests
         run: mix test
         env:

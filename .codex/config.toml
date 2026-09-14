@@ -1,2 +1,8 @@
 [mcp_servers.gtmcp]
 url = "http://localhost:3030"
+
+[mcp_servers.almcp]
+url = "http://localhost:3031/mcp"
+
+[mcp_servers.al]
+url = "http://localhost:3031/mcp"

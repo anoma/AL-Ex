@@ -10,16 +10,23 @@ defmodule AL.Lowering do
   @arithmetic_ops [:+, :-, :*, :/, :**, :rem]
   @comparison_ops [:<, :>, :<=, :>=]
   @oapply_primitives %{
-    vm_is: :is,
+    is: :is,
     vm_map_get: :map_get,
     vm_map_put: :map_put,
     vm_fresh_id: :fresh_id,
     vm_current_tx: :current_tx,
+    vm_transaction_object: :transaction_object,
     vm_cached_ivar_specs: :cached_ivar_specs,
     vm_cached_find_ivar_spec: :cached_find_ivar_spec,
     vm_source_method_parts: :source_method_parts
   }
   @oapply_primitive_names Map.keys(@oapply_primitives)
+  @surface_by_method_id Map.new(@oapply_primitives, fn {surface, id} -> {id, surface} end)
+
+  @doc "The surface spelling a primitive's stored `method_id` is written as."
+  @spec primitive_surface_name(term()) :: term()
+  def primitive_surface_name(method_id),
+    do: Map.get(@surface_by_method_id, method_id, method_id)
 
   def ast_to_pattern([{:do, {:__block__, _, goals}}]), do: ast_to_pattern(goals)
 
@@ -66,6 +73,13 @@ defmodule AL.Lowering do
       id: ast_to_pattern(id)
     }
 
+  def ast_to_pattern({:vm_command, _, [transaction, time, operation]}),
+    do: %Goal.GetCommand{
+      transaction: ast_to_pattern(transaction),
+      time: ast_to_pattern(time),
+      operation: ast_to_pattern(operation)
+    }
+
   def ast_to_pattern({:vm_clause, _, [object, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
@@ -82,8 +96,18 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
+  def ast_to_pattern({:comment, _, [text]}) when is_binary(text),
+    do: %Goal.Comment{text: text}
+
   def ast_to_pattern({:vm_oapply, _, [method_id, args]}),
     do: %Goal.OApply{method_id: ast_to_pattern(method_id), args: ast_to_pattern(args)}
+
+  def ast_to_pattern({:vm_transaction_source, _, [tx, text, origin]}),
+    do: %Goal.TransactionSource{
+      tx: ast_to_pattern(tx),
+      text: ast_to_pattern(text),
+      origin: ast_to_pattern(origin)
+    }
 
   def ast_to_pattern({:vm_method_source, _, [object, seq, text, provenance]}),
     do: %Goal.MethodSource{
@@ -183,16 +207,16 @@ defmodule AL.Lowering do
   def ast_to_pattern({:vm_retract_slot, _, [object, key]}),
     do: %Goal.RetractSlot{object: ast_to_pattern(object), key: ast_to_pattern(key)}
 
-  def ast_to_pattern({:vm_gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
+  def ast_to_pattern({:gensym, _, [var]}), do: %Goal.Gensym{var: ast_to_pattern(var)}
 
   def ast_to_pattern({:vm_format, _, [control, args]}),
     do: %Goal.Format{control: ast_to_pattern(control), args: ast_to_pattern(args)}
 
-  def ast_to_pattern({:vm_ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
+  def ast_to_pattern({:ground, _, [term]}), do: %Goal.Ground{term: ast_to_pattern(term)}
 
   def ast_to_pattern({:label, _, [term]}), do: %Goal.Label{term: ast_to_pattern(term)}
 
-  def ast_to_pattern({:vm_functor, _, [term, name, args]}),
+  def ast_to_pattern({:functor, _, [term, name, args]}),
     do: %Goal.Functor{
       term: ast_to_pattern(term),
       name: ast_to_pattern(name),
@@ -252,7 +276,7 @@ defmodule AL.Lowering do
 
   # #=/2 (CLP(FD) naming) — `#` starts a comment at the Elixir lexer level, so
   # `eq/2` is the closest spellable surface form. Arithmetic equality as a
-  # constraint, not `vm_is`'s immediate evaluation: sound with either side
+  # constraint, not `is`'s immediate evaluation: sound with either side
   # still open, narrowing/auto-binding through AL.Var.Bounds the same way
   # `< > <= >=` do.
   def ast_to_pattern({:eq, _, [a, b]}),

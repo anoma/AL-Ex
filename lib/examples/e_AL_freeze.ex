@@ -13,7 +13,7 @@ defmodule Examples.ALFreeze do
     {:atomic, {bindings, _state}} =
       run branch: :examples do
         unify(x, 3)
-        freeze(x, [vm_is(y, x + 1)])
+        freeze(x, [is(y, x + 1)])
       end
 
     assert AL.Var.deref(bindings, :"$y") == 4
@@ -23,7 +23,7 @@ defmodule Examples.ALFreeze do
   example binding_wakes_in_place() do
     {:atomic, {bindings, _state}} =
       run branch: :examples do
-        freeze(x, [vm_is(y, x + 1)])
+        freeze(x, [is(y, x + 1)])
         unify(x, 3)
       end
 
@@ -38,7 +38,7 @@ defmodule Examples.ALFreeze do
 
         defmethod(:frozen, :five, [_self, 5])
 
-        freeze(v, [vm_is(w, v + 1)])
+        freeze(v, [is(w, v + 1)])
         five(:frozen, v)
       end
 
@@ -49,7 +49,7 @@ defmodule Examples.ALFreeze do
   example floundering_fails() do
     {:aborted, _reason} =
       run branch: :examples do
-        freeze(x, [vm_is(y, x + 1)])
+        freeze(x, [is(y, x + 1)])
       end
 
     :ok
@@ -62,8 +62,8 @@ defmodule Examples.ALFreeze do
              (fn ->
                 {:atomic, {b, _}} =
                   run branch: :examples do
-                    freeze(a, [vm_is(b, a * 2)])
-                    freeze(b, [vm_is(a, b / 2)])
+                    freeze(a, [is(b, a * 2)])
+                    freeze(b, [is(a, b / 2)])
                     unify(a, 21)
                   end
 
@@ -74,8 +74,8 @@ defmodule Examples.ALFreeze do
              (fn ->
                 {:atomic, {b, _}} =
                   run branch: :examples do
-                    freeze(a, [vm_is(b, a * 2)])
-                    freeze(b, [vm_is(a, b / 2)])
+                    freeze(a, [is(b, a * 2)])
+                    freeze(b, [is(a, b / 2)])
                     unify(b, 42)
                   end
 

@@ -1,7 +1,7 @@
 defmodule Examples.ALBootstrap do
   @moduledoc """
   I provide bootstrap inspection examples for AL: `:main` is where bootstrap
-  packages actually install (not `:examples`, which is itself forked from
+  programs actually install (not `:examples`, which is itself forked from
   it), so these read `AL.Object` directly against the default branch rather
   than going through `run branch: :examples`.
   """
@@ -11,7 +11,7 @@ defmodule Examples.ALBootstrap do
   import ExUnit.Assertions
 
   # One check per relation table (class/super/method/oapply) -- these are
-  # smoke tests that the package installer actually ran, not behavioral
+  # smoke tests that the program installer actually ran, not behavioral
   # tests of any one mechanism, so they're collapsed into a single example
   # rather than one per table.
   example bootstrapped_facts_exist_in_every_relation_table() do

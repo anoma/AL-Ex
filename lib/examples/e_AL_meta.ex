@@ -11,7 +11,7 @@ defmodule Examples.ALMeta do
   example ground_succeeds_on_atom() do
     {:atomic, _} =
       run branch: :examples do
-        vm_ground(:point)
+        ground(:point)
       end
 
     :ok
@@ -20,7 +20,7 @@ defmodule Examples.ALMeta do
   example ground_succeeds_on_compound() do
     {:atomic, _} =
       run branch: :examples do
-        vm_ground([1, 2, %{a: :b}])
+        ground([1, 2, %{a: :b}])
       end
 
     :ok
@@ -29,7 +29,7 @@ defmodule Examples.ALMeta do
   example ground_fails_on_unbound() do
     {:aborted, _} =
       run branch: :examples do
-        vm_ground(x)
+        ground(x)
       end
 
     :ok
@@ -38,7 +38,7 @@ defmodule Examples.ALMeta do
   example ground_fails_on_partial_compound() do
     {:aborted, _} =
       run branch: :examples do
-        vm_ground([1, x, 3])
+        ground([1, x, 3])
       end
 
     :ok

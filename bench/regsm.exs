@@ -1,3 +1,5 @@
+Code.require_file("support.exs", __DIR__)
+
 defmodule Bench.Regsm do
   @moduledoc """
       mix run bench/regsm.exs <variant> <n> <p>
@@ -30,7 +32,7 @@ defmodule Bench.Regsm do
 
   def install(branch, p) do
     {:atomic, _} =
-      run branch: branch.id do
+      run branch: branch.id, trace_mode: :no_trace do
         defmethod(:number, :regsm_entry, [1, 1, 1, 0])
 
         defmethod(:number, :regsm_entry, [x, a, b, q]) do
@@ -40,7 +42,7 @@ defmodule Bench.Regsm do
           a + 1 > 0
           q + 1 > 0
           unify(b, a1)
-          vm_is(x1, x - 1)
+          is(x1, x - 1)
           regsm_entry(x1, a1, b1, q1)
         end
 
@@ -49,7 +51,7 @@ defmodule Bench.Regsm do
         defmethod(:number, :regsm_body, [x, a, b, q]) do
           x > 1
           unify(b, a1)
-          vm_is(x1, x - 1)
+          is(x1, x - 1)
           regsm_body(x1, a1, b1, q1)
           eq(a1 + b1, q * ^p + a)
           a < ^p
@@ -62,13 +64,13 @@ defmodule Bench.Regsm do
   end
 
   def entry(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       regsm_entry(^n, out, _b, _q)
     end
   end
 
   def body(branch, n) do
-    run branch: branch.id do
+    run branch: branch.id, trace_mode: :no_trace do
       regsm_body(^n, out, _b, _q)
     end
   end
@@ -77,67 +79,99 @@ defmodule Bench.Regsm do
     Stream.unfold({1, 1}, fn {a, b} -> {a, {rem(a + b, p), a}} end) |> Enum.at(n - 1)
   end
 
-  def status(result, n, p) do
-    case result do
-      {:atomic, {bindings, _}} ->
-        got = Map.get(bindings, :"$out")
-        if got == expected(n, p), do: "ok", else: "MISMATCH got=#{inspect(got)}"
+  def check!(result, n, p) do
+    {bindings, _} = Bench.Support.assert_atomic!(result)
+    got = Map.get(bindings, :"$out")
+    expected = expected(n, p)
 
-      {:aborted, %{reason: reason}} ->
-        "aborted: #{inspect(reason)}"
-
-      other ->
-        inspect(other)
+    if got != expected do
+      raise "regsm result mismatch: expected #{inspect(expected)}, got #{inspect(got)}"
     end
   end
 
-  def report(variant, n, p) do
-    branch = AL.Branch.fork()
-    :ok = install(branch, p)
-    {time_us, result} = :timer.tc(fn -> apply(__MODULE__, variant, [branch, n]) end)
-    AL.Branch.discard(branch)
+  def variant!("entry"), do: :entry
+  def variant!("body"), do: :body
 
-    IO.puts(
-      "#{variant}\tp=#{p}\tn=#{n}\t#{Float.round(time_us / 1000, 1)}ms\t#{status(result, n, p)}"
+  def variant!(other) do
+    raise ArgumentError, "variant must be entry or body, got: #{inspect(other)}"
+  end
+
+  def job(variant, p, solve_number \\ 1) do
+    Bench.Support.branch_job(
+      fn branch, n -> apply(__MODULE__, variant, [branch, n]) end,
+      setup: fn branch, n ->
+        :ok = install(branch, p)
+
+        if solve_number > 1 do
+          for _ <- 1..(solve_number - 1) do
+            apply(__MODULE__, variant, [branch, n]) |> check!(n, p)
+          end
+        end
+
+        :ok
+      end,
+      check: fn result, n -> check!(result, n, p) end
     )
-  end
-
-  def repeat(variant, n, p, k) do
-    branch = AL.Branch.fork()
-    :ok = install(branch, p)
-
-    for i <- 1..k do
-      {time_us, result} = :timer.tc(fn -> apply(__MODULE__, variant, [branch, n]) end)
-
-      IO.puts(
-        "#{variant}\tp=#{p}\tn=#{n}\tsolve #{i}/#{k} on one branch" <>
-          "\t#{Float.round(time_us / 1000, 1)}ms\t#{status(result, n, p)}"
-      )
-    end
-
-    AL.Branch.discard(branch)
   end
 end
 
-GtBridge.Xref.wait_until_ready()
-
 case System.argv() do
   ["repeat", variant, n, p, k] ->
-    Bench.Regsm.repeat(
-      String.to_atom(variant),
-      String.to_integer(n),
-      String.to_integer(p),
-      String.to_integer(k)
+    variant = Bench.Regsm.variant!(variant)
+    n = String.to_integer(n)
+    p = String.to_integer(p)
+    k = String.to_integer(k)
+
+    if k < 1, do: raise(ArgumentError, "repeat count must be positive")
+
+    jobs =
+      Map.new(1..k, fn solve_number ->
+        {"solve #{solve_number}/#{k} on one branch", Bench.Regsm.job(variant, p, solve_number)}
+      end)
+
+    Bench.Support.run(
+      jobs,
+      title: "Register recurrence — #{variant}, p=#{p}",
+      inputs: [{"n=#{n}", n}]
     )
 
   [variant, n, p] ->
-    Bench.Regsm.report(String.to_atom(variant), String.to_integer(n), String.to_integer(p))
-
-  [variant, from, to, step, p] ->
+    variant = Bench.Regsm.variant!(variant)
+    n = String.to_integer(n)
     p = String.to_integer(p)
 
-    String.to_integer(from)
-    |> Stream.iterate(&(&1 + String.to_integer(step)))
-    |> Enum.take_while(&(&1 <= String.to_integer(to)))
-    |> Enum.each(&Bench.Regsm.report(String.to_atom(variant), &1, p))
+    Bench.Support.run(
+      %{Atom.to_string(variant) => Bench.Regsm.job(variant, p)},
+      title: "Register recurrence — p=#{p}",
+      inputs: [{"n=#{n}", n}]
+    )
+
+  [variant, from, to, step, p] ->
+    variant = Bench.Regsm.variant!(variant)
+    from = String.to_integer(from)
+    to = String.to_integer(to)
+    step = String.to_integer(step)
+    p = String.to_integer(p)
+
+    if step < 1, do: raise(ArgumentError, "step must be positive")
+
+    inputs =
+      from
+      |> Stream.iterate(&(&1 + step))
+      |> Enum.take_while(&(&1 <= to))
+      |> Enum.map(&{"n=#{&1}", &1})
+
+    Bench.Support.run(
+      %{Atom.to_string(variant) => Bench.Regsm.job(variant, p)},
+      title: "Register recurrence — p=#{p}",
+      inputs: inputs
+    )
+
+  _ ->
+    raise ArgumentError, """
+    usage:
+      mix run bench/regsm.exs <entry|body> <n> <p>
+      mix run bench/regsm.exs <entry|body> <from> <to> <step> <p>
+      mix run bench/regsm.exs repeat <entry|body> <n> <p> <k>
+    """
 end

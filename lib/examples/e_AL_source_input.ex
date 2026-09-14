@@ -61,6 +61,29 @@ defmodule Examples.ALSourceInput do
     result
   end
 
+  example captures_only_the_authored_al_run_body() do
+    source =
+      "defmodule Examples.SourceCapture do\n" <>
+        "  AL.run do\n" <>
+        "    # retained comment\n" <>
+        "    vm_set_class(:captured_run_object, :object)\n" <>
+        "  end\n" <>
+        "end\n"
+
+    {:ok, range} = Parser.run_range(source, 2)
+    {:ok, retained} = Parser.slice(source, range)
+
+    assert retained ==
+             "\n" <>
+               "    # retained comment\n" <>
+               "    vm_set_class(:captured_run_object, :object)\n" <>
+               "  "
+
+    refute retained =~ "AL.run"
+    refute retained =~ "defmodule"
+    :ok
+  end
+
   example final_definition_ranges_exclude_trailing_comments() do
     source =
       "unify(\"é\", :ok); " <>
@@ -100,7 +123,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example evaluates_a_complete_source_input_as_one_transaction() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     first = fresh_id("source_tx_first")
     second = fresh_id("source_tx_second")
 
@@ -129,7 +152,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example source_input_failure_rolls_back_the_complete_transaction() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     object = fresh_id("source_tx_rollback")
 
     try do
@@ -163,7 +186,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example durable_rows_use_exact_definition_commands_and_read_authored_source() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     class = fresh_id("source_retained_class")
 
     try do
@@ -302,8 +325,8 @@ defmodule Examples.ALSourceInput do
     end
   end
 
-  example source_rows_commands_and_projections_roll_back_together() do
-    branch = AL.Branch.fork_fresh()
+  example failed_source_is_retained_while_definitions_roll_back() do
+    branch = Examples.Support.isolated_branch()
     class = fresh_id("source_retention_rollback")
 
     try do
@@ -320,7 +343,8 @@ defmodule Examples.ALSourceInput do
       fail()
       """
 
-      assert {:aborted, _reason} = AL.eval_source(source, branch)
+      assert {:aborted, reason} = AL.eval_source(source, branch)
+      tx = reason.state.tx_id
 
       {:atomic, {texts, spans, classes, commands}} =
         :mnesia.transaction(fn ->
@@ -332,7 +356,11 @@ defmodule Examples.ALSourceInput do
           }
         end)
 
-      assert texts == texts_before
+      assert texts_before != texts
+
+      assert {:source_text, ^tx, ^source, %{kind: :eval_source, label: nil}} =
+               Enum.find(texts, fn {:source_text, tx_id, _text, _origin} -> tx_id == tx end)
+
       assert spans == spans_before
       assert classes == []
 
@@ -348,7 +376,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example source_archives_follow_fork_cutoffs_and_branch_isolation() do
-    parent = AL.Branch.fork_fresh()
+    parent = Examples.Support.isolated_branch()
     first = fresh_id("source_parent_first")
     second = fresh_id("source_parent_second")
     child_only = fresh_id("source_child_only")
@@ -460,7 +488,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example retained_source_survives_projection_replay() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     method = fresh_id("source_replay_method")
     source = "defmethod(:object, #{inspect(method)}, [self])\n"
 
@@ -522,7 +550,7 @@ defmodule Examples.ALSourceInput do
                goals: [%AL.Goal.Unify{a: :ok, b: :ok}]
              })
 
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     object = fresh_id("source_storage_guard")
 
     try do
@@ -551,7 +579,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example legacy_clauses_use_the_decompiled_reader_fallback() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     method = fresh_id("source_legacy_method")
     source = "defmethod(:object, #{inspect(method)}, [self])\n"
 
@@ -591,7 +619,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example open_readers_hide_retracted_clauses_but_history_keeps_them() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     method = fresh_id("source_history_method")
     first_source = "defmethod(:object, #{inspect(method)}, [self, :first])\n"
     second_source = "defmethod(:object, #{inspect(method)}, [self, :second])\n"
@@ -721,7 +749,7 @@ defmodule Examples.ALSourceInput do
     end
   end
 
-  example al_run_retains_source_for_compile_time_defined_packages() do
+  example al_run_retains_source_for_compile_time_defined_programs() do
     branch = AL.Branch.fork_fresh()
 
     try do
@@ -737,7 +765,7 @@ defmodule Examples.ALSourceInput do
                diagnostic: nil
              } = AL.Source.method_clause_source(:object, :between, method_id, 0, branch)
 
-      assert String.ends_with?(file, "lib/AL/package/bootstrap.ex")
+      assert String.ends_with?(file, "lib/AL/transaction_program/bootstrap.ex")
       assert is_integer(line)
 
       assert text ==
@@ -750,7 +778,7 @@ defmodule Examples.ALSourceInput do
   end
 
   example print_method_prints_every_clause_of_a_retained_method() do
-    branch = AL.Branch.fork_fresh()
+    branch = Examples.Support.isolated_branch()
     class = fresh_id("source_print_class")
 
     try do

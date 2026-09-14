@@ -118,14 +118,6 @@ defmodule ALFreezeTest do
   use ExExample.ExUnit, for: Examples.ALFreeze
 end
 
-defmodule ALEquationsTest do
-  use ExExample.ExUnit, for: Examples.ALEquations
-end
-
-defmodule ALEquationsCompileTest do
-  use ExExample.ExUnit, for: Examples.ALEquationsCompile
-end
-
 defmodule ALVarTest do
   use ExExample.ExUnit, for: Examples.ALVar
 end
@@ -178,6 +170,18 @@ defmodule ALPendingLinksTest do
   use ExExample.ExUnit, for: Examples.ALPendingLinks
 end
 
+defmodule ALTransactionProgramsTest do
+  use ExExample.ExUnit, for: Examples.ALTransactionPrograms
+end
+
 defmodule ALPackagesTest do
   use ExExample.ExUnit, for: Examples.ALPackages
+end
+
+defmodule ALMnesiaTest do
+  use ExExample.ExUnit, for: Examples.ALMnesia
+end
+
+defmodule ALGtBridgeTest do
+  use ExExample.ExUnit, for: Examples.ALGtBridge
 end

@@ -97,7 +97,7 @@ defmodule AL.Dispatch do
   # the other (real inheritance, not a coincidence): `:number`/`:list`/`:map`
   # can't overlap, no two unrelated `super: :value` classes can (`:card` vs
   # `:number`), and neither can a value class and an unrelated durable one
-  # (`:number` vs `:package`) -- there's no special "exclusive" subset, every
+  # (`:number` vs `:program_execution`) -- there's no special "exclusive" subset, every
   # class is exclusive of every other unrelated class. Used both to filter
   # which candidates dispatch offers (here) and by `GetClass`'s
   # no-witness-needed isa fast path (`AL.Interp.Relations`), which used to be able to
@@ -738,12 +738,23 @@ defmodule AL.Dispatch do
     provider in [:object, nil]
   end
 
+  # Most `does_not_understand` hits are ordinary backtracking noise (a failed
+  # `not [...]`, an `implies` branch that didn't match) and never become the
+  # transaction's reported failure -- `failing_lineage` picks at most one
+  # diagnostic to actually surface. Ranking suggestions is real work (a Jaro
+  # distance against every method the receiver understands), so it's kept
+  # lazy here: record what's needed to compute it, not the computed result,
+  # and let `AL.format_failure/1` call `suggest/3` only for the one
+  # diagnostic that's actually reported.
   defp record_dnu(state, self, method, args) do
-    suggestions = rank_suggestions(method, understood_method_names(self, state.branch))
-    inner = {self, method, length(args), suggestions}
-    entry = {state.active_choicepoint.scope_pointer, inner}
-    %AL{state | diagnostics: [entry | state.diagnostics]}
+    inner = {self, method, length(args), state.branch}
+    AL.record_diagnostic(state, inner)
   end
+
+  @doc "Rank known selectors on `self` by similarity to `method`, for a \"did you mean\"."
+  @spec suggest(term(), atom(), AL.Branch.t()) :: [atom()]
+  def suggest(self, method, branch),
+    do: rank_suggestions(method, understood_method_names(self, branch))
 
   # Rank known selectors by similarity to the missed one, for a "did you mean".
   defp rank_suggestions(selector, known) do

@@ -20,7 +20,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:constant_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
-          vm_functor(message, :cell_updated, [cell, domain])
+          functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
 
@@ -83,7 +83,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:inc_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
-          vm_functor(message, :cell_updated, [cell, domain])
+          functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
 
@@ -97,7 +97,7 @@ defmodule Examples.ALConstraints do
         new(:propagator, %{input_cells: [:x], output_cell: y, name: :x_y}, propagator)
 
         defmethod(propagator, :constrain, [_self, [x_val], y_val]) do
-          vm_is(y_val, 1 + x_val)
+          is(y_val, 1 + x_val)
         end
       end
 
@@ -155,7 +155,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:bidirectional_adder_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
-          vm_functor(message, :cell_updated, [cell, domain])
+          functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
 
@@ -174,15 +174,15 @@ defmodule Examples.ALConstraints do
         new(:propagator, %{input_cells: [b, c], output_cell: a, name: :bc_a}, propagator_bc)
 
         defmethod(propagator_ab, :constrain, [_self, [a_val, b_val], c_val]) do
-          vm_is(c_val, a_val + b_val)
+          is(c_val, a_val + b_val)
         end
 
         defmethod(propagator_ac, :constrain, [_self, [a_val, c_val], b_val]) do
-          vm_is(b_val, c_val - a_val)
+          is(b_val, c_val - a_val)
         end
 
         defmethod(propagator_bc, :constrain, [_self, [b_val, c_val], a_val]) do
-          vm_is(a_val, c_val - b_val)
+          is(a_val, c_val - b_val)
         end
 
         new(:mapset_value, %{elems: [3]}, three)
@@ -245,7 +245,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:interval_subscriber, :cell_updated, [self, cell, domain]) do
           vm_get_slot(self, :pid, p)
-          vm_functor(message, :cell_updated, [cell, domain])
+          functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
 
@@ -267,8 +267,8 @@ defmodule Examples.ALConstraints do
           vm_map_get(i1, :hi, hi1)
           vm_map_get(i2, :lo, lo2)
           vm_map_get(i2, :hi, hi2)
-          vm_is(lo, lo1 + lo2)
-          vm_is(hi, hi1 + hi2)
+          is(lo, lo1 + lo2)
+          is(hi, hi1 + hi2)
           unify(result, %{class: :interval_value, lo: lo, hi: hi})
         end
 

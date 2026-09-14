@@ -32,8 +32,10 @@ defmodule AL.Goal do
           AL.Goal.GetClass.t()
           | AL.Goal.GetSuper.t()
           | AL.Goal.GetMethod.t()
+          | AL.Goal.GetCommand.t()
           | AL.Goal.GetOapply.t()
           | AL.Goal.MethodSource.t()
+          | AL.Goal.TransactionSource.t()
           | AL.Goal.AssertValidClauseSelf.t()
           | AL.Goal.OApply.t()
           | AL.Goal.Cut.t()
@@ -70,6 +72,7 @@ defmodule AL.Goal do
           | AL.Goal.SourceScopeExit.t()
           | AL.Goal.Fail.t()
           | AL.Goal.Pass.t()
+          | AL.Goal.Comment.t()
 
   @type t() :: command() | instructions()
 
@@ -160,6 +163,12 @@ defmodule AL.Goal do
     field(:id, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: GetCommand do
+    field(:transaction, AL.Var.t())
+    field(:time, AL.Var.t())
+    field(:operation, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: GetOapply do
     field(:object, AL.Var.t())
     field(:seq, AL.Var.t())
@@ -167,7 +176,12 @@ defmodule AL.Goal do
     field(:body, [AL.Goal.t()])
   end
 
-  # `object` is a method's own id (from `vm_method`), not a class+selector pair.
+  typedstruct enforce: true, module: TransactionSource do
+    field(:tx, AL.Var.t())
+    field(:text, AL.Var.t())
+    field(:origin, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: MethodSource do
     field(:object, AL.Var.t())
     field(:seq, AL.Var.t())
@@ -220,7 +234,7 @@ defmodule AL.Goal do
   end
 
   # store defaults :aos (vm_get_slot/3); explicit :soa via vm_get_slot/4,
-  # used by get_slot's ancestor-walk fallback.
+  # used by get's ancestor-walk fallback.
   typedstruct enforce: true, module: GetSlots do
     field(:object, AL.Var.t())
     field(:key, AL.Var.t())
@@ -397,6 +411,12 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: Pass do
   end
 
+  # Authored prose, stored so a definition stays fully regenerable. Inert at
+  # run time, like Pass.
+  typedstruct enforce: true, module: Comment do
+    field(:text, String.t())
+  end
+
   @doc "Transform every leaf of a goal term with `fun`."
   @spec map(term(), (term() -> term())) :: term()
   def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
@@ -448,7 +468,9 @@ defmodule AL.Goal do
     {GetClass, :get_class, [object: :term, class: :term]},
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
+    {GetCommand, :get_command, [transaction: :term, time: :term, operation: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
+    {TransactionSource, :transaction_source, [tx: :term, text: :term, origin: :term]},
     {MethodSource, :method_source, [object: :term, seq: :term, text: :term, provenance: :term]},
     {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},
@@ -476,9 +498,11 @@ defmodule AL.Goal do
     {Functor, :functor, [term: :term, name: :term, args: :term]},
     {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
+    {CallTerm, :call_term, [term: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
     {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
-    {CallNextMethod, :call_next_method, [self: :term, args: :term]}
+    {CallNextMethod, :call_next_method, [self: :term, args: :term]},
+    {Comment, :comment, [text: :term]}
   ]
 
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)

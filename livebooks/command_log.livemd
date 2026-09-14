@@ -10,7 +10,7 @@ System.put_env(
 
 Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
-  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+  config: [al: [transaction_programs: [AL.TransactionProgram.Bootstrap], natives: []]]
 )
 ```
 
@@ -125,7 +125,7 @@ obj = Map.get(bindings, :"$obj")
 
 run do
   class(^obj, c)
-  get_slot(^obj, :greeting, g)
+  get(^obj, :greeting, g)
 end
 ```
 
@@ -289,7 +289,7 @@ run do
 
   vm_slot_at(obj, :count, 1, t1)
   label(t1)
-  vm_is(boundary, t1 + 1)
+  is(boundary, t1 + 1)
   vm_slot_at(obj, :count, v_at_boundary, boundary)
 end
 ```

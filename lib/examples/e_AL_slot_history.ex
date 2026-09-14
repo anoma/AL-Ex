@@ -74,7 +74,7 @@ defmodule Examples.ALSlotHistory do
 
         vm_slot_at(obj, :count, 1, t1)
         label(t1)
-        vm_is(boundary, t1 + 1)
+        is(boundary, t1 + 1)
         vm_slot_at(obj, :count, v_at_boundary, boundary)
       end
 

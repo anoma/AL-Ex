@@ -1,7 +1,7 @@
+Code.require_file("support.exs", __DIR__)
+
 defmodule Bench.Sudoku do
   use AL
-
-  @trials 3
 
   @solved [
     [5, 3, 4, 6, 7, 8, 9, 1, 2],
@@ -15,8 +15,8 @@ defmodule Bench.Sudoku do
     [3, 4, 5, 2, 8, 6, 1, 7, 9]
   ]
 
-  @shuffled_positions (for(r <- 0..8, c <- 0..8, do: {r, c}))
-                       |> Enum.sort_by(fn {r, c} -> :erlang.phash2({r, c, :sudoku_bench_seed}) end)
+  @shuffled_positions for(r <- 0..8, c <- 0..8, do: {r, c})
+                      |> Enum.sort_by(fn {r, c} -> :erlang.phash2({r, c, :sudoku_bench_seed}) end)
 
   @hard_puzzle [
     [1, 0, 0, 0, 0, 7, 0, 9, 0],
@@ -30,12 +30,6 @@ defmodule Bench.Sudoku do
     [0, 0, 7, 0, 0, 0, 3, 0, 0]
   ]
 
-  defp median(times) do
-    sorted = Enum.sort(times)
-    mid = div(length(sorted), 2)
-    Enum.at(sorted, mid)
-  end
-
   def givens_with_blanks(blank_count) do
     to_blank = @shuffled_positions |> Enum.take(blank_count) |> MapSet.new()
 
@@ -48,35 +42,13 @@ defmodule Bench.Sudoku do
     end)
   end
 
-  def solve_trials(blank_count) do
-    blank_count |> givens_with_blanks() |> solve_trials_for()
-  end
+  def hard_puzzle, do: @hard_puzzle
 
-  def hard_trials do
-    solve_trials_for(@hard_puzzle)
-  end
-
-  def solve_trials_for(givens) do
-    for _ <- 1..@trials do
-      branch = AL.Branch.fork()
-
-      {time_us, result} =
-        :timer.tc(fn ->
-          run branch: branch.id do
-            new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
-            solve(puzzle, solved)
-          end
-        end)
-
-      AL.Branch.discard(branch)
-      {time_us, result}
+  def solve(branch, givens) do
+    run branch: branch.id, trace_mode: :no_trace do
+      new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
+      solve(puzzle, solved)
     end
-  end
-
-  def median_time_and_status(trials) do
-    times = Enum.map(trials, fn {t, _} -> t end)
-    {_last_time, last_result} = List.last(trials)
-    {median(times), last_result}
   end
 
   def profile_solve(blank_count) do
@@ -90,62 +62,47 @@ defmodule Bench.Sudoku do
   def profile_solve_for(givens) do
     branch = AL.Branch.fork()
 
-    result =
-      run branch: branch.id do
-        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
-        solve(puzzle, solved)
-      end
-
-    AL.Branch.discard(branch)
-    result
+    try do
+      solve(branch, givens)
+    after
+      AL.Branch.discard(branch)
+    end
   end
-end
-
-GtBridge.Xref.wait_until_ready()
-
-status = fn
-  {:atomic, _} -> "ok"
-  {:aborted, %{reason: reason}} -> "aborted: #{inspect(reason)}"
 end
 
 case System.argv() do
   ["--profile", "solve", "hard"] ->
-    IO.puts("Profiling sudoku solve on the hard (23-given) puzzle...")
-
-    Bench.Sudoku.profile_hard()
-
-    :eprof.start()
-    {status, _} = :eprof.profile([self()], Bench.Sudoku, :profile_hard, [])
-    IO.puts("status: #{inspect(status)}")
-    :eprof.stop_profiling()
-    :eprof.analyze(:total)
-    :eprof.stop()
+    Bench.Support.profile(
+      "sudoku solve on the hard (23-given) puzzle",
+      &Bench.Sudoku.profile_hard/0,
+      &Bench.Sudoku.profile_hard/0
+    )
 
   ["--profile", "solve", blanks] ->
     blanks = String.to_integer(blanks)
-    IO.puts("Profiling sudoku solve with #{blanks} blanks...")
 
-    Bench.Sudoku.profile_solve(1)
-
-    :eprof.start()
-    {status, _} = :eprof.profile([self()], Bench.Sudoku, :profile_solve, [blanks])
-    IO.puts("status: #{inspect(status)}")
-    :eprof.stop_profiling()
-    :eprof.analyze(:total)
-    :eprof.stop()
+    Bench.Support.profile(
+      "sudoku solve with #{blanks} blanks",
+      fn -> Bench.Sudoku.profile_solve(1) end,
+      fn -> Bench.Sudoku.profile_solve(blanks) end
+    )
 
   ["--hard"] ->
-    IO.puts("sudoku solve(puzzle, solved) on the hard (23-given) puzzle (median of 3):")
-    {time_us, result} = Bench.Sudoku.hard_trials() |> Bench.Sudoku.median_time_and_status()
-    IO.puts("  #{Float.round(time_us / 1000, 2)}ms\t#{status.(result)}")
+    Bench.Support.run(
+      %{"solve(puzzle, solved)" => Bench.Support.branch_job(&Bench.Sudoku.solve/2)},
+      title: "Sudoku — hard (23-given) puzzle",
+      inputs: [{"hard", Bench.Sudoku.hard_puzzle()}]
+    )
 
   _ ->
-    blanks = [10, 20, 30, 40, 50, 55]
+    inputs =
+      for blanks <- [10, 20, 30, 40, 50, 55] do
+        {"#{blanks} blanks", Bench.Sudoku.givens_with_blanks(blanks)}
+      end
 
-    IO.puts("sudoku solve(puzzle, solved) by number of blank cells (median of 3):")
-
-    for b <- blanks do
-      {time_us, result} = Bench.Sudoku.solve_trials(b) |> Bench.Sudoku.median_time_and_status()
-      IO.puts("  blanks=#{b}\t#{Float.round(time_us / 1000, 2)}ms\t#{status.(result)}")
-    end
+    Bench.Support.run(
+      %{"solve(puzzle, solved)" => Bench.Support.branch_job(&Bench.Sudoku.solve/2)},
+      title: "Sudoku by blank cells",
+      inputs: inputs
+    )
 end

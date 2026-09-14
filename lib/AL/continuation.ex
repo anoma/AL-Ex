@@ -13,5 +13,6 @@ defmodule AL.Continuation do
     field(:done, [AL.Goal.t()], enforce: true, default: [])
     field(:scope_pointer, AL.scope(), enforce: true, default: 0)
     field(:source_scopes, [AL.Source.Ref.capture_id()], default: [])
+    field(:failure_context, [AL.Choicepoint.failure_frame()], default: [])
   end
 end

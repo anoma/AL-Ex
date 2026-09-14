@@ -3,7 +3,7 @@ defmodule Examples.ALTasks do
   I exercise AL's asynchronous send behaviour: `send_async` writes a command that
   the per-store scheduler turns into a live `send`, run in its own transaction.
   The receiving object is built from bootstrap primitives (`defmethod`), so these
-  examples cover the async machinery itself rather than any object package.
+  examples cover the async machinery itself rather than any bundled program.
   """
 
   use ExExample
@@ -26,8 +26,8 @@ defmodule Examples.ALTasks do
 
         defmethod(^name, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
-          get_slot(^subscriber, :pid, p)
-          vm_functor(message, :handled, [object])
+          get(^subscriber, :pid, p)
+          functor(message, :handled, [object])
           send_elixir(p, message)
         end
       end

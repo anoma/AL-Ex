@@ -53,10 +53,18 @@ defmodule Examples.ALClauses do
   # A fork rebuilds its projection by replaying the log, so this also pins that
   # clause order survives replay/rehydrate.
   example clause_order_survives_fork() do
+    # A dedicated throwaway branch, not `:examples` -- forking replays the
+    # *entire* source branch's command history to materialize the new
+    # branch's projection, and `:examples` accumulates writes from every
+    # example in the suite, so forking from it directly scales with however
+    # much the whole run has piled up by the time this happens to execute.
+    # This example only needs a fork with the class visible, which a fresh
+    # branch off `:main` gives just as well, for a fraction of the cost.
+    base = AL.Branch.fork()
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: base.id do
         vm_set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first])
@@ -64,7 +72,7 @@ defmodule Examples.ALClauses do
         defmethod(^c, :tag, [self, :second])
       end
 
-    tip = AL.Branch.fork(:tip, %AL.Branch{id: :examples})
+    tip = AL.Branch.fork(:tip, base)
 
     {:atomic, {b, _}} =
       run branch: tip.id do
@@ -74,6 +82,7 @@ defmodule Examples.ALClauses do
     assert Map.get(b, :"$ts") == [:first, :second]
 
     AL.Branch.discard(tip)
+    AL.Branch.discard(base)
     :ok
   end
 

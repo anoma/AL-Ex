@@ -69,6 +69,29 @@ defmodule Examples.ALFailures do
     :ok
   end
 
+  example no_trace_preserves_plain_clause_failure_context() do
+    {:atomic, _} =
+      run branch: :examples do
+        defclass :no_trace_failbody, super: :value do
+          defmethod(:init, [self, _, self])
+
+          defmethod(:trigger, [self]) do
+            fail()
+          end
+        end
+      end
+
+    {:aborted, reason} =
+      run branch: :examples, trace_mode: :no_trace do
+        new(:no_trace_failbody, obj)
+        trigger(obj)
+      end
+
+    assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
+    assert reason.message =~ "didn't match"
+    assert reason.trace == []
+  end
+
   # set_slot's own ivar validation (bootstrap.ex) triggers real backtracking
   # through several relations (member/inheritance_chain/collect_ivar_specs)
   # before failing -- exactly the shape that used to let an unrelated,
@@ -86,13 +109,30 @@ defmodule Examples.ALFailures do
       end
 
     {:aborted, reason} =
-      run branch: :examples do
+      run branch: :examples, trace_mode: :no_trace do
         set_slot(:failure_domain_instance, :state, :sideways)
       end
 
     assert match?({:domain_violated, :sideways, ["on", "off"]}, reason.reason)
     assert reason.message =~ "not in the domain"
     refute reason.message =~ "does not understand"
+    assert reason.trace == []
+    assert reason.state.domino.trace == []
+    :ok
+  end
+
+  example no_trace_preserves_does_not_understand_errors() do
+    {:aborted, reason} =
+      run branch: :examples, trace_mode: :no_trace do
+        greett(1, :world)
+      end
+
+    assert match?({:does_not_understand, 1, :greett, 1, _}, reason.reason)
+
+    assert reason.message =~ "does not understand"
+    assert reason.message =~ "greett"
+    assert reason.trace == []
+    assert reason.state.domino.scopes == %{}
     :ok
   end
 

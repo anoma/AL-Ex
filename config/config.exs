@@ -5,24 +5,34 @@ config :logger,
   handle_otp_reports: false,
   handle_sasl_reports: false
 
-# Packages installed at startup.
 config :al,
-  packages: [
-    AL.Package.Bootstrap,
-    AL.Package.Users,
-    AL.Package.ElixirProcess,
-    AL.Package.Mapset,
-    AL.Package.Interval,
-    AL.Package.Constraints,
-    AL.Package.Equations,
-    AL.Package.Sudoku,
-    AL.Package.Blackjack,
-    AL.Package.Euler
+  serialisation_dir: "src/al",
+  transaction_programs: [
+    AL.TransactionProgram.Bootstrap,
+    AL.TransactionProgram.PackageSystem
+  ],
+  package_channels: [
+    {:builtin, {:priv, "packages"}}
+  ],
+  package_environment: [
+    :interval,
+    :users,
+    :elixir_process,
+    :mapset,
+    :constraints,
+    :sudoku,
+    :blackjack,
+    :euler
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
 # {class, selector, module, function, arity} or {..., opts} tuples.
 config :al, natives: []
+
+config :al, AL.MCP,
+  enabled: true,
+  ip: {127, 0, 0, 1},
+  port: 3031
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

@@ -8,10 +8,10 @@ defmodule AL.Domino do
   stays in AL.ex, just addressed through `state.domino.*` now instead of
   flat top-level fields.
 
-  trace: the domino event log, plus interleaved raw goals when a run opts
-    into vm_trace -- see `trace_event/0`.
-  vm_trace_enabled?: whether this run opted into the raw-goal interleave
-    (`run vm_trace: true do ... end`).
+  trace_mode: controls retained execution history. `:no_trace` keeps none,
+    `:derivation_trace` keeps calls and constraints, and `:full_trace` also
+    interleaves every raw VM goal.
+  trace: the retained event log selected by `trace_mode`.
   tracepoints: snapshot (taken at eval start) of AL.Trace's live watch-set,
     for the `AL.trace(:foo)` printer -- not the trace log itself.
   traced_calls: live-printer bookkeeping, scope -> {level, depth, receiver,
@@ -28,6 +28,7 @@ defmodule AL.Domino do
   use TypedStruct
 
   @type scope() :: AL.scope()
+  @type trace_mode() :: :no_trace | :derivation_trace | :full_trace
 
   # A var's constraint summary: `%{isa: [...], dif: [...], bounds: {lo,hi},
   # domain: [...]}`, whichever apply, `%{}` if genuinely unconstrained --
@@ -71,7 +72,7 @@ defmodule AL.Domino do
 
   typedstruct enforce: true do
     field(:trace, [trace_event()], default: [])
-    field(:vm_trace_enabled?, boolean(), default: false)
+    field(:trace_mode, trace_mode(), default: :no_trace)
     field(:tracepoints, MapSet.t(), default: MapSet.new())
     field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
     field(:scopes, %{optional(scope()) => scope_info()}, default: %{})

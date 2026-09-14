@@ -10,7 +10,7 @@ System.put_env(
 
 Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
-  config: [al: [packages: [AL.Package.Bootstrap], natives: []]]
+  config: [al: [transaction_programs: [AL.TransactionProgram.Bootstrap], natives: []]]
 )
 ```
 
@@ -38,7 +38,7 @@ end
 
 ## `eq`: a real constraint, not immediate evaluation
 
-`vm_is` (from [syntax basics](./syntax_basics.livemd)) needs its right side already ground. `eq` doesn't care which side is open — it's a real constraint, checked at bind time like `dif`, not a one-shot evaluation.
+`is` (from [syntax basics](./syntax_basics.livemd)) needs its right side already ground. `eq` doesn't care which side is open — it's a real constraint, checked at bind time like `dif`, not a one-shot evaluation.
 
 ```elixir
 run do
@@ -47,7 +47,7 @@ run do
 end
 ```
 
-The var can just as easily be buried inside the expression, on either side. No separate mode is needed, unlike `vm_is`.
+The var can just as easily be buried inside the expression, on either side. No separate mode is needed, unlike `is`.
 
 ```elixir
 run do
@@ -69,14 +69,14 @@ run do
       unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
     end
 
-    defmethod(:get_slot, [self, k, v]) do
+    defmethod(:get, [self, k, v]) do
       vm_map_get(self, k, v)
     end
 
     defmethod(:area, [self, result]) do
-      get_slot(self, :width, w)
-      get_slot(self, :height, h)
-      vm_is(result, w * h)
+      get(self, :width, w)
+      get(self, :height, h)
+      is(result, w * h)
     end
   end
 
@@ -87,7 +87,7 @@ end
 
 ## Comparisons narrow instead of failing
 
-`< > <= >=` don't need a ground operand the way `vm_is` does. An open var just gets its interval narrowed instead.
+`< > <= >=` don't need a ground operand the way `is` does. An open var just gets its interval narrowed instead.
 
 ```elixir
 run do
@@ -152,7 +152,7 @@ run do
   new(:fire_hydrant, hydrant)
 
   class(x, :vehicle)
-  get_slot(x, :color, :red)
+  get(x, :color, :red)
 end
 ```
 

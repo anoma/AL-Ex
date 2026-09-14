@@ -1,6 +1,6 @@
 defmodule Examples.ALInterval do
   @moduledoc """
-  I provide examples for the `:interval_value` package — an interval is
+  I provide examples for the `:interval_value` class — an interval is
   `%{class: :interval_value, lo:, hi:}`, a closed numeric range `[lo, hi]`.
   `intersection` narrows two intervals to their overlap. A disjoint
   intersection (or an `lo > hi` construction) doesn't fail the goal — it

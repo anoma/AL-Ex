@@ -20,7 +20,7 @@ defmodule Examples.ALFreshening do
 
         defmethod(:depth, :down, [self, n]) do
           n > 0
-          vm_is(next, n - 1)
+          is(next, n - 1)
           down(self, next)
         end
       end

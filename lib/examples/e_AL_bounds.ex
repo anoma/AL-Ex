@@ -110,7 +110,7 @@ defmodule Examples.ALBounds do
       run branch: :examples do
         x <= 5
         x >= 5
-        vm_is(z, x + 1)
+        is(z, x + 1)
       end
 
     assert Map.get(bindings, :"$z") == 6
@@ -249,7 +249,7 @@ defmodule Examples.ALBounds do
   end
 
   # `eq/2` (CLP(FD) `#=`, spelled `eq` — `#` can't appear in Elixir source) —
-  # arithmetic equality as a constraint, not `vm_is`'s immediate evaluation.
+  # arithmetic equality as a constraint, not `is`'s immediate evaluation.
   # Ground -> open binds the open side directly.
   example eq_binds_an_open_var_from_a_ground_side() do
     {:atomic, {bindings, _state}} =
@@ -263,7 +263,7 @@ defmodule Examples.ALBounds do
   end
 
   # Same mechanism, other direction: the var is on the compound side, the
-  # ground value is what pins it — no separate mode needed, unlike `vm_is`
+  # ground value is what pins it — no separate mode needed, unlike `is`
   # (which requires the right-hand side already ground).
   example eq_inverts_through_a_compound_expression() do
     {:atomic, {bindings, _state}} =
@@ -374,7 +374,7 @@ defmodule Examples.ALBounds do
           a + 1 > 0
           q + 1 > 0
           unify(b, a1)
-          vm_is(x1, x - 1)
+          is(x1, x - 1)
           fib_mod(s, x1, a1, b1, q1)
         end
 
@@ -483,7 +483,7 @@ defmodule Examples.ALBounds do
   end
 
   # The euler_1 shape, stripped to its essence: "multiple of 3 or 5" as a
-  # direct disjunction of the two relational equations (no `vm_is`/`rem`,
+  # direct disjunction of the two relational equations (no `is`/`rem`,
   # no boolean anywhere), label last -- `either` uses the exact same
   # `add_compare` a plain `eq` would, integer-consistency check included,
   # so a non-multiple refutes a side outright instead of leaving it

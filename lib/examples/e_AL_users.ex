@@ -12,7 +12,7 @@ defmodule Examples.ALUsers do
       run branch: :examples do
         new(:user, %{name: :alice}, alice)
         new(:owned, %{owner: alice, data: %{label: :thing}}, obj)
-        get_slot(obj, :owner, owner)
+        get(obj, :owner, owner)
         class(obj, c)
       end
 
@@ -40,7 +40,7 @@ defmodule Examples.ALUsers do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        get_slot(^obj, :data, d)
+        get(^obj, :data, d)
       end
 
     assert Map.get(b2, :"$d") == %{label: :updated}
@@ -53,8 +53,8 @@ defmodule Examples.ALUsers do
     :ok
   end
 
-  # An unspecified caller must be denied: the guard is structural equality, not
-  # unification, so an unbound caller can't be silently bound to the owner.
+  # An unspecified caller must be denied: ground is checked before the
+  # relational slot lookup, so an unbound caller can't be bound to the owner.
   example owner_gate_rejects_unbound_caller() do
     {:atomic, {b, _}} =
       run branch: :examples do
@@ -71,7 +71,7 @@ defmodule Examples.ALUsers do
 
     {:atomic, {b2, _}} =
       run branch: :examples do
-        get_slot(^obj, :data, d)
+        get(^obj, :data, d)
       end
 
     assert Map.get(b2, :"$d") == %{label: :guarded}

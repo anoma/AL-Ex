@@ -11,7 +11,6 @@ defmodule AL.Branch do
   """
 
   use TypedStruct
-  alias GtBridge.Phlow.ColumnedList
   use GtBridge.View
 
   typedstruct enforce: true do
@@ -39,11 +38,13 @@ defmodule AL.Branch do
 
     if stored_head() not in [main() | list()], do: set_head(main())
 
+    owner? = node() == AL.Command.owner_node()
+
     for branch <- [main() | list()] do
       AL.Object.create_tables(branch)
       AL.SourceStore.create_tables(branch)
       AL.ResolutionCache.create_tables(branch)
-      AL.Object.hydrate_since(0, branch)
+      if owner?, do: AL.Object.hydrate_since(0, branch)
     end
 
     :ok
@@ -60,9 +61,9 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Fork an empty branch and install all packages fresh from currently
-  compiled source — decoupled from `:main`'s own install state, which is
-  sticky by name (`AL.Package.ensure/2`) and can be stale across sessions.
+  Fork an empty branch and install all configured transaction programs and package
+  bundles fresh from current source — decoupled from `:main`'s own install state,
+  which is sticky by name and can be stale across sessions.
   Non-destructive; doesn't touch `:main` or HEAD. Use to verify a source
   change without `mix al.reset`.
 
@@ -77,7 +78,7 @@ defmodule AL.Branch do
     original_head = head()
 
     checkout(branch)
-    AL.Package.install_all(Application.get_env(:al, :packages, []))
+    AL.Application.bootstrap()
     checkout(original_head)
 
     branch
@@ -128,6 +129,7 @@ defmodule AL.Branch do
     AL.Object.hydrate_since(0, branch)
     register(branch, from)
     AL.Scheduler.start(branch)
+    AL.Serialisation.start(branch)
     branch
   end
 
@@ -136,6 +138,7 @@ defmodule AL.Branch do
   def discard(branch) do
     unregister(branch)
     if stored_head() == branch, do: set_head(main())
+    AL.Serialisation.stop(branch)
     AL.Scheduler.stop(branch)
     AL.Object.drop_tables(branch)
     AL.ResolutionCache.drop_tables(branch)
@@ -280,14 +283,6 @@ defmodule AL.Branch do
 
   defview command_log(self = %__MODULE__{}, builder) do
     {:atomic, log} = :mnesia.transaction(fn -> AL.Command.commands_since(0, self) end)
-
-    builder.columned_list()
-    |> ColumnedList.title("Command Log")
-    |> ColumnedList.priority(10)
-    |> ColumnedList.items(fn -> log end)
-    |> ColumnedList.column("type", fn {_, type, _, _} -> to_string(type) end)
-    |> ColumnedList.column("tx", fn {_, _, tx, _} -> to_string(tx) end)
-    |> ColumnedList.column("op", fn {_, _, _, op} -> inspect(op) end)
-    |> ColumnedList.send(fn {_, _, _, op} -> op end)
+    AL.GtBridge.command_log_view(builder, log, "Command Log")
   end
 end

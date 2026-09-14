@@ -100,12 +100,14 @@ defmodule AL.ResolutionCache do
 
   @spec invalidate_generative_descendants(AL.Branch.t()) :: :ok
   def invalidate_generative_descendants(branch) do
-    clear(table(:generative_descendants, branch))
+    :mnesia.delete(table(:generative_descendants, branch), :value, :write)
+    :ok
   end
 
   @spec invalidate_durable_classes(AL.Branch.t()) :: :ok
   def invalidate_durable_classes(branch) do
-    clear(table(:durable_classes, branch))
+    :mnesia.delete(table(:durable_classes, branch), :value, :write)
+    :ok
   end
 
   @doc "Precise, not flush-all: the write's own `object` param is exactly the cache key."

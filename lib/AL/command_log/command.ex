@@ -1,3 +1,12 @@
+defmodule AL.Command.TableCreationError do
+  defexception [:table, :owner, :reason]
+
+  @impl true
+  def message(error) do
+    "cannot create #{inspect(error.table)} on #{inspect(error.owner)}: #{inspect(error.reason)}"
+  end
+end
+
 defmodule AL.Command do
   @moduledoc """
   Event-sourcing / command log for AL, in Mnesia. Entry point for event
@@ -59,8 +68,17 @@ defmodule AL.Command do
            disc_copies: [owner_node()],
            record_name: :command
          ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
+      {:atomic, :ok} ->
+        :ok
+
+      {:aborted, {:already_exists, _}} ->
+        :ok
+
+      {:aborted, reason} ->
+        raise AL.Command.TableCreationError,
+          table: command_reference,
+          owner: owner_node(),
+          reason: reason
     end
 
     case :mnesia.create_table(meta_reference,
@@ -69,8 +87,17 @@ defmodule AL.Command do
            disc_copies: [owner_node()],
            record_name: :meta
          ) do
-      {:atomic, :ok} -> :ok
-      {:aborted, {:already_exists, _}} -> :ok
+      {:atomic, :ok} ->
+        :ok
+
+      {:aborted, {:already_exists, _}} ->
+        :ok
+
+      {:aborted, reason} ->
+        raise AL.Command.TableCreationError,
+          table: meta_reference,
+          owner: owner_node(),
+          reason: reason
     end
 
     :mnesia.wait_for_tables([command_reference, meta_reference], 5_000)
@@ -147,17 +174,14 @@ defmodule AL.Command do
   @spec distributed?() :: boolean()
   defp distributed?(), do: System.get_env("AL_MNESIA_DISTRIBUTED") != "false"
 
-  @doc """
-  The node that owns this store's disc-based tables. Every process either
-  becomes this node (the first to boot) or joins it as a schema member with
-  no local copies of its own (`setup/0`) — table placement always targets
-  this name, never necessarily the calling process's own `node()`, so a
-  table created from a joined process still lands on the one durable owner.
-  With distribution disabled (`distributed?/0`) there is only ever one
-  process, so the owner is just that process's own `node()`.
-  """
+  @doc "The durable owner selected during setup, including an already named local node."
   @spec owner_node() :: node()
-  def owner_node(), do: if(distributed?(), do: @owner_node, else: node())
+  def owner_node(),
+    do:
+      :persistent_term.get(
+        {__MODULE__, :owner_node},
+        if(distributed?(), do: @owner_node, else: node())
+      )
 
   @doc """
   Initialise the event log, or re-use the one on disc. The first process to
@@ -169,6 +193,7 @@ defmodule AL.Command do
   def setup() do
     case become_or_join_owner() do
       :owner ->
+        :persistent_term.put({__MODULE__, :owner_node}, node())
         :ok = Application.put_env(:mnesia, :dir, to_charlist(mnesia_dir()))
 
         case :mnesia.create_schema([node()]) do
@@ -179,6 +204,7 @@ defmodule AL.Command do
         :ok = :mnesia.start()
 
       :joined ->
+        :persistent_term.put({__MODULE__, :owner_node}, @owner_node)
         :ok = Application.put_env(:mnesia, :dir, to_charlist(client_dir()))
         :ok = :mnesia.start()
         {:ok, [@owner_node]} = :mnesia.change_config(:extra_db_nodes, [@owner_node])
@@ -195,6 +221,23 @@ defmodule AL.Command do
     end)
 
     :ok
+  end
+
+  @doc "The persistent identity of this store, shared by all of its branches."
+  def store_identity do
+    :mnesia.transaction(fn ->
+      branch = AL.Branch.main()
+
+      case read_meta(branch, :store_identity, :absent, :write) do
+        :absent ->
+          identity = Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
+          write_meta(branch, :store_identity, identity)
+          identity
+
+        identity ->
+          identity
+      end
+    end)
   end
 
   @spec become_or_join_owner() :: :owner | :joined
@@ -275,6 +318,110 @@ defmodule AL.Command do
       {{:command, :"$1", tx_id, :"$3"}, [], [:"$_"]}
     ])
   end
+
+  def command_log_rows(commands) do
+    Enum.map(commands, fn {:command, time, tx, operation} ->
+      {_marker, action, target, details} = describe_command(operation)
+
+      %{
+        marker: "##",
+        time: time,
+        tx: tx,
+        color: command_color(operation),
+        op: operation |> elem(0) |> inspect(),
+        command: command_display(operation),
+        action: action,
+        target: target,
+        details: details,
+        operation: operation
+      }
+    end)
+  end
+
+  defp describe_command({action, {object, class}})
+       when action in [:set_class, :retract_class] do
+    {mutation_marker(action), "Class", inspect(object), "#{inspect(object)} → #{inspect(class)}"}
+  end
+
+  defp describe_command({action, {object, super}})
+       when action in [:set_super, :retract_super] do
+    {mutation_marker(action), "Superclass", inspect(object),
+     "#{inspect(object)} → #{inspect(super)}"}
+  end
+
+  defp describe_command({action, {object, name, id}})
+       when action in [:set_method, :retract_method] do
+    {mutation_marker(action), "Method", inspect(object), "#{inspect(name)} · #{inspect(id)}"}
+  end
+
+  defp describe_command({:set_oapply, {object, seq, head, _body}}) do
+    {mutation_marker(:set_oapply), "Clause", inspect(object), "#{seq} · #{inspect(head)}"}
+  end
+
+  defp describe_command({:retract_oapply, {object, head}}) do
+    {mutation_marker(:retract_oapply), "Clause", inspect(object), inspect(head)}
+  end
+
+  defp describe_command({:set_slot, {object, key, value, store}}) do
+    {mutation_marker(:set_slot), "Slot", inspect(object),
+     "#{inspect(key)} = #{inspect(value)} · #{store}"}
+  end
+
+  defp describe_command({:retract_slot, {object, key, store}}) do
+    {mutation_marker(:retract_slot), "Slot", inspect(object), "#{inspect(key)} · #{store}"}
+  end
+
+  defp describe_command({action, {object, mfa}}) when action in [:set_native, :retract_native] do
+    {mutation_marker(action), "Native", inspect(object), inspect(mfa)}
+  end
+
+  defp describe_command({:send_async, {object, method, args}}) do
+    {"[>]", "Async Send", inspect(object), "#{inspect(method)} #{inspect(args)}"}
+  end
+
+  defp describe_command({:send_elixir, {pid, message}}) do
+    {"[>]", "Elixir Send", inspect(pid), inspect(message)}
+  end
+
+  defp describe_command(operation) do
+    {"[?]", operation |> elem(0) |> inspect(), "", inspect(operation)}
+  end
+
+  defp mutation_marker(action)
+       when action in [:set_class, :set_super, :set_method, :set_oapply, :set_slot, :set_native],
+       do: "[+]"
+
+  defp mutation_marker(_action), do: "[-]"
+
+  defp command_color({operation, _})
+       when operation in [:set_class, :retract_class],
+       do: "#2563EB"
+
+  defp command_color({operation, _})
+       when operation in [:set_super, :retract_super],
+       do: "#7C3AED"
+
+  defp command_color({operation, _})
+       when operation in [:set_method, :retract_method, :set_oapply, :retract_oapply],
+       do: "#059669"
+
+  defp command_color({operation, _})
+       when operation in [:set_slot, :retract_slot],
+       do: "#D97706"
+
+  defp command_color({operation, _})
+       when operation in [:set_native, :retract_native],
+       do: "#DB2777"
+
+  defp command_color({operation, _}) when operation in [:send_async, :send_elixir],
+    do: "#0891B2"
+
+  defp command_color(_operation), do: "#64748B"
+
+  defp command_display({operation, arguments}),
+    do: "#{inspect(operation)} -> #{inspect(arguments)}"
+
+  defp command_display(operation), do: inspect(operation)
 
   @doc "Copy `src`'s commands up to and including time `t` into `dst`'s log."
   @spec copy_prefix(AL.Branch.t(), AL.Branch.t(), integer()) ::

@@ -39,8 +39,126 @@ Install from terminal using `iex -S mix` or as a mix dependency.
 From IEx, you can run `require AL`.
 
 `lib/examples` contains examples.
-`lib/AL/package` contains the bundled packages (the `bootstrap` package is the foundational one).
+`lib/AL/transaction_program` contains the bundled transaction programs (`bootstrap` establishes the language).
 `lib/AL` contains the runtime code.
+
+A transaction program is named executable AL code, defined with
+`use AL.TransactionProgram` and `defprogram`. Its `install/0` function executes
+the body atomically and creates a `:program_execution` receipt linked to the
+transaction. Bodies can define classes and methods or create and update data.
+Dependencies order execution. Startup compares both the recorded name and
+version, allowing an updated program to replace its execution receipt after its
+body performs the required redefinitions.
+
+Startup programs are configured with `config :al, transaction_programs: [...]`.
+Package sources and the desired package roots are configured separately:
+
+```elixir
+config :al,
+  package_channels: [{:builtin, {:priv, "packages"}}],
+  package_environment: [:interval, :users, :elixir_process]
+```
+
+Use `AL.TransactionProgram`, `defprogram`, and `:transaction_programs`; the former
+package API and configuration aliases have been removed. Historical `:package`
+receipts remain readable through internal migration support. New receipts use
+`:program_execution`, without rewriting old transactions.
+
+The term *package* is reserved for package classes and the build system.
+`:package` is now a metaclass for package classes, and instances of those classes
+are concrete package builds. The class identity is the package name. Channels
+hold durable provider objects containing source, version, and symbolic dependency
+requirements. Realised builds reference the provider that produced them and the
+exact builds chosen for every dependency. Package metadata is durable and
+branch-specific.
+
+Channels discover portable package bundles separately from the live `src/al`
+projection. A bundle contains a literal `package.al` manifest and Tonel-like
+class or extension documents under `definitions/`. Directory containment
+establishes which definitions belong to the package, so the manifest does not
+repeat members or list executable transactions. Discovery registers each channel
+provider in AL. The stateless `:package_resolver` relation searches the frozen,
+ordered provider list and backtracks when a preferred provider cannot satisfy
+the complete dependency graph. Elixir validates the dependency-first solution
+and turns it into an exact build plan. Requirements may be package names or
+`{package, requirement}` pairs. The resolver uses the package name only to find
+the MOP receiver and passes the complete requirement term to that package's
+`accepts_build` protocol. Realisation creates or reuses build instances by their
+content digest without installing their definitions; activation then applies
+the source retained by their providers and records each package class's
+`active_build`.
+Activation treats a `Class` document as the origin of a class and an
+`Extension` document as a contribution to a class originated by a dependency.
+It composes their methods and superclass edges into the live class while
+retaining the attribution through `originates_class`, `adds_method`,
+`adds_superclass`, and `extends_class`. The package manifest does not repeat
+this information.
+`AL.Package.source_snapshot/2` uses those relations to capture only the active
+package's current live definitions. `AL.Package.diff/2` compares that snapshot
+with the parsed provider documents and reports semantic class, method, and
+superclass changes without treating formatting differences as changes. Changes
+and removals to loaded contributions are detected. An otherwise unclaimed
+method or superclass added to a class defaults to the build that originates
+that class. New classes and changes to foreign classes will require
+package-attributed transactions.
+Ordinary startup hydrates the retained image without re-running package
+resolution. Configured packages are applied when the package system is first
+introduced into an image. Call
+`AL.Package.update_configured/0` to rediscover changed channel contents and
+activate newly selected builds. `AL.Package.import/2` remains available for
+direct, additive bundle import. Interval, Users, and Elixir Process are bundled
+under `priv/packages`.
+
+`AL.Package.ensure_configured/0` treats the configured package environment as
+required roots and keeps additional live packages, including open working
+packages. An explicit `AL.Package.update_configured/0` replaces the active set
+with the exact configured environment.
+
+Packages can be born in the live system with an empty open build:
+
+```elixir
+AL.run do
+  new(:package, %{name: :my_package, version: 1, deps: []}, :my_package)
+  active_build(:my_package, build)
+
+  defclass :my_class, super: :object
+  include_class(build, :my_class)
+end
+```
+
+`include_class` attributes the class, its current methods, and its superclass
+edges to the open build. `include_method` and `include_superclass` attribute
+individual extension contributions. The package constructor resolves declared
+requirements to their currently active builds.
+
+An active package's current filtered source can then be exported directly:
+
+```elixir
+AL.Package.export(:my_package, to: "path/to/channel/my_package")
+```
+
+The first export registers the resulting source as a direct provider, computes
+the build digest, and seals the same build as `:complete`. Later exports use the
+active provider manifest as their default version and requirements. Export
+rewrites `package.al` and makes `definitions/` match the package-filtered
+snapshot. The resulting directory can also be discovered through a channel.
+
+The paired channels under `lib/examples/package_channels/stable` and
+`lib/examples/package_channels/experimental` demonstrate provider selection.
+Both offer `:greeting`, `:punctuation`, and the dependent `:welcome` package.
+Their Greeting sources differ, their Punctuation sources are identical, and
+their Welcome sources are identical but depend on Greeting. Reversing channel
+priority therefore reuses the Punctuation build while producing new Greeting
+and Welcome builds. The runnable example is
+`Examples.ALPackages.channels_offer_providers_and_builds_track_dependency_choices/0`.
+
+The files under `src/al` are projections of the store. On startup, AL regenerates
+them from the store: offline definition edits are overwritten, deleted files are
+restored, and extra definition files are removed. Only definition edits observed
+while AL's serialiser is running are imported as new transactions. If the store
+is missing, the configured transaction programs and package environment rebuild
+it and the files are regenerated from that new state. Transaction files in the
+live projection are history and are never executed automatically.
 
 ## Livebooks
 
@@ -59,6 +177,91 @@ AL.Branch.discard(fork) <- discard the fork
 ```
 
 Further isolation should be accomplished by configuration of the Mnesiastore dir.
+
+## Benchmarks
+
+The benchmark suites under `bench/` use Benchee. Run a suite with `mix run`, for
+example:
+
+```console
+mix run bench/succ.exs
+mix run bench/succ.exs 50000
+mix run bench/fibonacci.exs
+mix run bench/length_generate.exs
+mix run bench/sudoku.exs --hard
+mix run bench/regsm.exs entry 1000 7919
+```
+
+Benchmarks run with `trace_mode: :no_trace` so they measure execution rather
+than construction of retained derivation histories.
+
+Benchee defaults to two seconds of warmup and five seconds of measurement per
+scenario. Set `BENCH_WARMUP` and `BENCH_TIME` to non-negative numbers to adjust
+those durations. `BENCH_MEMORY_TIME` and `BENCH_REDUCTION_TIME` opt into Benchee's
+memory and reduction measurements. The existing `--profile` modes remain
+available for targeted `:eprof` runs.
+
+## Working with the live AL node over MCP
+
+The AL owner node starts an MCP server on `http://127.0.0.1:3031/mcp`. Joining
+BEAM nodes use the owner's Mnesia tables and do not start competing MCP
+listeners. The server is disabled in the test environment.
+
+Add it to Codex with:
+
+```console
+codex mcp add almcp --url http://localhost:3031/mcp
+```
+
+The repository's `.codex/config.toml` already contains this project-level
+connection. Add it to Claude Code with:
+
+```console
+claude mcp add --transport http --scope project almcp http://localhost:3031/mcp
+```
+
+The server exposes:
+
+- `evaluate` evaluates Elixir inside the live owner node for inspection and
+  administration. It is an expert escape hatch and may mutate runtime state.
+- `evaluateSource` parses, retains, and evaluates complete AL source on an
+  existing branch. It uses AL's normal transaction machinery and returns the
+  committed or failed transaction object.
+- `queryAL` executes complete retained AL source as an ordinary transaction and
+  returns structured bindings plus public constraint summaries. Its tagged term
+  encoding distinguishes variables, atoms, binaries, integers, floats, tuples,
+  maps, proper lists, and improper-list tails without changing AL identities.
+- `listBranches` identifies the current HEAD and each branch's command-log
+  position.
+- `searchDefinitions` searches owners, comments, selectors, declarations, and
+  method bodies, returning names that can be passed to the inspection tools.
+- `findReferences` runs an AL relational observation to find structural uses of
+  a class, selector, method, or other named object.
+- `inspectObject`, `inspectMethod`, and `explainMethodLookup` run AL observations
+  over the object model and dispatch order without requiring raw Elixir.
+- `inspectTransaction` runs an AL observation for semantic transaction data and
+  combines it with paginated durable commands.
+- `inspectFailure` runs an AL relational observation over a failed transaction
+  and returns its cause, source, method path, state summary, and trace.
+- `diffBranches` compares definition snapshots and reports semantic metadata and
+  method changes rather than raw table rows.
+- `listPackages` and `inspectPackage` query the active package environment,
+  builds, and providers through ordinary AL relations.
+
+Read tools accept an explicit branch and return both structured JSON and a text
+rendering. Named object, method, and package inputs resolve existing atoms only;
+client input never creates atoms. This MCP work does not change AL's identity
+representation.
+
+Semantic inspectors deliberately create ordinary AL history. Their results
+identify the observation transaction, and their MCP annotations mark them as
+history-producing but non-destructive rather than read-only. Definition search
+and branch diffing remain read-only projection-index operations.
+
+The server binds only to loopback. Its `evaluate` tool provides arbitrary code
+execution to local MCP clients, like GT MCP's evaluator. Prefer `queryAL` for
+ad hoc AL queries and `evaluateSource` when a compact human-readable binding
+summary is sufficient; both create normal retained AL history and may write.
 
 ## Installing into Glamorous Toolkit
 
@@ -82,7 +285,7 @@ not start an Elixir runtime or execute the notebook's setup snippets.
 
 ```st
 Metacello new
-	repository: 'github://anoma/AL-Ex:base/src';
+	repository: 'github://anoma/AL-Ex:base/src/gt';
 	baseline: 'AL';
 	load
 ```
@@ -91,7 +294,7 @@ If you have an existing bridge with a different version you want to run this wit
 
 ```st
 Metacello new
-	repository: 'github://anoma/AL-Ex:base/src';
+	repository: 'github://anoma/AL-Ex:base/src/gt';
 	baseline: 'AL';
 	load: #dev
 ```

@@ -134,6 +134,46 @@ defmodule AL.Interp.Relations do
       )
 
   def interp(
+        %Goal.GetCommand{transaction: transaction, time: time, operation: operation},
+        state
+      ) do
+    transaction = AL.Var.deref(store(state), transaction)
+
+    rows =
+      if AL.Var.var?(transaction) do
+        AL.Command.commands_since(0, state.branch)
+      else
+        AL.Command.commands_for_transaction(transaction, state.branch)
+      end
+
+    rows =
+      Enum.map(rows, fn {:command, command_time, command_transaction, command_operation} ->
+        {command_transaction, command_time, command_operation}
+      end)
+
+    scan_relation(state, rows, {transaction, time, operation})
+  end
+
+  def interp(%Goal.TransactionSource{tx: tx, text: text, origin: origin}, state) do
+    rows =
+      if AL.Var.var?(tx) do
+        AL.SourceStore.texts(state.branch)
+      else
+        transaction_tx = transaction_source_id(tx, state.branch)
+
+        case AL.SourceStore.text(transaction_tx, state.branch) do
+          :absent ->
+            []
+
+          {:source_text, ^transaction_tx, source, source_origin} ->
+            [{:source_text, tx, source, source_origin}]
+        end
+      end
+
+    scan_relation(state, rows, {:source_text, tx, text, origin})
+  end
+
+  def interp(
         %Goal.MethodSource{object: object, seq: seq, text: text, provenance: provenance},
         state
       ),
@@ -156,7 +196,7 @@ defmodule AL.Interp.Relations do
     end)
   end
 
-  # store can be literal or a var (get_slot's ancestor-walk fallback
+  # store can be literal or a var (get's ancestor-walk fallback
   # passes a resolved spec var through) -- deref before branching.
   def interp(%Goal.GetSlots{object: object, key: key, value: value, store: store_pattern}, state) do
     case AL.Var.deref(store(state), store_pattern) do
@@ -215,6 +255,17 @@ defmodule AL.Interp.Relations do
       slot_at_bindings(state, value, t, v, lo, hi)
     end)
   end
+
+  defp transaction_source_id({:transaction, tx}, _branch), do: tx
+
+  defp transaction_source_id(tx, branch) when is_atom(tx) do
+    case AL.Object.read_slots(tx, branch) do
+      [{:slots, ^tx, %{tx: command_tx}}] when is_integer(command_tx) -> command_tx
+      _ -> tx
+    end
+  end
+
+  defp transaction_source_id(tx, _branch), do: tx
 
   defp maybe_add_value_slot_link(store, value, key, object) do
     if AL.Var.var?(value) and value != :"$_" do
