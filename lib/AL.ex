@@ -60,6 +60,7 @@ defmodule AL do
 
   defdelegate ast_to_pattern(ast), to: AL.Lowering
   defdelegate workflow(name, arguments, options \\ []), to: AL.Workflow, as: :start
+  defdelegate await_workflow(workflow, options \\ []), to: AL.Workflow, as: :await
 
   @doc """
   I run an AL transaction against a live branch.

@@ -20,6 +20,7 @@ defmodule Examples.ALWorkflow do
       end
 
     assert {:ok, workflow} = AL.workflow(:immediate_workflow, [:done], branch: :examples)
+    assert {:ok, %{result: :done}} = AL.await_workflow(workflow, branch: :examples)
     assert workflow_state(workflow) == {:completed, %{result: :done}, :none}
   end
 
@@ -89,6 +90,9 @@ defmodule Examples.ALWorkflow do
     assert_receive {:effect_pending, first_context, first_value}, 1000
     assert_receive {:effect_pending, second_context, second_value}, 1000
 
+    assert {:error, {:workflow_timeout, ^workflow}} =
+             AL.await_workflow(workflow, branch: :examples, timeout: 0)
+
     contexts = %{first_value => first_context, second_value => second_context}
     assert :ok = AL.Edge.complete(contexts.first, {:ok, :one})
     assert workflow_state(workflow) == {:waiting, %{}, :none}
@@ -156,6 +160,9 @@ defmodule Examples.ALWorkflow do
              AL.Edge.complete(effect, {:error, :unavailable})
 
     assert workflow_state(workflow) == {:blocked, %{}, condition}
+
+    assert {:error, {:workflow_blocked, ^workflow, ^condition}} =
+             AL.await_workflow(workflow, branch: :examples, timeout: 0)
   end
 
   example workflow_requires_explicit_transaction_blocks() do

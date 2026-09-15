@@ -1,5 +1,5 @@
 defmodule AL.Workflow do
-  @moduledoc "I start named durable workflows."
+  @moduledoc "I start and await named durable workflows."
 
   alias AL.Goal
 
@@ -57,6 +57,20 @@ defmodule AL.Workflow do
 
   def start(name, arguments, _options),
     do: {:error, {:invalid_workflow_start, name, arguments}}
+
+  @doc "Wait for a workflow to complete or become blocked."
+  @spec await(handle(), keyword()) :: {:ok, map()} | {:error, term()}
+  def await(workflow, options \\ []) when is_atom(workflow) and is_list(options) do
+    branch = options |> Keyword.get(:branch, AL.Branch.head()) |> branch!()
+    timeout = Keyword.get(options, :timeout, 5_000)
+
+    if is_integer(timeout) and timeout >= 0 do
+      deadline = System.monotonic_time(:millisecond) + timeout
+      await(workflow, branch, deadline)
+    else
+      {:error, {:invalid_workflow_timeout, timeout}}
+    end
+  end
 
   @doc false
   def transaction_start(%AL{workflow_context: nil} = state, workflow, next) do
@@ -226,17 +240,56 @@ defmodule AL.Workflow do
 
   defp branch_and_options(options) do
     {branch, eval_options} = Keyword.pop(options, :branch, AL.Branch.head())
+    {branch!(branch), eval_options}
+  end
 
-    case branch do
-      %AL.Branch{} = value ->
-        {value, eval_options}
+  defp branch!(%AL.Branch{} = branch), do: branch
+  defp branch!(id) when is_atom(id), do: %AL.Branch{id: id}
 
-      id when is_atom(id) ->
-        {%AL.Branch{id: id}, eval_options}
+  defp branch!(value) do
+    raise ArgumentError,
+          "workflow branch must be an atom or AL.Branch, got: #{inspect(value)}"
+  end
 
-      value ->
-        raise ArgumentError,
-              "workflow branch must be an atom or AL.Branch, got: #{inspect(value)}"
+  defp await(workflow, branch, deadline) do
+    case read_workflow(workflow, branch) do
+      {:ok, %{status: :completed, outputs: outputs}} when is_map(outputs) ->
+        {:ok, outputs}
+
+      {:ok, %{status: :blocked, condition: condition}} ->
+        {:error, {:workflow_blocked, workflow, condition}}
+
+      {:ok, %{status: status}}
+      when status in [:pending, :waiting, :advancing] ->
+        await_pending(workflow, branch, deadline)
+
+      {:ok, slots} ->
+        {:error, {:invalid_workflow_state, workflow, slots}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp await_pending(workflow, branch, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      {:error, {:workflow_timeout, workflow}}
+    else
+      receive do
+      after
+        min(10, remaining) -> await(workflow, branch, deadline)
+      end
+    end
+  end
+
+  defp read_workflow(workflow, branch) do
+    case :mnesia.transaction(fn -> AL.Object.read_slots(workflow, branch) end) do
+      {:atomic, [{:slots, ^workflow, slots}]} -> {:ok, slots}
+      {:atomic, []} -> {:error, {:workflow_not_found, workflow}}
+      {:atomic, rows} -> {:error, {:invalid_workflow_rows, workflow, rows}}
+      {:aborted, reason} -> {:error, {:workflow_read_failed, workflow, reason}}
     end
   end
 

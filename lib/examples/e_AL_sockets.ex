@@ -44,7 +44,8 @@ defmodule Examples.ALSockets do
       assert {:ok, workflow} =
                AL.workflow(:tcp_round_trip, [:tcp_example_socket, "ping"], branch: :examples)
 
-      await_workflow(workflow, %{response: "pong"})
+      assert {:ok, %{response: "pong"}} =
+               AL.await_workflow(workflow, branch: :examples, timeout: 1000)
 
       {:atomic, {socket, _runtime}} =
         run branch: :examples do
@@ -139,34 +140,6 @@ defmodule Examples.ALSockets do
     {:ok, {_address, port}} = :inet.sockname(listener)
     :ok = :gen_tcp.close(listener)
     port
-  end
-
-  defp await_workflow(workflow, outputs) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    await_workflow(workflow, outputs, deadline)
-  end
-
-  defp await_workflow(workflow, outputs, deadline) do
-    result =
-      run branch: :examples do
-        get(^workflow, :status, :completed)
-        get(^workflow, :outputs, ^outputs)
-      end
-
-    case result do
-      {:atomic, _} ->
-        :ok
-
-      {:aborted, _} ->
-        if System.monotonic_time(:millisecond) < deadline do
-          receive do
-          after
-            10 -> await_workflow(workflow, outputs, deadline)
-          end
-        else
-          flunk("timed out waiting for workflow #{inspect(workflow)} to complete")
-        end
-    end
   end
 
   defp await_failed_workflow(workflow, socket) do

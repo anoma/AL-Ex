@@ -1,0 +1,233 @@
+# Effects and Workflows
+
+```elixir
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [
+    al: [
+      transaction_programs: [
+        AL.TransactionProgram.Bootstrap,
+        AL.TransactionProgram.PackageSystem
+      ],
+      package_channels: [{:builtin, {:priv, "packages"}}],
+      package_environment: [],
+      edge_providers: [],
+      natives: []
+    ]
+  ]
+)
+```
+
+```elixir
+use AL
+```
+
+## Why workflows exist
+
+An AL transaction can atomically inspect and change durable AL objects. It cannot safely keep that transaction open while waiting for a file, socket, HTTP service, or other part of the host: the operation may block, cannot be rolled back, and must not be repeated just because the transaction retries.
+
+An effect describes that external operation inside the transaction but performs it only after the transaction commits. Its result therefore arrives after the original transaction has finished.
+
+A workflow connects these pieces. It expresses one larger operation as a sequence of explicit transactions separated by effects. This lets AL create durable state, perform host work, continue from the result, wait for several effects, and handle failure without pretending the whole sequence is one atomic transaction.
+
+```text
+transaction -> effect -> host -> transaction -> ...
+```
+
+## Define an effect provider
+
+An effect provider is an Elixir module registered under a name. Here it can uppercase text immediately, reject an operation, or leave an operation pending for us to complete later.
+
+```elixir
+defmodule EffectsLivebook.Provider do
+  use AL.Edge, provider: :livebook
+
+  def observe(pid), do: :persistent_term.put({__MODULE__, :observer}, pid)
+
+  def execute(:uppercase, [text], _context) do
+    {:ok, String.upcase(text)}
+  end
+
+  def execute(:reject, [reason], _context) do
+    {:error, reason}
+  end
+
+  def execute(:wait, [value], context) do
+    send(:persistent_term.get({__MODULE__, :observer}), {:edge_pending, context, value})
+    :pending
+  end
+end
+
+:ok = AL.Edge.register(EffectsLivebook.Provider)
+:ok = EffectsLivebook.Provider.observe(self())
+```
+
+Applications normally register providers at startup:
+
+```text
+config :al,
+  edge_providers: [MyApplication.Edge.HTTP, MyApplication.Edge.TCP]
+```
+
+A provider returns `{:ok, value}`, `{:error, reason}`, or `:pending`. A pending provider keeps the supplied context and later calls `AL.Edge.complete(context, outcome)`.
+
+## Put the effect behind an AL object
+
+AL code calls an ordinary object method. That method describes the host operation with `emit_effect/4` and names the method that will receive its outcome.
+
+```elixir
+{:atomic, _} =
+  run do
+    defclass :text_job,
+      super: :object,
+      redef: true,
+      ivars: [input: [], outcome: []] do
+      defmethod(:init, [self, args, self]) do
+        get(args, :input, input)
+        set_slots(self, %{input: input, outcome: :none})
+      end
+
+      defmethod(:uppercase, [self]) do
+        get(self, :input, input)
+        emit_effect(:livebook, :uppercase, [input], {self, :resolved, []})
+      end
+
+      defmethod(:reject, [self, reason]) do
+        emit_effect(:livebook, :reject, [reason], {self, :resolved, []})
+      end
+
+      defmethod(:wait, [self]) do
+        get(self, :input, input)
+        emit_effect(:livebook, :wait, [input], {self, :resolved, []})
+      end
+
+      defmethod(:resolved, [self, _effect_id, outcome]) do
+        set_slot(self, :outcome, outcome)
+      end
+    end
+  end
+```
+
+The callback receives the effect id and the provider outcome. It runs in a new transaction after the host operation completes.
+
+## Compose transactions with a workflow
+
+Each `transaction` block is one committed step. Values needed by later steps, such as `job`, are retained by the durable workflow object.
+
+```elixir
+{:atomic, _} =
+  run do
+    defworkflow :uppercase_text, [text], outputs: [result] do
+      transaction do
+        new(:text_job, %{input: text}, job)
+        uppercase(job)
+      end
+
+      transaction do
+        get(job, :outcome, {:ok, result})
+      end
+    end
+  end
+
+{:ok, workflow} = AL.workflow(:uppercase_text, ["hello edge"])
+AL.await_workflow(workflow)
+```
+
+`AL.workflow/3` starts the workflow and returns its object name. `AL.await_workflow/2` returns the output map when the final step has bound every declared output.
+
+Effects do not run if their transaction aborts. When a transaction commits several effects, the workflow waits for all of them before starting its next transaction.
+
+## Pending effects form a barrier
+
+```elixir
+{:atomic, _} =
+  run do
+    defworkflow :two_waits, [], outputs: [first, second] do
+      transaction do
+        new(:text_job, %{input: :first}, first_job)
+        new(:text_job, %{input: :second}, second_job)
+        wait(first_job)
+        wait(second_job)
+      end
+
+      transaction do
+        get(first_job, :outcome, {:ok, first})
+        get(second_job, :outcome, {:ok, second})
+      end
+    end
+  end
+
+{:ok, waiting_workflow} = AL.workflow(:two_waits, [])
+
+pending =
+  for _ <- 1..2, into: %{} do
+    receive do
+      {:edge_pending, context, label} -> {label, context}
+    after
+      1_000 -> raise "effect did not reach the provider"
+    end
+  end
+
+:ok = AL.Edge.complete(pending.first, {:ok, :one})
+:ok = AL.Edge.complete(pending.second, {:ok, :two})
+
+AL.await_workflow(waiting_workflow)
+```
+
+## Handle failure in AL
+
+An effect error is data. A later transaction can match it and choose another logical path.
+
+```elixir
+{:atomic, _} =
+  run do
+    defworkflow :recover_rejection, [reason], outputs: [result] do
+      transaction do
+        new(:text_job, %{input: :unused}, job)
+        reject(job, reason)
+      end
+
+      transaction do
+        get(job, :outcome, outcome)
+
+        alternative(
+          [unify(outcome, {:ok, result})],
+          [unify(outcome, {:error, error}), unify(result, {:recovered, error})]
+        )
+      end
+    end
+  end
+
+{:ok, recovering_workflow} = AL.workflow(:recover_rejection, [:unavailable])
+AL.await_workflow(recovering_workflow)
+```
+
+If no path in the next transaction accepts the outcome, the workflow becomes `:blocked`. Its object retains the condition for inspection instead of silently disappearing.
+
+```elixir
+{:atomic, _} =
+  run do
+    defworkflow :require_success, [], outputs: [result] do
+      transaction do
+        new(:text_job, %{input: :unused}, job)
+        reject(job, :unavailable)
+      end
+
+      transaction do
+        get(job, :outcome, {:ok, result})
+      end
+    end
+  end
+
+{:ok, blocked_workflow} = AL.workflow(:require_success, [])
+AL.await_workflow(blocked_workflow)
+```
+
+That is the complete division of responsibility: AL objects expose useful operations, effect providers perform host work, and workflows explicitly compose the transactions around it.

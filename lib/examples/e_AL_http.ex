@@ -12,8 +12,7 @@ defmodule Examples.ALHTTP do
       {:atomic, _} =
         run branch: :examples do
           defworkflow :http_fetch, [url],
-          outputs: [response, status_code, headers, body, error] do
-          
+            outputs: [response, status_code, headers, body, error] do
             transaction do
               new(
                 :http_request,
@@ -39,7 +38,9 @@ defmodule Examples.ALHTTP do
       assert {:ok, workflow} =
                AL.workflow(:http_fetch, [url], branch: :examples)
 
-      result = await_workflow(workflow)
+      assert {:ok, result} =
+               AL.await_workflow(workflow, branch: :examples, timeout: 1000)
+
       response = result.response
 
       assert result.status_code == 200
@@ -126,7 +127,8 @@ defmodule Examples.ALHTTP do
     assert {:ok, workflow} =
              AL.workflow(:failed_http_fetch, [url], branch: :examples)
 
-    result = await_workflow(workflow)
+    assert {:ok, result} =
+             AL.await_workflow(workflow, branch: :examples, timeout: 1000)
 
     assert result.status_code == :none
     refute result.error == :none
@@ -194,34 +196,6 @@ defmodule Examples.ALHTTP do
     {:ok, {_address, port}} = :inet.sockname(listener)
     :ok = :gen_tcp.close(listener)
     port
-  end
-
-  defp await_workflow(workflow) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    await_workflow(workflow, deadline)
-  end
-
-  defp await_workflow(workflow, deadline) do
-    result =
-      run branch: :examples do
-        get(^workflow, :status, :completed)
-        get(^workflow, :outputs, outputs)
-      end
-
-    case result do
-      {:atomic, {bindings, _runtime}} ->
-        bindings[:"$outputs"]
-
-      {:aborted, _reason} ->
-        if System.monotonic_time(:millisecond) < deadline do
-          receive do
-          after
-            10 -> await_workflow(workflow, deadline)
-          end
-        else
-          flunk("timed out waiting for workflow #{inspect(workflow)} to complete")
-        end
-    end
   end
 
   defp await_response(response, state) do
