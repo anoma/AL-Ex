@@ -17,7 +17,8 @@ defmodule AL.Application do
       AL.Scheduler.supervisor_spec(),
       AL.Serialisation.supervisor_spec(),
       AL.Native.Registry,
-      AL.Edge.Registry
+      AL.Edge.Registry,
+      AL.Edge.TCP
     ]
 
     children = if AL.MCP.enabled?(), do: children ++ [AL.MCP], else: children

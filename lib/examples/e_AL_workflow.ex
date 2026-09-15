@@ -9,7 +9,13 @@ defmodule Examples.ALWorkflow do
     {:atomic, _} =
       run branch: :examples do
         defworkflow :immediate_workflow, [value], outputs: [result] do
-          unify(result, value)
+          transaction do
+            unify(intermediate, value)
+          end
+
+          transaction do
+            unify(result, intermediate)
+          end
         end
       end
 
@@ -19,14 +25,25 @@ defmodule Examples.ALWorkflow do
 
   example workflow_resumes_across_multiple_effects() do
     observe_effects()
+    define_wait_receiver(:two_step_receiver)
 
     {:atomic, _} =
       run branch: :examples do
         defworkflow :two_step_workflow, [value], outputs: [result] do
-          effect(:example_effect, :wait, [value], first_outcome)
-          unify(first_outcome, {:ok, intermediate})
-          effect(:example_effect, :wait, [intermediate], second_outcome)
-          unify(second_outcome, {:ok, result})
+          transaction do
+            wait(:two_step_receiver, value)
+          end
+
+          transaction do
+            get(:two_step_receiver, :outcome, first_outcome)
+            unify(first_outcome, {:ok, intermediate})
+            wait(:two_step_receiver, intermediate)
+          end
+
+          transaction do
+            get(:two_step_receiver, :outcome, second_outcome)
+            unify(second_outcome, {:ok, result})
+          end
         end
       end
 
@@ -47,18 +64,58 @@ defmodule Examples.ALWorkflow do
     assert workflow_state(workflow) == {:completed, %{result: :done}, :none}
   end
 
+  example workflow_waits_for_every_effect_from_a_transaction() do
+    observe_effects()
+    define_wait_receiver(:first_barrier_receiver)
+    define_wait_receiver(:second_barrier_receiver)
+
+    {:atomic, _} =
+      run branch: :examples do
+        defworkflow :barrier_workflow, [], outputs: [result] do
+          transaction do
+            wait(:first_barrier_receiver, :first)
+            wait(:second_barrier_receiver, :second)
+          end
+
+          transaction do
+            get(:first_barrier_receiver, :outcome, {:ok, first})
+            get(:second_barrier_receiver, :outcome, {:ok, second})
+            unify(result, {first, second})
+          end
+        end
+      end
+
+    assert {:ok, workflow} = AL.workflow(:barrier_workflow, [], branch: :examples)
+    assert_receive {:effect_pending, first_context, first_value}, 1000
+    assert_receive {:effect_pending, second_context, second_value}, 1000
+
+    contexts = %{first_value => first_context, second_value => second_context}
+    assert :ok = AL.Edge.complete(contexts.first, {:ok, :one})
+    assert workflow_state(workflow) == {:waiting, %{}, :none}
+
+    assert :ok = AL.Edge.complete(contexts.second, {:ok, :two})
+    assert workflow_state(workflow) == {:completed, %{result: {:one, :two}}, :none}
+  end
+
   example workflow_can_handle_an_effect_failure() do
     observe_effects()
+    define_wait_receiver(:recovering_receiver)
 
     {:atomic, _} =
       run branch: :examples do
         defworkflow :recovering_workflow, [value], outputs: [result] do
-          effect(:example_effect, :wait, [value], outcome)
+          transaction do
+            wait(:recovering_receiver, value)
+          end
 
-          alternative(
-            [unify(outcome, {:ok, result})],
-            [unify(outcome, {:error, reason}), unify(result, {:recovered, reason})]
-          )
+          transaction do
+            get(:recovering_receiver, :outcome, outcome)
+
+            alternative(
+              [unify(outcome, {:ok, result})],
+              [unify(outcome, {:error, reason}), unify(result, {:recovered, reason})]
+            )
+          end
         end
       end
 
@@ -73,12 +130,19 @@ defmodule Examples.ALWorkflow do
 
   example unhandled_effect_failure_blocks_the_workflow() do
     observe_effects()
+    define_wait_receiver(:unhandled_receiver)
 
     {:atomic, _} =
       run branch: :examples do
         defworkflow :unhandled_failure_workflow, [value], outputs: [result] do
-          effect(:example_effect, :wait, [value], outcome)
-          unify(outcome, {:ok, result})
+          transaction do
+            wait(:unhandled_receiver, value)
+          end
+
+          transaction do
+            get(:unhandled_receiver, :outcome, outcome)
+            unify(outcome, {:ok, result})
+          end
         end
       end
 
@@ -94,9 +158,59 @@ defmodule Examples.ALWorkflow do
     assert workflow_state(workflow) == {:blocked, %{}, condition}
   end
 
+  example workflow_requires_explicit_transaction_blocks() do
+    definition =
+      quote do
+        defworkflow :implicit_workflow, [value], outputs: [result] do
+          unify(result, value)
+        end
+      end
+
+    assert_raise ArgumentError, ~r/workflow body must contain only transaction blocks/, fn ->
+      AL.Lowering.ast_to_pattern(definition)
+    end
+  end
+
+  example workflow_effects_must_be_emitted_by_called_methods() do
+    definition =
+      quote do
+        defworkflow :misplaced_effect_workflow, [value], outputs: [result] do
+          transaction do
+            effect(:example_effect, :wait, [value], outcome)
+          end
+
+          transaction do
+            unify(result, value)
+          end
+        end
+      end
+
+    assert_raise ArgumentError,
+                 ~r/effects must be emitted by methods called inside workflow transactions/,
+                 fn ->
+                   AL.Lowering.ast_to_pattern(definition)
+                 end
+  end
+
   defp observe_effects do
     :ok = AL.Edge.register(Examples.ALEffects.Provider)
     :ok = Examples.ALEffects.Provider.observe(self())
+  end
+
+  defp define_wait_receiver(receiver) do
+    {:atomic, _} =
+      run branch: :examples do
+        vm_set_class(^receiver, :object)
+        set_slot(^receiver, :outcome, :none)
+
+        defmethod(^receiver, :wait, [self, value]) do
+          emit_effect(:example_effect, :wait, [value], {self, :waited, []})
+        end
+
+        defmethod(^receiver, :waited, [self, _effect_id, outcome]) do
+          set_slot(self, :outcome, outcome)
+        end
+      end
   end
 
   defp workflow_state(workflow) do

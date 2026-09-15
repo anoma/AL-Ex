@@ -25,7 +25,8 @@ defmodule AL.Workflow do
       outputs: %{},
       effect_id: :none,
       condition: :none,
-      environment: %{}
+      environment: %{},
+      pending_effects: []
     }
 
     program = [
@@ -38,9 +39,19 @@ defmodule AL.Workflow do
     ]
 
     case AL.eval(program, nil, branch, eval_options) do
-      {:atomic, {bindings, _state}} -> {:ok, Map.fetch!(bindings, workflow)}
-      {:aborted, reason} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
+      {:atomic, {bindings, state}} ->
+        handle = Map.fetch!(bindings, workflow)
+
+        case continue_after_commit(state, branch) do
+          :ok -> {:ok, handle}
+          {:error, _reason} = error -> error
+        end
+
+      {:aborted, reason} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -48,25 +59,168 @@ defmodule AL.Workflow do
     do: {:error, {:invalid_workflow_start, name, arguments}}
 
   @doc false
-  @spec resume(
-          handle(),
-          atom(),
-          non_neg_integer(),
-          AL.Edge.effect_id(),
-          AL.Edge.outcome(),
-          AL.Branch.t()
-        ) :: :ok | {:error, term()}
-  def resume(workflow, selector, step, effect_id, outcome, branch) do
-    result =
-      AL.eval(
-        [%Goal.Send{object: workflow, method: selector, args: [step, effect_id, outcome]}],
-        nil,
-        branch
-      )
+  def transaction_start(%AL{workflow_context: nil} = state, workflow, next) do
+    %AL{
+      state
+      | workflow_context: %{workflow: workflow, next: next, effects: []},
+        workflow_advance: nil
+    }
+  end
 
-    case result do
-      {:atomic, _result} -> :ok
-      failure -> block(workflow, step, effect_id, outcome, branch, failure)
+  def transaction_start(_state, _workflow, _next) do
+    raise ArgumentError, "workflow transactions cannot be nested"
+  end
+
+  @doc false
+  def capture_effect(%AL{workflow_context: nil} = state, reply), do: {reply, state}
+
+  def capture_effect(%AL{workflow_context: %{next: :done}}, _reply) do
+    raise ArgumentError, "the final workflow transaction cannot emit an effect"
+  end
+
+  def capture_effect(
+        %AL{workflow_context: %{workflow: workflow, next: {selector, step}}} = state,
+        reply
+      ) do
+    unless reply == :none or normal_callback?(reply) do
+      raise ArgumentError, "a workflow cannot capture an effect already owned by a workflow"
+    end
+
+    {{:workflow_effect, workflow, selector, step, reply}, state}
+  end
+
+  @doc false
+  def record_effect(%AL{workflow_context: nil} = state, _effect_id), do: state
+
+  def record_effect(%AL{workflow_context: context} = state, effect_id) do
+    %AL{state | workflow_context: %{context | effects: [effect_id | context.effects]}}
+  end
+
+  @doc false
+  def transaction_commit(
+        %AL{workflow_context: %{workflow: workflow, next: next, effects: effects}} = state,
+        workflow,
+        next,
+        environment,
+        outputs
+      ) do
+    state = %AL{state | workflow_context: nil}
+
+    case next do
+      :done ->
+        set_slots(state, workflow, %{
+          condition: :none,
+          environment: %{},
+          outputs: outputs,
+          pending_effects: [],
+          status: :completed,
+          step: :done
+        })
+
+      {selector, step} ->
+        pending_effects = Enum.reverse(effects)
+        status = if pending_effects == [], do: :advancing, else: :waiting
+
+        state =
+          set_slots(state, workflow, %{
+            attempt: step,
+            condition: :none,
+            environment: environment,
+            pending_effects: pending_effects,
+            status: status,
+            step: step
+          })
+
+        if pending_effects == [] do
+          %AL{state | workflow_advance: {workflow, selector, step}}
+        else
+          state
+        end
+    end
+  end
+
+  def transaction_commit(_state, _workflow, _next, _environment, _outputs) do
+    raise ArgumentError, "workflow transaction boundary does not match its start"
+  end
+
+  @doc false
+  def effect_completed(workflow, selector, step, callback, effect_id, outcome, branch) do
+    program =
+      callback_goals(callback, effect_id, outcome) ++
+        [
+          %Goal.OApply{
+            method_id: :workflow_effect_completed,
+            args: [workflow, selector, step, effect_id]
+          }
+        ]
+
+    case AL.eval(program, nil, branch) do
+      {:atomic, {_bindings, state}} ->
+        continue_after_commit(
+          state,
+          branch,
+          {:continuation_failed, effect_id, outcome}
+        )
+
+      failure ->
+        block_effect(workflow, step, effect_id, outcome, branch, failure)
+    end
+  end
+
+  @doc false
+  def effect_completed_goal(state, workflow, selector, step, effect_id) do
+    with {:ok, slots} <- workflow_slots(state, workflow),
+         true <- slots[:status] == :waiting,
+         true <- slots[:step] == step,
+         true <- slots[:attempt] == step,
+         pending when is_list(pending) <- slots[:pending_effects],
+         true <- effect_id in pending do
+      remaining = List.delete(pending, effect_id)
+
+      state =
+        set_slots(state, workflow, %{
+          effect_id: effect_id,
+          pending_effects: remaining,
+          status: if(remaining == [], do: :advancing, else: :waiting)
+        })
+
+      if remaining == [] do
+        %AL{state | workflow_advance: {workflow, selector, step}}
+      else
+        state
+      end
+    else
+      _ -> AL.backtrack(state)
+    end
+  end
+
+  @doc false
+  def effect_blocked_goal(state, workflow, step, effect_id, condition) do
+    with {:ok, slots} <- workflow_slots(state, workflow),
+         true <- slots[:status] == :waiting,
+         true <- slots[:step] == step,
+         true <- slots[:attempt] == step,
+         pending when is_list(pending) <- slots[:pending_effects],
+         true <- effect_id in pending do
+      set_slots(state, workflow, %{
+        condition: condition,
+        effect_id: effect_id,
+        status: :blocked
+      })
+    else
+      _ -> AL.backtrack(state)
+    end
+  end
+
+  @doc false
+  def advance_blocked_goal(state, workflow, step, condition) do
+    with {:ok, slots} <- workflow_slots(state, workflow),
+         true <- slots[:status] == :advancing,
+         true <- slots[:step] == step,
+         true <- slots[:attempt] == step do
+      set_slots(state, workflow, %{condition: condition, status: :blocked})
+    else
+      _ -> AL.backtrack(state)
     end
   end
 
@@ -86,29 +240,84 @@ defmodule AL.Workflow do
     end
   end
 
-  defp block(workflow, step, effect_id, outcome, branch, failure) do
+  defp continue_after_commit(%AL{workflow_advance: nil}, _branch, _condition), do: :ok
+
+  defp continue_after_commit(
+         %AL{workflow_advance: {workflow, selector, step}},
+         branch,
+         condition
+       ) do
+    condition = condition || {:transaction_failed, step}
+
+    case AL.eval([%Goal.Send{object: workflow, method: selector, args: [step]}], nil, branch) do
+      {:atomic, {_bindings, state}} -> continue_after_commit(state, branch)
+      failure -> block_advance(workflow, step, condition, branch, failure)
+    end
+  end
+
+  defp continue_after_commit(state, branch), do: continue_after_commit(state, branch, nil)
+
+  defp block_effect(workflow, step, effect_id, outcome, branch, failure) do
     condition = {:continuation_failed, effect_id, outcome}
 
-    program = [
-      get(workflow, :status, :waiting),
-      get(workflow, :step, step),
-      get(workflow, :attempt, step),
-      set(workflow, :effect_id, effect_id),
-      set(workflow, :condition, condition),
-      set(workflow, :status, :blocked)
-    ]
+    goal = %Goal.OApply{
+      method_id: :workflow_effect_blocked,
+      args: [workflow, step, effect_id, condition]
+    }
 
-    case AL.eval(program, nil, branch) do
+    case AL.eval([goal], nil, branch) do
       {:atomic, _result} -> {:error, {:workflow_blocked, workflow, condition}}
       _other -> normalize_failure(failure)
     end
   end
 
-  defp get(workflow, slot, value),
-    do: %Goal.Send{object: workflow, method: :get, args: [slot, value]}
+  defp block_advance(workflow, step, condition, branch, failure) do
+    goal = %Goal.OApply{
+      method_id: :workflow_advance_blocked,
+      args: [workflow, step, condition]
+    }
 
-  defp set(workflow, slot, value),
-    do: %Goal.Send{object: workflow, method: :set_slot, args: [slot, value]}
+    case AL.eval([goal], nil, branch) do
+      {:atomic, _result} -> {:error, {:workflow_blocked, workflow, condition}}
+      _other -> normalize_failure(failure)
+    end
+  end
+
+  defp callback_goals(:none, _effect_id, _outcome), do: []
+
+  defp callback_goals({receiver, selector, prefix_arguments}, effect_id, outcome) do
+    [
+      %Goal.Send{
+        object: receiver,
+        method: selector,
+        args: prefix_arguments ++ [effect_id, outcome]
+      }
+    ]
+  end
+
+  defp normal_callback?({_receiver, selector, prefix_arguments}),
+    do: is_atom(selector) and is_list(prefix_arguments)
+
+  defp normal_callback?(_callback), do: false
+
+  defp workflow_slots(state, workflow) do
+    case AL.Object.scan_slots(workflow, :"$workflow_slots", state.branch) do
+      [{:slots, ^workflow, slots}] -> {:ok, slots}
+      _rows -> :error
+    end
+  end
+
+  defp set_slots(state, workflow, slots) do
+    goals = [%Goal.Send{object: workflow, method: :set_slots, args: [slots]}]
+
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | goals: AL.splice_goals(state, goals)
+        }
+    }
+  end
 
   defp normalize_failure({:aborted, reason}), do: {:error, reason}
   defp normalize_failure({:error, reason}), do: {:error, reason}

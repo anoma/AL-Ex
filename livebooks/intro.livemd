@@ -39,3 +39,4 @@ If you'd rather work against a real, persistent, shared store instead (useful fo
 * [Logic and constraints](./logic_and_constraints.livemd) — `dif`, `eq`, `all_dif`, backward execution, open-receiver queries.
 * [The command log](./command_log.livemd) — durability, branching, forking, multiple sessions.
 * [Debugging and tracing](./debugging_and_tracing.livemd) — live tracing, reading failures, derivation trees.
+* [Packages](./packages.livemd) — configuration, the package object model, authoring, extensions, import/export, dependencies, and branch-local activation.

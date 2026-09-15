@@ -10,8 +10,7 @@ Class {
 ]
 
 :interval_value >> :init, [self, args, new] [
-  get(args, :lo, lo)
-  get(args, :hi, hi)
+  get_slots(args, %{lo: lo, hi: hi})
 
   implies do
     [lo > hi] -> unify(new, %{lo: :empty, class: :interval_value, hi: :empty})

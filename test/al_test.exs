@@ -34,6 +34,14 @@ defmodule ALWorkflowTest do
   use ExExample.ExUnit, for: Examples.ALWorkflow
 end
 
+defmodule ALSocketsTest do
+  use ExExample.ExUnit, for: Examples.ALSockets
+end
+
+defmodule ALHTTPTest do
+  use ExExample.ExUnit, for: Examples.ALHTTP
+end
+
 defmodule ALArithmeticTest do
   use ExExample.ExUnit, for: Examples.ALArithmetic
 end

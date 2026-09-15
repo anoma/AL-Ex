@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 4, deps: [] do
+  defprogram :bootstrap, version: 5, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -157,6 +157,11 @@ defmodule AL.TransactionProgram.Bootstrap do
       forall([vm_map_get(slots, key, value)]) do
         set_slot(self, key, value)
       end
+    end
+
+    defmethod(:object, :get_slots, [self, requested]) do
+      findall(key, [vm_map_get(requested, key, _)], keys)
+      slots(self, keys, requested)
     end
 
     defmethod(:object, :slots, [self, [], %{}])

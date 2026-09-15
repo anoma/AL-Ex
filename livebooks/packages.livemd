@@ -1,0 +1,412 @@
+# Packages
+
+```elixir
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [
+    al: [
+      transaction_programs: [
+        AL.TransactionProgram.Bootstrap,
+        AL.TransactionProgram.PackageSystem
+      ],
+      package_channels: [
+        {:builtin, {:priv, "packages"}}
+      ],
+      package_environment: [:interval],
+      natives: []
+    ]
+  ]
+)
+```
+
+## Setup
+
+This notebook is self-contained. It installs AL into a fresh throwaway image, enables the package system, discovers packages from AL's bundled package directory, and asks for `:interval` as the initial environment.
+
+If you attach this notebook to a persistent AL node instead, package changes affect the selected branch on that node. Use a fork when experimenting. See the [intro](./intro.livemd) for connection instructions.
+
+```elixir
+use AL
+
+AL.Branch.head()
+```
+
+## Configuration
+
+Three application settings establish a package environment:
+
+```text
+config :al,
+  transaction_programs: [
+    AL.TransactionProgram.Bootstrap,
+    AL.TransactionProgram.PackageSystem
+  ],
+  package_channels: [
+    {:builtin, {:priv, "packages"}},
+    {:local, "/absolute/path/to/my/packages"}
+  ],
+  package_environment: [:interval, :constraints]
+```
+
+`transaction_programs` enables the package object model. `package_channels` names ordered sources of package bundles. A string location is a filesystem directory; `{:priv, path}` resolves inside AL's application directory. Earlier channels are preferred, but resolution can backtrack to a later provider when the preferred provider's dependency graph cannot be satisfied.
+
+`package_environment` lists the root packages AL should make active at startup. Their transitive dependencies are resolved automatically. It can contain package atoms or `{package, requirement}` pairs. Requirements are deliberately opaque to the Elixir resolver: package methods decide whether a provider satisfies one.
+
+```elixir
+{
+  AL.Package.configured_channels(),
+  AL.Package.configured_environment(),
+  AL.Package.active?(:interval)
+}
+```
+
+`AL.Package.ensure_configured/1` performs the startup check. `AL.Package.update_configured/1` forces rediscovery, resolution, realisation, and activation after configuration changes.
+
+## The package object model
+
+The filesystem is where package source is exchanged, but the package system itself is represented by ordinary durable AL objects:
+
+| Object                                  | Meaning                                                        |
+| --------------------------------------- | -------------------------------------------------------------- |
+| `:channel` instance                     | A named source and one discovered revision of it               |
+| `:package_provider` instance            | One channel's source capable of providing a package            |
+| `:package` instance such as `:interval` | The durable identity and policy object for a package name      |
+| `:package_build` instance               | One exact realisation of provider source and dependency builds |
+
+The clever part is that a package name is itself a class. `:interval` is an instance of `:package`, while an exact interval build is an instance of `:interval`. The package object's `:active_build` slot points to the build currently supplying live definitions on that branch.
+
+```elixir
+run do
+  class(:interval, :package)
+  super(:interval, :package_build)
+  active_build(:interval, build)
+  class(build, :interval)
+  build_version(build, version)
+  build_provider(build, provider)
+  provides(provider, :interval)
+  provider_channel(provider, channel)
+  channel_name(channel, channel_name)
+end
+```
+
+A provider is source offered by a channel. A build is the result of selecting that provider together with exact builds for every dependency. Consequently, the build digest changes when either the provider source or any selected dependency build changes. Realisation can reuse a build whose complete identity already exists.
+
+The active build also records which definitions it owns and which existing definitions it extends. That attribution is what makes precise export and removal possible.
+
+## Discovering available packages
+
+Discovery reads every bundle in the supplied channels and registers durable channel and provider objects on the selected branch.
+
+```elixir
+{:ok, available} = AL.Package.available()
+
+Enum.map(available, fn package ->
+  Map.take(package, [:package, :version, :channel])
+end)
+```
+
+A portable bundle has one manifest and a definitions directory:
+
+```text
+greetings/
+├── package.al
+└── definitions/
+    ├── greeting.class.al
+    └── list.extension.al
+```
+
+The manifest is literal data rather than executable Elixir:
+
+```text
+Package {
+  #name : :greetings,
+  #version : 1,
+  #deps : []
+}
+```
+
+Definition files use the same serialised class and method format as AL's editable source projection. A `.class.al` file owns a class. An `.extension.al` file contributes methods or superclasses to a class owned elsewhere.
+
+## Creating a package from AL
+
+Packages do not have to begin as filesystem bundles. Creating a `:package` object with the default `open_build: true` also creates an open active build. Definitions can then be written normally and attributed to that build.
+
+```elixir
+author = AL.Branch.head()
+
+{:atomic, {package_bindings, _state}} =
+  run do
+    new(
+      :package,
+      %{name: :greetings, version: 1, deps: [], redef: true},
+      :greetings
+    )
+
+    active_build(:greetings, build)
+
+    defclass :greeting,
+      super: :object,
+      redef: true,
+      ivars: [words: []] do
+      defmethod(:words, [self, words]) do
+        get(self, :words, words)
+      end
+    end
+
+    include_class(build, :greeting)
+
+    defmethod(:list, :as_greeting, [words, greeting]) do
+      new(:greeting, %{words: words}, greeting)
+    end
+
+    include_method(build, :list, :as_greeting)
+  end
+
+package_bindings
+```
+
+`include_class/2` says that this build originates the class and captures its methods and superclasses. `include_method/3` attributes a method added to an existing class. `include_superclass/3` does the corresponding job for an added inheritance edge.
+
+The package can now be used like any other live AL code:
+
+```elixir
+run do
+  as_greeting([:hello, :package, :world], greeting)
+  words(greeting, words)
+
+  active_build(:greetings, build)
+  originates_class(build, :greeting)
+  extends_class(build, :list)
+  adds_method(build, :list, :as_greeting)
+end
+```
+
+This distinction matters. The package owns `:greeting`, so removing the package can remove that class. It merely extends `:list`, so removing the package removes its contribution without removing `:list` or contributions supplied by other builds.
+
+## Exporting live package source
+
+Exporting an open package writes only the definitions attributed to its active build. It also seals that build with a provider and digest so its source can be compared later.
+
+```elixir
+export_directory =
+  Path.join(
+    System.tmp_dir!(),
+    "al_greetings_package_#{System.unique_integer([:positive])}"
+  )
+
+{:ok, exported} = AL.Package.export(:greetings, to: export_directory)
+
+Map.take(exported, [:package, :directory, :definitions, :build, :provider])
+```
+
+```elixir
+%{
+  manifest: File.read!(Path.join(export_directory, "package.al")),
+  definitions:
+    export_directory
+    |> Path.join("definitions/*.al")
+    |> Path.wildcard()
+    |> Enum.map(&Path.basename/1)
+}
+```
+
+Because the export has become this build's reference provider, `diff/2` can compare its current live definitions with the exported source.
+
+```elixir
+AL.Package.diff(:greetings)
+```
+
+You can also package an explicit selection of otherwise unattributed live definitions:
+
+```text
+AL.Package.export(:my_tools,
+  version: 1,
+  deps: [],
+  definitions: [:some_class, :another_class],
+  to: "/path/to/my_tools"
+)
+```
+
+That form creates a bundle from the selected owners. The open-package form is preferable when definitions are being developed as one durable package because its build already records ownership and extensions.
+
+## Importing into another branch
+
+Package state is branch-local. To demonstrate that cleanly, create a branch from transaction zero, install only the bootstrap and package-system transaction programs, and import the exported bundle there.
+
+```elixir
+consumer = AL.Branch.fork(0, author)
+AL.Branch.checkout(consumer)
+
+:ok =
+  AL.TransactionProgram.install_all([
+    AL.TransactionProgram.Bootstrap,
+    AL.TransactionProgram.PackageSystem
+  ])
+
+AL.Package.active?(:greetings, consumer)
+```
+
+The new branch does not inherit the author's package or definitions because it forked from the beginning of the log.
+
+```elixir
+{:ok, imported} = AL.Package.import(export_directory, branch: consumer)
+
+Map.take(imported, [:package, :provider, :build, :definitions])
+```
+
+Import registers a direct provider, resolves and realises its package, and activates its definitions on the selected branch. It is the convenience path for one self-contained bundle. When a package has dependencies that must also be located, discover a channel containing the complete graph and use the staged resolver shown below.
+
+```elixir
+run branch: consumer.id do
+  as_greeting([:hello, :consumer], greeting)
+  words(greeting, words)
+  active_build(:greetings, build)
+  build_status(build, :complete)
+end
+```
+
+```elixir
+{
+  AL.Package.active?(:greetings, author),
+  AL.Package.active?(:greetings, consumer)
+}
+```
+
+The two branches now happen to activate equivalent source, but their package environments can diverge independently.
+
+## Resolving dependencies
+
+For a dependency graph, use the staged API:
+
+1. `discover/2` freezes the providers offered by an ordered set of channels.
+2. `resolve/3` selects a complete provider graph.
+3. `realise/2` creates or reuses exact durable builds without activating them.
+4. `activate/2` projects the selected definitions into the branch.
+
+Keeping these stages separate makes the plan inspectable before live definitions change.
+
+```elixir
+{:ok, catalog} =
+  AL.Package.discover(AL.Package.configured_channels(), branch: consumer)
+
+{:ok, plan} = AL.Package.resolve(catalog, [:constraints], branch: consumer)
+
+Enum.map(plan.builds, fn build ->
+  %{
+    package: build.provider.document.name,
+    version: build.provider.document.version,
+    dependencies: Enum.map(build.dependencies, &elem(&1, 0))
+  }
+end)
+```
+
+The builds are ordered with dependencies before their consumers. The bundled `:constraints` package pulls in `:elixir_process`, `:mapset`, and `:interval` from its manifest.
+
+```elixir
+{:ok, realisation} = AL.Package.realise(plan, branch: consumer)
+{:ok, activation} = AL.Package.activate(realisation, branch: consumer)
+
+%{
+  builds: realisation.builds,
+  newly_created: realisation.created,
+  activation: activation
+}
+```
+
+Activation without `replace: true` adds the selected graph while preserving unrelated active packages such as `:greetings`.
+
+```elixir
+for package <- [:greetings, :constraints, :elixir_process, :mapset, :interval] do
+  {package, AL.Package.active?(package, consumer)}
+end
+```
+
+The dependency choices are also ordinary AL facts on the build object:
+
+```elixir
+run branch: consumer.id do
+  active_build(:constraints, build)
+  build_requirements(build, requirements)
+  dependency_builds(build, dependency_builds)
+  build_digest(build, digest)
+end
+```
+
+An atom dependency means “this package.” A `{package, requirement}` dependency delegates the requirement to `accepts_requirement/4` on that package object. The default package policy understands `:any`; packages can add AL methods to implement version ranges, protocol compatibility, feature sets, or another domain-specific policy without changing the resolver.
+
+## Branch-local package environments
+
+Forking copies the current package objects, builds, providers, and active definitions. Activation after the fork affects only that branch.
+
+```elixir
+experiment = AL.Branch.fork(:tip, consumer)
+
+{:ok, experiment_catalog} =
+  AL.Package.discover(AL.Package.configured_channels(), branch: experiment)
+
+{:ok, experiment_plan} =
+  AL.Package.resolve(experiment_catalog, [:euler], branch: experiment)
+
+{:ok, experiment_realisation} =
+  AL.Package.realise(experiment_plan, branch: experiment)
+
+{:ok, _} =
+  AL.Package.activate(experiment_realisation, branch: experiment, replace: true)
+
+%{
+  consumer: %{
+    constraints: AL.Package.active?(:constraints, consumer),
+    euler: AL.Package.active?(:euler, consumer)
+  },
+  experiment: %{
+    constraints: AL.Package.active?(:constraints, experiment),
+    euler: AL.Package.active?(:euler, experiment)
+  }
+}
+```
+
+`replace: true` makes the realisation the branch's exact active package set. Here the experimental branch contains only `:euler` and its dependencies, while the consumer branch keeps its previous environment.
+
+```elixir
+run branch: experiment.id do
+  euler_1(10, 23)
+end
+```
+
+Discarding the experiment leaves the consumer untouched.
+
+```elixir
+AL.Branch.checkout(consumer)
+AL.Branch.discard(experiment)
+```
+
+## Inspecting and maintaining packages
+
+The most useful public inspection calls are:
+
+```elixir
+%{
+  active_build: AL.Package.active_build(:greetings, consumer),
+  builds: AL.Package.builds(:greetings, consumer),
+  providers: AL.Package.providers(:greetings, consumer),
+  source: AL.Package.source_snapshot(:greetings, branch: consumer),
+  diff: AL.Package.diff(:greetings, branch: consumer)
+}
+```
+
+The same information remains queryable through AL relations such as `active_build/2`, `build_provider/2`, `build_status/2`, `originates_class/2`, `extends_class/2`, `adds_method/3`, and `adds_superclass/3`. The Elixir API orchestrates filesystem discovery and exact activation; the durable package model and its policy hooks stay visible and extensible from AL.
+
+## Cleanup
+
+```elixir
+AL.Branch.checkout(author)
+AL.Branch.discard(consumer)
+File.rm_rf!(export_directory)
+```

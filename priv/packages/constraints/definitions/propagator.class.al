@@ -6,8 +6,7 @@ Class {
 }
 
 :propagator >> :init, [self, args, self] [
-  get(args, :input_cells, input_cells)
-  get(args, :output_cell, output_cell)
+  get_slots(args, %{input_cells: input_cells, output_cell: output_cell})
   set_slots(self, %{name: self, input_cells: input_cells, output_cell: output_cell})
 
   forall([member(input_cells, input_cell)]) do
@@ -18,8 +17,7 @@ Class {
 ]
 
 :propagator >> :cell_updated, [self, _cell_name, _domain] [
-  get(self, :input_cells, input_cells)
-  get(self, :output_cell, output_cell)
+  get_slots(self, %{input_cells: input_cells, output_cell: output_cell})
 
   findall(
     input_domain,

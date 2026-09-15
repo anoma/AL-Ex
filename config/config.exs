@@ -18,6 +18,8 @@ config :al,
     :interval,
     :users,
     :elixir_process,
+    :http,
+    :sockets,
     :mapset,
     :constraints,
     :sudoku,
@@ -28,7 +30,7 @@ config :al,
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
 # {class, selector, module, function, arity} or {..., opts} tuples.
 config :al, natives: []
-config :al, edge_providers: [AL.Edge.File]
+config :al, edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP]
 
 config :al, AL.MCP,
   enabled: true,

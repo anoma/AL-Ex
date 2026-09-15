@@ -7,7 +7,8 @@ defmodule AL.Edge do
   @type reply() ::
           :none
           | {term(), atom(), list()}
-          | {:workflow, term(), atom(), non_neg_integer()}
+          | {:workflow_effect, term(), atom(), non_neg_integer(),
+             :none | {term(), atom(), list()}}
   @type outcome() :: {:ok, term()} | {:error, term()}
   @type provider_result() :: outcome() | :pending
 
@@ -116,8 +117,21 @@ defmodule AL.Edge do
 
   defp deliver(:none, _effect_id, _outcome, _branch), do: :ok
 
-  defp deliver({:workflow, workflow, selector, step}, effect_id, outcome, branch) do
-    AL.Workflow.resume(workflow, selector, step, effect_id, outcome, branch)
+  defp deliver(
+         {:workflow_effect, workflow, selector, step, callback},
+         effect_id,
+         outcome,
+         branch
+       ) do
+    AL.Workflow.effect_completed(
+      workflow,
+      selector,
+      step,
+      callback,
+      effect_id,
+      outcome,
+      branch
+    )
   end
 
   defp deliver({receiver, selector, prefix_arguments}, effect_id, outcome, branch) do
@@ -141,7 +155,7 @@ defmodule AL.Edge do
 
     unless reply == :none or valid_reply?(reply) do
       raise ArgumentError,
-            "effect reply must be :none, {receiver, selector, prefix_arguments}, or a workflow reply"
+            "effect reply must be :none, {receiver, selector, prefix_arguments}, or a workflow effect reply"
     end
 
     request = {provider, operation, arguments, reply}
@@ -179,11 +193,19 @@ defmodule AL.Edge do
     is_atom(selector) and is_list(prefix_arguments)
   end
 
-  defp valid_reply?({:workflow, _workflow, selector, step}) do
-    is_atom(selector) and is_integer(step) and step >= 0
+  defp valid_reply?({:workflow_effect, _workflow, selector, step, callback}) do
+    is_atom(selector) and is_integer(step) and step >= 0 and valid_callback?(callback)
   end
 
   defp valid_reply?(_reply), do: false
+
+  defp valid_callback?(:none), do: true
+
+  defp valid_callback?({_receiver, selector, prefix_arguments}) do
+    is_atom(selector) and is_list(prefix_arguments)
+  end
+
+  defp valid_callback?(_callback), do: false
 
   defp durable?(term)
        when is_pid(term) or is_port(term) or is_reference(term) or is_function(term),

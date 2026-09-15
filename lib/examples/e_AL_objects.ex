@@ -528,6 +528,27 @@ defmodule Examples.ALObjects do
     bindings
   end
 
+  example get_slots_binds_requested_values() do
+    {:atomic, {bindings, _runtime}} =
+      run branch: :examples do
+        defclass :get_multislots, super: :object, ivars: [] do
+        end
+
+        set_slots(:get_multislots, %{x: 1, y: 2, z: 3})
+        get_slots(:get_multislots, %{x: x, z: 3})
+      end
+
+    assert bindings[:"$x"] == 1
+
+    {:atomic, {map_bindings, _runtime}} =
+      run branch: :examples do
+        get_slots(%{left: :a, right: :b}, %{left: left, right: right})
+      end
+
+    assert map_bindings[:"$left"] == :a
+    assert map_bindings[:"$right"] == :b
+  end
+
   example get_inherits_from_class() do
     {:atomic, {bindings, _}} =
       run branch: :examples do

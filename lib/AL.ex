@@ -32,6 +32,8 @@ defmodule AL do
     field(:failure_candidate, failure_candidate() | nil, default: nil)
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
     field(:reductions, non_neg_integer(), default: 0)
+    field(:workflow_context, map() | nil, default: nil)
+    field(:workflow_advance, {term(), atom(), non_neg_integer()} | nil, default: nil)
 
     field(:source_refs, %{optional(AL.Source.Ref.capture_id()) => AL.Source.Ref.t()},
       default: %{}
@@ -893,6 +895,45 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :transaction_object, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.transaction_object), [result])
 
+  def interp(%Goal.OApply{method_id: :workflow_transaction_start, args: [workflow, next]}, state),
+    do: AL.Workflow.transaction_start(state, workflow, next)
+
+  def interp(
+        %Goal.OApply{
+          method_id: :workflow_transaction_commit,
+          args: [workflow, next, environment, outputs]
+        },
+        state
+      ),
+      do: AL.Workflow.transaction_commit(state, workflow, next, environment, outputs)
+
+  def interp(
+        %Goal.OApply{
+          method_id: :workflow_effect_completed,
+          args: [workflow, selector, step, effect_id]
+        },
+        state
+      ),
+      do: AL.Workflow.effect_completed_goal(state, workflow, selector, step, effect_id)
+
+  def interp(
+        %Goal.OApply{
+          method_id: :workflow_effect_blocked,
+          args: [workflow, step, effect_id, condition]
+        },
+        state
+      ),
+      do: AL.Workflow.effect_blocked_goal(state, workflow, step, effect_id, condition)
+
+  def interp(
+        %Goal.OApply{
+          method_id: :workflow_advance_blocked,
+          args: [workflow, step, condition]
+        },
+        state
+      ),
+      do: AL.Workflow.advance_blocked_goal(state, workflow, step, condition)
+
   def interp(
         %Goal.OApply{
           method_id: :source_method_parts,
@@ -1049,16 +1090,20 @@ defmodule AL do
       ) do
     store = store(state)
 
-    AL.Edge.emit(
-      state.tx_id,
-      AL.Var.subst(provider, store),
-      AL.Var.subst(operation, store),
-      AL.Var.subst(arguments, store),
-      AL.Var.subst(reply, store),
-      state.branch
-    )
+    reply = AL.Var.subst(reply, store)
+    {reply, state} = AL.Workflow.capture_effect(state, reply)
 
-    state
+    effect_id =
+      AL.Edge.emit(
+        state.tx_id,
+        AL.Var.subst(provider, store),
+        AL.Var.subst(operation, store),
+        AL.Var.subst(arguments, store),
+        reply,
+        state.branch
+      )
+
+    AL.Workflow.record_effect(state, effect_id)
   end
 
   def interp(%Goal.Gensym{var: var}, state) do

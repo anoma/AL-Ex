@@ -460,10 +460,9 @@ defmodule AL.Lowering do
       raise ArgumentError, "workflow outputs must have distinct names"
     end
 
-    statements = unwrap_workflow_body(body)
-    {segments, effects} = split_workflow(statements, [], [], MapSet.new(output_names))
-    boundaries = workflow_boundaries(arguments, segments, effects)
-    methods = workflow_methods(arguments, segments, effects, boundaries, output_names)
+    transactions = workflow_transactions!(body)
+    boundaries = workflow_boundaries(arguments, transactions, output_names)
+    methods = workflow_methods(arguments, transactions, boundaries, output_names)
 
     %Goal.OApply{
       method_id: :defclass,
@@ -480,7 +479,8 @@ defmodule AL.Lowering do
           :outputs,
           :effect_id,
           :condition,
-          :environment
+          :environment,
+          :pending_effects
         ],
         [],
         methods,
@@ -505,151 +505,125 @@ defmodule AL.Lowering do
   defp unwrap_workflow_body(nil), do: []
   defp unwrap_workflow_body(statement), do: [statement]
 
-  defp split_workflow(
-         [{:effect, _, [provider, operation, arguments, result]} | rest],
-         current,
-         effects,
-         output_names
-       ) do
-    workflow_variable!(result)
+  defp workflow_transactions!(body) do
+    case unwrap_workflow_body(body) do
+      [] ->
+        raise ArgumentError, "workflow must contain at least one transaction block"
 
-    effect = %{
-      provider: provider,
-      operation: operation,
-      arguments: arguments,
-      result: result,
-      future_variables: MapSet.union(workflow_variables(rest), output_names)
-    }
-
-    split_workflow(rest, [], effects ++ [{Enum.reverse(current), effect}], output_names)
+      statements ->
+        Enum.map(statements, &workflow_transaction!/1)
+    end
   end
 
-  defp split_workflow([{:return, _, _arguments} | _rest], _current, _effects, _output_names) do
-    raise ArgumentError, "workflow outputs belong in the defworkflow declaration"
+  defp workflow_transaction!({:transaction, _, [[do: body]]}) do
+    statements = unwrap_workflow_body(body)
+
+    if Enum.any?(statements, &match?({:return, _, _}, &1)) do
+      raise ArgumentError, "workflow outputs belong in the defworkflow declaration"
+    end
+
+    if Enum.any?(statements, &contains_workflow_effect?/1) do
+      raise ArgumentError,
+            "effects must be emitted by methods called inside workflow transactions"
+    end
+
+    statements
   end
 
-  defp split_workflow([{:effect, _, _arguments} | _rest], _current, _effects, _output_names) do
-    raise ArgumentError, "effect must take provider, operation, arguments, and a result variable"
+  defp workflow_transaction!(statement) do
+    raise ArgumentError,
+          "workflow body must contain only transaction blocks, got: #{Macro.to_string(statement)}"
   end
 
-  defp split_workflow([statement | rest], current, effects, output_names),
-    do: split_workflow(rest, [statement | current], effects, output_names)
+  defp contains_workflow_effect?(ast) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        {:effect, metadata, arguments} = node, _found?
+        when is_list(metadata) and is_list(arguments) ->
+          {node, true}
 
-  defp split_workflow([], current, effects, _output_names),
-    do:
-      {Enum.map(effects, &elem(&1, 0)) ++ [Enum.reverse(current)],
-       Enum.map(effects, &elem(&1, 1))}
+        node, found? ->
+          {node, found?}
+      end)
 
-  defp workflow_boundaries(arguments, segments, effects) do
+    found?
+  end
+
+  defp workflow_boundaries(arguments, transactions, output_names) do
     initial = workflow_variables(arguments)
+    outputs = MapSet.new(output_names)
 
-    effects
+    transactions
+    |> Enum.drop(-1)
     |> Enum.with_index()
-    |> Enum.map_reduce(initial, fn {effect, index}, available ->
-      segment = Enum.at(segments, index)
+    |> Enum.map_reduce(initial, fn {transaction, index}, available ->
+      available = MapSet.union(available, workflow_variables(transaction))
 
-      available =
-        available
-        |> MapSet.union(workflow_variables(segment))
-        |> MapSet.union(workflow_variables([effect.provider, effect.operation, effect.arguments]))
-
-      result_name = workflow_variable!(effect.result)
-
-      if MapSet.member?(available, result_name) do
-        raise ArgumentError, "effect result #{result_name} must be a fresh workflow variable"
-      end
+      future_variables =
+        transactions
+        |> Enum.drop(index + 1)
+        |> workflow_variables()
+        |> MapSet.union(outputs)
 
       environment =
         available
-        |> MapSet.intersection(effect.future_variables)
+        |> MapSet.intersection(future_variables)
         |> MapSet.delete(:self)
         |> Enum.sort()
 
-      {%{effect: effect, environment: environment, step: index + 1},
-       MapSet.put(available, result_name)}
+      {%{
+         environment: environment,
+         selector: workflow_resume_selector(index + 1),
+         step: index + 1
+       }, available}
     end)
     |> elem(0)
   end
 
-  defp workflow_methods(arguments, segments, effects, boundaries, output_names) do
+  defp workflow_methods(arguments, transactions, boundaries, output_names) do
     self = AL.Var.var(:self)
-    start_body = workflow_stage(Enum.at(segments, 0), 0, boundaries, output_names, self)
+    start_body = workflow_stage(Enum.at(transactions, 0), 0, boundaries, output_names, self)
     start = [:start, [self | Enum.map(arguments, &ast_to_pattern/1)], start_body]
 
     resumptions =
-      effects
+      transactions
       |> Enum.with_index()
-      |> Enum.map(fn {effect, index} ->
-        boundary = Enum.at(boundaries, index)
-        selector = workflow_resume_selector(index + 1)
-        effect_id = AL.Var.var(:workflow_effect_id)
-        outcome = AL.Var.var(:workflow_outcome)
-
-        continuation =
-          workflow_stage(
-            Enum.at(segments, index + 1),
-            index + 1,
-            boundaries,
-            output_names,
-            self
-          )
+      |> Enum.drop(1)
+      |> Enum.map(fn {transaction, index} ->
+        previous_boundary = Enum.at(boundaries, index - 1)
 
         body =
-          workflow_guards(self, boundary) ++
-            workflow_restore_environment(self, boundary.environment) ++
-            [
-              workflow_set(self, :effect_id, effect_id),
-              %Goal.Unify{a: ast_to_pattern(effect.result), b: outcome}
-            ] ++
-            continuation
+          workflow_guards(self, previous_boundary) ++
+            workflow_restore_environment(self, previous_boundary.environment) ++
+            workflow_stage(transaction, index, boundaries, output_names, self)
 
-        [selector, [self, boundary.step, effect_id, outcome], body]
+        [previous_boundary.selector, [self, previous_boundary.step], body]
       end)
 
     [start | resumptions]
   end
 
   defp workflow_stage(statements, boundary_index, boundaries, output_names, self) do
-    goals = Enum.map(statements, &ast_to_pattern/1)
-
-    case Enum.at(boundaries, boundary_index) do
-      nil ->
-        goals ++
-          [
-            workflow_set(self, :outputs, workflow_environment(output_names)),
-            workflow_set(self, :step, :done),
-            workflow_set(self, :status, :completed),
-            workflow_set(self, :condition, :none),
-            workflow_set(self, :environment, %{})
-          ]
-
-      boundary ->
-        goals ++ workflow_suspend(self, boundary)
-    end
-  end
-
-  defp workflow_suspend(self, boundary) do
-    effect = boundary.effect
-    selector = workflow_resume_selector(boundary.step)
+    boundary = Enum.at(boundaries, boundary_index)
+    next = if boundary == nil, do: :done, else: {boundary.selector, boundary.step}
+    environment = if boundary == nil, do: %{}, else: workflow_environment(boundary.environment)
+    outputs = if boundary == nil, do: workflow_environment(output_names), else: %{}
 
     [
-      workflow_set(self, :status, :waiting),
-      workflow_set(self, :step, boundary.step),
-      workflow_set(self, :attempt, boundary.step),
-      workflow_set(self, :condition, :none),
-      workflow_set(self, :environment, workflow_environment(boundary.environment)),
-      %Goal.Effect{
-        provider: ast_to_pattern(effect.provider),
-        operation: ast_to_pattern(effect.operation),
-        arguments: ast_to_pattern(effect.arguments),
-        reply: {:workflow, self, selector, boundary.step}
-      }
-    ]
+      %Goal.OApply{method_id: :workflow_transaction_start, args: [self, next]}
+      | Enum.map(statements, &ast_to_pattern/1)
+    ] ++
+      [
+        %Goal.OApply{
+          method_id: :workflow_transaction_commit,
+          args: [self, next, environment, outputs]
+        }
+      ]
   end
 
   defp workflow_guards(self, boundary) do
     [
-      workflow_get(self, :status, :waiting),
+      workflow_get(self, :status, :advancing),
       workflow_get(self, :step, boundary.step),
       workflow_get(self, :attempt, boundary.step)
     ]
@@ -665,9 +639,6 @@ defmodule AL.Lowering do
 
   defp workflow_get(self, key, value),
     do: %Goal.Send{object: self, method: :get, args: [key, value]}
-
-  defp workflow_set(self, key, value),
-    do: %Goal.Send{object: self, method: :set_slot, args: [key, value]}
 
   defp workflow_resume_selector(step), do: String.to_atom("__workflow_resume_#{step}")
 
