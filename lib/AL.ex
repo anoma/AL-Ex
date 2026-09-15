@@ -57,6 +57,7 @@ defmodule AL do
   defdelegate tracepoints(), to: AL.Trace
 
   defdelegate ast_to_pattern(ast), to: AL.Lowering
+  defdelegate workflow(name, arguments, options \\ []), to: AL.Workflow, as: :start
 
   @doc """
   I run an AL transaction against a live branch.
@@ -281,6 +282,7 @@ defmodule AL do
     case result do
       {:atomic, _} ->
         AL.Transaction.finish(command_tx, transaction_object, branch.id, :committed)
+        AL.Scheduler.committed(branch, command_tx)
 
       {:aborted, reason} ->
         AL.Transaction.finish(
@@ -309,16 +311,24 @@ defmodule AL do
   def next_solution(state) do
     input_vars = observable_vars(state.program)
 
-    :mnesia.transaction(fn ->
-      tx_id = AL.Command.system_time(state.branch)
-      result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
+    result =
+      :mnesia.transaction(fn ->
+        tx_id = AL.Command.system_time(state.branch)
+        result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
 
-      if result.active_choicepoint.store == nil do
-        :mnesia.abort(format_failure(result))
-      else
-        {format_output_vars(input_vars, result.active_choicepoint.store), result}
-      end
-    end)
+        if result.active_choicepoint.store == nil do
+          :mnesia.abort(format_failure(result))
+        else
+          {format_output_vars(input_vars, result.active_choicepoint.store), result}
+        end
+      end)
+
+    case result do
+      {:atomic, {_bindings, %AL{tx_id: tx_id}}} -> AL.Scheduler.committed(state.branch, tx_id)
+      _ -> :ok
+    end
+
+    result
   end
 
   # canonical_names: internal freshened var (e.g. concat's fh_N) -> the
@@ -1025,6 +1035,29 @@ defmodule AL do
 
   def interp(%Goal.SendElixir{pid: pid, message: message}, state) do
     AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
+    state
+  end
+
+  def interp(
+        %Goal.Effect{
+          provider: provider,
+          operation: operation,
+          arguments: arguments,
+          reply: reply
+        },
+        state
+      ) do
+    store = store(state)
+
+    AL.Edge.emit(
+      state.tx_id,
+      AL.Var.subst(provider, store),
+      AL.Var.subst(operation, store),
+      AL.Var.subst(arguments, store),
+      AL.Var.subst(reply, store),
+      state.branch
+    )
+
     state
   end
 

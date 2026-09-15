@@ -5,6 +5,18 @@ defmodule AL.Native do
   accelerant of *existing* AL behavior (out of scope here on purpose: see
   register/6's `force` guard below).
 
+  Natives run synchronously inside the current AL/Mnesia transaction. Mnesia
+  may evaluate a transaction more than once while resolving conflicts, and AL
+  may also revisit native calls through logic-program backtracking. A native
+  must therefore be safe to repeat and must not perform externally observable
+  work such as writing a file, sending a network request, or delivering a
+  process message. It should also avoid unbounded waits, because it keeps the
+  surrounding transaction open while it runs.
+
+  This is a contract with the registered Elixir implementation, not a property
+  the VM can infer from an arbitrary MFA. Host work that must happen only after
+  AL state commits belongs in `AL.Edge` through an explicit effect.
+
   A native's *binding* -- "method X is native, backed by
   {module,function,arity,style} Y" -- is a durable, bitemporal, forkable AL
   fact (a :native key on the method_id's own row family in the :soa table,

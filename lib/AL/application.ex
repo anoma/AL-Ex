@@ -16,13 +16,15 @@ defmodule AL.Application do
     children = [
       AL.Scheduler.supervisor_spec(),
       AL.Serialisation.supervisor_spec(),
-      AL.Native.Registry
+      AL.Native.Registry,
+      AL.Edge.Registry
     ]
 
     children = if AL.MCP.enabled?(), do: children ++ [AL.MCP], else: children
 
     {:ok, pid} = Supervisor.start_link(children, opts)
 
+    register_edge_providers()
     AL.Scheduler.start_all()
 
     bootstrap()
@@ -93,5 +95,11 @@ defmodule AL.Application do
     :al
     |> Application.get_env(:natives, [])
     |> AL.Native.register_all()
+  end
+
+  def register_edge_providers() do
+    :al
+    |> Application.get_env(:edge_providers, [])
+    |> AL.Edge.register_all()
   end
 end

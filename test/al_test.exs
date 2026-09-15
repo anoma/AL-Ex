@@ -26,6 +26,14 @@ defmodule ALTasksTest do
   use ExExample.ExUnit, for: Examples.ALTasks
 end
 
+defmodule ALEffectsTest do
+  use ExExample.ExUnit, for: Examples.ALEffects
+end
+
+defmodule ALWorkflowTest do
+  use ExExample.ExUnit, for: Examples.ALWorkflow
+end
+
 defmodule ALArithmeticTest do
   use ExExample.ExUnit, for: Examples.ALArithmetic
 end

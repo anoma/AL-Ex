@@ -107,15 +107,17 @@ defmodule AL.TransactionProgram.Bootstrap do
       ivar_spec_storage(self, spec, storage)
       inheritance_chain(self, [self | chain])
 
-      implies do
-        [unify(storage, :soa)] ->
-          member(chain, ancestor)
-          vm_get_slot(ancestor, key, value, :soa)
+      get_inherited_slot(chain, key, storage, value)
+    end
 
-        :else ->
-          member(chain, ancestor)
-          vm_get_slot(ancestor, key, value, :aos)
-      end
+    defmethod(:list, :get_inherited_slot, [chain, key, :soa, value]) do
+      member(chain, ancestor)
+      vm_get_slot(ancestor, key, value, :soa)
+    end
+
+    defmethod(:list, :get_inherited_slot, [chain, key, :aos, value]) do
+      member(chain, ancestor)
+      vm_get_slot(ancestor, key, value, :aos)
     end
 
     # escape hatches skip ivar-spec validation (class/category/behaviour,
@@ -185,11 +187,12 @@ defmodule AL.TransactionProgram.Bootstrap do
       vm_map_get(self, key, value)
     end
 
-    defmethod(:map, :get, [self, key, default, value]) do
-      implies do
-        [vm_map_get(self, key, provided)] -> unify(value, provided)
-        :else -> unify(value, default)
-      end
+    defmethod(:map, :get, [self, key, _default, value]) do
+      vm_map_get(self, key, value)
+    end
+
+    defmethod(:map, :get, [self, key, default, default]) do
+      not [vm_map_get(self, key, _)]
     end
 
     defmethod(:map, :put, [self, key, value, updated]) do
@@ -218,9 +221,11 @@ defmodule AL.TransactionProgram.Bootstrap do
     # otherwise (no failure) -- the one primitive an ivar spec's optional
     # field needs, independent of whether it also carries a domain/type.
     defmethod(:object, :get_optional, [self, key, value]) do
-      implies do
-        [vm_map_get(self, key, provided)] -> unify(value, provided)
-      end
+      vm_map_get(self, key, value)
+    end
+
+    defmethod(:object, :get_optional, [self, key, _value]) do
+      not [vm_map_get(self, key, _)]
     end
 
     # redef: true wipes class/super/slots/methods so a reclaimed name comes
@@ -377,20 +382,23 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :backfill_ivar, [self, spec]) do
-      implies do
-        [functor(spec, name, [opts]), member(opts, {:default, default})] ->
-          set_slot(self, name, default)
+      functor(spec, name, [opts])
+      member(opts, {:default, default})
+      set_slot(self, name, default)
+    end
 
-        :else ->
-          pass
-      end
+    defmethod(:object, :backfill_ivar, [_self, spec]) do
+      not [functor(spec, _name, [opts]), member(opts, {:default, _default})]
     end
 
     defmethod(:object, :set_supers, [name, super]) do
-      implies do
-        [class(super, :list)] -> set_super_list(name, super)
-        :else -> vm_set_super(name, super)
-      end
+      class(super, :list)
+      set_super_list(name, super)
+    end
+
+    defmethod(:object, :set_supers, [name, super]) do
+      not [class(super, :list)]
+      vm_set_super(name, super)
     end
 
     defmethod(:object, :set_super_list, [_name, []])
@@ -449,11 +457,13 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :collect_ivar_specs, [[c | rest], specs]) do
       collect_ivar_specs(rest, rest_specs)
+      vm_get_slot(c, :ivars, own_specs)
+      concat(own_specs, rest_specs, specs)
+    end
 
-      implies do
-        [vm_get_slot(c, :ivars, own_specs)] -> concat(own_specs, rest_specs, specs)
-        :else -> unify(specs, rest_specs)
-      end
+    defmethod(:list, :collect_ivar_specs, [[c | rest], rest_specs]) do
+      collect_ivar_specs(rest, rest_specs)
+      not [vm_get_slot(c, :ivars, _)]
     end
 
     defmethod(:object, :build_durable_slots, [_self, _class, _args, [], %{}])
@@ -472,13 +482,16 @@ defmodule AL.TransactionProgram.Bootstrap do
       build_durable_slots(self, class, args, rest, partial)
       apply_ivar_spec(self, args, spec, name, value)
 
-      implies do
-        [ground(value)] ->
-          vm_map_put(partial, name, value, output)
+      include_durable_slot(partial, name, value, output)
+    end
 
-        :else ->
-          unify(output, partial)
-      end
+    defmethod(:object, :include_durable_slot, [partial, name, value, output]) do
+      ground(value)
+      vm_map_put(partial, name, value, output)
+    end
+
+    defmethod(:object, :include_durable_slot, [partial, _name, value, partial]) do
+      not [ground(value)]
     end
 
     # A *class* object being created (`new(:class, ...)`, what every
@@ -574,10 +587,15 @@ defmodule AL.TransactionProgram.Bootstrap do
       reachable_classes([class], [], chain)
       collect_ivar_specs(chain, ivar_specs)
 
-      implies do
-        [unify(ivar_specs, [])] -> class(output, class)
-        :else -> build_from_ivar_specs(self, class, args, ivar_specs, output)
-      end
+      init_value(self, class, args, ivar_specs, output)
+    end
+
+    defmethod(:object, :init_value, [_self, class, _args, [], output]) do
+      class(output, class)
+    end
+
+    defmethod(:object, :init_value, [self, class, args, [spec | rest], output]) do
+      build_from_ivar_specs(self, class, args, [spec | rest], output)
     end
 
     # One ivar-spec entry -> its bare name and its value. A bare-var fallback
@@ -627,14 +645,13 @@ defmodule AL.TransactionProgram.Bootstrap do
     # only get's ancestor-walk fallback still needs this -- set_slot
     # and build_durable_slots route via vm_set_slot's interp handler now.
     # :aos default when storage: absent.
-    defmethod(:object, :ivar_spec_storage, [self, spec, storage]) do
-      implies do
-        [functor(spec, _name, [opts]), member(opts, {:storage, given})] ->
-          unify(storage, given)
+    defmethod(:object, :ivar_spec_storage, [_self, spec, storage]) do
+      functor(spec, _name, [opts])
+      member(opts, {:storage, storage})
+    end
 
-        :else ->
-          unify(storage, :aos)
-      end
+    defmethod(:object, :ivar_spec_storage, [_self, spec, :aos]) do
+      not [functor(spec, _name, [opts]), member(opts, {:storage, _given})]
     end
 
     # Fold a class's own declared ivar specs into a constructed map -- same
@@ -861,10 +878,13 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :tl, [[_h | t], t])
 
     defmethod(:list, :length, [self, n]) do
-      implies do
-        [ground(n)] -> length_of_size(self, n)
-        :else -> length_count(self, n)
-      end
+      ground(n)
+      length_of_size(self, n)
+    end
+
+    defmethod(:list, :length, [self, n]) do
+      not [ground(n)]
+      length_count(self, n)
     end
 
     defmethod(:list, :length_of_size, [[], 0])
@@ -1052,16 +1072,16 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :reachable_classes, [[], seen, seen])
 
     defmethod(:list, :reachable_classes, [[c | cs], seen, result]) do
-      implies do
-        [member(seen, c)] ->
-          reachable_classes(cs, seen, result)
+      member(seen, c)
+      reachable_classes(cs, seen, result)
+    end
 
-        :else ->
-          findall(s, [super(c, s)], supers)
-          concat(supers, cs, cs2)
-          concat(seen, [c], seen_2)
-          reachable_classes(cs2, seen_2, result)
-      end
+    defmethod(:list, :reachable_classes, [[c | cs], seen, result]) do
+      not [member(seen, c)]
+      findall(s, [super(c, s)], supers)
+      concat(supers, cs, cs2)
+      concat(seen, [c], seen_2)
+      reachable_classes(cs2, seen_2, result)
     end
 
     defmethod(:list, :in_degrees, [classes, degrees]) do
@@ -1095,17 +1115,16 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :filter_zero_degree, [[], _degrees, []])
 
+    defmethod(:list, :filter_zero_degree, [[c | cs], degrees, [c | ready]]) do
+      vm_map_get(degrees, c, degree)
+      unify(degree, 0)
+      filter_zero_degree(cs, degrees, ready)
+    end
+
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, ready]) do
       vm_map_get(degrees, c, degree)
-
-      implies do
-        [unify(degree, 0)] ->
-          filter_zero_degree(cs, degrees, ready_rest)
-          unify(ready, [c | ready_rest])
-
-        :else ->
-          filter_zero_degree(cs, degrees, ready)
-      end
+      not [unify(degree, 0)]
+      filter_zero_degree(cs, degrees, ready)
     end
 
     defmethod(:list, :kahn, [[], _degrees, []])
@@ -1119,19 +1138,20 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :decrement_ready, [[], degrees, degrees, []])
 
+    defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, [s | ready]]) do
+      vm_map_get(degrees, s, old)
+      is(new, old - 1)
+      unify(new, 0)
+      vm_map_put(degrees, s, new, degrees2)
+      decrement_ready(ss, degrees2, degrees_out, ready)
+    end
+
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, ready]) do
       vm_map_get(degrees, s, old)
       is(new, old - 1)
+      not [unify(new, 0)]
       vm_map_put(degrees, s, new, degrees2)
-
-      implies do
-        [unify(new, 0)] ->
-          decrement_ready(ss, degrees2, degrees_out, ready_rest)
-          unify(ready, [s | ready_rest])
-
-        :else ->
-          decrement_ready(ss, degrees2, degrees_out, ready)
-      end
+      decrement_ready(ss, degrees2, degrees_out, ready)
     end
   end
 end

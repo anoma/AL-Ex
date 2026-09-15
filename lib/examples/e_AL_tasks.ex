@@ -1,9 +1,10 @@
 defmodule Examples.ALTasks do
   @moduledoc """
-  I exercise AL's asynchronous send behaviour: `send_async` writes a command that
-  the per-store scheduler turns into a live `send`, run in its own transaction.
-  The receiving object is built from bootstrap primitives (`defmethod`), so these
-  examples cover the async machinery itself rather than any bundled program.
+  I exercise AL's asynchronous send behaviour: `send_async` appends one compact
+  command that the per-branch scheduler turns into a live `send` in its own
+  transaction. The receiving object is built from bootstrap primitives
+  (`defmethod`), so these examples cover the async machinery itself rather
+  than any bundled program.
   """
 
   use ExExample
@@ -55,13 +56,26 @@ defmodule Examples.ALTasks do
   example async_send_runs_handler() do
     register_worker(:async_worker_1, :async_subscriber_1, self())
 
-    {:atomic, _} =
+    {:atomic, {_bindings, state}} =
       run branch: :examples do
         send_async(:async_worker_1, :handle, [:async_obj])
       end
 
     await_handled(:async_obj)
     assert processed?(:async_obj)
+
+    {:atomic, commands} =
+      :mnesia.transaction(fn ->
+        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: :examples})
+      end)
+
+    assert Enum.count(commands, fn
+             {:command, _time, _tx_id, {:send_async, {:async_worker_1, :handle, [:async_obj]}}} ->
+               true
+
+             _ ->
+               false
+           end) == 1
   end
 
   example async_send_resolves_receiver_var() do

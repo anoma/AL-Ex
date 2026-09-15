@@ -30,6 +30,7 @@ defmodule AL.Command do
           | :retract_native
           | :send_async
           | :send_elixir
+          | :effect
 
   @type command() ::
           {:set_class, {AL.Var.t(), AL.Var.t()}}
@@ -46,6 +47,7 @@ defmodule AL.Command do
           | {:retract_native, {AL.Var.t(), native_mfa()}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {pid(), term()}}
+          | {:effect, {atom(), atom(), list(), term()}}
 
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
@@ -66,6 +68,7 @@ defmodule AL.Command do
            attributes: [:t, :tx_id, :command],
            type: :ordered_set,
            disc_copies: [owner_node()],
+           index: [:tx_id],
            record_name: :command
          ) do
       {:atomic, :ok} ->
@@ -101,6 +104,7 @@ defmodule AL.Command do
     end
 
     :mnesia.wait_for_tables([command_reference, meta_reference], 5_000)
+    ensure_transaction_index(command_reference)
     ensure_local_copy(command_reference)
     ensure_local_copy(meta_reference)
 
@@ -314,9 +318,14 @@ defmodule AL.Command do
   end
 
   def commands_for_transaction(tx_id, branch \\ AL.Branch.head()) do
-    :mnesia.select(table(:command, branch), [
-      {{:command, :"$1", tx_id, :"$3"}, [], [:"$_"]}
-    ])
+    :mnesia.index_read(table(:command, branch), tx_id, :tx_id)
+  end
+
+  defp ensure_transaction_index(table) do
+    case :mnesia.add_table_index(table, :tx_id) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, ^table, _position}} -> :ok
+    end
   end
 
   def command_log_rows(commands) do
@@ -383,6 +392,11 @@ defmodule AL.Command do
     {"[>]", "Elixir Send", inspect(pid), inspect(message)}
   end
 
+  defp describe_command({:effect, {provider, operation, arguments, reply}}) do
+    {"[>]", "Effect", inspect(provider),
+     "#{inspect(operation)} #{inspect(arguments)} → #{inspect(reply)}"}
+  end
+
   defp describe_command(operation) do
     {"[?]", operation |> elem(0) |> inspect(), "", inspect(operation)}
   end
@@ -413,7 +427,7 @@ defmodule AL.Command do
        when operation in [:set_native, :retract_native],
        do: "#DB2777"
 
-  defp command_color({operation, _}) when operation in [:send_async, :send_elixir],
+  defp command_color({operation, _}) when operation in [:send_async, :send_elixir, :effect],
     do: "#0891B2"
 
   defp command_color(_operation), do: "#64748B"
@@ -536,6 +550,12 @@ defmodule AL.Command do
   @spec send_elixir(non_neg_integer(), pid(), term(), AL.Branch.t()) :: non_neg_integer()
   def send_elixir(tx_id, pid, message, branch \\ AL.Branch.head()) do
     write_command(tx_id, {:send_elixir, {pid, message}}, branch)
+  end
+
+  @spec effect(non_neg_integer(), atom(), atom(), list(), term(), AL.Branch.t()) ::
+          non_neg_integer()
+  def effect(tx_id, provider, operation, arguments, reply, branch \\ AL.Branch.head()) do
+    write_command(tx_id, {:effect, {provider, operation, arguments, reply}}, branch)
   end
 
   @doc "Writes the command and returns its `system_time` (`t`) -- the transaction-time stamp callers use for bitemporal class/super/method rows (see `AL.Object.set_class/4` etc.)."

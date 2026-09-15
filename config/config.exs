@@ -28,6 +28,7 @@ config :al,
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
 # {class, selector, module, function, arity} or {..., opts} tuples.
 config :al, natives: []
+config :al, edge_providers: [AL.Edge.File]
 
 config :al, AL.MCP,
   enabled: true,

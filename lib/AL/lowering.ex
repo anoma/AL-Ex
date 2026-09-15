@@ -317,6 +317,15 @@ defmodule AL.Lowering do
   def ast_to_pattern({:send_elixir, _, [pid, message]}),
     do: %Goal.SendElixir{pid: ast_to_pattern(pid), message: ast_to_pattern(message)}
 
+  def ast_to_pattern({:emit_effect, _, [provider, operation, arguments, reply]}) do
+    %Goal.Effect{
+      provider: ast_to_pattern(provider),
+      operation: ast_to_pattern(operation),
+      arguments: ast_to_pattern(arguments),
+      reply: ast_to_pattern(reply)
+    }
+  end
+
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
     %Goal.OApply{
       method_id: :defmethod,
@@ -339,6 +348,14 @@ defmodule AL.Lowering do
         []
       ]
     }
+  end
+
+  def ast_to_pattern({:defworkflow, _, [name, arguments, options, [do: body]]}) do
+    build_workflow(name, arguments, workflow_outputs!(options), body)
+  end
+
+  def ast_to_pattern({:defworkflow, _, [name, arguments, [do: body]]}) do
+    build_workflow(name, arguments, [], body)
   end
 
   # `defclass name, super: ..., ivars: [...], categories: [...] do ... end` — a
@@ -429,4 +446,263 @@ defmodule AL.Lowering do
   defp unwrap_do_block([{:do, nil}]), do: []
   defp unwrap_do_block([{:do, {:__block__, _, stmts}}]), do: stmts
   defp unwrap_do_block([{:do, stmt}]), do: [stmt]
+
+  defp build_workflow(name, arguments, outputs, body)
+       when is_atom(name) and is_list(arguments) and is_list(outputs) do
+    argument_names = Enum.map(arguments, &workflow_variable!/1)
+    output_names = Enum.map(outputs, &workflow_variable!/1)
+
+    if length(argument_names) != MapSet.size(MapSet.new(argument_names)) do
+      raise ArgumentError, "workflow arguments must have distinct names"
+    end
+
+    if length(output_names) != MapSet.size(MapSet.new(output_names)) do
+      raise ArgumentError, "workflow outputs must have distinct names"
+    end
+
+    statements = unwrap_workflow_body(body)
+    {segments, effects} = split_workflow(statements, [], [], MapSet.new(output_names))
+    boundaries = workflow_boundaries(arguments, segments, effects)
+    methods = workflow_methods(arguments, segments, effects, boundaries, output_names)
+
+    %Goal.OApply{
+      method_id: :defclass,
+      args: [
+        {:workflow, name},
+        :class,
+        :object,
+        [
+          :definition,
+          :version,
+          :status,
+          :step,
+          :attempt,
+          :outputs,
+          :effect_id,
+          :condition,
+          :environment
+        ],
+        [],
+        methods,
+        false
+      ]
+    }
+  end
+
+  defp build_workflow(name, arguments, outputs, _body) do
+    raise ArgumentError,
+          "defworkflow expects a literal atom name and lists of input and output variables, got: #{inspect(name)}, #{Macro.to_string(arguments)}, #{Macro.to_string(outputs)}"
+  end
+
+  defp workflow_outputs!(outputs: outputs) when is_list(outputs), do: outputs
+
+  defp workflow_outputs!(options) do
+    raise ArgumentError,
+          "defworkflow options must be outputs: [variables], got: #{Macro.to_string(options)}"
+  end
+
+  defp unwrap_workflow_body({:__block__, _, statements}), do: statements
+  defp unwrap_workflow_body(nil), do: []
+  defp unwrap_workflow_body(statement), do: [statement]
+
+  defp split_workflow(
+         [{:effect, _, [provider, operation, arguments, result]} | rest],
+         current,
+         effects,
+         output_names
+       ) do
+    workflow_variable!(result)
+
+    effect = %{
+      provider: provider,
+      operation: operation,
+      arguments: arguments,
+      result: result,
+      future_variables: MapSet.union(workflow_variables(rest), output_names)
+    }
+
+    split_workflow(rest, [], effects ++ [{Enum.reverse(current), effect}], output_names)
+  end
+
+  defp split_workflow([{:return, _, _arguments} | _rest], _current, _effects, _output_names) do
+    raise ArgumentError, "workflow outputs belong in the defworkflow declaration"
+  end
+
+  defp split_workflow([{:effect, _, _arguments} | _rest], _current, _effects, _output_names) do
+    raise ArgumentError, "effect must take provider, operation, arguments, and a result variable"
+  end
+
+  defp split_workflow([statement | rest], current, effects, output_names),
+    do: split_workflow(rest, [statement | current], effects, output_names)
+
+  defp split_workflow([], current, effects, _output_names),
+    do:
+      {Enum.map(effects, &elem(&1, 0)) ++ [Enum.reverse(current)],
+       Enum.map(effects, &elem(&1, 1))}
+
+  defp workflow_boundaries(arguments, segments, effects) do
+    initial = workflow_variables(arguments)
+
+    effects
+    |> Enum.with_index()
+    |> Enum.map_reduce(initial, fn {effect, index}, available ->
+      segment = Enum.at(segments, index)
+
+      available =
+        available
+        |> MapSet.union(workflow_variables(segment))
+        |> MapSet.union(workflow_variables([effect.provider, effect.operation, effect.arguments]))
+
+      result_name = workflow_variable!(effect.result)
+
+      if MapSet.member?(available, result_name) do
+        raise ArgumentError, "effect result #{result_name} must be a fresh workflow variable"
+      end
+
+      environment =
+        available
+        |> MapSet.intersection(effect.future_variables)
+        |> MapSet.delete(:self)
+        |> Enum.sort()
+
+      {%{effect: effect, environment: environment, step: index + 1},
+       MapSet.put(available, result_name)}
+    end)
+    |> elem(0)
+  end
+
+  defp workflow_methods(arguments, segments, effects, boundaries, output_names) do
+    self = AL.Var.var(:self)
+    start_body = workflow_stage(Enum.at(segments, 0), 0, boundaries, output_names, self)
+    start = [:start, [self | Enum.map(arguments, &ast_to_pattern/1)], start_body]
+
+    resumptions =
+      effects
+      |> Enum.with_index()
+      |> Enum.map(fn {effect, index} ->
+        boundary = Enum.at(boundaries, index)
+        selector = workflow_resume_selector(index + 1)
+        effect_id = AL.Var.var(:workflow_effect_id)
+        outcome = AL.Var.var(:workflow_outcome)
+
+        continuation =
+          workflow_stage(
+            Enum.at(segments, index + 1),
+            index + 1,
+            boundaries,
+            output_names,
+            self
+          )
+
+        body =
+          workflow_guards(self, boundary) ++
+            workflow_restore_environment(self, boundary.environment) ++
+            [
+              workflow_set(self, :effect_id, effect_id),
+              %Goal.Unify{a: ast_to_pattern(effect.result), b: outcome}
+            ] ++
+            continuation
+
+        [selector, [self, boundary.step, effect_id, outcome], body]
+      end)
+
+    [start | resumptions]
+  end
+
+  defp workflow_stage(statements, boundary_index, boundaries, output_names, self) do
+    goals = Enum.map(statements, &ast_to_pattern/1)
+
+    case Enum.at(boundaries, boundary_index) do
+      nil ->
+        goals ++
+          [
+            workflow_set(self, :outputs, workflow_environment(output_names)),
+            workflow_set(self, :step, :done),
+            workflow_set(self, :status, :completed),
+            workflow_set(self, :condition, :none),
+            workflow_set(self, :environment, %{})
+          ]
+
+      boundary ->
+        goals ++ workflow_suspend(self, boundary)
+    end
+  end
+
+  defp workflow_suspend(self, boundary) do
+    effect = boundary.effect
+    selector = workflow_resume_selector(boundary.step)
+
+    [
+      workflow_set(self, :status, :waiting),
+      workflow_set(self, :step, boundary.step),
+      workflow_set(self, :attempt, boundary.step),
+      workflow_set(self, :condition, :none),
+      workflow_set(self, :environment, workflow_environment(boundary.environment)),
+      %Goal.Effect{
+        provider: ast_to_pattern(effect.provider),
+        operation: ast_to_pattern(effect.operation),
+        arguments: ast_to_pattern(effect.arguments),
+        reply: {:workflow, self, selector, boundary.step}
+      }
+    ]
+  end
+
+  defp workflow_guards(self, boundary) do
+    [
+      workflow_get(self, :status, :waiting),
+      workflow_get(self, :step, boundary.step),
+      workflow_get(self, :attempt, boundary.step)
+    ]
+  end
+
+  defp workflow_restore_environment(_self, []), do: []
+
+  defp workflow_restore_environment(self, names),
+    do: [workflow_get(self, :environment, workflow_environment(names))]
+
+  defp workflow_environment(names),
+    do: Map.new(names, fn name -> {name, AL.Var.var(name)} end)
+
+  defp workflow_get(self, key, value),
+    do: %Goal.Send{object: self, method: :get, args: [key, value]}
+
+  defp workflow_set(self, key, value),
+    do: %Goal.Send{object: self, method: :set_slot, args: [key, value]}
+
+  defp workflow_resume_selector(step), do: String.to_atom("__workflow_resume_#{step}")
+
+  defp workflow_variable!({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)) and name != :_ do
+    if String.starts_with?(Atom.to_string(name), "_") do
+      raise ArgumentError, "workflow variables cannot start with an underscore"
+    end
+
+    name
+  end
+
+  defp workflow_variable!(ast) do
+    raise ArgumentError, "expected a workflow variable, got: #{Macro.to_string(ast)}"
+  end
+
+  defp workflow_variables(ast) do
+    {_ast, variables} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:^, _, [_value]} = pin, _variables ->
+          raise ArgumentError,
+                "workflow definitions cannot capture pinned host values: #{Macro.to_string(pin)}"
+
+        {name, _, context} = variable, variables
+        when is_atom(name) and (is_atom(context) or is_nil(context)) and name != :_ ->
+          if String.starts_with?(Atom.to_string(name), "_") do
+            {variable, variables}
+          else
+            {variable, MapSet.put(variables, name)}
+          end
+
+        node, variables ->
+          {node, variables}
+      end)
+
+    variables
+  end
 end

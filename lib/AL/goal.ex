@@ -27,6 +27,7 @@ defmodule AL.Goal do
           | AL.Goal.RetractSlot.t()
           | AL.Goal.SendAsync.t()
           | AL.Goal.SendElixir.t()
+          | AL.Goal.Effect.t()
 
   @type instructions() ::
           AL.Goal.GetClass.t()
@@ -143,6 +144,13 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: SendElixir do
     field(:pid, pid())
     field(:message, term())
+  end
+
+  typedstruct enforce: true, module: Effect do
+    field(:provider, AL.Var.t())
+    field(:operation, AL.Var.t())
+    field(:arguments, AL.Var.t())
+    field(:reply, AL.Var.t())
   end
 
   # General Goals -----------------------------------
@@ -465,6 +473,7 @@ defmodule AL.Goal do
     {RetractSlot, :retract_slot, [object: :term, key: :term]},
     {SendAsync, :send_async, [object: :term, method: :term, args: :term]},
     {SendElixir, :send_elixir, [pid: :term, message: :term]},
+    {Effect, :effect, [provider: :term, operation: :term, arguments: :term, reply: :term]},
     {GetClass, :get_class, [object: :term, class: :term]},
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},

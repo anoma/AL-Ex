@@ -635,6 +635,7 @@ defmodule AL.Object do
       :retract_native -> with {o, mfa} <- event, do: retract_native(o, mfa, t, branch)
       :send_async -> :ok
       :send_elixir -> :ok
+      :effect -> :ok
     end
   end
 

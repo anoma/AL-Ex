@@ -1,10 +1,8 @@
 defmodule AL.Scheduler do
   @moduledoc """
-  I react to the command log: I turn `send_async`/`send_elixir` writes into live
-  execution. I run one scheduler per branch (`:main` and each fork), since a
-  Mnesia subscription is per-table and each branch is its own live world. A
-  scheduler dispatches the sends it sees against its own branch, so async work on
-  a fork stays on that fork.
+  I dispatch the compact asynchronous commands committed on one branch.
+  `send_async`, `send_elixir`, and effects are best-effort and are not recovered
+  after a node failure.
   """
 
   use GenServer
@@ -23,7 +21,7 @@ defmodule AL.Scheduler do
     :ok
   end
 
-  @doc "Start (idempotently) the scheduler for `branch`."
+  @doc "Start the scheduler for `branch` if it is not already running."
   @spec start(AL.Branch.t()) :: :ok
   def start(branch) do
     case DynamicSupervisor.start_child(@supervisor, {__MODULE__, branch}) do
@@ -33,14 +31,7 @@ defmodule AL.Scheduler do
     end
   end
 
-  @doc """
-  Stop the scheduler for `branch` (unsubscribing it), wherever it's actually
-  running. Idempotent. A scheduler is started fresh, locally, by whichever
-  node calls `start/1` for a given branch (a shared store can have several
-  live nodes, each reacting independently) — so stopping it can't rely on
-  `Process.whereis/1` alone, which only ever sees the calling node's own
-  registry. Reaches every node the caller currently knows about instead.
-  """
+  @doc "Stop the scheduler for `branch` on every connected node."
   @spec stop(AL.Branch.t()) :: :ok
   def stop(branch) do
     for node <- [node() | Node.list()], do: :rpc.call(node, __MODULE__, :stop_local, [branch])
@@ -56,6 +47,15 @@ defmodule AL.Scheduler do
     end
   end
 
+  @doc "Notify the branch scheduler after a transaction commits."
+  @spec committed(AL.Branch.t(), non_neg_integer()) :: :ok
+  def committed(branch, tx_id) do
+    case Process.whereis(name(branch)) do
+      nil -> :ok
+      pid -> GenServer.cast(pid, {:committed, tx_id})
+    end
+  end
+
   def start_link(branch) do
     GenServer.start_link(__MODULE__, branch, name: name(branch))
   end
@@ -63,37 +63,44 @@ defmodule AL.Scheduler do
   defp name(branch), do: :"#{__MODULE__}.#{branch.id}"
 
   @impl true
-  def init(branch) do
-    :mnesia.subscribe({:table, AL.Command.table(:command, branch), :detailed})
-    {:ok, %{branch: branch}}
-  end
+  def init(branch), do: {:ok, %{branch: branch}}
 
   @impl true
-  def handle_info(
-        {:mnesia_table_event,
-         {:write, _table, {:command, _t, _tx_id, {:send_async, {object, method, args}}}, _old,
-          _tid}},
-        %{branch: branch} = state
-      ) do
-    Task.start(fn ->
-      AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+  def handle_cast({:committed, tx_id}, state) do
+    commands = commands_for_transaction(tx_id, state.branch)
+    dispatch_commands(commands, state.branch)
+    {:noreply, state}
+  end
+
+  defp commands_for_transaction(tx_id, branch) do
+    case :mnesia.transaction(fn -> AL.Command.commands_for_transaction(tx_id, branch) end) do
+      {:atomic, commands} ->
+        Enum.sort_by(commands, fn {:command, time, _tx_id, _command} -> time end)
+
+      {:aborted, {:no_exists, _table}} ->
+        []
+    end
+  end
+
+  defp dispatch_commands(commands, branch) do
+    Enum.each(commands, fn
+      {:command, _time, _tx_id, {:send_async, {object, method, args}}} ->
+        Task.start(fn ->
+          AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+        end)
+
+      {:command, _time, _tx_id, {:send_elixir, {pid, message}}} ->
+        send(pid, message)
+
+      {:command, time, _tx_id, {:effect, {provider, operation, arguments, reply}}} ->
+        effect_id = {branch.id, time}
+
+        Task.start(fn ->
+          AL.Edge.dispatch(effect_id, provider, operation, arguments, reply, branch)
+        end)
+
+      _ ->
+        :ok
     end)
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(
-        {:mnesia_table_event,
-         {:write, _table, {:command, _t, _tx_id, {:send_elixir, {pid, message}}}, _old, _tid}},
-        state
-      ) do
-    send(pid, message)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:mnesia_table_event, _}, state) do
-    {:noreply, state}
   end
 end
