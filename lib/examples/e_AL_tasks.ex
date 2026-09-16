@@ -1,7 +1,7 @@
 defmodule Examples.ALTasks do
   @moduledoc """
   I exercise AL's asynchronous send behaviour: `send_async` appends one compact
-  command that the per-branch scheduler turns into a live `send` in its own
+  command that the per-branch outbox turns into a live `send` in its own
   transaction. The receiving object is built from bootstrap primitives
   (`defmethod`), so these examples cover the async machinery itself rather
   than any bundled program.
@@ -13,7 +13,7 @@ defmodule Examples.ALTasks do
 
   # A worker whose handler both performs its effect and notifies a registered
   # `:process` — the same synchronization `Examples.ALConstraints` uses:
-  # `send_async`'s scheduler pickup has no ordering guarantee against the test
+  # `send_async`'s outbox pickup has no ordering guarantee against the test
   # process's own next line, so waiting means an actual signal (a blocking
   # `receive`), not a guessed `Process.sleep` duration. `name`/`subscriber` are
   # unique per caller so two examples registering their own worker never

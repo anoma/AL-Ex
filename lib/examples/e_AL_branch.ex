@@ -172,7 +172,7 @@ defmodule Examples.ALBranch do
     # primitives — its handler notifies a registered `:process` once
     # done, the same synchronization `Examples.ALConstraints` uses: a blocking
     # `receive` instead of a guessed `Process.sleep`, since `send_async`'s
-    # scheduler pickup has no ordering guarantee against this test's own next line.
+    # outbox pickup has no ordering guarantee against this test's own next line.
     {:atomic, _} =
       run branch: branch.id do
         new(:process, %{name: :fork_worker_subscriber, pid: ^pid}, _)

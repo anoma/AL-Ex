@@ -292,7 +292,7 @@ defmodule AL do
     case result do
       {:atomic, _} ->
         AL.Transaction.finish(command_tx, transaction_object, branch.id, :committed)
-        AL.Scheduler.committed(branch, command_tx)
+        AL.Outbox.committed(branch, command_tx)
 
       {:aborted, reason} ->
         AL.Transaction.finish(
@@ -334,7 +334,7 @@ defmodule AL do
       end)
 
     case result do
-      {:atomic, {_bindings, %AL{tx_id: tx_id}}} -> AL.Scheduler.committed(state.branch, tx_id)
+      {:atomic, {_bindings, %AL{tx_id: tx_id}}} -> AL.Outbox.committed(state.branch, tx_id)
       _ -> :ok
     end
 
@@ -946,15 +946,6 @@ defmodule AL do
           effect_id,
           outcome
         )
-
-  def interp(
-        %Goal.OApply{
-          method_id: :workflow_effect_blocked,
-          args: [workflow, step, effect_id, condition]
-        },
-        state
-      ),
-      do: AL.Workflow.effect_blocked_goal(state, workflow, step, effect_id, condition)
 
   def interp(
         %Goal.OApply{

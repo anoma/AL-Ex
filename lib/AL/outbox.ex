@@ -1,27 +1,27 @@
-defmodule AL.Scheduler do
+defmodule AL.Outbox do
   @moduledoc """
-  I dispatch the compact asynchronous commands committed on one branch.
+  I dispatch the asynchronous commands committed to one branch's outbox.
   `send_async`, `send_elixir`, effects, and live subscriptions are best-effort
   and are not recovered after a node failure.
   """
 
   use GenServer
 
-  @supervisor AL.Scheduler.Supervisor
+  @supervisor AL.Outbox.Supervisor
 
-  @doc "The Dynamic Supervisor child spec that owns the per-branch schedulers."
+  @doc "The Dynamic Supervisor child spec that owns the per-branch outboxes."
   def supervisor_spec do
     {DynamicSupervisor, name: @supervisor, strategy: :one_for_one}
   end
 
-  @doc "Start schedulers for `:main` and every existing fork. Run at boot."
+  @doc "Start outboxes for `:main` and every existing fork. Run at boot."
   @spec start_all() :: :ok
   def start_all() do
     for branch <- [AL.Branch.main() | AL.Branch.list()], do: start(branch)
     :ok
   end
 
-  @doc "Start the scheduler for `branch` if it is not already running."
+  @doc "Start the outbox for `branch` if it is not already running."
   @spec start(AL.Branch.t()) :: :ok
   def start(branch) do
     case DynamicSupervisor.start_child(@supervisor, {__MODULE__, branch}) do
@@ -31,7 +31,7 @@ defmodule AL.Scheduler do
     end
   end
 
-  @doc "Stop the scheduler for `branch` on every connected node."
+  @doc "Stop the outbox for `branch` on every connected node."
   @spec stop(AL.Branch.t()) :: :ok
   def stop(branch) do
     for node <- [node() | Node.list()], do: :rpc.call(node, __MODULE__, :stop_local, [branch])
@@ -47,7 +47,7 @@ defmodule AL.Scheduler do
     end
   end
 
-  @doc "Notify the branch scheduler after a transaction commits."
+  @doc "Notify the branch outbox after a transaction commits."
   @spec committed(AL.Branch.t(), non_neg_integer()) :: :ok
   def committed(branch, tx_id) do
     case Process.whereis(name(branch)) do
@@ -115,7 +115,15 @@ defmodule AL.Scheduler do
          :deliver,
          branch
        ) do
-    AL.Delivery.fail(object, branch)
+    case AL.eval(
+           [%AL.Goal.Send{object: object, method: :delivery_failed, args: []}],
+           nil,
+           branch
+         ) do
+      {:atomic, _result} -> :ok
+      {:aborted, reason} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp handle_async_result(_failure, _object, _method, _branch), do: :ok

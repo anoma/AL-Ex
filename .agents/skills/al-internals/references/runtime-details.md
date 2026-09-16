@@ -48,11 +48,11 @@ each other at all, only on the command log itself:
   decompiler over that projection. Depend on the command log for what to
   project; nothing else depends on them *existing* — a view can always be
   rebuilt from the log alone.
-- **Scheduler** (`AL.Scheduler`, `lib/AL/scheduler.ex`) — reacts to *raw*
-  command-log writes directly (`:mnesia.subscribe({:table, …, :detailed})`),
-  not to views, to drive `send_async`/`send_elixir`. A parallel consumer of
-  the log, not something built on top of the projection — independent of
-  views and caches entirely.
+- **Outbox** (`AL.Outbox`, `lib/AL/outbox.ex`) — receives a notification after
+  a transaction commits, reads that transaction's `send_async`, `send_elixir`,
+  and effect commands from the command log, and dispatches them outside the
+  transaction. It is a parallel consumer of the log, independent of views and
+  caches.
 - **Caches** (`AL.ResolutionCache`, `lib/AL/cache/resolution_cache.ex`) —
   derived, disposable, per-branch memoization of expensive queries *over*
   views (`providers/3`, `oapply_clauses`, `native`, …), invalidated by the
@@ -78,7 +78,7 @@ Mnesia directly outside `lib/AL/command_log/`, `lib/AL/view/`, and
 `OApply` dispatch. `AL.Branch` (`lib/AL/branch.ex`) sits alongside all five
 rather than inside any one of them — forking genuinely spans Command Log and
 Views (copies a log prefix *and* provisions the projection/cache tables) and
-also starts/stops the Scheduler per branch.
+also starts/stops the Outbox per branch.
 
 ## Architecture (lib/AL)
 
@@ -220,10 +220,11 @@ also starts/stops the Scheduler per branch.
   durable branch state. `AL.Package.import/2` validates and atomically imports a
   portable manifest plus Tonel-like definition documents into an explicit branch;
   export and live package projection are not implemented yet.
-- **`AL.Scheduler` (lib/AL/scheduler.ex)** — async. `send_async`/`send_elixir`
-  are goals that only *write a command*; the scheduler reacts. **One scheduler
-  per store** under a DynamicSupervisor, each subscribed to its own command
-  table, so fork async stays on the fork. `Branch.fork`/`discard` start/stop it.
+- **`AL.Outbox` (lib/AL/outbox.ex)** — async. `send_async`/`send_elixir` and
+  effects only write commands inside the transaction; after commit the outbox
+  dispatches those commands. **One outbox per branch** runs under a
+  DynamicSupervisor, so fork async stays on the fork. `Branch.fork`/`discard`
+  start/stop it.
 - **`AL.Trace`/`AL.Domino` (lib/AL/trace/)** — introspection. See "The domino
   tracing model" below for `AL.Domino` and `AL.Trace`'s live tracepoint
   printer.

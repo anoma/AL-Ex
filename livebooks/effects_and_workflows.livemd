@@ -47,10 +47,14 @@ An effect provider is an Elixir module registered under a name. Here it can uppe
 
 ```elixir
 defmodule EffectsLivebook.Provider do
-  use AL.Edge, provider: :livebook
+  @behaviour AL.Edge
+
+  @impl AL.Edge
+  def __edge_provider__, do: :livebook
 
   def observe(pid), do: :persistent_term.put({__MODULE__, :observer}, pid)
 
+  @impl AL.Edge
   def execute(:uppercase, [text], _context) do
     {:ok, String.upcase(text)}
   end

@@ -8,6 +8,7 @@ defmodule AL.Edge do
   @type notification() :: {term(), atom(), list()}
   @type provider_result() :: outcome() | {:notify, outcome(), [notification()]} | :pending
 
+  @callback __edge_provider__() :: atom()
   @callback execute(atom(), list(), map()) :: provider_result()
 
   defmacro __using__(options) do
@@ -20,7 +21,7 @@ defmodule AL.Edge do
     quote do
       @behaviour AL.Edge
 
-      @doc false
+      @impl AL.Edge
       def __edge_provider__, do: unquote(provider)
     end
   end
@@ -30,7 +31,7 @@ defmodule AL.Edge do
     Code.ensure_loaded!(module)
 
     unless function_exported?(module, :__edge_provider__, 0) do
-      raise ArgumentError, "#{inspect(module)} must use AL.Edge with a provider"
+      raise ArgumentError, "#{inspect(module)} must export __edge_provider__/0"
     end
 
     unless function_exported?(module, :execute, 3) do
@@ -105,7 +106,17 @@ defmodule AL.Edge do
 
     with :ok <- validate_outcome(outcome),
          :ok <- validate_notifications(notifications) do
-      AL.Effect.complete(effect_id, outcome, notifications, branch)
+      goals =
+        [%Goal.Send{object: effect_id, method: :complete, args: [outcome]}] ++
+          Enum.map(notifications, fn {receiver, selector, arguments} ->
+            %Goal.Send{object: receiver, method: selector, args: arguments}
+          end)
+
+      case AL.eval(goals, nil, branch) do
+        {:atomic, {_bindings, state}} -> AL.Workflow.continue_after_commit(state, branch)
+        {:aborted, reason} -> {:error, reason}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

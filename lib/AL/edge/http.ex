@@ -1,7 +1,10 @@
 defmodule AL.Edge.HTTP do
   @moduledoc "I execute HTTP requests and return durable response values."
 
-  use AL.Edge, provider: :http
+  @behaviour AL.Edge
+
+  @impl AL.Edge
+  def __edge_provider__, do: :http
 
   @impl AL.Edge
   def execute(:execute, [method, url, headers, body, timeout], _context)

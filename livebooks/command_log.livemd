@@ -255,7 +255,7 @@ end
 AL.Branch.discard(child)
 ```
 
-The same isolation composes when you fork a fork, and even async sends stay scoped to whichever branch they were written on. This is because each branch has its own scheduler.
+The same isolation composes when you fork a fork, and even async sends stay scoped to whichever branch they were written on. This is because each branch has its own outbox.
 
 ## Temporality
 

@@ -2,19 +2,22 @@ defmodule AL.Edge.File do
   @moduledoc "I read files and maintain filesystem watches outside AL transactions."
 
   use GenServer
-  use AL.Edge, provider: :file
+  @behaviour AL.Edge
+
+  @impl AL.Edge
+  def __edge_provider__, do: :file
 
   def start_link(_options) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  @impl true
+  @impl GenServer
   def init(_initial) do
     Process.flag(:trap_exit, true)
     {:ok, %{subscriptions: %{}, watchers: %{}}}
   end
 
-  @impl true
+  @impl AL.Edge
   def execute(:read, [path], _context) when is_binary(path), do: File.read(path)
 
   def execute(
@@ -46,7 +49,7 @@ defmodule AL.Edge.File do
   def execute(operation, arguments, _context),
     do: {:error, {:unsupported_file_effect, operation, arguments}}
 
-  @impl true
+  @impl GenServer
   def handle_call({:watch, subscription, path, branch}, _from, state) do
     path = Path.expand(path)
 
@@ -77,7 +80,7 @@ defmodule AL.Edge.File do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:file_event, watcher, {event_path, events}}, state) do
     case Map.fetch(state.watchers, watcher) do
       {:ok, entry} ->

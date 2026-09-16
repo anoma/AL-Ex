@@ -188,24 +188,6 @@ defmodule AL.Workflow do
   end
 
   @doc false
-  def effect_blocked_goal(state, workflow, step, effect_id, condition) do
-    with {:ok, slots} <- workflow_slots(state, workflow),
-         true <- slots[:status] == :waiting,
-         true <- slots[:step] == step,
-         true <- slots[:attempt] == step,
-         pending when is_list(pending) <- slots[:pending_effects],
-         true <- effect_id in pending do
-      set_slots(state, workflow, %{
-        condition: condition,
-        effect_id: effect_id,
-        status: :blocked
-      })
-    else
-      _ -> AL.backtrack(state)
-    end
-  end
-
-  @doc false
   def advance_blocked_goal(state, workflow, step, condition) do
     with {:ok, slots} <- workflow_slots(state, workflow),
          true <- slots[:status] == :advancing,

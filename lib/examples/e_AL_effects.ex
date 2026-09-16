@@ -1,8 +1,12 @@
 defmodule Examples.ALEffects.Provider do
-  use AL.Edge, provider: :example_effect
+  @behaviour AL.Edge
+
+  @impl AL.Edge
+  def __edge_provider__, do: :example_effect
 
   def observe(pid), do: :persistent_term.put({__MODULE__, :observer}, pid)
 
+  @impl AL.Edge
   def execute(:echo, [value], _context), do: {:ok, value}
   def execute(:transaction_context, [], _context), do: {:ok, :mnesia.is_transaction()}
   def execute(:branch, [], %{branch: branch}), do: {:ok, branch.id}
@@ -247,7 +251,7 @@ defmodule Examples.ALEffects do
   example hydrating_the_command_log_does_not_repeat_effects() do
     observe_effects()
     branch = %AL.Branch{id: :examples}
-    :ok = AL.Scheduler.stop(branch)
+    :ok = AL.Outbox.stop(branch)
 
     try do
       {:atomic, {_bindings, state}} =
@@ -267,17 +271,17 @@ defmodule Examples.ALEffects do
       assert is_integer(effect_time)
       assert {:atomic, _result} = AL.Object.hydrate_since(effect_time, branch)
       refute_receive :effect_ran, 100
-      :ok = AL.Scheduler.start(branch)
+      :ok = AL.Outbox.start(branch)
       refute_receive :effect_ran, 100
     after
-      AL.Scheduler.start(branch)
+      AL.Outbox.start(branch)
     end
   end
 
   example fork_does_not_replay_parent_effects_and_runs_new_effects() do
     observe_effects()
     parent = %AL.Branch{id: :examples}
-    :ok = AL.Scheduler.stop(parent)
+    :ok = AL.Outbox.stop(parent)
 
     try do
       {:atomic, _} =
@@ -302,7 +306,7 @@ defmodule Examples.ALEffects do
         AL.Branch.discard(child)
       end
     after
-      AL.Scheduler.start(parent)
+      AL.Outbox.start(parent)
     end
   end
 

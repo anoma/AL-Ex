@@ -50,7 +50,7 @@ defmodule AL.Branch do
     :ok
   end
 
-  @doc "Fork a new branch: its own command log, object projection, and scheduler."
+  @doc "Fork a new branch: its own command log, object projection, and outbox."
   @spec fork(non_neg_integer() | :tip, t()) :: t()
   def fork(at \\ :tip, from = %__MODULE__{} \\ head()) do
     unless from == main() or from in list() do
@@ -128,18 +128,18 @@ defmodule AL.Branch do
     AL.ResolutionCache.create_tables(branch)
     AL.Object.hydrate_since(0, branch)
     register(branch, from)
-    AL.Scheduler.start(branch)
+    AL.Outbox.start(branch)
     AL.Serialisation.start(branch)
     branch
   end
 
-  @doc "Discard a branch: reparent its forks onto its parent, reset HEAD if checked out, drop its scheduler, projection and command log."
+  @doc "Discard a branch: reparent its forks onto its parent, reset HEAD if checked out, drop its outbox, projection and command log."
   @spec discard(t()) :: :ok
   def discard(branch) do
     unregister(branch)
     if stored_head() == branch, do: set_head(main())
     AL.Serialisation.stop(branch)
-    AL.Scheduler.stop(branch)
+    AL.Outbox.stop(branch)
     AL.Object.drop_tables(branch)
     AL.ResolutionCache.drop_tables(branch)
     AL.SourceStore.drop_tables(branch)

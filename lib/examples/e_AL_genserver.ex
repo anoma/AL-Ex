@@ -64,7 +64,7 @@ defmodule Examples.ALGenserver do
     end
   end
 
-  # `send_async`'s scheduler pickup has no ordering guarantee against this
+  # `send_async`'s outbox pickup has no ordering guarantee against this
   # test's own next `count/1` call — `count/1` is already a real synchronous
   # round-trip to `CounterService` (send + receive), so polling it is enough
   # to wait for the actual result instead of guessing a `Process.sleep`

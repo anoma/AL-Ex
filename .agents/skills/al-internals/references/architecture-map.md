@@ -27,7 +27,7 @@ the same evaluator.
 
 | Concept | Durable authority | Structured read boundary | Derived consumers |
 |---|---|---|---|
-| Commands and transaction order | `AL.Command` command-log tables | `AL.Command` | hydration, scheduler, transaction views |
+| Commands and transaction order | `AL.Command` command-log tables | `AL.Command` | hydration, outbox, transaction views |
 | Classes, supers, methods, clauses, native declarations | command log | `AL.Object` over branch `soa` | dispatch and resolution caches |
 | Object slots | command log | `AL.Object` over branch `aos`/`soa` according to ivar storage | dispatch, object views |
 | Retained source text and definition spans | source-related commands | `AL.SourceStore`, `AL.Source` | GT views, serialised files |
@@ -42,10 +42,10 @@ history, but it does not replace the command that produced it.
 
 | Area | Start with | Continue into |
 |---|---|---|
-| Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/interp/`, `lib/AL/domino.ex` |
+| Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/interp/`, `lib/AL/trace/domino.ex` |
 | Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/lowering.ex`, `lib/AL/interp/store.ex` |
-| Dispatch and method order | `lib/AL/dispatch.ex` | `lib/AL/dispatch/`, `lib/AL/cache/` |
-| Variables and constraints | `lib/AL/var.ex` | `lib/AL/var/`, relation handlers |
+| Dispatch and method order | `lib/AL/dispatch/dispatch.ex` | `lib/AL/dispatch/`, `lib/AL/cache/` |
+| Variables and constraints | `lib/AL/var/var.ex` | `lib/AL/var/`, relation handlers |
 | Durable writes and replay | `lib/AL/command_log/command.ex` | hydration modules, `lib/AL/view/object.ex` |
 | Branch creation and isolation | `lib/AL/branch.ex` | command/view table naming and copying |
 | Source parsing and capture | `lib/AL/source/parser.ex` | `lib/AL/view/source.ex`, `source_store.ex` |
@@ -94,8 +94,8 @@ resolution order.
 - Work that tests AL behavior should normally create and discard a fork.
 - A test that needs an empty installed world can fork main at transaction `0`
   and install current packages there.
-- Scheduler behavior is tied to branch command-log events; inspect scheduler
-  subscription and ownership before changing fork behavior.
+- Outbox behavior is tied to committed branch commands; inspect outbox
+  ownership and commit notification before changing fork behavior.
 
 ## Source model
 

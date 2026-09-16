@@ -18,7 +18,6 @@ defmodule AL.Lowering do
     vm_transaction_object: :transaction_object,
     vm_workflow_waiter: :workflow_waiter,
     vm_workflow_effect_completed: :workflow_effect_completed,
-    vm_workflow_effect_blocked: :workflow_effect_blocked,
     vm_cached_ivar_specs: :cached_ivar_specs,
     vm_cached_find_ivar_spec: :cached_find_ivar_spec,
     vm_source_method_parts: :source_method_parts

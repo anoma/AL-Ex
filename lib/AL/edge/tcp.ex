@@ -2,7 +2,10 @@ defmodule AL.Edge.TCP do
   @moduledoc "I own TCP connections and admit their effects and messages."
 
   use GenServer
-  use AL.Edge, provider: :tcp
+  @behaviour AL.Edge
+
+  @impl AL.Edge
+  def __edge_provider__, do: :tcp
 
   @connect_timeout 5_000
 

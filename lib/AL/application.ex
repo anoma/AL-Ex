@@ -1,7 +1,6 @@
 defmodule AL.Application do
   @moduledoc """
-  I am the top level OTP application callback module for AL.
-  I manage both the event server and object server.
+  I start AL's durable stores, branch services, host edges, and runtime registries.
   """
 
   use Application
@@ -14,7 +13,7 @@ defmodule AL.Application do
     opts = [strategy: :one_for_one, name: Al.Supervisor]
 
     children = [
-      AL.Scheduler.supervisor_spec(),
+      AL.Outbox.supervisor_spec(),
       AL.Serialisation.supervisor_spec(),
       AL.Native.Registry,
       AL.Edge.Registry,
@@ -27,7 +26,7 @@ defmodule AL.Application do
     {:ok, pid} = Supervisor.start_link(children, opts)
 
     register_edge_providers()
-    AL.Scheduler.start_all()
+    AL.Outbox.start_all()
 
     bootstrap()
     register_natives()

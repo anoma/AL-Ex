@@ -19,7 +19,7 @@ Treat these as the default invariants to verify:
 - Preserve bidirectional execution, backtracking, choicepoint isolation, caller-visible bindings, and clause order.
 - Keep durable retrieval distinct from generative construction.
 - Object creation is `construct -> allocate -> init`.
-- Branches isolate command logs, projections, resolution caches, and schedulers.
+- Branches isolate command logs, projections, resolution caches, and outboxes.
 - Check cache invalidation, hydration, branch lifecycle, and tracing whenever durable resolution data changes.
 - Valid-time bitemporality, branch diff/merge, and compound interval arithmetic are roadmap items unless current source proves otherwise.
 
