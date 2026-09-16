@@ -12,6 +12,11 @@ defmodule Examples.ALSockets do
       {:atomic, _} =
         run branch: :examples do
           defclass :echo_client_socket, super: :tcp_socket, ivars: [messages: []] do
+            defmethod(:init, [self, args, self]) do
+              call_next_method(self, args, self)
+              set_slot(self, :messages, [])
+            end
+            
             defmethod(:receive, [self, {:data, data}]) do
               get(self, :messages, messages)
               concat(messages, [data], updated)
@@ -25,7 +30,6 @@ defmodule Examples.ALSockets do
             _
           )
 
-          set_slot(:tcp_example_socket, :messages, [])
           connect(:tcp_example_socket, _)
         end
 

@@ -54,7 +54,9 @@ history, but it does not replace the command that produced it.
 | GT inspection | `lib/AL/gt_bridge.ex` | `lib/AL/view/` |
 | Bootstrap language behavior | `lib/AL/transaction_program/bootstrap.ex` | transaction program modules and `al-practices` |
 | Package object protocol | `lib/AL/transaction_program/package_system.ex` | `lib/examples/e_AL_packages.ex` |
-| Portable package import | `lib/AL/package.ex` | `lib/AL/package/document.ex`, package definition documents |
+| Host package discovery | `lib/AL/package/discovery.ex` | package catalog/channel/provider structs and document codecs |
+| Package resolution | `lib/AL/package/resolver.ex` | the AL package resolver object, build specs, and content addresses |
+| Package orchestration and import | `lib/AL/package.ex` | catalog registration, realisation, activation, and the package object protocol |
 
 ## Durable mutation checklist
 

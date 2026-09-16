@@ -2,6 +2,8 @@ defmodule ALPackageImportTest do
   use ExUnit.Case, async: false
   use AL
 
+  alias AL.Package.Catalog
+  alias AL.Package.Discovery
   alias AL.Package.Document
 
   setup do
@@ -78,6 +80,38 @@ defmodule ALPackageImportTest do
                }
              }
            ] = AL.Package.providers(:fixture, branch)
+  end
+
+  test "host discovery builds a catalog before durable registration", %{
+    branch: branch,
+    root: root
+  } do
+    alpha = Path.join(root, "alpha")
+    omega = Path.join(root, "omega")
+    write_bundle(alpha, :alpha, [])
+    write_definition(alpha, :alpha_value)
+    write_bundle(omega, :omega, [:alpha])
+    write_definition(omega, :omega_value)
+
+    assert {:ok, %Catalog{channels: [channel], providers: providers}} =
+             Discovery.discover([{:fixtures, root}])
+
+    assert channel.id == nil
+    assert channel.name == :fixtures
+    assert channel.priority == 0
+    assert Enum.map(providers, & &1.document.name) == [:alpha, :omega]
+    assert Enum.all?(providers, &is_nil(&1.id))
+    assert Enum.all?(providers, &(&1.channel == channel))
+    refute AL.Package.installed?(:alpha, branch)
+    refute AL.Package.installed?(:omega, branch)
+
+    assert {:ok, %Catalog{channels: [registered_channel], providers: registered_providers}} =
+             AL.Package.discover([{:fixtures, root}], branch: branch)
+
+    assert is_atom(registered_channel.id)
+    assert Enum.all?(registered_providers, &is_atom(&1.id))
+    assert AL.Package.installed?(:alpha, branch)
+    assert AL.Package.installed?(:omega, branch)
   end
 
   test "discovers dependencies through a channel and reuses realised builds", %{
@@ -405,52 +439,6 @@ defmodule ALPackageImportTest do
       :code.purge(Examples.LegacyPackageFixture)
       :code.delete(Examples.LegacyPackageFixture)
     end
-  end
-
-  test "package-system upgrades remove the experimental package classes", %{branch: branch} do
-    %{version: version} = AL.TransactionProgram.PackageSystem.__program__()
-
-    setup_old_package =
-      AL.run branch: branch.id do
-        new(
-          :package,
-          %{name: :interval_package, super: :package_build, ivars: [], deps: []},
-          _
-        )
-
-        set_slot(:interval_package, :package_name, :interval)
-
-        new(
-          :interval_package,
-          %{
-            package: :interval_package,
-            version: 1,
-            dependency_builds: [],
-            status: :complete
-          },
-          old_build
-        )
-
-        set_slot(:package_system, :version, 1)
-      end
-
-    assert {:atomic, {bindings, _}} = setup_old_package
-    old_build = bindings[:"$old_build"]
-    refute AL.TransactionProgram.current?(:package_system, version, branch)
-
-    assert {:atomic, _} = AL.TransactionProgram.PackageSystem.install()
-    assert AL.TransactionProgram.current?(:package_system, version, branch)
-
-    query =
-      AL.run branch: branch.id do
-        findall(old_class, [class(:interval_package, old_class)], old_package_classes)
-        findall(old_build_class, [class(^old_build, old_build_class)], old_build_classes)
-      end
-
-    assert {:atomic, {result, _}} = query
-
-    assert result[:"$old_package_classes"] == []
-    assert result[:"$old_build_classes"] == []
   end
 
   defp write_bundle(root, name, deps) do

@@ -1,9 +1,6 @@
 defmodule AL.TransactionProgram.PackageSystem do
   use AL.TransactionProgram
 
-  @doc false
-  def __prepare_program_install__, do: AL.Package.remove_legacy_package_classes()
-
   defprogram :package_system, version: 13, deps: [:bootstrap] do
     defclass :channel,
       super: :object,

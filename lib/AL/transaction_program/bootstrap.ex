@@ -561,32 +561,6 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:value, :allocate, [self, _, self])
 
-    # `output`'s own isa tag: every value class gets this for free from an
-    # explicit `new`, not just from generative dispatch (which already
-    # attaches the same tag externally, before a candidate's own goals run,
-    # when an open var reaches a class through `send` instead of `new`) —
-    # one mechanism, not two. A class with its own :domain method can rely
-    # on `output` already being isa-tagged and ready for `label` right
-    # after `new` returns, no separate `class(output, name)` call needed.
-    #
-    # `ivars: []` (every value class that predates ivar specs -- :number,
-    # :letter_chain, etc.) keeps exactly that behavior. A class with declared
-    # ivars and no :init override of its own (new this session -- no
-    # existing class both declares ivars and skips :init) instead builds a
-    # real map from them: each ivar individually get-optional'd, then
-    # domain/type-checked per its own spec, if it has one.
-    #
-    # Whether output stays open or becomes a real map depends on whether
-    # *any* class in the chain declares a real ivar, not just the immediate
-    # one -- a subclass adding its own ivars to an otherwise bare ancestor
-    # still needs the map shape. Every properly-constructed class has an
-    # `:ivars` slot (`allocate_class` always sets one, `[]` included), so the
-    # merged list itself -- empty or not -- is what decides, exactly as
-    # before, just gathered from the whole ancestor chain
-    # (`reachable_classes`, not `inheritance_chain` -- self is the ephemeral
-    # scaffold map here, no durable identity for `class/2` to scan, so the
-    # walk starts from the class atom itself, already in hand via
-    # `vm_map_get`, not from self).
     defmethod(:value, :init, [self, args, output]) do
       vm_map_get(self, :class, class)
       reachable_classes([class], [], chain)
@@ -603,27 +577,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       build_from_ivar_specs(self, class, args, [spec | rest], output)
     end
 
-    # One ivar-spec entry -> its bare name and its value. A bare-var fallback
-    # clause (`[self, spec, name]` matching anything) is NOT safe here even
-    # ordered after a `{name, opts}`-pattern clause -- Prolog tries every
-    # clause whose head unifies, not just the first, so the bare fallback
-    # would still fire (and win, non-deterministically) on a real {name,
-    # opts} spec too, same bug just caught in `rank_value`. `functor` is a
-    # real function (decompose direction, deterministic), not another
-    # relational alternative -- it either decomposes spec into {name,
-    # [opts]} (only possible when spec really is a 2-tuple, since a bare
-    # atom decomposes to {atom, []}, and [] never unifies with [opts]) or it
-    # doesn't; `implies` commits to whichever one actually happens, no
-    # overlap possible.
-    #
-    # `self` throughout this group is a dispatch anchor only, never
-    # inspected -- a bare atom (an ivar name, or {name, opts}) has no
-    # generic class of its own to dispatch through, so every call re-passes
-    # the *scaffold map* self came in as (its :class field is what actually
-    # walks the class's own super chain down to :object -- see method_scopes,
-    # which only does that for a map receiver's :class key, not for a bare
-    # atom classified as :class/:category/:behaviour, which is what the
-    # class atom itself resolves as).
     defmethod(:object, :apply_ivar_spec, [self, args, spec, name, value]) do
       implies do
         [functor(spec, name, [opts])] ->
@@ -647,9 +600,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       get_optional(args, name, value)
     end
 
-    # only get's ancestor-walk fallback still needs this -- set_slot
-    # and build_durable_slots route via vm_set_slot's interp handler now.
-    # :aos default when storage: absent.
     defmethod(:object, :ivar_spec_storage, [_self, spec, storage]) do
       functor(spec, _name, [opts])
       member(opts, {:storage, storage})
@@ -659,13 +609,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       not [functor(spec, _name, [opts]), member(opts, {:storage, _given})]
     end
 
-    # Fold a class's own declared ivar specs into a constructed map -- same
-    # recursive-fold idiom as :list's own concat/reverse/fold. `self` is the
-    # scaffold map :init was called with (the dispatch anchor, re-passed
-    # explicitly on every recursive call -- self doesn't carry across nested
-    # sends the way it would in an ordinary OO language); `class` is the
-    # bare class atom, carried separately since it's what actually goes in
-    # the output map's own :class field.
     defmethod(:object, :build_from_ivar_specs, [self, class, args, [], %{class: class}])
 
     defmethod(:object, :build_from_ivar_specs, [self, class, args, [spec | rest], output]) do
@@ -702,16 +645,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       end
     end
 
-    # `defclass name, metaclass: :class, super: ..., ivars: [...],
-    # categories: [...] do ... end` — bundles the `new(metaclass, ...)` +
-    # per-category `import` + per-method `defmethod` sequence a class
-    # declaration otherwise requires by hand. `methods` is a list of
-    # `[method_name, head, body]` triples; re-sending each through the
-    # ordinary `defmethod` behaviour keeps clause-accretion identical to
-    # writing `defmethod(name, method_name, head) do body end` directly.
-    # Registered directly under the literal id `:defclass` (like `:defmethod`
-    # itself), since `ast_to_pattern` targets that method id straight from
-    # the surface syntax, bypassing ordinary send dispatch.
     vm_set_class(:defclass, :behaviour)
 
     vm_set_oapply(:defclass, [name, metaclass, super, ivars, categories, methods, redef]) do
@@ -1138,29 +1071,12 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:number, :count_to, [n, n])
 
-    # Linear recursion, one reduction per step — deliberately the opposite
-    # shape from fibonacci's naive-exponential one, for isolating raw
-    # per-call dispatch/reduction overhead from combinatorial blowup
-    # (bench/succ.exs). `is`, not `eq` — matches :count_to_via_oapply's
-    # own increment exactly, so the two differ *only* in how the recursive
-    # step is reached (full dispatch vs raw oapply), not also in how much
-    # constraint machinery the increment itself pays for.
     defmethod(:number, :count_to, [n, target]) do
       n < target
       is(n1, n + 1)
       count_to(n1, target)
     end
 
-    # Same computation as :count_to, but `providers_for`/`method_scopes`
-    # resolution (resolution-cache lookup included) is paid once — `vm_method`
-    # finds the loop's own id up front — not once per recursive step: the
-    # loop below re-enters itself via `vm_oapply(id, ...)` directly, the same
-    # raw clause-matching `run_providers` itself calls into once dispatch has
-    # already resolved a provider, skipping the resolution work entirely on
-    # every step after the first. Isolates dispatch-resolution cost from
-    # clause-matching/execution cost (bench/succ.exs) — the gap between this
-    # and :count_to's own timing is exactly what re-resolving every step
-    # costs.
     defmethod(:number, :count_to_via_oapply, [n, target]) do
       vm_method(:number, :count_to_oapply_loop, id)
       vm_oapply(id, [n, target, id])
@@ -1335,11 +1251,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       eq(n, n1 + h)
     end
 
-    # Recurses via clause-head matching, not forall/member — a still-open
-    # shared element gets bound through ordinary unification this way
-    # (thread back to the caller's own var); forall's own
-    # collect-then-substitute-then-freshen splice mints an independent
-    # fresh alias for anything still open, disconnected from the original.
     defmethod(:list, :label_range, [[], _lo, _hi])
 
     defmethod(:list, :label_range, [[h | t], lo, hi]) do
@@ -1349,10 +1260,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       label_range(t, lo, hi)
     end
 
-    # Rows of a matrix -> columns. Terminates on the first row emptying —
-    # sound because every row shrinks by one element per recursive step in
-    # lockstep (`heads_tails`), so for a well-formed matrix (equal-length
-    # rows) every row is empty at exactly the same step.
     defmethod(:list, :transpose, [[[] | _rows], []])
 
     defmethod(:list, :transpose, [rows, [firsts | rest]]) do

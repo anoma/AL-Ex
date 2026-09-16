@@ -1,15 +1,14 @@
 defmodule AL.Package do
   @moduledoc "Discovers, resolves, realises, and activates definition packages."
 
-  require AL
-
-  alias AL.Package.BuildSpec
   alias AL.Package.Catalog
-  alias AL.Package.Channel
+  alias AL.Package.ContentAddress
+  alias AL.Package.Discovery
   alias AL.Package.Document
   alias AL.Package.Plan
   alias AL.Package.Provider
   alias AL.Package.Realisation
+  alias AL.Package.Resolver
   alias AL.Package.SourceSnapshot
   alias AL.Serialisation.Document, as: DefinitionDocument
   alias AL.Serialisation.Layout
@@ -51,11 +50,7 @@ defmodule AL.Package do
 
   @doc "Read and validate a package bundle's manifest."
   @spec manifest(Path.t()) :: {:ok, Document.t()} | {:error, term()}
-  def manifest(directory) do
-    path = Path.join(directory, "package.al")
-
-    with {:ok, text} <- read(path), do: Document.parse(text)
-  end
+  defdelegate manifest(directory), to: Discovery
 
   @doc "Export active package source or selected live definitions as a portable bundle."
   @spec export(atom(), keyword()) :: {:ok, export_result()} | {:error, term()}
@@ -170,12 +165,8 @@ defmodule AL.Package do
   def discover(specs \\ configured_channels(), opts \\ []) when is_list(specs) do
     branch = Keyword.get(opts, :branch, AL.Branch.head())
 
-    with :ok <- validate_channel_specs(specs),
-         {:ok, discovered} <- discover_channels(specs),
-         channels = Enum.map(discovered, &elem(&1, 0)),
-         providers = Enum.flat_map(discovered, &elem(&1, 1)),
-         {:ok, catalog} <-
-           register_catalog(%Catalog{channels: channels, providers: providers}, branch) do
+    with {:ok, catalog} <- Discovery.discover(specs),
+         {:ok, catalog} <- register_catalog(catalog, branch) do
       {:ok, catalog}
     end
   end
@@ -203,15 +194,8 @@ defmodule AL.Package do
   @spec resolve(Catalog.t(), [Document.dependency()], keyword()) ::
           {:ok, Plan.t()} | {:error, term()}
   def resolve(%Catalog{} = catalog, requested \\ configured_environment(), opts \\ []) do
-    requested = Enum.uniq(requested)
     branch = Keyword.get(opts, :branch, AL.Branch.head())
-
-    with :ok <- validate_requested(requested),
-         :ok <- validate_registered_providers(catalog),
-         {:ok, selections} <- resolve_providers(catalog, requested, branch),
-         {:ok, builds} <- build_specs(selections) do
-      {:ok, %Plan{requested: requested, catalog: catalog, builds: builds}}
-    end
+    Resolver.resolve(catalog, requested, branch)
   end
 
   @doc "Create or reuse all exact builds in a resolved plan without activating them."
@@ -320,7 +304,7 @@ defmodule AL.Package do
   def import(directory, opts \\ []) do
     branch = Keyword.get(opts, :branch, AL.Branch.head())
 
-    with {:ok, provider} <- direct_provider(directory),
+    with {:ok, provider} <- Discovery.provider(directory),
          channel = provider.channel,
          {:ok, catalog} <-
            register_catalog(%Catalog{channels: [channel], providers: [provider]}, branch),
@@ -370,86 +354,6 @@ defmodule AL.Package do
 
       {:error, _reason} ->
         false
-    end
-  end
-
-  defp discover_channels(specs) do
-    specs
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {{name, location}, priority}, {:ok, channels} ->
-      root = resolve_location(location)
-
-      case discover_channel(name, location, root, priority) do
-        {:ok, channel} -> {:cont, {:ok, [channel | channels]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, channels} -> {:ok, Enum.reverse(channels)}
-      error -> error
-    end
-  end
-
-  defp discover_channel(name, location, root, priority) do
-    with true <- File.dir?(root) || {:error, {:package_channel_not_found, name, root}},
-         {:ok, entries} <- File.ls(root),
-         directories <-
-           entries
-           |> Enum.sort()
-           |> Enum.map(&Path.join(root, &1))
-           |> Enum.filter(&(File.dir?(&1) and File.regular?(Path.join(&1, "package.al")))),
-         {:ok, raw_providers} <- read_providers(directories),
-         :ok <- validate_channel_providers(name, raw_providers) do
-      revision =
-        digest(
-          {:package_channel, 1, Enum.map(raw_providers, &{&1.document.name, &1.source_digest})}
-        )
-
-      channel = %Channel{
-        name: name,
-        location: location,
-        root: root,
-        revision: revision,
-        priority: priority
-      }
-
-      providers = Enum.map(raw_providers, &%{&1 | channel: channel})
-      {:ok, {channel, providers}}
-    else
-      {:error, reason} when is_atom(reason) ->
-        {:error, {:package_channel_read, name, root, reason}}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp read_providers(directories) do
-    Enum.reduce_while(directories, {:ok, []}, fn directory, {:ok, providers} ->
-      case read_provider(directory, nil) do
-        {:ok, provider} -> {:cont, {:ok, [provider | providers]}}
-        {:error, reason} -> {:halt, {:error, {:invalid_package_provider, directory, reason}}}
-      end
-    end)
-    |> case do
-      {:ok, providers} -> {:ok, Enum.reverse(providers)}
-      error -> error
-    end
-  end
-
-  defp direct_provider(directory) do
-    directory = Path.expand(directory)
-
-    with {:ok, provider} <- read_provider(directory, nil) do
-      channel = %Channel{
-        name: {:direct, directory},
-        location: directory,
-        root: directory,
-        revision: provider.source_digest,
-        priority: 0
-      }
-
-      {:ok, %{provider | channel: channel}}
     end
   end
 
@@ -652,7 +556,7 @@ defmodule AL.Package do
          document,
          branch
        ) do
-    with {:ok, provider} <- direct_provider(directory),
+    with {:ok, provider} <- Discovery.provider(directory),
          {:ok, catalog} <-
            register_catalog(
              %Catalog{channels: [provider.channel], providers: [provider]},
@@ -662,7 +566,7 @@ defmodule AL.Package do
          {:ok, dependency_inputs} <-
            open_build_dependency_inputs(document.deps, build_slots.dependency_builds, branch),
          build_digest =
-           digest({:package_build, 1, provider.source_digest, dependency_inputs}),
+           ContentAddress.digest({:package_build, 1, provider.source_digest, dependency_inputs}),
          slots = %{
            version: document.version,
            requirements: document.deps,
@@ -913,88 +817,6 @@ defmodule AL.Package do
   defp changed?(changes),
     do: changes.added != [] or changes.changed != [] or changes.removed != []
 
-  defp read_provider(directory, channel) do
-    manifest_path = Path.join(directory, "package.al")
-
-    with {:ok, manifest_text} <- read(manifest_path),
-         {:ok, document} <- Document.parse(manifest_text),
-         {:ok, definitions} <- read_definitions(directory) do
-      source_digest =
-        digest({:package_source, 1, manifest_text, Enum.map(definitions, &{&1.path, &1.text})})
-
-      {:ok,
-       %Provider{
-         channel: channel,
-         directory: directory,
-         manifest_path: manifest_path,
-         manifest_text: manifest_text,
-         document: document,
-         definitions: definitions,
-         source_digest: source_digest
-       }}
-    end
-  end
-
-  defp read_definitions(directory) do
-    directory
-    |> Path.join("definitions/**/*.al")
-    |> Path.wildcard()
-    |> Enum.sort()
-    |> Enum.reduce_while({:ok, []}, fn path, {:ok, definitions} ->
-      with {:ok, text} <- read(path),
-           {:ok, document} <- DefinitionDocument.parse(text) do
-        definition = %{path: Path.relative_to(path, directory), text: text, document: document}
-        {:cont, {:ok, [definition | definitions]}}
-      else
-        {:error, reason} -> {:halt, {:error, {:invalid_definition, path, reason}}}
-      end
-    end)
-    |> case do
-      {:ok, definitions} -> {:ok, Enum.reverse(definitions)}
-      error -> error
-    end
-  end
-
-  defp validate_channel_specs(specs) do
-    cond do
-      not Enum.all?(specs, &valid_channel_spec?/1) ->
-        {:error, :invalid_package_channel_configuration}
-
-      duplicated?(Enum.map(specs, &elem(&1, 0))) ->
-        {:error, :duplicate_package_channel_name}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp valid_channel_spec?({name, {:priv, path}}) when is_atom(name) and is_binary(path), do: true
-  defp valid_channel_spec?({name, path}) when is_atom(name) and is_binary(path), do: true
-  defp valid_channel_spec?(_spec), do: false
-
-  defp validate_channel_providers(channel, providers) do
-    providers
-    |> Enum.group_by(& &1.document.name)
-    |> Enum.find(fn {_name, matches} -> length(matches) > 1 end)
-    |> case do
-      nil ->
-        :ok
-
-      {name, matches} ->
-        {:error, {:duplicate_channel_package, channel, name, Enum.map(matches, & &1.directory)}}
-    end
-  end
-
-  defp validate_requested(requested) do
-    if Enum.all?(requested, &valid_requirement?/1),
-      do: :ok,
-      else: {:error, :invalid_package_environment}
-  end
-
-  defp valid_requirement?(name) when is_atom(name), do: true
-  defp valid_requirement?({name, _requirement}) when is_atom(name), do: true
-  defp valid_requirement?(_requirement), do: false
-
   defp requirement_name(name) when is_atom(name), do: name
   defp requirement_name({name, _requirement}), do: name
 
@@ -1015,109 +837,6 @@ defmodule AL.Package do
       registered_channels = Enum.map(catalog.channels, &Map.fetch!(channels, &1.name))
       {:ok, %Catalog{channels: registered_channels, providers: providers}}
     end
-  end
-
-  defp validate_registered_providers(catalog) do
-    if Enum.all?(catalog.providers, fn provider ->
-         is_atom(provider.id) and is_atom(provider.channel.id)
-       end),
-       do: :ok,
-       else: {:error, :unregistered_package_provider}
-  end
-
-  defp resolve_providers(_catalog, [], _branch), do: {:ok, []}
-
-  defp resolve_providers(catalog, requested, branch) do
-    provider_ids = Enum.map(catalog.providers, & &1.id)
-
-    result =
-      AL.run branch: branch.id do
-        resolve(:package_resolver, ^provider_ids, ^requested, solution)
-      end
-
-    case result do
-      {:atomic, {%{:"$solution" => solution}, _state}} ->
-        validate_resolution(solution, catalog, requested)
-
-      {:aborted, _reason} ->
-        {:error, {:package_resolution_failed, requested}}
-
-      {:error, reason} ->
-        {:error, {:package_resolution_query_failed, reason}}
-
-      _result ->
-        {:error, :invalid_package_resolution}
-    end
-  end
-
-  defp validate_resolution(solution, catalog, requested) when is_list(solution) do
-    providers = Map.new(catalog.providers, &{&1.id, &1})
-
-    Enum.reduce_while(solution, {:ok, %{}, []}, fn
-      [package, provider_id, dependencies], {:ok, selected, ordered}
-      when is_atom(package) and is_atom(provider_id) and is_list(dependencies) ->
-        with {:ok, provider} <- Map.fetch(providers, provider_id),
-             true <- provider.document.name == package,
-             :ok <- validate_resolution_dependencies(provider, dependencies, selected) do
-          selection = {provider, dependencies}
-          {:cont, {:ok, Map.put(selected, package, provider_id), ordered ++ [selection]}}
-        else
-          _ -> {:halt, {:error, :invalid_package_resolution}}
-        end
-
-      _entry, _acc ->
-        {:halt, {:error, :invalid_package_resolution}}
-    end)
-    |> case do
-      {:ok, selected, ordered} ->
-        if Enum.all?(requested, &Map.has_key?(selected, requirement_name(&1))) and
-             map_size(selected) == length(ordered),
-           do: {:ok, ordered},
-           else: {:error, :invalid_package_resolution}
-
-      error ->
-        error
-    end
-  end
-
-  defp validate_resolution(_solution, _catalog, _requested),
-    do: {:error, :invalid_package_resolution}
-
-  defp validate_resolution_dependencies(provider, dependencies, selected) do
-    expected = provider.document.deps
-
-    if length(dependencies) == length(expected) and
-         Enum.all?(Enum.zip(expected, dependencies), fn
-           {expected_requirement, {requirement, package, provider_id}}
-           when is_atom(package) and is_atom(provider_id) ->
-             requirement == expected_requirement and
-               package == requirement_name(expected_requirement) and
-               Map.get(selected, package) == provider_id
-
-           _dependency ->
-             false
-         end),
-       do: :ok,
-       else: {:error, :invalid_package_resolution}
-  end
-
-  defp build_specs(selections) do
-    {by_name, builds} =
-      Enum.reduce(selections, {%{}, []}, fn {provider, dependency_selections},
-                                            {by_name, builds} ->
-        dependencies =
-          Enum.map(dependency_selections, fn {_requirement, name, _provider} ->
-            {name, Map.fetch!(by_name, name)}
-          end)
-
-        dependency_inputs = Enum.map(dependencies, fn {name, build} -> {name, build.digest} end)
-        digest = digest({:package_build, 1, provider.source_digest, dependency_inputs})
-        build = %BuildSpec{provider: provider, dependencies: dependencies, digest: digest}
-
-        {Map.put(by_name, provider.document.name, build), builds ++ [build]}
-      end)
-
-    if map_size(by_name) == length(builds), do: {:ok, builds}, else: {:error, :invalid_build_plan}
   end
 
   defp realise_transaction(plan, branch) do
@@ -1958,61 +1677,8 @@ defmodule AL.Package do
     }
   end
 
-  defp resolve_location({:priv, path}),
-    do: Application.app_dir(:al, Path.join("priv", path))
-
-  defp resolve_location(path) when is_binary(path), do: Path.expand(path)
-
-  defp read(path) do
-    case File.read(path) do
-      {:ok, text} -> {:ok, text}
-      {:error, reason} -> {:error, {:file_read, path, reason}}
-    end
-  end
-
-  defp digest(term) do
-    term
-    |> :erlang.term_to_binary()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
-  end
-
   defp duplicated?(values), do: length(values) != length(Enum.uniq(values))
 
   defp literal(value),
     do: inspect(value, pretty: false, limit: :infinity, printable_limit: :infinity)
-
-  @doc false
-  def remove_legacy_package_classes(branch \\ AL.Branch.head()) do
-    objects =
-      [:users_package, :interval_package]
-      |> Enum.flat_map(&legacy_package_objects(&1, branch))
-      |> Enum.uniq()
-
-    case objects do
-      [] ->
-        :ok
-
-      _ ->
-        source = Enum.map_join(objects, "\n", &"retract_existing_facts(#{literal(&1)})")
-
-        case AL.eval_source(source, branch) do
-          {:atomic, _} -> :ok
-          {:aborted, reason} -> :mnesia.abort(reason)
-          {:error, reason} -> :mnesia.abort(reason)
-        end
-    end
-  end
-
-  defp legacy_package_objects(package, branch) do
-    builds =
-      AL.Object.scan_class(AL.Var.var("legacy_package_build"), package, branch)
-      |> Enum.map(fn {:class, build, _seq, ^package} -> build end)
-
-    if AL.Object.scan_class(package, :package, branch) == [] do
-      builds
-    else
-      builds ++ [package]
-    end
-  end
 end
