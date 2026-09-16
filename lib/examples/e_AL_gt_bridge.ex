@@ -255,4 +255,13 @@ defmodule Examples.ALGtBridge do
     assert send_row.action == "Async Send"
     :ok
   end
+
+  example command_log_rows_match_row_by_row_when_parallel() do
+    commands = for t <- 1..2_500, do: {:command, t, div(t, 3), {:set_class, {t, :parent}}}
+    rows = AL.Command.command_log_rows(commands)
+
+    assert Enum.map(rows, & &1.time) == Enum.to_list(1..2_500)
+    assert rows == Enum.flat_map(commands, &AL.Command.command_log_rows([&1]))
+    :ok
+  end
 end
