@@ -1,16 +1,12 @@
 defmodule AL.Edge do
-  @moduledoc "I dispatch committed effects to statically installed host providers."
+  @moduledoc "I dispatch committed effects and admit host messages into AL."
 
   alias AL.Goal
 
-  @type effect_id() :: {atom(), non_neg_integer()}
-  @type reply() ::
-          :none
-          | {term(), atom(), list()}
-          | {:workflow_effect, term(), atom(), non_neg_integer(),
-             :none | {term(), atom(), list()}}
+  @type effect_id() :: term()
   @type outcome() :: {:ok, term()} | {:error, term()}
-  @type provider_result() :: outcome() | :pending
+  @type notification() :: {term(), atom(), list()}
+  @type provider_result() :: outcome() | {:notify, outcome(), [notification()]} | :pending
 
   @callback execute(atom(), list(), map()) :: provider_result()
 
@@ -53,93 +49,23 @@ defmodule AL.Edge do
     :ok
   end
 
-  @spec emit(non_neg_integer(), atom(), atom(), list(), reply(), AL.Branch.t()) :: effect_id()
-  def emit(tx_id, provider, operation, arguments, reply, branch) do
-    validate_request!(provider, operation, arguments, reply)
-    time = AL.Command.effect(tx_id, provider, operation, arguments, reply, branch)
-    {branch.id, time}
+  @spec request(non_neg_integer(), effect_id(), atom(), atom(), list(), AL.Branch.t()) ::
+          non_neg_integer()
+  def request(tx_id, effect, provider, operation, arguments, branch) do
+    validate_object_request!(effect, provider, operation, arguments)
+    AL.Command.effect_object(tx_id, effect, provider, operation, arguments, branch)
   end
 
-  @spec dispatch(effect_id(), atom(), atom(), list(), reply(), AL.Branch.t()) ::
-          :ok | :pending | {:error, term()}
-  def dispatch(effect_id, provider, operation, arguments, reply, branch) do
-    ensure_outside_transaction!(:dispatch)
-    context = %{effect_id: effect_id, branch: branch, reply: reply}
-
-    case invoke(provider, operation, arguments, context) do
-      :pending -> :pending
-      outcome -> complete(context, outcome)
-    end
+  @spec receive(term(), term(), AL.Branch.t()) :: :ok | {:error, term()}
+  def receive(receiver, value, branch) do
+    notify(receiver, :receive, [value], branch)
   end
 
-  @spec complete(map(), outcome()) :: :ok | {:error, term()}
-  def complete(
-        %{effect_id: effect_id, branch: branch, reply: reply},
-        {status, _value} = outcome
-      )
-      when status in [:ok, :error] do
-    ensure_outside_transaction!(:complete)
+  @spec notify(term(), atom(), list(), AL.Branch.t()) :: :ok | {:error, term()}
+  def notify(receiver, selector, arguments, branch) do
+    ensure_outside_transaction!(:notify)
 
-    with :ok <- validate_outcome(outcome) do
-      deliver(reply, effect_id, outcome, branch)
-    end
-  end
-
-  def complete(_context, outcome), do: {:error, {:invalid_effect_outcome, outcome}}
-
-  defp invoke(provider, operation, arguments, context) do
-    case AL.Edge.Registry.lookup(provider) do
-      nil ->
-        {:error, {:effect_provider_missing, provider}}
-
-      module ->
-        try do
-          module.execute(operation, arguments, context)
-          |> normalize_result()
-        rescue
-          exception -> {:error, {:effect_exception, Exception.message(exception)}}
-        catch
-          kind, reason -> {:error, {:effect_throw, kind, inspect(reason)}}
-        end
-    end
-  end
-
-  defp normalize_result(:pending), do: :pending
-
-  defp normalize_result({status, _value} = outcome) when status in [:ok, :error] do
-    case validate_outcome(outcome) do
-      :ok -> outcome
-      {:error, _reason} -> {:error, {:invalid_effect_result, inspect(outcome)}}
-    end
-  end
-
-  defp normalize_result(other), do: {:error, {:invalid_effect_result, inspect(other)}}
-
-  defp deliver(:none, _effect_id, _outcome, _branch), do: :ok
-
-  defp deliver(
-         {:workflow_effect, workflow, selector, step, callback},
-         effect_id,
-         outcome,
-         branch
-       ) do
-    AL.Workflow.effect_completed(
-      workflow,
-      selector,
-      step,
-      callback,
-      effect_id,
-      outcome,
-      branch
-    )
-  end
-
-  defp deliver({receiver, selector, prefix_arguments}, effect_id, outcome, branch) do
-    goal = %Goal.Send{
-      object: receiver,
-      method: selector,
-      args: prefix_arguments ++ [effect_id, outcome]
-    }
+    goal = %Goal.Send{object: receiver, method: selector, args: arguments}
 
     case AL.eval([goal], nil, branch) do
       {:atomic, _result} -> :ok
@@ -148,17 +74,108 @@ defmodule AL.Edge do
     end
   end
 
-  defp validate_request!(provider, operation, arguments, reply) do
+  @spec dispatch(effect_id(), atom(), atom(), list(), AL.Branch.t()) ::
+          :ok | :pending | {:error, term()}
+  def dispatch(effect_id, provider, operation, arguments, branch) do
+    ensure_outside_transaction!(:dispatch)
+    context = %{effect_id: effect_id, branch: branch}
+
+    case invoke(provider, operation, arguments, context) do
+      :pending -> :pending
+      {:complete, outcome, notifications} -> complete(context, outcome, notifications)
+    end
+  end
+
+  @spec complete(map(), outcome()) :: :ok | {:error, term()}
+  def complete(%{effect_id: effect_id, branch: branch}, {status, _value} = outcome)
+      when status in [:ok, :error] do
+    complete(%{effect_id: effect_id, branch: branch}, outcome, [])
+  end
+
+  def complete(_context, outcome), do: {:error, {:invalid_effect_outcome, outcome}}
+
+  @spec complete(map(), outcome(), [notification()]) :: :ok | {:error, term()}
+  def complete(
+        %{effect_id: effect_id, branch: branch},
+        {status, _value} = outcome,
+        notifications
+      )
+      when status in [:ok, :error] and is_list(notifications) do
+    ensure_outside_transaction!(:complete)
+
+    with :ok <- validate_outcome(outcome),
+         :ok <- validate_notifications(notifications) do
+      AL.Effect.complete(effect_id, outcome, notifications, branch)
+    end
+  end
+
+  def complete(_context, outcome, notifications),
+    do: {:error, {:invalid_effect_completion, outcome, notifications}}
+
+  defp invoke(provider, operation, arguments, context) do
+    case AL.Edge.Registry.lookup(provider) do
+      nil ->
+        {:complete, {:error, {:effect_provider_missing, provider}}, []}
+
+      module ->
+        try do
+          module.execute(operation, arguments, context)
+          |> normalize_result()
+        rescue
+          exception ->
+            {:complete, {:error, {:effect_exception, Exception.message(exception)}}, []}
+        catch
+          kind, reason -> {:complete, {:error, {:effect_throw, kind, inspect(reason)}}, []}
+        end
+    end
+  end
+
+  defp normalize_result(:pending), do: :pending
+
+  defp normalize_result({status, _value} = outcome) when status in [:ok, :error] do
+    case validate_outcome(outcome) do
+      :ok -> {:complete, outcome, []}
+      {:error, _reason} -> {:complete, {:error, {:invalid_effect_result, inspect(outcome)}}, []}
+    end
+  end
+
+  defp normalize_result({:notify, {status, _value} = outcome, notifications})
+       when status in [:ok, :error] and is_list(notifications) do
+    with :ok <- validate_outcome(outcome),
+         :ok <- validate_notifications(notifications) do
+      {:complete, outcome, notifications}
+    else
+      {:error, _reason} ->
+        {:complete, {:error, {:invalid_effect_result, inspect({outcome, notifications})}}, []}
+    end
+  end
+
+  defp normalize_result(other),
+    do: {:complete, {:error, {:invalid_effect_result, inspect(other)}}, []}
+
+  defp validate_request!(provider, operation, arguments) do
     unless is_atom(provider), do: raise(ArgumentError, "effect provider must be an atom")
     unless is_atom(operation), do: raise(ArgumentError, "effect operation must be an atom")
     unless is_list(arguments), do: raise(ArgumentError, "effect arguments must be a list")
 
-    unless reply == :none or valid_reply?(reply) do
-      raise ArgumentError,
-            "effect reply must be :none, {receiver, selector, prefix_arguments}, or a workflow effect reply"
+    request = {provider, operation, arguments}
+
+    unless MapSet.size(AL.Var.find_vars(request)) == 0 do
+      raise ArgumentError, "effect request must be ground"
     end
 
-    request = {provider, operation, arguments, reply}
+    AL.Goal.validate_storable!(request)
+
+    unless durable?(request) do
+      raise ArgumentError, "effect request contains a live host value"
+    end
+
+    :ok
+  end
+
+  defp validate_object_request!(effect, provider, operation, arguments) do
+    validate_request!(provider, operation, arguments)
+    request = {effect, provider, operation, arguments}
 
     unless MapSet.size(AL.Var.find_vars(request)) == 0 do
       raise ArgumentError, "effect request must be ground"
@@ -189,23 +206,21 @@ defmodule AL.Edge do
     end
   end
 
-  defp valid_reply?({_receiver, selector, prefix_arguments}) do
-    is_atom(selector) and is_list(prefix_arguments)
+  defp validate_notifications(notifications) do
+    if Enum.all?(notifications, &valid_notification?/1) do
+      :ok
+    else
+      {:error, {:invalid_effect_notifications, notifications}}
+    end
   end
 
-  defp valid_reply?({:workflow_effect, _workflow, selector, step, callback}) do
-    is_atom(selector) and is_integer(step) and step >= 0 and valid_callback?(callback)
+  defp valid_notification?({_receiver, selector, arguments} = notification)
+       when is_atom(selector) and is_list(arguments) do
+    MapSet.size(AL.Var.find_vars(notification)) == 0 and durable?(notification) and
+      AL.Goal.validate_storable(notification) == :ok
   end
 
-  defp valid_reply?(_reply), do: false
-
-  defp valid_callback?(:none), do: true
-
-  defp valid_callback?({_receiver, selector, prefix_arguments}) do
-    is_atom(selector) and is_list(prefix_arguments)
-  end
-
-  defp valid_callback?(_callback), do: false
+  defp valid_notification?(_notification), do: false
 
   defp durable?(term)
        when is_pid(term) or is_port(term) or is_reference(term) or is_function(term),

@@ -18,6 +18,7 @@ defmodule AL.Application do
       AL.Serialisation.supervisor_spec(),
       AL.Native.Registry,
       AL.Edge.Registry,
+      AL.Edge.File,
       AL.Edge.TCP
     ]
 

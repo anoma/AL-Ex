@@ -1,8 +1,8 @@
 defmodule AL.Scheduler do
   @moduledoc """
   I dispatch the compact asynchronous commands committed on one branch.
-  `send_async`, `send_elixir`, and effects are best-effort and are not recovered
-  after a node failure.
+  `send_async`, `send_elixir`, effects, and live subscriptions are best-effort
+  and are not recovered after a node failure.
   """
 
   use GenServer
@@ -86,21 +86,37 @@ defmodule AL.Scheduler do
     Enum.each(commands, fn
       {:command, _time, _tx_id, {:send_async, {object, method, args}}} ->
         Task.start(fn ->
-          AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+          result =
+            AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+
+          handle_async_result(result, object, method, branch)
         end)
 
       {:command, _time, _tx_id, {:send_elixir, {pid, message}}} ->
         send(pid, message)
 
-      {:command, time, _tx_id, {:effect, {provider, operation, arguments, reply}}} ->
-        effect_id = {branch.id, time}
-
+      {:command, _time, _tx_id, {:effect, {:object, effect_id, provider, operation, arguments}}} ->
         Task.start(fn ->
-          AL.Edge.dispatch(effect_id, provider, operation, arguments, reply, branch)
+          AL.Edge.dispatch(effect_id, provider, operation, arguments, branch)
         end)
 
       _ ->
         :ok
     end)
   end
+
+  defp handle_async_result({:atomic, {_bindings, state}}, _object, _method, branch) do
+    AL.Workflow.continue_after_commit(state, branch)
+  end
+
+  defp handle_async_result(
+         _failure,
+         object,
+         :deliver,
+         branch
+       ) do
+    AL.Delivery.fail(object, branch)
+  end
+
+  defp handle_async_result(_failure, _object, _method, _branch), do: :ok
 end

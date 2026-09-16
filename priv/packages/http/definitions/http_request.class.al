@@ -36,11 +36,10 @@ Class {
     body: body,
     timeout: timeout
   })
-  new(:http_response, response)
   emit_effect(
     :http,
     :execute,
     [method, url, headers, body, timeout],
-    {response, :resolved, []}
+    response
   )
 ]

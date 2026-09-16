@@ -683,8 +683,11 @@ defmodule AL.Source do
   defp goal({:send_async, o, m, a}), do: call(:send_async, [o, m, a])
   defp goal({:send_elixir, pid, msg}), do: call(:send_elixir, [pid, msg])
 
-  defp goal({:effect, provider, operation, arguments, reply}),
-    do: call(:emit_effect, [provider, operation, arguments, reply])
+  defp goal({:emit_effect, effect, provider, operation, arguments}),
+    do: call(:vm_emit_effect, [effect, provider, operation, arguments])
+
+  defp goal({:effect, provider, operation, arguments, effect}),
+    do: call(:emit_effect, [provider, operation, arguments, effect])
 
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])

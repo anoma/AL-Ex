@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 5, deps: [] do
+  defprogram :bootstrap, version: 9, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -773,6 +773,306 @@ defmodule AL.TransactionProgram.Bootstrap do
     )
 
     new(:class, %{name: :transaction, super: :object, ivars: [:tx, :branch, :status, :reason]}, _)
+
+    new(
+      :class,
+      %{
+        name: :effect,
+        super: :object,
+        ivars: [
+          :provider,
+          :operation,
+          :arguments,
+          :waiter,
+          :status,
+          :outcome,
+          :requested_by,
+          :completed_by
+        ]
+      },
+      _
+    )
+
+    defmethod(:effect, :init, [self, args, self]) do
+      vm_map_get(args, :provider, provider)
+      vm_map_get(args, :operation, operation)
+      vm_map_get(args, :arguments, arguments)
+      vm_transaction_object(requested_by)
+      vm_workflow_waiter(self, waiter)
+
+      set_slots(self, %{
+        provider: provider,
+        operation: operation,
+        arguments: arguments,
+        waiter: waiter,
+        status: :pending,
+        outcome: :none,
+        requested_by: requested_by,
+        completed_by: :none
+      })
+
+      vm_emit_effect(self, provider, operation, arguments)
+    end
+
+    defmethod(:effect, :complete, [self, outcome]) do
+      get(self, :status, :pending)
+      get(self, :waiter, waiter)
+      vm_transaction_object(completed_by)
+
+      set_slots(self, %{
+        status: :completed,
+        outcome: outcome,
+        completed_by: completed_by
+      })
+
+      complete_waiter(self, waiter, outcome)
+    end
+
+    defmethod(:effect, :complete_waiter, [_self, :none, _outcome])
+
+    defmethod(
+      :effect,
+      :complete_waiter,
+      [self, {workflow, selector, step}, outcome]
+    ) do
+      vm_workflow_effect_completed(workflow, selector, step, self, outcome)
+    end
+
+    new(
+      :class,
+      %{
+        name: :subscription,
+        super: :object,
+        ivars: [
+          :provider,
+          :operation,
+          :cancel_operation,
+          :arguments,
+          :reply,
+          :status,
+          :sequence,
+          :delivered_sequence,
+          :delivery_state,
+          :last_occurrence,
+          :requested_by,
+          :start_effect,
+          :cancel_effect,
+          :condition
+        ]
+      },
+      _
+    )
+
+    defmethod(:subscription, :init, [self, args, self]) do
+      vm_map_get(args, :provider, provider)
+      vm_map_get(args, :operation, operation)
+      vm_map_get(args, :cancel_operation, cancel_operation)
+      vm_map_get(args, :arguments, arguments)
+      vm_map_get(args, :reply, reply)
+      vm_transaction_object(requested_by)
+
+      set_slots(self, %{
+        provider: provider,
+        operation: operation,
+        cancel_operation: cancel_operation,
+        arguments: arguments,
+        reply: reply,
+        status: :starting,
+        sequence: 0,
+        delivered_sequence: 0,
+        delivery_state: :idle,
+        last_occurrence: :none,
+        requested_by: requested_by,
+        start_effect: :none,
+        cancel_effect: :none,
+        condition: :none
+      })
+
+      concat([self], arguments, request_arguments)
+      emit_effect(provider, operation, request_arguments, _)
+    end
+
+    defmethod(:subscription, :started, [self, effect]) do
+      get(self, :status, :starting)
+      set_slots(self, %{status: :active, start_effect: effect})
+    end
+
+    defmethod(:subscription, :start_failed, [self, effect, reason]) do
+      get(self, :status, :starting)
+
+      set_slots(self, %{
+        status: :failed,
+        start_effect: effect,
+        condition: {:subscription_start_failed, reason}
+      })
+    end
+
+    defmethod(:subscription, :receive, [self, value]) do
+      accepts_occurrence(self)
+      get(self, :sequence, previous)
+      get(self, :reply, reply)
+      is(sequence, previous + 1)
+      unify(occurrence, {self, sequence})
+      vm_transaction_object(occurred_by)
+
+      new(
+        :subscription_occurrence,
+        %{
+          name: occurrence,
+          subscription: self,
+          sequence: sequence,
+          value: value,
+          reply: reply,
+          status: :pending,
+          occurred_by: occurred_by,
+          delivered_by: :none,
+          condition: :none
+        },
+        _
+      )
+
+      set_slots(self, %{sequence: sequence, last_occurrence: occurrence})
+      schedule_delivery(self)
+    end
+
+    defmethod(:subscription, :schedule_delivery, [self]) do
+      get(self, :delivery_state, :idle)
+      set_slot(self, :delivery_state, :scheduled)
+      send_async(self, :deliver, [])
+    end
+
+    defmethod(:subscription, :schedule_delivery, [self]) do
+      get(self, :delivery_state, :scheduled)
+    end
+
+    defmethod(:subscription, :deliver, [self]) do
+      get(self, :delivery_state, :scheduled)
+      get(self, :delivered_sequence, previous)
+      get(self, :sequence, available)
+      previous < available
+      is(sequence, previous + 1)
+      unify(occurrence, {self, sequence})
+      send(occurrence, :deliver, [])
+      advance_delivery(self, sequence, available)
+    end
+
+    defmethod(:subscription, :advance_delivery, [self, sequence, sequence]) do
+      set_slots(self, %{delivered_sequence: sequence, delivery_state: :idle})
+    end
+
+    defmethod(:subscription, :advance_delivery, [self, sequence, available]) do
+      sequence < available
+      set_slot(self, :delivered_sequence, sequence)
+      send_async(self, :deliver, [])
+    end
+
+    defmethod(:subscription, :delivery_failed, [self]) do
+      get(self, :delivery_state, :scheduled)
+      get(self, :delivered_sequence, previous)
+      get(self, :sequence, available)
+      previous < available
+      is(sequence, previous + 1)
+      unify(occurrence, {self, sequence})
+      send(occurrence, :delivery_failed, [])
+
+      set_slots(self, %{
+        condition: {:subscription_delivery_failed, occurrence}
+      })
+
+      advance_delivery(self, sequence, available)
+    end
+
+    defmethod(:subscription, :accepts_occurrence, [self]) do
+      get(self, :status, :starting)
+    end
+
+    defmethod(:subscription, :accepts_occurrence, [self]) do
+      get(self, :status, :active)
+    end
+
+    defmethod(:subscription, :stopped, [self, reason]) do
+      accepts_occurrence(self)
+      set_slots(self, %{status: :failed, condition: {:subscription_stopped, reason}})
+    end
+
+    defmethod(:subscription, :cancel, [self]) do
+      get(self, :status, :active)
+      get(self, :provider, provider)
+      get(self, :cancel_operation, cancel_operation)
+      set_slot(self, :status, :cancelling)
+      emit_effect(provider, cancel_operation, [self], _)
+    end
+
+    defmethod(:subscription, :cancelled, [self, effect]) do
+      get(self, :status, :cancelling)
+      set_slots(self, %{status: :cancelled, cancel_effect: effect})
+    end
+
+    defmethod(:subscription, :cancel_failed, [self, effect, reason]) do
+      get(self, :status, :cancelling)
+
+      set_slots(self, %{
+        status: :active,
+        cancel_effect: effect,
+        condition: {:subscription_cancel_failed, reason}
+      })
+    end
+
+    new(
+      :class,
+      %{
+        name: :subscription_occurrence,
+        super: :object,
+        ivars: [
+          :subscription,
+          :sequence,
+          :value,
+          :reply,
+          :status,
+          :occurred_by,
+          :delivered_by,
+          :condition
+        ]
+      },
+      _
+    )
+
+    defmethod(:subscription_occurrence, :deliver, [self]) do
+      get(self, :status, :pending)
+      get(self, :subscription, subscription)
+      get(self, :value, value)
+      get(self, :reply, reply)
+      deliver_reply(self, reply, subscription, value)
+      vm_transaction_object(delivered_by)
+      set_slots(self, %{status: :delivered, delivered_by: delivered_by})
+    end
+
+    defmethod(
+      :subscription_occurrence,
+      :deliver_reply,
+      [_self, :none, _subscription, _value]
+    )
+
+    defmethod(
+      :subscription_occurrence,
+      :deliver_reply,
+      [self, {receiver, selector, prefix}, subscription, value]
+    ) do
+      concat(prefix, [subscription, self, value], arguments)
+      send(receiver, selector, arguments)
+    end
+
+    defmethod(:subscription_occurrence, :delivery_failed, [self]) do
+      get(self, :status, :pending)
+      get(self, :value, value)
+      vm_transaction_object(delivered_by)
+
+      set_slots(self, %{
+        status: :failed,
+        delivered_by: delivered_by,
+        condition: {:subscription_delivery_failed, self, value}
+      })
+    end
 
     defmethod(:transaction, :listing, [self, text]) do
       get(self, :tx, tx)

@@ -1,5 +1,5 @@
 Package {
   #name : :http,
-  #version : 1,
+  #version : 2,
   #deps : []
 }

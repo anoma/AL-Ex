@@ -47,7 +47,7 @@ defmodule AL.Command do
           | {:retract_native, {AL.Var.t(), native_mfa()}}
           | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:send_elixir, {pid(), term()}}
-          | {:effect, {atom(), atom(), list(), term()}}
+          | {:effect, {:object, term(), atom(), atom(), list()}}
 
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
@@ -392,9 +392,9 @@ defmodule AL.Command do
     {"[>]", "Elixir Send", inspect(pid), inspect(message)}
   end
 
-  defp describe_command({:effect, {provider, operation, arguments, reply}}) do
-    {"[>]", "Effect", inspect(provider),
-     "#{inspect(operation)} #{inspect(arguments)} → #{inspect(reply)}"}
+  defp describe_command({:effect, {:object, effect, provider, operation, arguments}}) do
+    {"[>]", "Effect", inspect(effect),
+     "#{inspect(provider)}.#{inspect(operation)} #{inspect(arguments)}"}
   end
 
   defp describe_command(operation) do
@@ -552,10 +552,10 @@ defmodule AL.Command do
     write_command(tx_id, {:send_elixir, {pid, message}}, branch)
   end
 
-  @spec effect(non_neg_integer(), atom(), atom(), list(), term(), AL.Branch.t()) ::
+  @spec effect_object(non_neg_integer(), term(), atom(), atom(), list(), AL.Branch.t()) ::
           non_neg_integer()
-  def effect(tx_id, provider, operation, arguments, reply, branch \\ AL.Branch.head()) do
-    write_command(tx_id, {:effect, {provider, operation, arguments, reply}}, branch)
+  def effect_object(tx_id, effect, provider, operation, arguments, branch) do
+    write_command(tx_id, {:effect, {:object, effect, provider, operation, arguments}}, branch)
   end
 
   @doc "Writes the command and returns its `system_time` (`t`) -- the transaction-time stamp callers use for bitemporal class/super/method rows (see `AL.Object.set_class/4` etc.)."

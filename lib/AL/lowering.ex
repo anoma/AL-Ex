@@ -16,6 +16,9 @@ defmodule AL.Lowering do
     vm_fresh_id: :fresh_id,
     vm_current_tx: :current_tx,
     vm_transaction_object: :transaction_object,
+    vm_workflow_waiter: :workflow_waiter,
+    vm_workflow_effect_completed: :workflow_effect_completed,
+    vm_workflow_effect_blocked: :workflow_effect_blocked,
     vm_cached_ivar_specs: :cached_ivar_specs,
     vm_cached_find_ivar_spec: :cached_find_ivar_spec,
     vm_source_method_parts: :source_method_parts
@@ -317,12 +320,27 @@ defmodule AL.Lowering do
   def ast_to_pattern({:send_elixir, _, [pid, message]}),
     do: %Goal.SendElixir{pid: ast_to_pattern(pid), message: ast_to_pattern(message)}
 
-  def ast_to_pattern({:emit_effect, _, [provider, operation, arguments, reply]}) do
-    %Goal.Effect{
+  def ast_to_pattern({:vm_emit_effect, _, [effect, provider, operation, arguments]}) do
+    %Goal.EmitEffect{
+      effect: ast_to_pattern(effect),
       provider: ast_to_pattern(provider),
       operation: ast_to_pattern(operation),
-      arguments: ast_to_pattern(arguments),
-      reply: ast_to_pattern(reply)
+      arguments: ast_to_pattern(arguments)
+    }
+  end
+
+  def ast_to_pattern({:emit_effect, _, [provider, operation, arguments, effect]}) do
+    %Goal.Send{
+      object: :effect,
+      method: :new,
+      args: [
+        %{
+          provider: ast_to_pattern(provider),
+          operation: ast_to_pattern(operation),
+          arguments: ast_to_pattern(arguments)
+        },
+        ast_to_pattern(effect)
+      ]
     }
   end
 

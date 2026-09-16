@@ -24,13 +24,15 @@ defmodule Examples.ALHTTP do
             end
 
             transaction do
-              get_slots(response, %{
-                state: :completed,
+              get(response, :outcome, {:ok, result})
+
+              get_slots(result, %{
                 status_code: status_code,
                 headers: headers,
-                body: body,
-                error: error
+                body: body
               })
+
+              unify(error, :none)
             end
           end
         end
@@ -48,16 +50,13 @@ defmodule Examples.ALHTTP do
       assert result.body == "hello"
       assert result.error == :none
 
-      duplicate_resolution =
-        run branch: :examples do
-          resolved(
-            ^response,
-            {:examples, 0},
-            {:ok, %{status_code: 299, headers: [], body: "replacement"}}
-          )
-        end
+      context = %{effect_id: response, branch: %AL.Branch{id: :examples}}
 
-      assert {:aborted, _reason} = duplicate_resolution
+      assert {:error, _reason} =
+               AL.Edge.complete(
+                 context,
+                 {:ok, %{status_code: 299, headers: [], body: "replacement"}}
+               )
 
       assert :ok = Task.await(server, 1000)
     after
@@ -88,10 +87,10 @@ defmodule Examples.ALHTTP do
         end
 
       response = bindings[:"$response"]
-      result = await_response(response, :completed)
+      assert {:ok, result} = await_effect(response)
 
-      assert result[:"$status_code"] == 201
-      assert result[:"$body"] == "saved"
+      assert result.status_code == 201
+      assert result.body == "saved"
       assert :ok = Task.await(server, 1000)
     after
       Task.shutdown(server, :brutal_kill)
@@ -115,11 +114,8 @@ defmodule Examples.ALHTTP do
           end
 
           transaction do
-            get_slots(response, %{
-              state: :failed,
-              status_code: status_code,
-              error: error
-            })
+            get(response, :outcome, {:error, error})
+            unify(status_code, :none)
           end
         end
       end
@@ -198,31 +194,30 @@ defmodule Examples.ALHTTP do
     port
   end
 
-  defp await_response(response, state) do
+  defp await_effect(effect) do
     deadline = System.monotonic_time(:millisecond) + 1000
-    await_response(response, state, deadline)
+    await_effect(effect, deadline)
   end
 
-  defp await_response(response, state, deadline) do
+  defp await_effect(effect, deadline) do
     result =
       run branch: :examples do
-        get(^response, :state, ^state)
-        get(^response, :status_code, status_code)
-        get(^response, :body, body)
+        get(^effect, :status, :completed)
+        get(^effect, :outcome, outcome)
       end
 
     case result do
       {:atomic, {bindings, _runtime}} ->
-        bindings
+        bindings[:"$outcome"]
 
       {:aborted, _reason} ->
         if System.monotonic_time(:millisecond) < deadline do
           receive do
           after
-            10 -> await_response(response, state, deadline)
+            10 -> await_effect(effect, deadline)
           end
         else
-          flunk("timed out waiting for response #{inspect(response)} to resolve")
+          flunk("timed out waiting for effect #{inspect(effect)}")
         end
     end
   end

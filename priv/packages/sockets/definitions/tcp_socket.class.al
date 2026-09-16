@@ -5,11 +5,7 @@ Class {
   #ivars : [
     host: [],
     port: [],
-    status: [],
-    last_received: [],
-    last_sent_bytes: [],
-    last_error: [],
-    effect_id: []
+    status: []
   ]
 }
 
@@ -18,64 +14,44 @@ Class {
   set_slots(self, %{
     host: host,
     port: port,
-    status: :disconnected,
-    last_received: :none,
-    last_sent_bytes: 0,
-    last_error: :none,
-    effect_id: :none
+    status: :disconnected
   })
 ]
 
-:tcp_socket >> :connect, [self] [
+:tcp_socket >> :connect, [self, effect] [
   get_slots(self, %{status: :disconnected, host: host, port: port})
   set_slot(self, :status, :connecting)
-  emit_effect(:tcp, :connect, [self, host, port], {self, :connected, []})
+  emit_effect(:tcp, :connect, [self, host, port], effect)
 ]
 
-:tcp_socket >> :connected, [self, effect_id, {:ok, :connected}] [
-  set_slots(self, %{effect_id: effect_id, status: :connected, last_error: :none})
+:tcp_socket >> :connected, [self] [
+  get(self, :status, :connecting)
+  set_slot(self, :status, :connected)
 ]
 
-:tcp_socket >> :connected, [self, effect_id, {:error, reason}] [
-  set_slots(self, %{effect_id: effect_id, status: :error, last_error: reason})
+:tcp_socket >> :connection_failed, [self, reason] [
+  get(self, :status, :connecting)
+  set_slot(self, :status, {:error, reason})
 ]
 
-:tcp_socket >> :read, [self] [
+:tcp_socket >> :send_bytes, [self, data, effect] [
   get(self, :status, :connected)
-  emit_effect(:tcp, :receive, [self], {self, :received, []})
+  emit_effect(:tcp, :send, [self, data], effect)
 ]
 
-:tcp_socket >> :received, [self, effect_id, {:ok, data}] [
-  set_slots(self, %{effect_id: effect_id, last_received: data, last_error: :none})
-]
-
-:tcp_socket >> :received, [self, effect_id, {:error, reason}] [
-  set_slots(self, %{effect_id: effect_id, status: :error, last_error: reason})
-]
-
-:tcp_socket >> :write, [self, data] [
-  get(self, :status, :connected)
-  emit_effect(:tcp, :send, [self, data], {self, :sent, []})
-]
-
-:tcp_socket >> :sent, [self, effect_id, {:ok, bytes}] [
-  set_slots(self, %{effect_id: effect_id, last_sent_bytes: bytes, last_error: :none})
-]
-
-:tcp_socket >> :sent, [self, effect_id, {:error, reason}] [
-  set_slots(self, %{effect_id: effect_id, status: :error, last_error: reason})
-]
-
-:tcp_socket >> :close, [self] [
+:tcp_socket >> :close, [self, effect] [
   get(self, :status, :connected)
   set_slot(self, :status, :closing)
-  emit_effect(:tcp, :close, [self], {self, :closed, []})
+  emit_effect(:tcp, :close, [self], effect)
 ]
 
-:tcp_socket >> :closed, [self, effect_id, {:ok, :closed}] [
-  set_slots(self, %{effect_id: effect_id, status: :disconnected, last_error: :none})
+:tcp_socket >> :receive, [_self, {:data, _data}] [
 ]
 
-:tcp_socket >> :closed, [self, effect_id, {:error, reason}] [
-  set_slots(self, %{effect_id: effect_id, status: :error, last_error: reason})
+:tcp_socket >> :connection_lost, [self, :closed] [
+  set_slot(self, :status, :disconnected)
+]
+
+:tcp_socket >> :connection_lost, [self, reason] [
+  set_slot(self, :status, {:error, reason})
 ]

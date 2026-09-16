@@ -33,7 +33,14 @@ defmodule AL do
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
     field(:reductions, non_neg_integer(), default: 0)
     field(:workflow_context, map() | nil, default: nil)
-    field(:workflow_advance, {term(), atom(), non_neg_integer()} | nil, default: nil)
+
+    field(
+      :workflow_advance,
+      {term(), atom(), non_neg_integer()}
+      | {term(), atom(), non_neg_integer(), term()}
+      | nil,
+      default: nil
+    )
 
     field(:source_refs, %{optional(AL.Source.Ref.capture_id()) => AL.Source.Ref.t()},
       default: %{}
@@ -896,6 +903,12 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :transaction_object, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.transaction_object), [result])
 
+  def interp(%Goal.OApply{method_id: :workflow_waiter, args: [effect, waiter]}, state) do
+    effect = AL.Var.subst(effect, store(state))
+    {captured, state} = AL.Workflow.capture_effect_object(state, effect)
+    put_bindings(state, unify(state, waiter, captured), [waiter])
+  end
+
   def interp(%Goal.OApply{method_id: :workflow_transaction_start, args: [workflow, next]}, state),
     do: AL.Workflow.transaction_start(state, workflow, next)
 
@@ -916,6 +929,23 @@ defmodule AL do
         state
       ),
       do: AL.Workflow.effect_completed_goal(state, workflow, selector, step, effect_id)
+
+  def interp(
+        %Goal.OApply{
+          method_id: :workflow_effect_completed,
+          args: [workflow, selector, step, effect_id, outcome]
+        },
+        state
+      ),
+      do:
+        AL.Workflow.effect_completed_goal(
+          state,
+          workflow,
+          selector,
+          step,
+          effect_id,
+          outcome
+        )
 
   def interp(
         %Goal.OApply{
@@ -1081,30 +1111,56 @@ defmodule AL do
   end
 
   def interp(
-        %Goal.Effect{
+        %Goal.EmitEffect{
+          effect: effect,
           provider: provider,
           operation: operation,
-          arguments: arguments,
-          reply: reply
+          arguments: arguments
         },
         state
       ) do
     store = store(state)
 
-    reply = AL.Var.subst(reply, store)
-    {reply, state} = AL.Workflow.capture_effect(state, reply)
+    AL.Edge.request(
+      state.tx_id,
+      AL.Var.subst(effect, store),
+      AL.Var.subst(provider, store),
+      AL.Var.subst(operation, store),
+      AL.Var.subst(arguments, store),
+      state.branch
+    )
 
-    effect_id =
-      AL.Edge.emit(
-        state.tx_id,
-        AL.Var.subst(provider, store),
-        AL.Var.subst(operation, store),
-        AL.Var.subst(arguments, store),
-        reply,
-        state.branch
-      )
+    state
+  end
 
-    AL.Workflow.record_effect(state, effect_id)
+  def interp(
+        %Goal.Effect{
+          provider: provider,
+          operation: operation,
+          arguments: arguments,
+          effect: effect
+        },
+        state
+      ) do
+    args = [
+      %{
+        provider: provider,
+        operation: operation,
+        arguments: arguments
+      },
+      effect
+    ]
+
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | goals:
+              AL.splice_goals(state, [
+                %Goal.Send{object: :effect, method: :new, args: args}
+              ])
+        }
+    }
   end
 
   def interp(%Goal.Gensym{var: var}, state) do

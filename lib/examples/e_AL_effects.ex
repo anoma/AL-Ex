@@ -22,85 +22,39 @@ defmodule Examples.ALEffects.Provider do
 end
 
 defmodule Examples.ALEffects do
-  @moduledoc "I exercise compact post-commit edge effects."
+  @moduledoc "I exercise first-class post-commit edge effects."
 
   use ExExample
   use AL
   import ExUnit.Assertions
 
-  defp register_receiver(receiver, subscriber, pid) do
-    :ok = AL.Edge.register(Examples.ALEffects.Provider)
-    :ok = Examples.ALEffects.Provider.observe(pid)
-
-    {:atomic, _} =
-      run branch: :examples do
-        new(:process, %{name: ^subscriber, pid: ^pid}, _)
-        vm_set_class(^receiver, :object)
-
-        defmethod(^receiver, :effect_result, [self, label, effect_id, outcome]) do
-          get(^subscriber, :pid, p)
-          functor(message, :effect_result, [label, effect_id, outcome])
-          send_elixir(p, message)
-        end
-      end
-
-    :ok
-  end
-
-  example file_read_effect_saves_contents_on_an_object() do
+  example file_read_outcome_is_retained_on_the_effect() do
     path = temporary_path()
-    pid = self()
     File.write!(path, "alpha\nbeta\n")
 
     try do
-      {:atomic, _} =
+      {:atomic, {bindings, _state}} =
         run branch: :examples do
-          new(:process, %{name: :file_effect_subscriber, pid: ^pid}, _)
-          vm_set_class(:file_effect_receiver, :object)
-          set_slot(:file_effect_receiver, :contents, :pending)
-
-          defmethod(
-            :file_effect_receiver,
-            :file_read,
-            [self, effect_id, {:ok, contents}]
-          ) do
-            set_slot(self, :contents, contents)
-            get(:file_effect_subscriber, :pid, p)
-            functor(message, :file_read, [effect_id, contents])
-            send_elixir(p, message)
-          end
-
-          emit_effect(:file, :read, [^path], {:file_effect_receiver, :file_read, []})
+          emit_effect(:file, :read, [^path], effect)
         end
 
-      assert_receive {:file_read, {:examples, effect_time}, "alpha\nbeta\n"}, 1000
-      assert is_integer(effect_time)
-
-      {:atomic, {result, _state}} =
-        run branch: :examples do
-          get(:file_effect_receiver, :contents, contents)
-        end
-
-      assert result[:"$contents"] == "alpha\nbeta\n"
+      effect = bindings[:"$effect"]
+      assert {:ok, "alpha\nbeta\n"} = await_effect(effect)
     after
       File.rm(path)
     end
   end
 
-  example effect_runs_after_commit_and_replies_in_a_new_transaction() do
-    register_receiver(:effect_receiver, :effect_subscriber, self())
+  example effect_runs_after_commit_and_records_its_outcome_in_a_new_transaction() do
+    observe_effects()
 
-    {:atomic, {_bindings, state}} =
+    {:atomic, {bindings, state}} =
       run branch: :examples do
-        emit_effect(
-          :example_effect,
-          :transaction_context,
-          [],
-          {:effect_receiver, :effect_result, [:context]}
-        )
+        emit_effect(:example_effect, :transaction_context, [], effect)
       end
 
-    assert_receive {:effect_result, :context, {:examples, effect_time}, {:ok, false}}, 1000
+    effect = bindings[:"$effect"]
+    assert {:ok, false} = await_effect(effect)
 
     {:atomic, commands} =
       :mnesia.transaction(fn ->
@@ -108,10 +62,8 @@ defmodule Examples.ALEffects do
       end)
 
     assert Enum.any?(commands, fn
-             {:command, ^effect_time, _tx_id,
-              {:effect,
-               {:example_effect, :transaction_context, [],
-                {:effect_receiver, :effect_result, [:context]}}}} ->
+             {:command, _time, _tx_id,
+              {:effect, {:object, ^effect, :example_effect, :transaction_context, []}}} ->
                true
 
              _ ->
@@ -120,45 +72,39 @@ defmodule Examples.ALEffects do
   end
 
   example aborted_transaction_does_not_run_effect() do
-    :ok = AL.Edge.register(Examples.ALEffects.Provider)
-    :ok = Examples.ALEffects.Provider.observe(self())
+    observe_effects()
 
     {:aborted, _} =
       run branch: :examples do
-        emit_effect(:example_effect, :notify, [], :none)
+        emit_effect(:example_effect, :notify, [], _)
         fail()
       end
 
     refute_receive :effect_ran, 100
   end
 
-  example al_method_can_emit_effect() do
-    register_receiver(:method_effect_receiver, :method_effect_subscriber, self())
+  example al_method_can_expose_the_effect_object() do
+    observe_effects()
 
-    {:atomic, _} =
+    {:atomic, {bindings, _state}} =
       run branch: :examples do
         vm_set_class(:effect_emitter, :object)
 
-        defmethod(:effect_emitter, :emit, [self, reply_to]) do
-          emit_effect(
-            :example_effect,
-            :echo,
-            [:from_method],
-            {reply_to, :effect_result, [:method]}
-          )
+        defmethod(:effect_emitter, :emit, [_self, effect]) do
+          emit_effect(:example_effect, :echo, [:from_method], effect)
         end
 
-        send(:effect_emitter, :emit, [:method_effect_receiver])
+        send(:effect_emitter, :emit, [effect])
       end
 
-    assert_receive {:effect_result, :method, {:examples, _effect_time}, {:ok, :from_method}},
-                   1000
+    effect = bindings[:"$effect"]
+    assert {:ok, :from_method} = await_effect(effect)
   end
 
   example effect_request_must_be_ground_and_durable() do
     {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}} =
       run branch: :examples do
-        emit_effect(:example_effect, :echo, [unbound], :none)
+        emit_effect(:example_effect, :echo, [unbound], _)
       end
 
     assert ground_message == "effect request must be ground"
@@ -166,85 +112,147 @@ defmodule Examples.ALEffects do
 
     {:aborted, {%ArgumentError{message: durable_message}, _stacktrace}} =
       :mnesia.transaction(fn ->
-        AL.Edge.emit(0, :example_effect, :echo, [self()], :none, branch)
+        AL.Edge.request(0, :test_effect, :example_effect, :echo, [self()], branch)
       end)
 
     assert durable_message == "effect request contains a live host value"
   end
 
   example pending_effect_can_complete_later() do
-    register_receiver(:pending_effect_receiver, :pending_effect_subscriber, self())
+    observe_effects()
 
-    {:atomic, _} =
+    {:atomic, {bindings, _state}} =
       run branch: :examples do
-        emit_effect(
-          :example_effect,
-          :wait,
-          [:later],
-          {:pending_effect_receiver, :effect_result, [:pending]}
-        )
+        emit_effect(:example_effect, :wait, [:later], effect)
       end
 
+    effect = bindings[:"$effect"]
     assert_receive {:effect_pending, context, :later}, 1000
-    refute_receive {:effect_result, :pending, _, _}, 100
+    assert context.effect_id == effect
+    assert :pending = effect_status(effect)
     assert :ok = AL.Edge.complete(context, {:ok, :later})
-
-    assert_receive {:effect_result, :pending, {:examples, _effect_time}, {:ok, :later}}, 1000
+    assert {:ok, :later} = await_effect(effect)
   end
 
-  example provider_exception_returns_a_tagged_error() do
-    register_receiver(:raising_effect_receiver, :raising_effect_subscriber, self())
+  example effect_object_initialization_emits_its_host_request() do
+    observe_effects()
 
-    {:atomic, _} =
+    {:atomic, {bindings, state}} =
       run branch: :examples do
-        emit_effect(
-          :example_effect,
-          :raise,
-          [],
-          {:raising_effect_receiver, :effect_result, [:raised]}
+        new(
+          :effect,
+          %{
+            provider: :example_effect,
+            operation: :echo,
+            arguments: [:initialized]
+          },
+          effect
         )
       end
 
-    assert_receive {:effect_result, :raised, {:examples, _effect_time},
-                    {:error, {:effect_exception, "provider failed"}}},
-                   1000
+    effect = bindings[:"$effect"]
+    assert {:ok, :initialized} = await_effect(effect)
+
+    {:atomic, commands} =
+      :mnesia.transaction(fn ->
+        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: :examples})
+      end)
+
+    assert Enum.any?(commands, fn
+             {:command, _time, _tx_id,
+              {:effect, {:object, ^effect, :example_effect, :echo, [:initialized]}}} ->
+               true
+
+             _ ->
+               false
+           end)
   end
 
-  example multiple_effects_in_one_transaction_all_run_with_distinct_ids() do
-    register_receiver(:multiple_effect_receiver, :multiple_effect_subscriber, self())
+  example effects_are_objects_completed_by_al_transactions() do
+    observe_effects()
 
-    {:atomic, _} =
+    {:atomic, {bindings, _state}} =
       run branch: :examples do
-        emit_effect(
-          :example_effect,
-          :echo,
-          [:first],
-          {:multiple_effect_receiver, :effect_result, [:first]}
-        )
-
-        emit_effect(
-          :example_effect,
-          :echo,
-          [:second],
-          {:multiple_effect_receiver, :effect_result, [:second]}
-        )
+        emit_effect(:example_effect, :wait, [:object_effect], effect)
       end
 
-    assert_receive {:effect_result, :first, first_id, {:ok, :first}}, 1000
-    assert_receive {:effect_result, :second, second_id, {:ok, :second}}, 1000
-    assert first_id != second_id
+    effect = bindings[:"$effect"]
+    assert_receive {:effect_pending, context, :object_effect}, 1000
+
+    {:atomic, {pending, _state}} =
+      run branch: :examples do
+        class(^effect, :effect)
+
+        get_slots(^effect, %{
+          provider: :example_effect,
+          operation: :wait,
+          arguments: [:object_effect],
+          status: status,
+          outcome: outcome,
+          requested_by: requested_by,
+          completed_by: completed_by
+        })
+
+        class(requested_by, :transaction)
+      end
+
+    assert pending[:"$status"] == :pending
+    assert pending[:"$outcome"] == :none
+    assert pending[:"$completed_by"] == :none
+    assert :ok = AL.Edge.complete(context, {:ok, :changed})
+
+    {:atomic, {completed, _state}} =
+      run branch: :examples do
+        get_slots(^effect, %{
+          status: status,
+          outcome: outcome,
+          completed_by: completed_by
+        })
+
+        class(completed_by, :transaction)
+      end
+
+    assert completed[:"$status"] == :completed
+    assert completed[:"$outcome"] == {:ok, :changed}
+  end
+
+  example provider_exception_is_recorded_as_the_effect_outcome() do
+    observe_effects()
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        emit_effect(:example_effect, :raise, [], effect)
+      end
+
+    effect = bindings[:"$effect"]
+    assert {:error, {:effect_exception, "provider failed"}} = await_effect(effect)
+  end
+
+  example multiple_effects_in_one_transaction_have_distinct_objects() do
+    observe_effects()
+
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        emit_effect(:example_effect, :echo, [:first], first)
+        emit_effect(:example_effect, :echo, [:second], second)
+      end
+
+    first = bindings[:"$first"]
+    second = bindings[:"$second"]
+    assert first != second
+    assert {:ok, :first} = await_effect(first)
+    assert {:ok, :second} = await_effect(second)
   end
 
   example hydrating_the_command_log_does_not_repeat_effects() do
-    :ok = AL.Edge.register(Examples.ALEffects.Provider)
-    :ok = Examples.ALEffects.Provider.observe(self())
+    observe_effects()
     branch = %AL.Branch{id: :examples}
     :ok = AL.Scheduler.stop(branch)
 
     try do
       {:atomic, {_bindings, state}} =
         run branch: :examples do
-          emit_effect(:example_effect, :notify, [], :none)
+          emit_effect(:example_effect, :notify, [], _)
         end
 
       {:atomic, commands} =
@@ -267,34 +275,14 @@ defmodule Examples.ALEffects do
   end
 
   example fork_does_not_replay_parent_effects_and_runs_new_effects() do
-    :ok = AL.Edge.register(Examples.ALEffects.Provider)
-    :ok = Examples.ALEffects.Provider.observe(self())
+    observe_effects()
     parent = %AL.Branch{id: :examples}
-    pid = self()
-
-    {:atomic, _} =
-      run branch: :examples do
-        new(:process, %{name: :fork_effect_subscriber, pid: ^pid}, _)
-        vm_set_class(:fork_effect_receiver, :object)
-
-        defmethod(
-          :fork_effect_receiver,
-          :record_effect,
-          [self, marker, effect_id, outcome]
-        ) do
-          vm_set_class(marker, :object)
-          get(:fork_effect_subscriber, :pid, p)
-          functor(message, :fork_effect_result, [effect_id, outcome])
-          send_elixir(p, message)
-        end
-      end
-
     :ok = AL.Scheduler.stop(parent)
 
     try do
       {:atomic, _} =
         run branch: :examples do
-          emit_effect(:example_effect, :notify, [], :none)
+          emit_effect(:example_effect, :notify, [], _)
         end
 
       child = AL.Branch.fork(:tip, parent)
@@ -302,37 +290,62 @@ defmodule Examples.ALEffects do
       try do
         refute_receive :effect_ran, 100
 
-        {:atomic, _} =
+        {:atomic, {bindings, _state}} =
           run branch: child.id do
-            emit_effect(
-              :example_effect,
-              :branch,
-              [],
-              {:fork_effect_receiver, :record_effect, [:fork_effect_callback_marker]}
-            )
+            emit_effect(:example_effect, :branch, [], effect)
           end
 
-        assert_receive {:fork_effect_result, {child_id, _effect_time}, {:ok, child_id}}, 1000
+        effect = bindings[:"$effect"]
+        assert {:ok, child_id} = await_effect(effect, child.id)
         assert child_id == child.id
-
-        child_result =
-          run branch: child.id do
-            class(:fork_effect_callback_marker, :object)
-          end
-
-        parent_result =
-          run branch: :examples do
-            class(:fork_effect_callback_marker, :object)
-          end
-
-        assert {:atomic, _} = child_result
-        assert {:aborted, _} = parent_result
       after
         AL.Branch.discard(child)
       end
     after
       AL.Scheduler.start(parent)
     end
+  end
+
+  defp observe_effects do
+    :ok = AL.Edge.register(Examples.ALEffects.Provider)
+    :ok = Examples.ALEffects.Provider.observe(self())
+  end
+
+  defp await_effect(effect, branch \\ :examples) do
+    deadline = System.monotonic_time(:millisecond) + 1000
+    await_effect(effect, branch, deadline)
+  end
+
+  defp await_effect(effect, branch, deadline) do
+    result =
+      run branch: branch do
+        get(^effect, :status, :completed)
+        get(^effect, :outcome, outcome)
+      end
+
+    case result do
+      {:atomic, {bindings, _state}} ->
+        bindings[:"$outcome"]
+
+      {:aborted, _reason} ->
+        if System.monotonic_time(:millisecond) < deadline do
+          receive do
+          after
+            10 -> await_effect(effect, branch, deadline)
+          end
+        else
+          flunk("timed out waiting for effect #{inspect(effect)}")
+        end
+    end
+  end
+
+  defp effect_status(effect) do
+    {:atomic, {bindings, _state}} =
+      run branch: :examples do
+        get(^effect, :status, status)
+      end
+
+    bindings[:"$status"]
   end
 
   defp temporary_path do

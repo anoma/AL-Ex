@@ -1,5 +1,5 @@
 defmodule AL.Edge.TCP do
-  @moduledoc "I own TCP connections and complete their edge effects."
+  @moduledoc "I own TCP connections and admit their effects and messages."
 
   use GenServer
   use AL.Edge, provider: :tcp
@@ -11,27 +11,39 @@ defmodule AL.Edge.TCP do
   @impl AL.Edge
   def execute(:connect, [socket_id, host, port], %{branch: branch})
       when is_binary(host) and is_integer(port) and port > 0 and port <= 65_535 do
-    GenServer.call(
-      __MODULE__,
-      {:connect, {branch.id, socket_id}, host, port},
-      @connect_timeout + 1_000
-    )
+    outcome =
+      GenServer.call(
+        __MODULE__,
+        {:connect, {branch.id, socket_id}, host, port},
+        @connect_timeout + 1_000
+      )
+
+    case outcome do
+      {:ok, :connected} -> {:notify, outcome, [{socket_id, :connected, []}]}
+      {:error, reason} -> {:notify, outcome, [{socket_id, :connection_failed, [reason]}]}
+    end
   end
 
   def execute(:send, [socket_id, data], %{branch: branch}) when is_binary(data) do
-    GenServer.call(__MODULE__, {:send, {branch.id, socket_id}, data})
-  end
+    outcome = GenServer.call(__MODULE__, {:send, {branch.id, socket_id}, data})
 
-  def execute(:receive, [socket_id], %{branch: branch} = context) do
-    GenServer.call(__MODULE__, {:receive, {branch.id, socket_id}, context})
+    case outcome do
+      {:ok, _bytes} -> outcome
+      {:error, reason} -> {:notify, outcome, [{socket_id, :connection_lost, [reason]}]}
+    end
   end
 
   def execute(:close, [socket_id], %{branch: branch}) do
-    GenServer.call(__MODULE__, {:close, {branch.id, socket_id}})
+    outcome = GenServer.call(__MODULE__, {:close, {branch.id, socket_id}})
+
+    case outcome do
+      {:ok, :closed} -> {:notify, outcome, [{socket_id, :connection_lost, [:closed]}]}
+      {:error, reason} -> {:notify, outcome, [{socket_id, :connection_lost, [reason]}]}
+    end
   end
 
   def execute(operation, arguments, _context)
-      when operation in [:connect, :send, :receive, :close] do
+      when operation in [:connect, :send, :close] do
     {:error, {:invalid_tcp_arguments, operation, arguments}}
   end
 
@@ -49,11 +61,17 @@ defmodule AL.Edge.TCP do
       case :gen_tcp.connect(
              String.to_charlist(host),
              port,
-             [:binary, active: true],
+             [:binary, active: :once],
              @connect_timeout
            ) do
         {:ok, socket} ->
-          connection = %{socket: socket, buffered: :queue.new(), waiters: :queue.new()}
+          {branch_id, socket_id} = key
+
+          connection = %{
+            socket: socket,
+            socket_id: socket_id,
+            branch: %AL.Branch{id: branch_id}
+          }
 
           state = %{
             connections: Map.put(state.connections, key, connection),
@@ -81,29 +99,10 @@ defmodule AL.Edge.TCP do
     end
   end
 
-  def handle_call({:receive, key, context}, _from, state) do
-    case Map.fetch(state.connections, key) do
-      {:ok, connection} ->
-        case :queue.out(connection.buffered) do
-          {{:value, data}, buffered} ->
-            connection = %{connection | buffered: buffered}
-            {:reply, {:ok, data}, put_connection(state, key, connection)}
-
-          {:empty, _buffered} ->
-            connection = %{connection | waiters: :queue.in(context, connection.waiters)}
-            {:reply, :pending, put_connection(state, key, connection)}
-        end
-
-      :error ->
-        {:reply, {:error, :not_connected}, state}
-    end
-  end
-
   def handle_call({:close, key}, _from, state) do
     case Map.fetch(state.connections, key) do
       {:ok, connection} ->
         :ok = :gen_tcp.close(connection.socket)
-        complete_waiters(connection.waiters, {:error, :closed})
         {:reply, {:ok, :closed}, delete_connection(state, key, connection.socket)}
 
       :error ->
@@ -115,15 +114,14 @@ defmodule AL.Edge.TCP do
   def handle_info({:tcp, socket, data}, state) do
     case connection_for_socket(state, socket) do
       {:ok, key, connection} ->
-        case :queue.out(connection.waiters) do
-          {{:value, context}, waiters} ->
-            complete(context, {:ok, data})
-            connection = %{connection | waiters: waiters}
+        case AL.Edge.receive(connection.socket_id, {:data, data}, connection.branch) do
+          :ok ->
+            :ok = :inet.setopts(socket, active: :once)
             {:noreply, put_connection(state, key, connection)}
 
-          {:empty, _waiters} ->
-            connection = %{connection | buffered: :queue.in(data, connection.buffered)}
-            {:noreply, put_connection(state, key, connection)}
+          {:error, _reason} ->
+            :ok = :gen_tcp.close(socket)
+            {:noreply, delete_connection(state, key, socket)}
         end
 
       :error ->
@@ -132,11 +130,11 @@ defmodule AL.Edge.TCP do
   end
 
   def handle_info({:tcp_closed, socket}, state) do
-    close_from_peer(state, socket, {:error, :closed})
+    close_from_peer(state, socket, :closed)
   end
 
   def handle_info({:tcp_error, socket, reason}, state) do
-    close_from_peer(state, socket, {:error, reason})
+    close_from_peer(state, socket, reason)
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -148,26 +146,21 @@ defmodule AL.Edge.TCP do
     end
   end
 
-  defp close_from_peer(state, socket, outcome) do
+  defp close_from_peer(state, socket, reason) do
     case connection_for_socket(state, socket) do
       {:ok, key, connection} ->
-        complete_waiters(connection.waiters, outcome)
+        AL.Edge.notify(
+          connection.socket_id,
+          :connection_lost,
+          [reason],
+          connection.branch
+        )
+
         {:noreply, delete_connection(state, key, socket)}
 
       :error ->
         {:noreply, state}
     end
-  end
-
-  defp complete_waiters(waiters, outcome) do
-    waiters
-    |> :queue.to_list()
-    |> Enum.each(&complete(&1, outcome))
-  end
-
-  defp complete(context, outcome) do
-    Task.start(fn -> AL.Edge.complete(context, outcome) end)
-    :ok
   end
 
   defp put_connection(state, key, connection) do
