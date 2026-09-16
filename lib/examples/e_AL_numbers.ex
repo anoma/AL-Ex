@@ -12,7 +12,7 @@ defmodule Examples.ALNumbers do
 
   example class_of_number_is_structural() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(3, integer_class)
         class(3.5, float_class)
       end
@@ -24,7 +24,7 @@ defmodule Examples.ALNumbers do
 
   example send_dispatches_through_number_class() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defmethod(:number, :double, [self, result]) do
           is(result, self * 2)
         end
@@ -38,7 +38,7 @@ defmodule Examples.ALNumbers do
 
   example number_falls_back_to_object() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         examine(3, info)
       end
 
@@ -50,7 +50,7 @@ defmodule Examples.ALNumbers do
 
   example factorial_forward_mode() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         factorial(5, out)
       end
 
@@ -60,7 +60,7 @@ defmodule Examples.ALNumbers do
 
   example unbound_receiver_grounds_through_value_leg() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         factorial(x, 1)
       end
 
@@ -70,7 +70,7 @@ defmodule Examples.ALNumbers do
 
   example factorial_backward_search() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         factorial(n, 120)
       end
 
@@ -82,7 +82,7 @@ defmodule Examples.ALNumbers do
   # has to fail cleanly rather than loop or crash.
   example factorial_backward_search_fails_for_non_factorial_target() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         factorial(n, 7)
       end
 
@@ -96,7 +96,7 @@ defmodule Examples.ALNumbers do
   # only 10 candidates ever run even though the domain is ~3.6M wide.
   example factorial_backward_search_stays_fast_on_a_wide_domain() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         factorial(n, 3_628_800)
       end
 
@@ -106,7 +106,7 @@ defmodule Examples.ALNumbers do
 
   example fibonacci_forward_mode() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         fibonacci(8, out)
       end
 
@@ -116,7 +116,7 @@ defmodule Examples.ALNumbers do
 
   example fibonacci_backward_search() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         fibonacci(n, 21)
       end
 
@@ -128,7 +128,7 @@ defmodule Examples.ALNumbers do
   # shape as factorial's non-target case, exercised on the sibling search.
   example fibonacci_backward_search_fails_for_non_fibonacci_target() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         fibonacci(n, 4)
       end
 
@@ -143,12 +143,12 @@ defmodule Examples.ALNumbers do
   # var's future binds rather than only checking whatever's ground right now.
   example value_dispatch_pins_an_open_receiver_to_its_class() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defmethod(:number, :stays_open, [self])
       end
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         stays_open(x)
         unify(x, :not_a_number)
       end
@@ -162,7 +162,7 @@ defmodule Examples.ALNumbers do
   # `:number`) durable object table for one.
   example between_enumerates() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall([v], [between(:object, 2, 5, v)], values)
       end
 
@@ -172,20 +172,20 @@ defmodule Examples.ALNumbers do
 
   example class_of_an_open_var_registers_isa_without_scanning() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, :number)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$x"))
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, :number)
         unify(x, :not_a_number)
       end
 
     {:atomic, {bindings2, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, :number)
         unify(x, 7)
       end

@@ -12,7 +12,7 @@ defmodule Examples.ALBounds do
 
   example ground_compare_still_works() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         5 < 10
         10 > 5
         5 <= 5
@@ -20,7 +20,7 @@ defmodule Examples.ALBounds do
       end
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         10 < 5
       end
 
@@ -29,7 +29,7 @@ defmodule Examples.ALBounds do
 
   example open_var_upper_bound_narrows_from_ground() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < 10
         unify(x, 5)
       end
@@ -37,7 +37,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$x") == 5
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < 10
         unify(x, 15)
       end
@@ -51,7 +51,7 @@ defmodule Examples.ALBounds do
   # neither a number nor a var and the comparison wrongly backtracks.
   example open_var_narrows_against_a_ground_expression() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < 5 + 1
         unify(x, 5)
       end
@@ -59,7 +59,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$x") == 5
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < 5 + 1
         unify(x, 6)
       end
@@ -74,7 +74,7 @@ defmodule Examples.ALBounds do
   # narrow-and-done check.
   example chain_narrows_transitively() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < y
         y < 5
         unify(x, 2)
@@ -83,7 +83,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$x") == 2
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < y
         y < 5
         unify(x, 10)
@@ -94,7 +94,7 @@ defmodule Examples.ALBounds do
 
   example contradiction_detected_without_further_unify() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < 3
         x > 5
       end
@@ -107,7 +107,7 @@ defmodule Examples.ALBounds do
   # operand) already proves `x` came out concrete.
   example singleton_bounds_auto_bind() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x <= 5
         x >= 5
         is(z, x + 1)
@@ -122,7 +122,7 @@ defmodule Examples.ALBounds do
   # never enumerate it. Already-ground is a no-op: no extra choicepoint.
   example label_is_a_noop_on_an_already_ground_term() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         label(5)
         unify(x, 5)
       end
@@ -140,7 +140,7 @@ defmodule Examples.ALBounds do
   # caller-supplied.
   example label_is_a_noop_on_an_already_ground_non_numeric_term() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(x, :already_ground_atom)
         label(x)
       end
@@ -153,7 +153,7 @@ defmodule Examples.ALBounds do
   # backtracking alternatives, cheapest first.
   example label_enumerates_a_bounded_domain() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x >= 3
         x <= 5
         label(x)
@@ -162,7 +162,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$x") == 3
 
     {:atomic, {bindings2, _state2}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x >= 3
         x <= 5
         label(x)
@@ -176,7 +176,7 @@ defmodule Examples.ALBounds do
   # enumerate — labeling it fails rather than looping forever.
   example label_fails_on_an_unbounded_domain() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x >= 3
         label(x)
       end
@@ -193,7 +193,7 @@ defmodule Examples.ALBounds do
   # posted while `x` may still be open) without a separate mode-probe.
   example open_var_narrows_through_a_compound_expression() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x + 1 <= 5
         unify(x, 4)
       end
@@ -201,7 +201,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$x") == 4
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x + 1 <= 5
         unify(x, 5)
       end
@@ -214,7 +214,7 @@ defmodule Examples.ALBounds do
   # shape, it's a real affine expression engine.
   example open_var_narrows_through_multiplication_by_a_ground_scalar() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         2 * x <= 7
         unify(x, 3)
       end
@@ -222,7 +222,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$x") == 3
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         2 * x <= 7
         unify(x, 4)
       end
@@ -236,12 +236,12 @@ defmodule Examples.ALBounds do
   # were supported at all.
   example unsupported_compound_shapes_still_hard_fail() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x / 2 <= 5
       end
 
     {:aborted, _trace2} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x * y <= 10
       end
 
@@ -253,7 +253,7 @@ defmodule Examples.ALBounds do
   # Ground -> open binds the open side directly.
   example eq_binds_an_open_var_from_a_ground_side() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(n, 5)
         eq(n1, n - 1)
       end
@@ -267,7 +267,7 @@ defmodule Examples.ALBounds do
   # (which requires the right-hand side already ground).
   example eq_inverts_through_a_compound_expression() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(x, 10)
         eq(x, y + 3)
       end
@@ -278,7 +278,7 @@ defmodule Examples.ALBounds do
 
   example eq_fails_between_two_unequal_grounds() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(p, 4)
         unify(q, 5)
         eq(p, q)
@@ -292,7 +292,7 @@ defmodule Examples.ALBounds do
   # narrowing until one collapses the other to a singleton and auto-binds it.
   example eq_narrows_transitively_like_a_compare_chain() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         eq(x, y)
         y <= 5
         y >= 5
@@ -309,7 +309,7 @@ defmodule Examples.ALBounds do
   # exactly fibonacci's `x #= x1 + x2` shape with all three still open.
   example eq_narrows_an_n_ary_sum_of_simultaneously_open_vars() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         eq(z, a + b)
         unify(a, 2)
         unify(b, 3)
@@ -324,7 +324,7 @@ defmodule Examples.ALBounds do
   # to fire from `AL.Var.bind` itself, or `z` would be left stale.
   example eq_narrows_transitively_through_plain_unify_not_just_eq() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         eq(z, a + b + c)
         unify(a, 1)
         unify(b, 2)
@@ -337,7 +337,7 @@ defmodule Examples.ALBounds do
 
   example eq_posted_before_two_sibling_recursive_calls_converges() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:eq_first, :object)
 
         defmethod(:eq_first, :fib_eq_first, [_s, 1, 1])
@@ -362,7 +362,7 @@ defmodule Examples.ALBounds do
   @doc "Both sides of every frame's equation stay open until the base case, so waking them on narrowing costs O(7883) narrowings a frame: over a minute at 3000 frames, under a second when they only wake on ground."
   example a_chain_of_eqs_posted_before_the_calls_that_ground_them() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:regsm, :object)
 
         defmethod(:regsm, :fib_mod, [_s, 1, 1, 1, 0])
@@ -388,7 +388,7 @@ defmodule Examples.ALBounds do
   @doc "Ground-woken narrows nothing, but still refutes: raising `z`'s floor past the sum's ceiling fails on the spot instead of suspending until a side grounds."
   example a_ground_woken_eq_still_refutes_the_moment_the_intervals_cross() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         eq(z, a + c)
         a <= 2
         c <= 3
@@ -400,7 +400,7 @@ defmodule Examples.ALBounds do
 
   example entailed_propagator_holds_again_in_a_backtracked_alternative() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:entailed, :object)
 
         defmethod(:entailed, :small_or_large, [_s, 3])
@@ -408,7 +408,7 @@ defmodule Examples.ALBounds do
       end
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < y
         small_or_large(:entailed, y)
         x >= 50
@@ -418,7 +418,7 @@ defmodule Examples.ALBounds do
     assert Map.get(bindings, :"$y") == 100
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         x < y
         small_or_large(:entailed, y)
         x >= 50
@@ -434,7 +434,7 @@ defmodule Examples.ALBounds do
   # applied for real.
   example either_commits_to_the_surviving_side_when_the_other_is_refuted() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(a, 4)
         eq(a, 5) or eq(b, 7)
       end
@@ -445,7 +445,7 @@ defmodule Examples.ALBounds do
 
   example either_fails_when_both_sides_are_refuted() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(a, 4)
         unify(b, 4)
         eq(a, 5) or eq(b, 6)
@@ -459,7 +459,7 @@ defmodule Examples.ALBounds do
   # counterpart). Succeeds because nothing has refuted either side.
   example either_stays_undetermined_when_neither_side_is_decidable_yet() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         eq(a, 5) or eq(b, 6)
       end
 
@@ -473,7 +473,7 @@ defmodule Examples.ALBounds do
   # happens later, once `a` narrows, not at post time.
   example either_resolves_reactively_once_a_side_is_refuted_later() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         eq(a, 5) or eq(b, 7)
         unify(a, 4)
       end
@@ -494,7 +494,7 @@ defmodule Examples.ALBounds do
   # OR (one success per divisor branch) -- it doesn't here.
   example either_finds_multiples_of_3_or_5_with_no_duplicates() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(
           candidate,
           [

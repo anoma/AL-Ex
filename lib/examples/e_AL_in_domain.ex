@@ -15,7 +15,7 @@ defmodule Examples.ALInDomain do
 
   example in_domain_labels_every_candidate_exactly_once() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(x, [:a, :b, :c])
         findall(x, [label(x)], all)
       end
@@ -26,7 +26,7 @@ defmodule Examples.ALInDomain do
 
   example two_in_domain_calls_narrow_via_intersection() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(y, [:a, :b, :c, :d])
         in_domain(y, [:c, :d, :e])
         findall(y, [label(y)], all)
@@ -38,7 +38,7 @@ defmodule Examples.ALInDomain do
 
   example an_empty_intersection_fails_immediately() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(y, [:a, :b])
         in_domain(y, [:c, :d])
       end
@@ -48,7 +48,7 @@ defmodule Examples.ALInDomain do
 
   example a_domain_narrowed_to_one_value_auto_binds() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(z, [:only_one])
       end
 
@@ -60,7 +60,7 @@ defmodule Examples.ALInDomain do
   # no special interaction code needed, the ordinary bind-time check does it.
   example dif_excludes_a_candidate_at_label_time() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(v, :a)
         in_domain(v, [:a, :b])
         label(v)
@@ -72,7 +72,7 @@ defmodule Examples.ALInDomain do
 
   example unify_against_a_value_outside_the_domain_fails() do
     {:aborted, reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(w, [:a, :b])
         unify(w, :not_in_set)
       end
@@ -84,12 +84,12 @@ defmodule Examples.ALInDomain do
 
   example ground_membership_check_needs_no_constraint_at_all() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(:a, [:a, :b, :c])
       end
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(:z, [:a, :b, :c])
       end
 

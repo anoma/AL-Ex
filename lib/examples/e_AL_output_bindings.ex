@@ -14,7 +14,7 @@ defmodule Examples.ALOutputBindings do
   # `eval`/`run` does), not just deref the top-level variable.
   example next_solution_substitutes_compound_bindings() do
     {:atomic, {b1, state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_super(:next_sol_test, :alpha)
         vm_set_super(:next_sol_test, :beta)
         super(:next_sol_test, s)
@@ -34,7 +34,7 @@ defmodule Examples.ALOutputBindings do
   # never rename it either -- else two wildcards collapse onto one fresh var.
   example findall_wildcard_placeholders_stay_independent() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall([1, :"$_", :"$_"], [1 == 1], result)
       end
 
@@ -46,7 +46,7 @@ defmodule Examples.ALOutputBindings do
   # that internal name -- not directly, not nested in another output var.
   example output_vars_use_consistent_names_for_aliased_vars() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         concat([3, y], [1, 2], x)
       end
 

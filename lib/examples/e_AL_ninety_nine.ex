@@ -12,7 +12,7 @@ defmodule Examples.ALNinetyNine do
 
   example butlast_composes_reverse_tl_hd() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defmethod(:list, :butlast, [xs, butlast]) do
           reverse(xs, sx)
           tl(sx, sx_tl)

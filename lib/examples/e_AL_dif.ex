@@ -11,12 +11,12 @@ defmodule Examples.ALDif do
 
   example dif_resolves_immediately_when_ground() do
     {:atomic, {_bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(1, 2)
       end
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(1, 1)
       end
 
@@ -25,7 +25,7 @@ defmodule Examples.ALDif do
 
   example dif_survives_a_non_conflicting_binding() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         unify(x, 2)
       end
@@ -35,7 +35,7 @@ defmodule Examples.ALDif do
 
   example dif_fails_a_conflicting_binding() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         unify(x, 1)
       end
@@ -49,7 +49,7 @@ defmodule Examples.ALDif do
   # `x = 2` — never surfacing 1 as a candidate at all.
   example dif_prunes_a_generate_and_test_search() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         member([1, 2, 3], x)
       end
@@ -62,21 +62,21 @@ defmodule Examples.ALDif do
   # before landing on the one value that satisfies both.
   example dif_two_direct_constraints_both_enforced() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
         unify(x, 2)
       end
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
         unify(x, 1)
       end
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
         unify(x, 3)
@@ -92,7 +92,7 @@ defmodule Examples.ALDif do
   # the excluded object never surfaces as a solution, everything else still does.
   example dif_excludes_a_durable_candidate_from_generative_dispatch() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:dif_dispatch_pingable, :object)
 
         defmethod(:dif_dispatch_pingable, :ping, [self, :pong])
@@ -102,7 +102,7 @@ defmodule Examples.ALDif do
       end
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(o, :dif_dispatch_ping_a)
         findall(o, [ping(o, :pong)], os)
       end
@@ -118,7 +118,7 @@ defmodule Examples.ALDif do
   # first solution should already be a one-element list.
   example dif_excludes_the_empty_list_structural_candidate() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, [])
         reverse(x, y)
       end

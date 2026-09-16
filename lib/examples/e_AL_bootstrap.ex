@@ -3,7 +3,7 @@ defmodule Examples.ALBootstrap do
   I provide bootstrap inspection examples for AL: `:main` is where bootstrap
   programs actually install (not `:examples`, which is itself forked from
   it), so these read `AL.Object` directly against the default branch rather
-  than going through `run branch: :examples`.
+  than going through `run branch: Examples.Support.branch()`.
   """
 
   use ExExample

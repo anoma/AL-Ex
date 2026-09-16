@@ -20,7 +20,7 @@ defmodule Examples.ALTasks do
   # accrete onto (or race with) each other's clauses.
   defp register_worker(name, subscriber, pid) do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:process, %{name: ^subscriber, pid: ^pid}, _)
 
         vm_set_class(^name, :object)
@@ -57,7 +57,7 @@ defmodule Examples.ALTasks do
     register_worker(:async_worker_1, :async_subscriber_1, self())
 
     {:atomic, {_bindings, state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         send_async(:async_worker_1, :handle, [:async_obj])
       end
 
@@ -82,7 +82,7 @@ defmodule Examples.ALTasks do
     register_worker(:async_worker_2, :async_subscriber_2, self())
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(w, :async_worker_2)
         send_async(w, :handle, [:async_obj_2])
       end

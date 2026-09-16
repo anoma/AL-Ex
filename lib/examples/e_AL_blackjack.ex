@@ -13,7 +13,7 @@ defmodule Examples.ALBlackjack do
 
   example hand_total_computes_forward() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:card, %{suit: :spades, rank: :king}, king)
         new(:card, %{suit: :hearts, rank: :queen}, queen)
         hand_total([king, queen], total)
@@ -30,7 +30,7 @@ defmodule Examples.ALBlackjack do
   # same reasoning the original durable-instance version relied on.
   example hand_finds_every_card_that_completes_21() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:card, %{suit: :spades, rank: :king}, king)
         new(:card, %{suit: :hearts, rank: :ace}, ace)
         new(:card, %{suit: :clubs}, c3)
@@ -45,7 +45,7 @@ defmodule Examples.ALBlackjack do
   # Wildcard args -- both ivars stay open, domain-constrained but unbound.
   example new_with_wildcard_args_leaves_both_ivars_open() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:card, _, c)
         get(c, :suit, suit)
         get(c, :rank, rank)
@@ -61,7 +61,7 @@ defmodule Examples.ALBlackjack do
   # domain, isa :number), guard passes.
   example card_value_finds_a_card_for_a_valid_value() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         card_value(c, 7)
       end
 
@@ -72,7 +72,7 @@ defmodule Examples.ALBlackjack do
   # No rank produces 29 -- domain rejects it before any clause's guard runs.
   example card_value_fails_for_an_impossible_value() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         card_value(_c, 29)
       end
 
@@ -82,7 +82,7 @@ defmodule Examples.ALBlackjack do
   # Out-of-domain rank rejected at construction time, not just query time.
   example new_with_out_of_domain_rank_aborts() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:card, %{rank: 29}, _c)
       end
 
@@ -93,7 +93,7 @@ defmodule Examples.ALBlackjack do
   # not a domain violation (the field's no longer open).
   example reading_a_bound_field_against_a_different_value_aborts() do
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:card, %{rank: 7}, c)
         get(c, :rank, 2)
       end

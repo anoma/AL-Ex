@@ -30,8 +30,8 @@ defmodule ALEffectsTest do
   use ExExample.ExUnit, for: Examples.ALEffects
 end
 
-defmodule ALSubscriptionsTest do
-  use ExExample.ExUnit, for: Examples.ALSubscriptions
+defmodule ALFileWatchTest do
+  use ExExample.ExUnit, for: Examples.ALFileWatch
 end
 
 defmodule ALWorkflowTest do

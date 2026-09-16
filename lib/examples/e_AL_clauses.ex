@@ -18,7 +18,7 @@ defmodule Examples.ALClauses do
   @doc "A clause body read via `clause/n` must be executable structs: reflect reverse's recursive clause and run its body through `call`."
   example reflected_clause_body_executes() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(:list, :reverse, m)
         vm_clause(m, [[h | t], out], body)
         call([[h | t], out], body, [[1, 2, 3], result])
@@ -33,7 +33,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first])
@@ -42,7 +42,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(t, [tag(^c, t)], ts)
       end
 
@@ -92,7 +92,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first])
@@ -101,13 +101,13 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
         vm_retract_oapply(id, _)
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
 
         vm_set_oapply(id, [self, :second]) do
@@ -118,7 +118,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(t, [tag(^c, t)], ts)
       end
 
@@ -137,13 +137,13 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^c, :object)
         defmethod(^c, :tag, [self, :first])
       end
 
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
         vm_clause(id, seq_before, [_self, :first], _)
         vm_retract_oapply(id, [_self, :first])
@@ -164,7 +164,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first])
@@ -173,7 +173,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
         findall(s, [vm_clause(id, s, h, body)], seqs)
       end
@@ -189,7 +189,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^c, :object)
 
         defmethod(^c, :tag, [self, :first])
@@ -198,13 +198,13 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
         vm_retract_oapply(id, _)
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
 
         vm_set_oapply(id, 1, [self, :first]) do
@@ -215,7 +215,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(t, [tag(^c, t)], ts)
       end
 
@@ -230,7 +230,7 @@ defmodule Examples.ALClauses do
   # standardized apart, so the query matches regardless of the names it uses.
   example clause_read_does_not_capture_query_vars() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(head, [vm_clause(:defmethod, head, body)], heads)
       end
 
@@ -261,7 +261,7 @@ defmodule Examples.ALClauses do
   # improper list `[h | t]` produces before `h`/`t` are bound by a call.
   example defmethod_stores_clause_with_improper_list_arg() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:cons_arg_test, :object)
 
         defmethod(:cons_arg_test, :wrap, [self, h, t, out]) do
@@ -270,7 +270,7 @@ defmodule Examples.ALClauses do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         wrap(:cons_arg_test, 1, [2, 3], out)
       end
 
@@ -280,7 +280,7 @@ defmodule Examples.ALClauses do
 
   defp at_clause_arities() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(:list, :at, id)
         findall(head, [vm_clause(id, head, body)], heads)
       end
@@ -290,7 +290,7 @@ defmodule Examples.ALClauses do
 
   defp swap_first_two_at_clauses() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_method(:list, :at, id)
         findall([head, body], [vm_clause(id, head, body)], clauses)
       end
@@ -299,7 +299,7 @@ defmodule Examples.ALClauses do
     reordered = [y, x, z]
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         reorder_clauses(:list, :at, _, ^reordered)
       end
   end

@@ -1,7 +1,7 @@
 defmodule AL.Outbox do
   @moduledoc """
   I dispatch the asynchronous commands committed to one branch's outbox.
-  `send_async`, `send_elixir`, effects, and live subscriptions are best-effort
+  `send_async`, `send_elixir`, effects, and live edge resources are best-effort
   and are not recovered after a node failure.
   """
 

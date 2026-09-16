@@ -38,7 +38,7 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, {bindings, _state}} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           emit_effect(:file, :read, [^path], effect)
         end
 
@@ -53,7 +53,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :transaction_context, [], effect)
       end
 
@@ -79,7 +79,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :notify, [], _)
         fail()
       end
@@ -91,7 +91,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:effect_emitter, :object)
 
         defmethod(:effect_emitter, :emit, [_self, effect]) do
@@ -107,7 +107,7 @@ defmodule Examples.ALEffects do
 
   example effect_request_must_be_ground_and_durable() do
     {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :echo, [unbound], _)
       end
 
@@ -126,7 +126,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :wait, [:later], effect)
       end
 
@@ -142,7 +142,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(
           :effect,
           %{
@@ -176,7 +176,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :wait, [:object_effect], effect)
       end
 
@@ -184,7 +184,7 @@ defmodule Examples.ALEffects do
     assert_receive {:effect_pending, context, :object_effect}, 1000
 
     {:atomic, {pending, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(^effect, :effect)
 
         get_slots(^effect, %{
@@ -206,7 +206,7 @@ defmodule Examples.ALEffects do
     assert :ok = AL.Edge.complete(context, {:ok, :changed})
 
     {:atomic, {completed, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get_slots(^effect, %{
           status: status,
           outcome: outcome,
@@ -224,7 +224,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :raise, [], effect)
       end
 
@@ -236,7 +236,7 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :echo, [:first], first)
         emit_effect(:example_effect, :echo, [:second], second)
       end
@@ -255,7 +255,7 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, {_bindings, state}} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           emit_effect(:example_effect, :notify, [], _)
         end
 
@@ -285,7 +285,7 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, _} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           emit_effect(:example_effect, :notify, [], _)
         end
 
@@ -345,7 +345,7 @@ defmodule Examples.ALEffects do
 
   defp effect_status(effect) do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^effect, :status, status)
       end
 

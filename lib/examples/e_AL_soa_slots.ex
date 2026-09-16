@@ -12,13 +12,13 @@ defmodule Examples.ALSoaSlots do
 
   example vm_get_slot_soa_finds_a_value_written_via_set_slot() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :soa_slot_probe, super: :object, ivars: [{:level, [storage: :soa]}] do
         end
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:soa_slot_probe, obj)
         set_slot(obj, :level, 1)
         vm_get_slot(obj, :level, v, :soa)
@@ -31,13 +31,13 @@ defmodule Examples.ALSoaSlots do
   # soa closes the prior open row before writing (AL.Object.set_soa_slot/5)
   example a_second_set_slot_supersedes_the_first_for_the_same_key() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :soa_slot_probe_resets, super: :object, ivars: [{:level, [storage: :soa]}] do
         end
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:soa_slot_probe_resets, obj)
         set_slot(obj, :level, 1)
         set_slot(obj, :level, 2)
@@ -54,7 +54,7 @@ defmodule Examples.ALSoaSlots do
   # also pick up unrelated objects' soa rows from other examples.
   example vm_get_slot_soa_finds_the_value_across_many_objects() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :soa_slot_probe_many,
           super: :object,
           ivars: [{:soa_slot_probe_many_level, [storage: :soa]}] do
@@ -62,7 +62,7 @@ defmodule Examples.ALSoaSlots do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:soa_slot_probe_many, obj1)
         new(:soa_slot_probe_many, obj2)
         set_slot(obj1, :soa_slot_probe_many_level, 1)

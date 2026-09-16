@@ -22,7 +22,7 @@ defmodule Examples.ALPendingLinks do
   # table read.
   example class_with_both_sides_open_posts_a_pending_link() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
       end
 
@@ -38,7 +38,7 @@ defmodule Examples.ALPendingLinks do
   # :any`), each one unifying *both* `x` and `y` consistently, not just `x`.
   example labeling_a_pending_class_link_finds_a_real_witness() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         label(x)
       end
@@ -57,7 +57,7 @@ defmodule Examples.ALPendingLinks do
   # class afterward is rejected, not silently unioned in.
   example binding_the_class_side_later_still_resolves_the_link() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :link_reactive_class, super: :value, ivars: [] do
         end
 
@@ -66,7 +66,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         unify(y, :link_reactive_class)
         label(x)
@@ -76,7 +76,7 @@ defmodule Examples.ALPendingLinks do
     assert Map.get(bindings, :"$y") == :link_reactive_class
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         unify(y, :link_reactive_class)
         label(x)
@@ -94,7 +94,7 @@ defmodule Examples.ALPendingLinks do
   # `class(x, :known_class)` alone always leaves it), not witnessed.
   example labeling_the_class_side_names_a_class_without_constructing_an_object() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
       end
@@ -109,7 +109,7 @@ defmodule Examples.ALPendingLinks do
   # `x`-first direction already is above.
   example labeling_the_class_side_still_pins_a_real_isa_on_the_object() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :class_side_a, super: :value, ivars: [] do
         end
 
@@ -118,7 +118,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
         unify(y, :class_side_a)
@@ -127,7 +127,7 @@ defmodule Examples.ALPendingLinks do
     assert Map.get(bindings, :"$y") == :class_side_a
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
         unify(y, :class_side_a)
@@ -145,13 +145,13 @@ defmodule Examples.ALPendingLinks do
   # with whichever class `y` was labeled to.
   example labeling_the_class_side_then_the_object_side_is_consistent() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :roundtrip_class, super: :value, ivars: [] do
         end
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
         unify(y, :roundtrip_class)
@@ -172,7 +172,7 @@ defmodule Examples.ALPendingLinks do
   # real relation is subclass-of).
   example super_with_both_sides_open_posts_a_pending_link() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
       end
 
@@ -186,7 +186,7 @@ defmodule Examples.ALPendingLinks do
   # real edge -- labeling `y` (the subclass slot).
   example labeling_the_subclass_side_of_a_pending_super_link_finds_a_real_edge() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :super_link_parent, super: :object, ivars: [] do
         end
 
@@ -195,7 +195,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
         unify(y, :super_link_child)
         label(z)
@@ -211,7 +211,7 @@ defmodule Examples.ALPendingLinks do
   # first.
   example labeling_the_superclass_side_of_a_pending_super_link_finds_a_real_edge() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :super_link_parent2, super: :object, ivars: [] do
         end
 
@@ -220,7 +220,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
         unify(z, :super_link_parent2)
         label(y)
@@ -236,7 +236,7 @@ defmodule Examples.ALPendingLinks do
   # never registered as a class at all is the genuine no-edge case.
   example labeling_a_pending_super_link_with_no_real_edge_fails() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
         unify(y, :not_a_registered_class_at_all)
         label(z)
@@ -254,7 +254,7 @@ defmodule Examples.ALPendingLinks do
   # child happened to produce the value first.
   example labeling_a_super_link_with_both_sides_open_deduplicates_the_super() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :dedup_super_parent, super: :object, ivars: [] do
         end
 
@@ -269,7 +269,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall([y, z], [super(y, z), label(z)], pairs)
       end
 
@@ -287,7 +287,7 @@ defmodule Examples.ALPendingLinks do
   # unique), confirming the fix above didn't over-correct.
   example labeling_the_object_side_after_the_super_is_known_finds_every_real_child() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :dedup_super_parent2, super: :object, ivars: [] do
         end
 
@@ -299,7 +299,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(y, [super(y, z), unify(z, :dedup_super_parent2), label(y)], ys)
       end
 
@@ -314,7 +314,7 @@ defmodule Examples.ALPendingLinks do
   # sides stay open.
   example vm_get_slot_with_open_object_posts_a_pending_link() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :slot_link_probe, v)
       end
 
@@ -327,7 +327,7 @@ defmodule Examples.ALPendingLinks do
   # scan (`AL.label_from_slot_link/3`) and binds both sides from a real row.
   example labeling_the_object_side_of_a_pending_slot_link_finds_a_real_row() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :slot_link_class, super: :object, ivars: [slot_link_probe: []] do
         end
 
@@ -336,7 +336,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :slot_link_probe, v)
         label(x)
       end
@@ -349,7 +349,7 @@ defmodule Examples.ALPendingLinks do
   # after `x` is independently ground still resolves `v` correctly.
   example labeling_the_value_side_of_a_pending_slot_link_finds_a_real_row() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :slot_link_class2, super: :object, ivars: [slot_link_probe2: []] do
         end
 
@@ -360,7 +360,7 @@ defmodule Examples.ALPendingLinks do
     obj = Map.get(bindings, :"$obj")
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :slot_link_probe2, v)
         unify(x, ^obj)
         label(v)
@@ -374,7 +374,7 @@ defmodule Examples.ALPendingLinks do
   # numeric/isa/super domain always has, not a crash.
   example labeling_a_pending_slot_link_with_no_real_row_fails() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :a_key_nobody_ever_sets, v)
         label(x)
       end
@@ -388,7 +388,7 @@ defmodule Examples.ALPendingLinks do
   # carry it.
   example labeling_a_slot_link_with_both_sides_open_deduplicates_the_value() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :dedup_slot_class, super: :object, ivars: [dedup_slot_probe: []] do
         end
 
@@ -401,7 +401,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall([x, v], [vm_get_slot(x, :dedup_slot_probe, v), label(v)], pairs)
       end
 
@@ -416,7 +416,7 @@ defmodule Examples.ALPendingLinks do
   # the fix above didn't over-correct.
   example labeling_the_object_side_after_the_value_is_known_finds_every_real_object() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :dedup_slot_class2, super: :object, ivars: [dedup_slot_probe2: []] do
         end
 
@@ -427,7 +427,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(x, [vm_get_slot(x, :dedup_slot_probe2, v), unify(v, 7), label(x)], xs)
       end
 
@@ -442,7 +442,7 @@ defmodule Examples.ALPendingLinks do
   # `label` call on it at all.
   example binding_one_side_of_a_super_link_auto_propagates_the_other() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :propagate_super_parent, super: :object, ivars: [] do
         end
 
@@ -451,7 +451,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
         unify(y, :propagate_super_only_child)
       end
@@ -464,7 +464,7 @@ defmodule Examples.ALPendingLinks do
   # auto-resolves the child, since this parent has exactly one.
   example binding_the_super_side_auto_propagates_the_unique_child() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :propagate_super_parent2, super: :object, ivars: [] do
         end
 
@@ -473,7 +473,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
         unify(z, :propagate_super_parent2)
       end
@@ -486,7 +486,7 @@ defmodule Examples.ALPendingLinks do
   # side must NOT guess which child, propagation leaves it open.
   example binding_the_super_side_does_not_auto_propagate_when_not_unique() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :propagate_super_parent3, super: :object, ivars: [] do
         end
 
@@ -498,7 +498,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         super(y, z)
         unify(z, :propagate_super_parent3)
       end
@@ -511,7 +511,7 @@ defmodule Examples.ALPendingLinks do
   # auto-resolves the value (a single, keyed lookup, never ambiguous).
   example binding_the_object_side_of_a_slot_link_auto_propagates_the_value() do
     {:atomic, {setup_bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :propagate_slot_class, super: :object, ivars: [propagate_slot_probe: []] do
         end
 
@@ -522,7 +522,7 @@ defmodule Examples.ALPendingLinks do
     obj = Map.get(setup_bindings, :"$obj")
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :propagate_slot_probe, v)
         unify(x, ^obj)
       end
@@ -535,7 +535,7 @@ defmodule Examples.ALPendingLinks do
   # exactly one real object carries it.
   example binding_the_value_side_of_a_slot_link_auto_propagates_a_unique_object() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :propagate_slot_class2, super: :object, ivars: [propagate_slot_probe2: []] do
         end
 
@@ -544,7 +544,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :propagate_slot_probe2, v)
         unify(v, 77)
       end
@@ -557,7 +557,7 @@ defmodule Examples.ALPendingLinks do
   # guess which object, propagation leaves the object side open.
   example binding_the_value_side_does_not_auto_propagate_when_not_unique() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :propagate_slot_class3, super: :object, ivars: [propagate_slot_probe3: []] do
         end
 
@@ -568,7 +568,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_get_slot(x, :propagate_slot_probe3, v)
         unify(v, 88)
       end

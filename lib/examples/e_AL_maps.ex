@@ -11,7 +11,7 @@ defmodule Examples.ALMaps do
 
   example map_get_fails_on_non_map() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_map_get(:not_a_map, :k, v)
       end
 
@@ -20,7 +20,7 @@ defmodule Examples.ALMaps do
 
   example map_put_fails_on_non_map() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_map_put(:not_a_map, :k, :v, out)
       end
 
@@ -31,7 +31,7 @@ defmodule Examples.ALMaps do
   # backward search -- both keys are valid solutions, found via backtracking.
   example map_get() do
     {:atomic, {bindings, program_state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(%{a: 3, b: 4, c: 3}, k, 3)
       end
 
@@ -58,7 +58,7 @@ defmodule Examples.ALMaps do
 
   example map_put() do
     {:atomic, {bindings, program_state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
       end
 

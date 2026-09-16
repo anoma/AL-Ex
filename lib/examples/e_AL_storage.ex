@@ -15,7 +15,7 @@ defmodule Examples.ALStorage do
   # site, only observable via the explicit `vm_get_slot/4` checks below.
   example set_slot_and_get_route_by_declared_storage() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :storage_probe,
           super: :object,
           ivars: [:regulators, {:concentration, [storage: :soa]}] do
@@ -23,7 +23,7 @@ defmodule Examples.ALStorage do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:storage_probe, obj)
         set_slot(obj, :regulators, [:geneA])
         set_slot(obj, :concentration, 5)
@@ -48,7 +48,7 @@ defmodule Examples.ALStorage do
   # a later migration.
   example construction_routes_a_storage_soa_ivar_to_soa() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :storage_probe_construction,
           super: :object,
           ivars: [:regulators, {:concentration, [storage: :soa]}] do
@@ -56,7 +56,7 @@ defmodule Examples.ALStorage do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:storage_probe_construction, %{regulators: [:geneA], concentration: 5}, obj)
 
         vm_get_slot(obj, :regulators, regulators_direct)
@@ -77,7 +77,7 @@ defmodule Examples.ALStorage do
   # its own `soa` row, writing `regulators` again doesn't touch it at all.
   example an_unrelated_slot_write_never_disturbs_a_storage_soa_slot() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :storage_probe_independence,
           super: :object,
           ivars: [:regulators, {:concentration, [storage: :soa]}] do
@@ -85,7 +85,7 @@ defmodule Examples.ALStorage do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:storage_probe_independence, obj)
         set_slot(obj, :concentration, 5)
         set_slot(obj, :regulators, [:geneA])

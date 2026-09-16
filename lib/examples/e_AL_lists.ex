@@ -11,7 +11,7 @@ defmodule Examples.ALLists do
 
   example deep_cons_patterns_bind() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify([first, second | rest], [:a, :b, :c, :d])
       end
 
@@ -22,7 +22,7 @@ defmodule Examples.ALLists do
 
   example list_tests() do
     {:atomic, {bindings, state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         hd([:w, :x, :y, :z], head)
         tl([:w, :x, :y, :z], tail)
         tl([:w, :x, :y, :z], tail)
@@ -50,7 +50,7 @@ defmodule Examples.ALLists do
 
   example at_is_bidirectional() do
     {:atomic, {bindings, state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall([i, x], [at([1, 2, 3], i, x)], elems)
       end
 
@@ -61,7 +61,7 @@ defmodule Examples.ALLists do
 
   example sort_sorts_numbers() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         sort([3, 1, 4, 1, 5, 9, 2, 6], sorted)
       end
 
@@ -71,7 +71,7 @@ defmodule Examples.ALLists do
 
   example dedupe_removes_adjacent_duplicates() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dedupe([1, 1, 2, 3, 3, 3, 4], deduped)
       end
 
@@ -88,7 +88,7 @@ defmodule Examples.ALLists do
   # should still be caught, and only `dif/2` catches it.
   example dedupe_rejects_elements_that_turn_out_equal() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dedupe([x, y], result)
         unify(result, [x, y])
         unify(x, 1)
@@ -100,7 +100,7 @@ defmodule Examples.ALLists do
 
   example call_lambda_map() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         map([:a, :b, :c], [x, %{id: x}], [], out)
       end
 
@@ -110,7 +110,7 @@ defmodule Examples.ALLists do
 
   example all_dif_accepts_pairwise_distinct_elements() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         all_dif([1, 2, 3])
       end
 
@@ -119,7 +119,7 @@ defmodule Examples.ALLists do
 
   example all_dif_rejects_a_repeated_element() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         all_dif([1, 2, 1])
       end
 
@@ -131,7 +131,7 @@ defmodule Examples.ALLists do
   # caught — same reactive-constraint discipline `dedupe` relies on.
   example all_dif_catches_a_later_bind_between_open_elements() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(l, [1, x, y])
         all_dif(l)
         unify(x, 2)
@@ -148,7 +148,7 @@ defmodule Examples.ALLists do
   # mint an independent copy instead).
   example label_range_grounds_open_elements_within_bounds() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(l, [1, x, 3])
         all_dif(l)
         label_range(l, 1, 3)
@@ -160,7 +160,7 @@ defmodule Examples.ALLists do
 
   example all_dif_propagation_forces_a_naked_pair_chain() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         in_domain(a, [1, 2])
         in_domain(b, [1, 2])
         in_domain(c, [2, 3])
@@ -179,7 +179,7 @@ defmodule Examples.ALLists do
 
   example all_dif_leaves_slack_domains_unpruned() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(d, [1, 2, 3, :a, :b, :c])
         in_domain(x, d)
         in_domain(y, d)

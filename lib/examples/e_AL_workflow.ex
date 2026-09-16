@@ -7,7 +7,7 @@ defmodule Examples.ALWorkflow do
 
   example workflow_without_effects_completes_immediately() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defworkflow :immediate_workflow, [value], outputs: [result] do
           transaction do
             unify(intermediate, value)
@@ -19,8 +19,12 @@ defmodule Examples.ALWorkflow do
         end
       end
 
-    assert {:ok, workflow} = AL.workflow(:immediate_workflow, [:done], branch: :examples)
-    assert {:ok, %{result: :done}} = AL.await_workflow(workflow, branch: :examples)
+    assert {:ok, workflow} =
+             AL.workflow(:immediate_workflow, [:done], branch: Examples.Support.branch())
+
+    assert {:ok, %{result: :done}} =
+             AL.await_workflow(workflow, branch: Examples.Support.branch())
+
     assert workflow_state(workflow) == {:completed, %{result: :done}, :none}
   end
 
@@ -29,7 +33,7 @@ defmodule Examples.ALWorkflow do
     define_wait_receiver(:two_step_receiver)
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defworkflow :two_step_workflow, [value], outputs: [result] do
           transaction do
             wait(:two_step_receiver, value, first_effect)
@@ -46,7 +50,9 @@ defmodule Examples.ALWorkflow do
         end
       end
 
-    assert {:ok, workflow} = AL.workflow(:two_step_workflow, [:first], branch: :examples)
+    assert {:ok, workflow} =
+             AL.workflow(:two_step_workflow, [:first], branch: Examples.Support.branch())
+
     assert_receive {:effect_pending, first, :first}, 1000
     assert workflow_state(workflow) == {:waiting, %{}, :none}
 
@@ -57,7 +63,10 @@ defmodule Examples.ALWorkflow do
     assert workflow_state(workflow) == {:waiting, %{}, :none}
 
     assert :ok = AL.Edge.complete(second, {:ok, :done})
-    assert {:ok, %{result: :done}} = AL.await_workflow(workflow, branch: :examples)
+
+    assert {:ok, %{result: :done}} =
+             AL.await_workflow(workflow, branch: Examples.Support.branch())
+
     assert workflow_state(workflow) == {:completed, %{result: :done}, :none}
 
     assert {:error, _reason} = AL.Edge.complete(second, {:ok, :duplicate})
@@ -70,7 +79,7 @@ defmodule Examples.ALWorkflow do
     define_wait_receiver(:second_barrier_receiver)
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defworkflow :barrier_workflow, [], outputs: [result] do
           transaction do
             wait(:first_barrier_receiver, :first, first_effect)
@@ -85,12 +94,12 @@ defmodule Examples.ALWorkflow do
         end
       end
 
-    assert {:ok, workflow} = AL.workflow(:barrier_workflow, [], branch: :examples)
+    assert {:ok, workflow} = AL.workflow(:barrier_workflow, [], branch: Examples.Support.branch())
     assert_receive {:effect_pending, first_context, first_value}, 1000
     assert_receive {:effect_pending, second_context, second_value}, 1000
 
     assert {:error, {:workflow_timeout, ^workflow}} =
-             AL.await_workflow(workflow, branch: :examples, timeout: 0)
+             AL.await_workflow(workflow, branch: Examples.Support.branch(), timeout: 0)
 
     contexts = %{first_value => first_context, second_value => second_context}
     assert :ok = AL.Edge.complete(contexts.first, {:ok, :one})
@@ -99,7 +108,7 @@ defmodule Examples.ALWorkflow do
     assert :ok = AL.Edge.complete(contexts.second, {:ok, :two})
 
     assert {:ok, %{result: {:one, :two}}} =
-             AL.await_workflow(workflow, branch: :examples)
+             AL.await_workflow(workflow, branch: Examples.Support.branch())
 
     assert workflow_state(workflow) == {:completed, %{result: {:one, :two}}, :none}
   end
@@ -109,7 +118,7 @@ defmodule Examples.ALWorkflow do
     define_wait_receiver(:recovering_receiver)
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defworkflow :recovering_workflow, [value], outputs: [result] do
           transaction do
             wait(:recovering_receiver, value, effect)
@@ -126,13 +135,15 @@ defmodule Examples.ALWorkflow do
         end
       end
 
-    assert {:ok, workflow} = AL.workflow(:recovering_workflow, [:input], branch: :examples)
+    assert {:ok, workflow} =
+             AL.workflow(:recovering_workflow, [:input], branch: Examples.Support.branch())
+
     assert_receive {:effect_pending, effect, :input}, 1000
 
     assert :ok = AL.Edge.complete(effect, {:error, :unavailable})
 
     assert {:ok, %{result: {:recovered, :unavailable}}} =
-             AL.await_workflow(workflow, branch: :examples)
+             AL.await_workflow(workflow, branch: Examples.Support.branch())
 
     assert workflow_state(workflow) ==
              {:completed, %{result: {:recovered, :unavailable}}, :none}
@@ -143,7 +154,7 @@ defmodule Examples.ALWorkflow do
     define_wait_receiver(:unhandled_receiver)
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defworkflow :unhandled_failure_workflow, [value], outputs: [result] do
           transaction do
             wait(:unhandled_receiver, value, effect)
@@ -157,7 +168,7 @@ defmodule Examples.ALWorkflow do
       end
 
     assert {:ok, workflow} =
-             AL.workflow(:unhandled_failure_workflow, [:input], branch: :examples)
+             AL.workflow(:unhandled_failure_workflow, [:input], branch: Examples.Support.branch())
 
     assert_receive {:effect_pending, effect, :input}, 1000
     condition = {:continuation_failed, effect.effect_id, {:error, :unavailable}}
@@ -166,12 +177,12 @@ defmodule Examples.ALWorkflow do
              AL.Edge.complete(effect, {:error, :unavailable})
 
     assert {:error, {:workflow_blocked, ^workflow, ^condition}} =
-             AL.await_workflow(workflow, branch: :examples)
+             AL.await_workflow(workflow, branch: Examples.Support.branch())
 
     assert workflow_state(workflow) == {:blocked, %{}, condition}
 
     assert {:error, {:workflow_blocked, ^workflow, ^condition}} =
-             AL.await_workflow(workflow, branch: :examples, timeout: 0)
+             AL.await_workflow(workflow, branch: Examples.Support.branch(), timeout: 0)
   end
 
   example workflow_requires_explicit_transaction_blocks() do
@@ -215,7 +226,7 @@ defmodule Examples.ALWorkflow do
 
   defp define_wait_receiver(receiver) do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^receiver, :object)
 
         defmethod(^receiver, :wait, [_self, value, effect]) do
@@ -226,7 +237,7 @@ defmodule Examples.ALWorkflow do
 
   defp workflow_state(workflow) do
     {:atomic, {state, _runtime}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^workflow, :status, status)
         get(^workflow, :outputs, outputs)
         get(^workflow, :condition, condition)

@@ -10,7 +10,7 @@ defmodule Examples.ALHTTP do
 
     try do
       {:atomic, _} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           defworkflow :http_fetch, [url],
             outputs: [response, status_code, headers, body, error] do
             transaction do
@@ -38,10 +38,10 @@ defmodule Examples.ALHTTP do
         end
 
       assert {:ok, workflow} =
-               AL.workflow(:http_fetch, [url], branch: :examples)
+               AL.workflow(:http_fetch, [url], branch: Examples.Support.branch())
 
       assert {:ok, result} =
-               AL.await_workflow(workflow, branch: :examples, timeout: 1000)
+               AL.await_workflow(workflow, branch: Examples.Support.branch(), timeout: 1000)
 
       response = result.response
 
@@ -69,7 +69,7 @@ defmodule Examples.ALHTTP do
 
     try do
       {:atomic, {bindings, _runtime}} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           new(
             :http_request,
             %{
@@ -101,7 +101,7 @@ defmodule Examples.ALHTTP do
     url = "http://127.0.0.1:#{closed_tcp_port()}/unavailable"
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defworkflow :failed_http_fetch, [url], outputs: [status_code, error] do
           transaction do
             new(
@@ -121,10 +121,10 @@ defmodule Examples.ALHTTP do
       end
 
     assert {:ok, workflow} =
-             AL.workflow(:failed_http_fetch, [url], branch: :examples)
+             AL.workflow(:failed_http_fetch, [url], branch: Examples.Support.branch())
 
     assert {:ok, result} =
-             AL.await_workflow(workflow, branch: :examples, timeout: 1000)
+             AL.await_workflow(workflow, branch: Examples.Support.branch(), timeout: 1000)
 
     assert result.status_code == :none
     refute result.error == :none
@@ -201,7 +201,7 @@ defmodule Examples.ALHTTP do
 
   defp await_effect(effect, deadline) do
     result =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^effect, :status, :completed)
         get(^effect, :outcome, outcome)
       end

@@ -10,7 +10,7 @@ defmodule Examples.ALArithmetic do
 
   example arithmetic() do
     {:atomic, {bindings, result}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         is(a, 123 + 5 - 3)
         is(f, 10000 - 3)
         is(a, 122 + 3)
@@ -39,7 +39,7 @@ defmodule Examples.ALArithmetic do
     # `is/2` over an unbound operand fails the goal (backtracks) instead of
     # crashing the transaction
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         is(x, y + 1)
       end
 
@@ -48,7 +48,7 @@ defmodule Examples.ALArithmetic do
 
   example is_fails_on_division_by_zero() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         is(x, 1 / 0)
       end
 
@@ -57,7 +57,7 @@ defmodule Examples.ALArithmetic do
 
   example remainder() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         is(a, rem(7, 2))
         is(b, rem(10, 5))
       end
@@ -69,7 +69,7 @@ defmodule Examples.ALArithmetic do
 
   example rem_by_zero_fails_gracefully() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         is(x, rem(1, 0))
       end
 
@@ -78,7 +78,7 @@ defmodule Examples.ALArithmetic do
 
   example comparison_succeeds_when_true() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         is(x, 5)
         x > 3
         x >= 5
@@ -92,7 +92,7 @@ defmodule Examples.ALArithmetic do
 
   example comparison_evaluates_expression_operands() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         10 > 2 + 3
         2 + 3 <= 5
         2 ** 3 >= 8
@@ -103,7 +103,7 @@ defmodule Examples.ALArithmetic do
 
   example comparison_fails_when_false() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         3 > 5
       end
 
@@ -116,14 +116,14 @@ defmodule Examples.ALArithmetic do
   # still has no interval to narrow, so it's still a hard failure.
   example comparison_narrows_rather_than_failing_on_unbound() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         y > 1
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$y"))
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         y > :not_a_number
       end
 

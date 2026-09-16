@@ -5,17 +5,13 @@ Class {
   #ivars : [
     host: [],
     port: [],
-    status: []
+    status: [default: :disconnected]
   ]
 }
 
 :tcp_socket >> :init, [self, args, self] [
-  get_slots(args, %{host: host, port: port})
-  set_slots(self, %{
-    host: host,
-    port: port,
-    status: :disconnected
-  })
+  get_slots(args, %{host: _, port: _})
+  call_next_method(self, args, self)
 ]
 
 :tcp_socket >> :connect, [self, effect] [

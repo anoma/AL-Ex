@@ -19,7 +19,7 @@ defmodule Examples.ALGenserver do
     def init(object_id) do
       pid = self()
 
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:process, %{name: ^object_id, pid: ^pid}, _)
 
         defmethod(^object_id, :increment, [self, amount]) do
@@ -47,7 +47,7 @@ defmodule Examples.ALGenserver do
     def terminate(_reason, state) do
       object_id = state.object_id
 
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_retract_class(^object_id, c)
         vm_retract_super(^object_id, s)
       end
@@ -97,7 +97,7 @@ defmodule Examples.ALGenserver do
     assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :process end)
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         send_async(:my_counter, :increment, [5])
       end
 

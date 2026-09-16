@@ -31,12 +31,12 @@ defmodule Examples.ALTransactions do
     b = fresh_id()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^a, :object)
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^b, :object)
       end
 
@@ -59,12 +59,12 @@ defmodule Examples.ALTransactions do
     object = fresh_id()
 
     {:atomic, {_bindings, written}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(^object, :object)
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         findall(
           [time, operation],
           [vm_command(^written.tx_id, time, operation)],

@@ -10,13 +10,11 @@ defmodule Examples.ALSockets do
 
     try do
       {:atomic, _} =
-        run branch: :examples do
-          defclass :echo_client_socket, super: :tcp_socket, ivars: [messages: []] do
-            defmethod(:init, [self, args, self]) do
-              call_next_method(self, args, self)
-              set_slot(self, :messages, [])
-            end
-            
+        run branch: Examples.Support.branch() do
+          defclass :echo_client_socket,
+            super: :tcp_socket,
+            ivars: [messages: [default: []]],
+            redef: true do
             defmethod(:receive, [self, {:data, data}]) do
               get(self, :messages, messages)
               concat(messages, [data], updated)
@@ -26,7 +24,12 @@ defmodule Examples.ALSockets do
 
           new(
             :echo_client_socket,
-            %{name: :tcp_example_socket, host: "127.0.0.1", port: ^port},
+            %{
+              name: :tcp_example_socket,
+              host: "127.0.0.1",
+              port: ^port,
+              redef: true
+            },
             _
           )
 
@@ -36,14 +39,14 @@ defmodule Examples.ALSockets do
       assert :ok = await_socket_status(:tcp_example_socket, :connected)
 
       {:atomic, _} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           send_bytes(:tcp_example_socket, "ping", _)
         end
 
       assert :ok = await_message(:tcp_example_socket, "pong")
 
       {:atomic, _} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           close(:tcp_example_socket, _)
         end
 
@@ -58,7 +61,7 @@ defmodule Examples.ALSockets do
     port = closed_tcp_port()
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(
           :tcp_socket,
           %{name: :unavailable_tcp_socket, host: "127.0.0.1", port: ^port},
@@ -77,7 +80,7 @@ defmodule Examples.ALSockets do
 
     try do
       {:atomic, _} =
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           defclass :controlled_client_socket, super: :tcp_socket, ivars: [messages: []] do
             defmethod(:receive, [self, {:data, data}]) do
               get(self, :messages, messages)
@@ -178,7 +181,7 @@ defmodule Examples.ALSockets do
 
   defp await_message(socket, received, deadline) do
     result =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^socket, :messages, messages)
         member(messages, ^received)
       end
@@ -206,7 +209,7 @@ defmodule Examples.ALSockets do
 
   defp await_socket_status(socket, status, deadline) do
     result =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^socket, :status, ^status)
       end
 
@@ -233,7 +236,7 @@ defmodule Examples.ALSockets do
 
   defp await_socket_error(socket, deadline) do
     result =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^socket, :status, {:error, reason})
       end
 

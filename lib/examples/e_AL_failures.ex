@@ -13,7 +13,7 @@ defmodule Examples.ALFailures do
   # naming the receiver, selector, arity, and a ranked suggestion.
   example unknown_selector_reports_does_not_understand() do
     {:aborted, reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :failgreeter, super: :value do
           defmethod(:init, [self, _, self])
 
@@ -40,7 +40,7 @@ defmodule Examples.ALFailures do
   # free of internal `:backtrack` noise.
   example plain_failure_trace_omits_backtracks() do
     {:aborted, reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(:no_such_object_al_failures, c)
       end
 
@@ -50,7 +50,7 @@ defmodule Examples.ALFailures do
 
   example unmatched_clause_body_names_the_actual_call() do
     {:aborted, reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :failbody, super: :value do
           defmethod(:init, [self, _, self])
 
@@ -71,7 +71,7 @@ defmodule Examples.ALFailures do
 
   example no_trace_preserves_plain_clause_failure_context() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :no_trace_failbody, super: :value do
           defmethod(:init, [self, _, self])
 
@@ -82,7 +82,7 @@ defmodule Examples.ALFailures do
       end
 
     {:aborted, reason} =
-      run branch: :examples, trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace_mode: :no_trace do
         new(:no_trace_failbody, obj)
         trigger(obj)
       end
@@ -101,7 +101,7 @@ defmodule Examples.ALFailures do
   # rather than trusting time order or reconstructed-but-pruned scope state.
   example set_slot_domain_violation_survives_backtracking_search() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :failure_domain_probe, super: :object, ivars: [state: [domain: ["on", "off"]]] do
         end
 
@@ -109,7 +109,7 @@ defmodule Examples.ALFailures do
       end
 
     {:aborted, reason} =
-      run branch: :examples, trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace_mode: :no_trace do
         set_slot(:failure_domain_instance, :state, :sideways)
       end
 
@@ -123,7 +123,7 @@ defmodule Examples.ALFailures do
 
   example no_trace_preserves_does_not_understand_errors() do
     {:aborted, reason} =
-      run branch: :examples, trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace_mode: :no_trace do
         greett(1, :world)
       end
 
@@ -140,7 +140,7 @@ defmodule Examples.ALFailures do
   # the last attempt), not just a curated summary.
   example failed_run_exposes_the_final_state() do
     {:aborted, reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         unify(x, 1)
       end
@@ -154,7 +154,7 @@ defmodule Examples.ALFailures do
   # alone -- reason names which constraint fired.
   example unify_failure_names_the_violated_constraint() do
     {:aborted, dif_reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         dif(x, 1)
         unify(x, 1)
       end
@@ -163,7 +163,7 @@ defmodule Examples.ALFailures do
     assert dif_reason.message =~ "dif"
 
     {:aborted, isa_reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         class(y, :number)
         unify(y, :not_a_number)
       end
@@ -174,7 +174,7 @@ defmodule Examples.ALFailures do
     # a plain mismatch, no constraint involved, still gets the ordinary
     # generic message — this isn't claiming a constraint caused it
     {:aborted, plain_reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(1, 2)
       end
 
@@ -185,7 +185,7 @@ defmodule Examples.ALFailures do
   # not abort with a does_not_understand reason.
   example custom_dnu_is_not_reported_as_failure() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :failquiet, super: :value do
           defmethod(:init, [self, _, self])
 

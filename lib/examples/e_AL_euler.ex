@@ -12,7 +12,7 @@ defmodule Examples.ALEuler do
 
   example euler_1_sums_multiples_of_3_or_5_below_1000() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         euler_1(1000, sum)
       end
 

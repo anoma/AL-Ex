@@ -13,7 +13,7 @@ defmodule Examples.ALCategories do
   # (a class isn't an instance of itself).
   example import_shares_implementation_without_inheritance() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :greeter_behaviour, metaclass: :category, super: :object do
           defmethod(:greet, [self, :hello])
         end
@@ -38,7 +38,7 @@ defmodule Examples.ALCategories do
 
   example import_creates_no_super_edge() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :shared_behaviour, metaclass: :category, super: :object do
           defmethod(:trait, [self, :shared_trait])
         end
@@ -62,7 +62,7 @@ defmodule Examples.ALCategories do
 
   example category_is_reflectively_queryable() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :reflect_behaviour, metaclass: :category, super: :object do
         end
 
@@ -79,7 +79,7 @@ defmodule Examples.ALCategories do
   # missed :category/:behaviour until this showed up live.
   example category_is_not_offered_as_an_unbound_receiver_candidate() do
     {:atomic, {b1, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :counts_behaviour, metaclass: :category, super: :object do
           defmethod(:count, [self, 0])
         end

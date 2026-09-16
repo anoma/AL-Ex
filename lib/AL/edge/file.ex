@@ -14,7 +14,7 @@ defmodule AL.Edge.File do
   @impl GenServer
   def init(_initial) do
     Process.flag(:trap_exit, true)
-    {:ok, %{subscriptions: %{}, watchers: %{}}}
+    {:ok, %{registrations: %{}, watchers: %{}}}
   end
 
   @impl AL.Edge
@@ -22,19 +22,19 @@ defmodule AL.Edge.File do
 
   def execute(
         :watch,
-        [subscription, path],
-        %{branch: %AL.Branch{} = branch, effect_id: effect}
+        [receiver, path],
+        %{branch: %AL.Branch{} = branch}
       )
       when is_binary(path) do
     __MODULE__
-    |> GenServer.call({:watch, subscription, path, branch})
-    |> subscription_result(subscription, effect, :started, :start_failed)
+    |> GenServer.call({:watch, receiver, path, branch})
+    |> watch_result(receiver, :watching, :watch_failed)
   end
 
-  def execute(:unwatch, [subscription], %{effect_id: effect}) do
+  def execute(:unwatch, [receiver], %{branch: %AL.Branch{} = branch}) do
     __MODULE__
-    |> GenServer.call({:unwatch, subscription})
-    |> subscription_result(subscription, effect, :cancelled, :cancel_failed)
+    |> GenServer.call({:unwatch, receiver, branch})
+    |> watch_result(receiver, :stopped, :stop_failed)
   end
 
   def execute(:read, arguments, _context),
@@ -50,33 +50,36 @@ defmodule AL.Edge.File do
     do: {:error, {:unsupported_file_effect, operation, arguments}}
 
   @impl GenServer
-  def handle_call({:watch, subscription, path, branch}, _from, state) do
+  def handle_call({:watch, receiver, path, branch}, _from, state) do
     path = Path.expand(path)
+    key = {branch.id, receiver}
 
-    case Map.fetch(state.subscriptions, subscription) do
+    case Map.fetch(state.registrations, key) do
       {:ok, watcher} ->
         entry = Map.fetch!(state.watchers, watcher)
 
         if entry.path == path do
           {:reply, {:ok, :watching}, state}
         else
-          {:reply, {:error, {:subscription_already_watching, entry.path}}, state}
+          {:reply, {:error, {:watch_already_active, entry.path}}, state}
         end
 
       :error ->
-        start_watch(subscription, path, branch, state)
+        start_watch(key, receiver, path, branch, state)
     end
   end
 
-  def handle_call({:unwatch, subscription}, _from, state) do
-    case Map.pop(state.subscriptions, subscription) do
-      {nil, _subscriptions} ->
-        {:reply, {:error, :subscription_not_watching}, state}
+  def handle_call({:unwatch, receiver, branch}, _from, state) do
+    key = {branch.id, receiver}
 
-      {watcher, subscriptions} ->
+    case Map.pop(state.registrations, key) do
+      {nil, _registrations} ->
+        {:reply, {:error, :watch_not_active}, state}
+
+      {watcher, registrations} ->
         watchers = Map.delete(state.watchers, watcher)
         if Process.alive?(watcher), do: GenServer.stop(watcher, :normal)
-        {:reply, {:ok, :cancelled}, %{state | subscriptions: subscriptions, watchers: watchers}}
+        {:reply, {:ok, :stopped}, %{state | registrations: registrations, watchers: watchers}}
     end
   end
 
@@ -91,7 +94,7 @@ defmodule AL.Edge.File do
             contents: File.read(entry.path)
           }
 
-          AL.Edge.receive(entry.subscription, value, entry.branch)
+          AL.Edge.receive(entry.receiver, value, entry.branch)
         end
 
         {:noreply, state}
@@ -111,7 +114,7 @@ defmodule AL.Edge.File do
     {:noreply, remove_watcher(state, watcher)}
   end
 
-  defp start_watch(subscription, path, branch, state) do
+  defp start_watch(key, receiver, path, branch, state) do
     directory = Path.dirname(path)
 
     if File.dir?(directory) do
@@ -119,12 +122,12 @@ defmodule AL.Edge.File do
         {:ok, watcher} ->
           :ok = FileSystem.subscribe(watcher)
           Process.sleep(50)
-          entry = %{subscription: subscription, path: path, branch: branch}
+          entry = %{key: key, receiver: receiver, path: path, branch: branch}
 
           {:reply, {:ok, :watching},
            %{
              state
-             | subscriptions: Map.put(state.subscriptions, subscription, watcher),
+             | registrations: Map.put(state.registrations, key, watcher),
                watchers: Map.put(state.watchers, watcher, entry)
            }}
 
@@ -144,34 +147,33 @@ defmodule AL.Edge.File do
       {nil, _watchers} ->
         state
 
-      {%{subscription: subscription}, watchers} ->
+      {%{key: key}, watchers} ->
         %{
           state
           | watchers: watchers,
-            subscriptions: Map.delete(state.subscriptions, subscription)
+            registrations: Map.delete(state.registrations, key)
         }
     end
   end
 
   defp report_stopped(state, watcher, reason) do
     case Map.fetch(state.watchers, watcher) do
-      {:ok, entry} -> AL.Edge.notify(entry.subscription, :stopped, [reason], entry.branch)
+      {:ok, entry} -> AL.Edge.notify(entry.receiver, :stopped, [reason], entry.branch)
       :error -> :ok
     end
   end
 
-  defp subscription_result({:ok, _value} = outcome, subscription, effect, selector, _failed) do
-    {:notify, outcome, [{subscription, selector, [effect]}]}
+  defp watch_result({:ok, _value} = outcome, receiver, selector, _failed) do
+    {:notify, outcome, [{receiver, selector, []}]}
   end
 
-  defp subscription_result(
+  defp watch_result(
          {:error, reason} = outcome,
-         subscription,
-         effect,
+         receiver,
          _selector,
          failed
        ) do
-    {:notify, outcome, [{subscription, failed, [effect, reason]}]}
+    {:notify, outcome, [{receiver, failed, [reason]}]}
   end
 
   defp normalize_path(path) when is_binary(path), do: Path.expand(path)

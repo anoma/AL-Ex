@@ -10,7 +10,7 @@ defmodule Examples.ALMeta do
 
   example ground_succeeds_on_atom() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         ground(:point)
       end
 
@@ -19,7 +19,7 @@ defmodule Examples.ALMeta do
 
   example ground_succeeds_on_compound() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         ground([1, 2, %{a: :b}])
       end
 
@@ -28,7 +28,7 @@ defmodule Examples.ALMeta do
 
   example ground_fails_on_unbound() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         ground(x)
       end
 
@@ -37,7 +37,7 @@ defmodule Examples.ALMeta do
 
   example ground_fails_on_partial_compound() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         ground([1, x, 3])
       end
 
@@ -46,7 +46,7 @@ defmodule Examples.ALMeta do
 
   example findall_supers() do
     {:atomic, {bindings, _result}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_super(:findall_test, :a)
         vm_set_super(:findall_test, :b)
         findall(s, [super(:findall_test, s)], supers)
@@ -59,7 +59,7 @@ defmodule Examples.ALMeta do
 
   example forall_over_supers() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_super(:forall_test, :class)
         vm_set_super(:forall_test, :behaviour)
 
@@ -81,7 +81,7 @@ defmodule Examples.ALMeta do
 
   example not_succeeds_when_goal_fails() do
     {:atomic, {_bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         not [class(:nonexistent_xyz, c)]
       end
 
@@ -90,7 +90,7 @@ defmodule Examples.ALMeta do
 
   example not_fails_when_goal_succeeds() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         not [class(:object, c)]
       end
 

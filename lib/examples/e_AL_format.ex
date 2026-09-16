@@ -18,7 +18,7 @@ defmodule Examples.ALFormat do
   example format_aesthetic_prints_a_string_with_no_quotes() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           vm_format("~a~%", ["hello"])
         end
       end)
@@ -30,7 +30,7 @@ defmodule Examples.ALFormat do
   example format_aesthetic_inspects_non_string_terms() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           vm_format("~a~%", [:on])
         end
       end)
@@ -42,7 +42,7 @@ defmodule Examples.ALFormat do
   example format_decimal_prints_a_bound_var_resolved_value() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           is(x, 2 + 2)
           vm_format("x is ~d~%", [x])
         end
@@ -55,7 +55,7 @@ defmodule Examples.ALFormat do
   example format_consumes_multiple_directives_left_to_right() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           vm_format("~a plus ~a is ~d~%", [2, 2, 4])
         end
       end)
@@ -67,7 +67,7 @@ defmodule Examples.ALFormat do
   example format_tilde_tilde_is_a_literal_tilde_not_a_directive() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           vm_format("100~~", [])
         end
       end)
@@ -79,7 +79,7 @@ defmodule Examples.ALFormat do
   example format_o_resolves_through_print_object_override() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           defclass :format_o_print_object_class, super: :object do
             defmethod(:print_object, [self, text]) do
               unify(text, "a shiny thing")
@@ -98,7 +98,7 @@ defmodule Examples.ALFormat do
   example format_o_falls_through_to_default_print_object() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           defclass :format_o_default_class, super: :object do
           end
 
@@ -114,7 +114,7 @@ defmodule Examples.ALFormat do
   example format_o_handles_multiple_directives_in_one_call() do
     output =
       capture_io(fn ->
-        run branch: :examples do
+        run branch: Examples.Support.branch() do
           defclass :format_o_multi_class, super: :object do
             defmethod(:print_object, [self, text]) do
               unify(text, "widget")
@@ -133,7 +133,7 @@ defmodule Examples.ALFormat do
 
   example format_o_fails_when_print_object_has_no_matching_clause() do
     {:aborted, _reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :format_o_no_match_class, super: :object do
           defmethod(:print_object, [:definitely_not_self, _text]) do
           end

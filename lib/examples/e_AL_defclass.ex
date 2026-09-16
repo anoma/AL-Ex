@@ -12,7 +12,7 @@ defmodule Examples.ALDefclass do
 
   example defclass_declares_class_imports_and_methods() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:category, %{name: :widget_behaviour}, _)
 
         defmethod(:widget_behaviour, :describe, [self, :a_widget])
@@ -44,7 +44,7 @@ defmodule Examples.ALDefclass do
   # metaclass defaults to :class — same as new(:class, %{...}, _) by hand.
   example defclass_defaults_metaclass_to_class() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :durable_thing, super: :object, ivars: [] do
         end
 
@@ -61,7 +61,7 @@ defmodule Examples.ALDefclass do
   # per-instance construction.
   example defclass_supports_metaclass_override() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :singleton_thing, metaclass: :object, super: :object do
           defmethod(:ping, [self, :pong])
         end
@@ -80,7 +80,7 @@ defmodule Examples.ALDefclass do
   # now branches on `class(super, :list)` and writes one fact per element.
   example defclass_supports_multiple_supers() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :multi_super_a, super: :object do
           defmethod(:from_a, [self, :a_val])
         end
@@ -110,7 +110,7 @@ defmodule Examples.ALDefclass do
   # defining any of them, so both survive.
   example defclass_supports_multiple_clauses_on_one_selector() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :multi_clause_thing, super: :object do
           defmethod(:pick, [self, :a, :first])
 
@@ -132,7 +132,7 @@ defmodule Examples.ALDefclass do
   # with-body shape).
   example defclass_supports_bodyless_methods() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :bodyless_thing, super: :value do
           defmethod(:known, [42])
         end
@@ -147,13 +147,13 @@ defmodule Examples.ALDefclass do
 
   example defclass_rejects_redeclaring_an_existing_name() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_a, super: :object, ivars: [] do
         end
       end
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_a, super: :value, ivars: [] do
         end
       end
@@ -163,14 +163,14 @@ defmodule Examples.ALDefclass do
 
   example defclass_redef_true_replaces_the_existing_class() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_b, super: :object, ivars: [] do
           defmethod(:generation, [self, :first])
         end
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_b, super: :value, ivars: [], redef: true do
           defmethod(:generation, [self, :second])
         end
@@ -195,13 +195,13 @@ defmodule Examples.ALDefclass do
   # the reclaimed name currently has.
   example new_redef_true_resets_instance_slots() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_c, super: :object, ivars: [count: [type: :number, default: 0]] do
         end
       end
 
     {:atomic, {bindings1, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
         set_slot(obj, :count, 99)
         get(obj, :count, count)
@@ -210,7 +210,7 @@ defmodule Examples.ALDefclass do
     assert Map.get(bindings1, :"$count") == 99
 
     {:atomic, {bindings2, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
         get(obj, :count, count)
       end
@@ -225,7 +225,7 @@ defmodule Examples.ALDefclass do
   # a soa-stored key worth retracting (bootstrap.ex).
   example new_redef_true_resets_a_storage_soa_instance_slot() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_soa,
           super: :object,
           ivars: [{:count, [type: :number, default: 0, storage: :soa]}] do
@@ -233,7 +233,7 @@ defmodule Examples.ALDefclass do
       end
 
     {:atomic, {bindings1, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
         set_slot(obj, :count, 99)
         get(obj, :count, count)
@@ -242,7 +242,7 @@ defmodule Examples.ALDefclass do
     assert Map.get(bindings1, :"$count") == 99
 
     {:atomic, {bindings2, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
         get(obj, :count, count)
       end
@@ -259,7 +259,7 @@ defmodule Examples.ALDefclass do
   # method the reclaimed name currently has, not just name-matching ones.
   example defclass_redef_true_clears_undeclared_methods() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_d, super: :object do
           defmethod(:greet, [self, :hello_v1])
         end
@@ -268,19 +268,19 @@ defmodule Examples.ALDefclass do
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_probe_d, redef: true, super: :object do
           defmethod(:greet_v2, [self, :hello_v2])
         end
       end
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         greet(:redef_probe_d_instance, _g)
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         greet_v2(:redef_probe_d_instance, g)
       end
 
@@ -290,7 +290,7 @@ defmodule Examples.ALDefclass do
 
   example new_rejects_reusing_an_existing_durable_name() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_owner, super: :object, ivars: [] do
         end
 
@@ -298,12 +298,12 @@ defmodule Examples.ALDefclass do
       end
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:redef_owner, %{name: :redef_instance}, _)
       end
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:redef_owner, %{name: :redef_instance, redef: true}, _)
       end
 
@@ -322,7 +322,7 @@ defmodule Examples.ALDefclass do
   # :logging_metaclass` picks up the override on every redef.
   example custom_metaclass_overrides_class_redefined() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :logging_metaclass, super: :class do
           defmethod(:class_redefined, [self, old_spec, new_spec]) do
             vm_map_get(old_spec, :supers, old_supers)
@@ -336,7 +336,7 @@ defmodule Examples.ALDefclass do
       end
 
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :logged_thing,
           metaclass: :logging_metaclass,
           super: :value,
@@ -358,7 +358,7 @@ defmodule Examples.ALDefclass do
   # this is `:class`'s own `class_redefined` body.
   example redef_backfills_new_ivars_with_their_default_on_existing_instances() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_backfill_probe, super: :object, redef: true, ivars: [] do
         end
 
@@ -382,7 +382,7 @@ defmodule Examples.ALDefclass do
   # initform-less slot unbound rather than inventing a value).
   example redef_leaves_new_ivars_without_a_default_unset() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_backfill_probe2, super: :object, redef: true, ivars: [] do
         end
 
@@ -405,7 +405,7 @@ defmodule Examples.ALDefclass do
   # data an ivar-less class no longer claims to own.
   example redef_invalidates_removed_ivars_on_existing_instances() do
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defclass :redef_shrink_probe, super: :object, redef: true, ivars: [legs: []] do
         end
 

@@ -9,7 +9,7 @@ defmodule Examples.ALUsers do
 
   example owner_is_a_slot() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:user, %{name: :alice}, alice)
         new(:owned, %{owner: alice, data: %{label: :thing}}, obj)
         get(obj, :owner, owner)
@@ -23,7 +23,7 @@ defmodule Examples.ALUsers do
 
   example owner_gated_update() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:user, %{name: :bob}, bob)
         new(:user, %{name: :charlie}, charlie)
         new(:owned, %{owner: charlie, data: %{label: :secret}}, obj)
@@ -34,19 +34,19 @@ defmodule Examples.ALUsers do
     obj = Map.get(b, :"$obj")
 
     {:atomic, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         update(^obj, ^charlie, [%{data: %{label: :updated}}])
       end
 
     {:atomic, {b2, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^obj, :data, d)
       end
 
     assert Map.get(b2, :"$d") == %{label: :updated}
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         update(^obj, ^bob, [%{data: %{label: :hacked}}])
       end
 
@@ -57,7 +57,7 @@ defmodule Examples.ALUsers do
   # relational slot lookup, so an unbound caller can't be bound to the owner.
   example owner_gate_rejects_unbound_caller() do
     {:atomic, {b, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:user, %{name: :dana}, dana)
         new(:owned, %{owner: dana, data: %{label: :guarded}}, obj)
       end
@@ -65,12 +65,12 @@ defmodule Examples.ALUsers do
     obj = Map.get(b, :"$obj")
 
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         update(^obj, caller, [%{data: %{label: :leaked}}])
       end
 
     {:atomic, {b2, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         get(^obj, :data, d)
       end
 

@@ -10,7 +10,7 @@ defmodule Examples.ALVar do
 
   example unbound_is_var() do
     {:atomic, {bindings, _}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         var(x)
         unify(x, 1)
       end
@@ -21,7 +21,7 @@ defmodule Examples.ALVar do
 
   example bound_is_not_var() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(x, 1)
         var(x)
       end
@@ -31,7 +31,7 @@ defmodule Examples.ALVar do
 
   example compound_is_not_var() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         var([:add, x, 1])
       end
 

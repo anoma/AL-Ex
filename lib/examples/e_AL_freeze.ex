@@ -11,7 +11,7 @@ defmodule Examples.ALFreeze do
 
   example bound_runs_at_once() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         unify(x, 3)
         freeze(x, [is(y, x + 1)])
       end
@@ -22,7 +22,7 @@ defmodule Examples.ALFreeze do
 
   example binding_wakes_in_place() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         freeze(x, [is(y, x + 1)])
         unify(x, 3)
       end
@@ -33,7 +33,7 @@ defmodule Examples.ALFreeze do
 
   example a_clause_head_wakes_too() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         vm_set_class(:frozen, :object)
 
         defmethod(:frozen, :five, [_self, 5])
@@ -48,7 +48,7 @@ defmodule Examples.ALFreeze do
 
   example floundering_fails() do
     {:aborted, _reason} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         freeze(x, [is(y, x + 1)])
       end
 
@@ -61,7 +61,7 @@ defmodule Examples.ALFreeze do
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _}} =
-                  run branch: :examples do
+                  run branch: Examples.Support.branch() do
                     freeze(a, [is(b, a * 2)])
                     freeze(b, [is(a, b / 2)])
                     unify(a, 21)
@@ -73,7 +73,7 @@ defmodule Examples.ALFreeze do
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _}} =
-                  run branch: :examples do
+                  run branch: Examples.Support.branch() do
                     freeze(a, [is(b, a * 2)])
                     freeze(b, [is(a, b / 2)])
                     unify(b, 42)
@@ -88,7 +88,7 @@ defmodule Examples.ALFreeze do
   # Aliasing moves the wait to the chain's end; binding there fires it.
   example aliased_variable_still_wakes() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         freeze(x, [unify(fired, :yes)])
         unify(x, y)
         unify(y, 5)

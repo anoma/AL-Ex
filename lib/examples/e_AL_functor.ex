@@ -15,7 +15,7 @@ defmodule Examples.ALFunctor do
 
   example decomposes_a_ground_tuple() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         functor(term, :foo, [1, 2])
         functor(term, name, args)
       end
@@ -26,7 +26,7 @@ defmodule Examples.ALFunctor do
 
   example decomposes_an_atomic_term() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         functor(3, name, args)
       end
 
@@ -36,7 +36,7 @@ defmodule Examples.ALFunctor do
 
   example constructs_a_tuple_from_name_and_args() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         functor(term, :foo, [1, 2])
       end
 
@@ -45,7 +45,7 @@ defmodule Examples.ALFunctor do
 
   example constructs_an_atomic_term_from_empty_args() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         functor(term, 3, [])
       end
 
@@ -54,7 +54,7 @@ defmodule Examples.ALFunctor do
 
   example fails_when_nothing_is_ground() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         functor(term, name, args)
       end
 
@@ -63,7 +63,7 @@ defmodule Examples.ALFunctor do
 
   example calls_a_constructed_term_as_a_send() do
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         defmethod(:number, :triple, [self, result]) do
           is(result, self * 3)
         end
@@ -77,7 +77,7 @@ defmodule Examples.ALFunctor do
 
   example call_term_fails_with_no_receiver() do
     {:aborted, _} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         functor(term, :does_not_understand, [])
         call_term(term)
       end

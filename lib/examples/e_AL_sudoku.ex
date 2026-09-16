@@ -47,7 +47,7 @@ defmodule Examples.ALSudoku do
     ]
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
         solve(puzzle, solved)
       end
@@ -75,7 +75,7 @@ defmodule Examples.ALSudoku do
     ]
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
         solve(puzzle, solved)
       end
@@ -113,7 +113,7 @@ defmodule Examples.ALSudoku do
     ]
 
     {:atomic, {bindings, _state}} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
         solve(puzzle, solved)
       end
@@ -151,7 +151,7 @@ defmodule Examples.ALSudoku do
     ]
 
     {:aborted, _trace} =
-      run branch: :examples do
+      run branch: Examples.Support.branch() do
         new(:sudoku_puzzle, %{givens: ^givens}, _puzzle)
       end
 
