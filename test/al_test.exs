@@ -38,8 +38,8 @@ defmodule ALWorkflowTest do
   use ExExample.ExUnit, for: Examples.ALWorkflow
 end
 
-defmodule ALSocketsTest do
-  use ExExample.ExUnit, for: Examples.ALSockets
+defmodule ALPeerTest do
+  use ExExample.ExUnit, for: Examples.ALPeer
 end
 
 defmodule ALHTTPTest do

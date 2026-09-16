@@ -118,10 +118,9 @@ defmodule AL.Edge.File do
     directory = Path.dirname(path)
 
     if File.dir?(directory) do
-      case FileSystem.start_link(dirs: [directory], recursive: false) do
+      case AL.FileWatcher.start_link(dirs: [directory], recursive: false) do
         {:ok, watcher} ->
-          :ok = FileSystem.subscribe(watcher)
-          Process.sleep(50)
+          :ok = AL.FileWatcher.subscribe(watcher)
           entry = %{key: key, receiver: receiver, path: path, branch: branch}
 
           {:reply, {:ok, :watching},

@@ -36,6 +36,25 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 - Test capabilities, not sugar: e.g. async tests build their receiver from
   bootstrap primitives (`defmethod`) rather than a convenience package.
 
+## Asynchronous work
+
+- Treat `lib/examples/e_AL_peer.ex` as the reference shape: the host edge owns
+  the operating-system resource, admits each completion as a fresh AL
+  transaction, and lets AL object methods update durable state and cause the
+  next effects.
+- Do not poll AL state or sleep for guessed durations. A wait observes a causal
+  event emitted after the relevant transaction commits, then reads the durable
+  result. A timeout may bound that event wait, but must not drive repeated state
+  reads.
+- Keep orchestration in AL. Elixir edges translate host events into AL sends and
+  perform host effects; they do not own application state machines, protocols,
+  continuations, or test choreography.
+- Examples notify their test process from the AL method that handles the event.
+  A locally completed send effect proves only that the local write completed;
+  it does not prove that the receiving AL transaction committed.
+- If AL cannot express an asynchronous application cleanly, improve the AL
+  capability or the edge contract instead of adding an Elixir polling helper.
+
 ## DSL gotchas
 
 - **`do…end` bodies vs `[…]` goal lists.** A method/`run` body is a `do…end`

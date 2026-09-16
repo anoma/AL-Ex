@@ -43,7 +43,9 @@ defmodule Examples.ALEffects do
         end
 
       effect = bindings[:"$effect"]
-      assert {:ok, "alpha\nbeta\n"} = await_effect(effect)
+
+      assert {:ok, "alpha\nbeta\n"} =
+               AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
     after
       File.rm(path)
     end
@@ -58,7 +60,9 @@ defmodule Examples.ALEffects do
       end
 
     effect = bindings[:"$effect"]
-    assert {:ok, false} = await_effect(effect)
+
+    assert {:ok, false} =
+             AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
 
     {:atomic, commands} =
       :mnesia.transaction(fn ->
@@ -102,7 +106,9 @@ defmodule Examples.ALEffects do
       end
 
     effect = bindings[:"$effect"]
-    assert {:ok, :from_method} = await_effect(effect)
+
+    assert {:ok, :from_method} =
+             AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
   end
 
   example effect_request_must_be_ground_and_durable() do
@@ -135,7 +141,9 @@ defmodule Examples.ALEffects do
     assert context.effect_id == effect
     assert :pending = effect_status(effect)
     assert :ok = AL.Edge.complete(context, {:ok, :later})
-    assert {:ok, :later} = await_effect(effect)
+
+    assert {:ok, :later} =
+             AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
   end
 
   example effect_object_initialization_emits_its_host_request() do
@@ -155,7 +163,9 @@ defmodule Examples.ALEffects do
       end
 
     effect = bindings[:"$effect"]
-    assert {:ok, :initialized} = await_effect(effect)
+
+    assert {:ok, :initialized} =
+             AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
 
     {:atomic, commands} =
       :mnesia.transaction(fn ->
@@ -229,7 +239,9 @@ defmodule Examples.ALEffects do
       end
 
     effect = bindings[:"$effect"]
-    assert {:error, {:effect_exception, "provider failed"}} = await_effect(effect)
+
+    assert {:error, {:effect_exception, "provider failed"}} =
+             AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
   end
 
   example multiple_effects_in_one_transaction_have_distinct_objects() do
@@ -244,8 +256,12 @@ defmodule Examples.ALEffects do
     first = bindings[:"$first"]
     second = bindings[:"$second"]
     assert first != second
-    assert {:ok, :first} = await_effect(first)
-    assert {:ok, :second} = await_effect(second)
+
+    assert {:ok, :first} =
+             AL.await_effect(first, branch: Examples.Support.branch(), timeout: 1000)
+
+    assert {:ok, :second} =
+             AL.await_effect(second, branch: Examples.Support.branch(), timeout: 1000)
   end
 
   example hydrating_the_command_log_does_not_repeat_effects() do
@@ -300,7 +316,7 @@ defmodule Examples.ALEffects do
           end
 
         effect = bindings[:"$effect"]
-        assert {:ok, child_id} = await_effect(effect, child.id)
+        assert {:ok, child_id} = AL.await_effect(effect, branch: child.id, timeout: 1000)
         assert child_id == child.id
       after
         AL.Branch.discard(child)
@@ -313,34 +329,6 @@ defmodule Examples.ALEffects do
   defp observe_effects do
     :ok = AL.Edge.register(Examples.ALEffects.Provider)
     :ok = Examples.ALEffects.Provider.observe(self())
-  end
-
-  defp await_effect(effect, branch \\ :examples) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    await_effect(effect, branch, deadline)
-  end
-
-  defp await_effect(effect, branch, deadline) do
-    result =
-      run branch: branch do
-        get(^effect, :status, :completed)
-        get(^effect, :outcome, outcome)
-      end
-
-    case result do
-      {:atomic, {bindings, _state}} ->
-        bindings[:"$outcome"]
-
-      {:aborted, _reason} ->
-        if System.monotonic_time(:millisecond) < deadline do
-          receive do
-          after
-            10 -> await_effect(effect, branch, deadline)
-          end
-        else
-          flunk("timed out waiting for effect #{inspect(effect)}")
-        end
-    end
   end
 
   defp effect_status(effect) do

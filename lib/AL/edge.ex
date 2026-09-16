@@ -62,6 +62,41 @@ defmodule AL.Edge do
     notify(receiver, :receive, [value], branch)
   end
 
+  @spec await(effect_id(), keyword()) :: outcome() | {:error, term()}
+  def await(effect, options \\ []) when is_atom(effect) and is_list(options) do
+    branch = options |> Keyword.get(:branch, AL.Branch.head()) |> branch!()
+    timeout = Keyword.get(options, :timeout, 5_000)
+
+    if is_integer(timeout) and timeout >= 0 do
+      case AL.Events.await({:effect, branch.id, effect}, timeout, fn ->
+             await_result(effect, branch)
+           end) do
+        {:ok, result} -> result
+        :timeout -> {:error, {:effect_timeout, effect}}
+      end
+    else
+      {:error, {:invalid_effect_timeout, timeout}}
+    end
+  end
+
+  @spec call(term(), atom(), list(), AL.Branch.t()) :: {:ok, term()} | {:error, term()}
+  def call(receiver, selector, arguments, branch) when is_atom(selector) and is_list(arguments) do
+    ensure_outside_transaction!(:call)
+    reply = AL.Var.var("edge_reply")
+    goal = %Goal.Send{object: receiver, method: selector, args: arguments ++ [reply]}
+
+    case AL.eval([goal], nil, branch) do
+      {:atomic, {bindings, _state}} ->
+        call_reply(bindings, reply)
+
+      {:aborted, reason} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   @spec notify(term(), atom(), list(), AL.Branch.t()) :: :ok | {:error, term()}
   def notify(receiver, selector, arguments, branch) do
     ensure_outside_transaction!(:notify)
@@ -69,9 +104,14 @@ defmodule AL.Edge do
     goal = %Goal.Send{object: receiver, method: selector, args: arguments}
 
     case AL.eval([goal], nil, branch) do
-      {:atomic, _result} -> :ok
-      {:aborted, reason} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
+      {:atomic, _result} ->
+        :ok
+
+      {:aborted, reason} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -113,9 +153,16 @@ defmodule AL.Edge do
           end)
 
       case AL.eval(goals, nil, branch) do
-        {:atomic, {_bindings, state}} -> AL.Workflow.continue_after_commit(state, branch)
-        {:aborted, reason} -> {:error, reason}
-        {:error, reason} -> {:error, reason}
+        {:atomic, {_bindings, state}} ->
+          result = AL.Workflow.continue_after_commit(state, branch)
+          AL.Events.publish({:effect, branch.id, effect_id})
+          result
+
+        {:aborted, reason} ->
+          {:error, reason}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -139,6 +186,32 @@ defmodule AL.Edge do
           kind, reason -> {:complete, {:error, {:effect_throw, kind, inspect(reason)}}, []}
         end
     end
+  end
+
+  defp await_result(effect, branch) do
+    case :mnesia.transaction(fn -> AL.Object.read_slots(effect, branch) end) do
+      {:atomic, [{:slots, ^effect, %{status: :completed, outcome: outcome}}]} ->
+        {:ok, outcome}
+
+      {:atomic, [{:slots, ^effect, %{status: :pending}}]} ->
+        :pending
+
+      {:atomic, []} ->
+        {:ok, {:error, {:effect_not_found, effect}}}
+
+      {:atomic, rows} ->
+        {:ok, {:error, {:invalid_effect_rows, effect, rows}}}
+
+      {:aborted, reason} ->
+        {:ok, {:error, {:effect_read_failed, effect, reason}}}
+    end
+  end
+
+  defp branch!(%AL.Branch{} = branch), do: branch
+  defp branch!(id) when is_atom(id), do: %AL.Branch{id: id}
+
+  defp branch!(value) do
+    raise ArgumentError, "effect branch must be an atom or AL.Branch, got: #{inspect(value)}"
   end
 
   defp normalize_result(:pending), do: :pending
@@ -232,6 +305,18 @@ defmodule AL.Edge do
   end
 
   defp valid_notification?(_notification), do: false
+
+  defp call_reply(bindings, reply) do
+    case Map.fetch(bindings, reply) do
+      {:ok, value} ->
+        with :ok <- validate_outcome({:ok, value}) do
+          {:ok, value}
+        end
+
+      :error ->
+        {:error, {:edge_call_reply_missing, reply}}
+    end
+  end
 
   defp durable?(term)
        when is_pid(term) or is_port(term) or is_reference(term) or is_function(term),

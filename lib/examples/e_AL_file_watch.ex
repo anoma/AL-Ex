@@ -6,14 +6,35 @@ defmodule Examples.ALFileWatch do
   import ExUnit.Assertions
 
   example file_changes_arrive_as_transactions_on_an_al_object() do
+    pid = self()
     path = temporary_path()
     File.write!(path, "initial")
 
     try do
       {:atomic, {bindings, _state}} =
         run branch: Examples.Support.branch() do
+          defclass :observed_file_watch,
+            super: :file_watch,
+            redef: true do
+            defmethod(:watching, [self]) do
+              call_next_method(self)
+              send_elixir(^pid, {:file_watch_status, self, :watching})
+            end
+
+            defmethod(:receive, [self, event]) do
+              get(event, :contents, {:ok, contents})
+              call_next_method(self, event)
+              send_elixir(^pid, {:file_changed, self, contents})
+            end
+
+            defmethod(:stopped, [self]) do
+              call_next_method(self)
+              send_elixir(^pid, {:file_watch_status, self, :stopped})
+            end
+          end
+
           new(
-            :file_watch,
+            :observed_file_watch,
             %{name: :watched_file, path: ^path, redef: true},
             watcher
           )
@@ -23,11 +44,12 @@ defmodule Examples.ALFileWatch do
 
       watcher = bindings[:"$watcher"]
       start_effect = bindings[:"$start_effect"]
-      await_status(watcher, :watching)
+      assert_receive {:file_watch_status, ^watcher, :watching}, 2_000
 
       {:atomic, _} =
         run branch: Examples.Support.branch() do
-          class(^watcher, :file_watch)
+          class(^watcher, :observed_file_watch)
+          super(:observed_file_watch, :file_watch)
           super(:file_watch, :object)
           get(^watcher, :path, ^path)
           get(^watcher, :contents, :none)
@@ -36,10 +58,10 @@ defmodule Examples.ALFileWatch do
         end
 
       File.write!(path, "first")
-      await_contents(watcher, "first")
+      assert_receive {:file_changed, ^watcher, "first"}, 2_000
 
       File.write!(path, "second")
-      await_contents(watcher, "second")
+      assert_receive {:file_changed, ^watcher, "second"}, 2_000
 
       {:atomic, {stop_bindings, _state}} =
         run branch: Examples.Support.branch() do
@@ -47,7 +69,7 @@ defmodule Examples.ALFileWatch do
         end
 
       stop_effect = stop_bindings[:"$stop_effect"]
-      await_status(watcher, :stopped)
+      assert_receive {:file_watch_status, ^watcher, :stopped}, 2_000
 
       {:atomic, _} =
         run branch: Examples.Support.branch() do
@@ -56,7 +78,7 @@ defmodule Examples.ALFileWatch do
         end
 
       File.write!(path, "third")
-      Process.sleep(150)
+      refute_receive {:file_changed, ^watcher, "third"}, 150
 
       {:atomic, _} =
         run branch: Examples.Support.branch() do
@@ -64,39 +86,6 @@ defmodule Examples.ALFileWatch do
         end
     after
       File.rm(path)
-    end
-  end
-
-  defp await_contents(watcher, contents) do
-    await(watcher, :contents, contents, "file watch did not retain new contents")
-  end
-
-  defp await_status(watcher, status) do
-    await(watcher, :status, status, "file watch did not reach expected status")
-  end
-
-  defp await(watcher, slot, value, message) do
-    deadline = System.monotonic_time(:millisecond) + 2_000
-    await(watcher, slot, value, message, deadline)
-  end
-
-  defp await(watcher, slot, value, message, deadline) do
-    result =
-      run branch: Examples.Support.branch() do
-        get(^watcher, ^slot, ^value)
-      end
-
-    case result do
-      {:atomic, _result} ->
-        value
-
-      _failed ->
-        if System.monotonic_time(:millisecond) < deadline do
-          Process.sleep(10)
-          await(watcher, slot, value, message, deadline)
-        else
-          flunk("#{message}: #{inspect(value)}")
-        end
     end
   end
 

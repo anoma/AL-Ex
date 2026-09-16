@@ -13,6 +13,7 @@ defmodule AL.Application do
     opts = [strategy: :one_for_one, name: Al.Supervisor]
 
     children = [
+      AL.Events,
       AL.Outbox.supervisor_spec(),
       AL.Serialisation.supervisor_spec(),
       AL.Native.Registry,

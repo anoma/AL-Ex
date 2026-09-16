@@ -284,22 +284,27 @@ defmodule AL.Source do
   def method_clause_source(class, name, method_id, clause_seq, branch \\ AL.Branch.head()) do
     {:atomic, result} =
       :mnesia.transaction(fn ->
-        case AL.Object.scan_open_oapply_versions(
-               method_id,
-               clause_seq,
-               AL.Var.var("source_head_#{AL.fresh_scope()}"),
-               AL.Var.var("source_body_#{AL.fresh_scope()}"),
-               branch
-             ) do
-          [{:oapply, ^method_id, ^clause_seq, _seq, command_t, :open, head, body} | _] ->
-            retained_method_source(class, name, head, body, command_t, branch)
-
-          [] ->
-            {:error, :clause_not_found}
-        end
+        method_clause_source_in_transaction(class, name, method_id, clause_seq, branch)
       end)
 
     result
+  end
+
+  @doc false
+  def method_clause_source_in_transaction(class, name, method_id, clause_seq, branch) do
+    case AL.Object.scan_open_oapply_versions(
+           method_id,
+           clause_seq,
+           AL.Var.var("source_head_#{AL.fresh_scope()}"),
+           AL.Var.var("source_body_#{AL.fresh_scope()}"),
+           branch
+         ) do
+      [{:oapply, ^method_id, ^clause_seq, _seq, command_t, :open, head, body} | _] ->
+        retained_method_source(class, name, head, body, command_t, branch)
+
+      [] ->
+        {:error, :clause_not_found}
+    end
   end
 
   defp retained_method_source(class, name, head, body, command_t, branch) do

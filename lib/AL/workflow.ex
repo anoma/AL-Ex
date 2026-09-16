@@ -42,10 +42,14 @@ defmodule AL.Workflow do
       {:atomic, {bindings, state}} ->
         handle = Map.fetch!(bindings, workflow)
 
-        case continue_after_commit(state, branch) do
-          :ok -> {:ok, handle}
-          {:error, _reason} = error -> error
-        end
+        result =
+          case continue_after_commit(state, branch) do
+            :ok -> {:ok, handle}
+            {:error, _reason} = error -> error
+          end
+
+        AL.Events.publish(event_topic(handle, branch))
+        result
 
       {:aborted, reason} ->
         {:error, reason}
@@ -65,8 +69,12 @@ defmodule AL.Workflow do
     timeout = Keyword.get(options, :timeout, 5_000)
 
     if is_integer(timeout) and timeout >= 0 do
-      deadline = System.monotonic_time(:millisecond) + timeout
-      await(workflow, branch, deadline)
+      case AL.Events.await(event_topic(workflow, branch), timeout, fn ->
+             await_result(workflow, branch)
+           end) do
+        {:ok, result} -> result
+        :timeout -> {:error, {:workflow_timeout, workflow}}
+      end
     else
       {:error, {:invalid_workflow_timeout, timeout}}
     end
@@ -212,36 +220,23 @@ defmodule AL.Workflow do
           "workflow branch must be an atom or AL.Branch, got: #{inspect(value)}"
   end
 
-  defp await(workflow, branch, deadline) do
+  defp await_result(workflow, branch) do
     case read_workflow(workflow, branch) do
       {:ok, %{status: :completed, outputs: outputs}} when is_map(outputs) ->
-        {:ok, outputs}
+        {:ok, {:ok, outputs}}
 
       {:ok, %{status: :blocked, condition: condition}} ->
-        {:error, {:workflow_blocked, workflow, condition}}
+        {:ok, {:error, {:workflow_blocked, workflow, condition}}}
 
       {:ok, %{status: status}}
       when status in [:pending, :waiting, :advancing] ->
-        await_pending(workflow, branch, deadline)
+        :pending
 
       {:ok, slots} ->
-        {:error, {:invalid_workflow_state, workflow, slots}}
+        {:ok, {:error, {:invalid_workflow_state, workflow, slots}}}
 
       {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp await_pending(workflow, branch, deadline) do
-    remaining = deadline - System.monotonic_time(:millisecond)
-
-    if remaining <= 0 do
-      {:error, {:workflow_timeout, workflow}}
-    else
-      receive do
-      after
-        min(10, remaining) -> await(workflow, branch, deadline)
-      end
+        {:ok, error}
     end
   end
 
@@ -279,8 +274,13 @@ defmodule AL.Workflow do
 
   defp continue_workflow(workflow, selector, step, condition, branch) do
     case AL.eval([%Goal.Send{object: workflow, method: selector, args: [step]}], nil, branch) do
-      {:atomic, {_bindings, state}} -> continue_after_commit(state, branch)
-      failure -> block_advance(workflow, step, condition, branch, failure)
+      {:atomic, {_bindings, state}} ->
+        result = continue_after_commit(state, branch)
+        AL.Events.publish(event_topic(workflow, branch))
+        result
+
+      failure ->
+        block_advance(workflow, step, condition, branch, failure)
     end
   end
 
@@ -291,10 +291,16 @@ defmodule AL.Workflow do
     }
 
     case AL.eval([goal], nil, branch) do
-      {:atomic, _result} -> {:error, {:workflow_blocked, workflow, condition}}
-      _other -> normalize_failure(failure)
+      {:atomic, _result} ->
+        AL.Events.publish(event_topic(workflow, branch))
+        {:error, {:workflow_blocked, workflow, condition}}
+
+      _other ->
+        normalize_failure(failure)
     end
   end
+
+  defp event_topic(workflow, branch), do: {:workflow, branch.id, workflow}
 
   defp workflow_slots(state, workflow) do
     case AL.Object.scan_slots(workflow, :"$workflow_slots", state.branch) do

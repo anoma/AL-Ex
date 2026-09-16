@@ -168,11 +168,6 @@ defmodule Examples.ALBranch do
     branch = AL.Branch.fork()
     pid = self()
 
-    # a worker object that lives only on the fork, built from bootstrap
-    # primitives — its handler notifies a registered `:process` once
-    # done, the same synchronization `Examples.ALConstraints` uses: a blocking
-    # `receive` instead of a guessed `Process.sleep`, since `send_async`'s
-    # outbox pickup has no ordering guarantee against this test's own next line.
     {:atomic, _} =
       run branch: branch.id do
         new(:process, %{name: :fork_worker_subscriber, pid: ^pid}, _)
@@ -187,7 +182,6 @@ defmodule Examples.ALBranch do
         end
       end
 
-    # an async send written into the fork is handled against the fork
     {:atomic, _} =
       run branch: branch.id do
         send_async(:fork_worker, :handle, [:fork_obj])
@@ -206,7 +200,6 @@ defmodule Examples.ALBranch do
 
     assert Map.get(fork_bindings, :"$v") == true
 
-    # main never saw the worker or the effect
     {:aborted, _} =
       run do
         vm_get_slot(:fork_obj, :processed, v)

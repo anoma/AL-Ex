@@ -87,7 +87,9 @@ defmodule Examples.ALHTTP do
         end
 
       response = bindings[:"$response"]
-      assert {:ok, result} = await_effect(response)
+
+      assert {:ok, result} =
+               AL.await_effect(response, branch: Examples.Support.branch(), timeout: 1000)
 
       assert result.status_code == 201
       assert result.body == "saved"
@@ -192,33 +194,5 @@ defmodule Examples.ALHTTP do
     {:ok, {_address, port}} = :inet.sockname(listener)
     :ok = :gen_tcp.close(listener)
     port
-  end
-
-  defp await_effect(effect) do
-    deadline = System.monotonic_time(:millisecond) + 1000
-    await_effect(effect, deadline)
-  end
-
-  defp await_effect(effect, deadline) do
-    result =
-      run branch: Examples.Support.branch() do
-        get(^effect, :status, :completed)
-        get(^effect, :outcome, outcome)
-      end
-
-    case result do
-      {:atomic, {bindings, _runtime}} ->
-        bindings[:"$outcome"]
-
-      {:aborted, _reason} ->
-        if System.monotonic_time(:millisecond) < deadline do
-          receive do
-          after
-            10 -> await_effect(effect, deadline)
-          end
-        else
-          flunk("timed out waiting for effect #{inspect(effect)}")
-        end
-    end
   end
 end

@@ -83,6 +83,20 @@ defmodule AL.Serialisation do
     if owner_node?(), do: status_local(branch), else: call_owner(:status, [branch])
   end
 
+  @doc "Wait for serialisation events until `predicate` returns a truthy value."
+  def await(predicate, timeout \\ 2_000)
+      when is_function(predicate, 0) and is_integer(timeout) and timeout >= 0 do
+    case AL.Events.await(:serialisation, timeout, fn ->
+           case predicate.() do
+             value when value in [false, nil] -> :pending
+             value -> {:ok, value}
+           end
+         end) do
+      {:ok, value} -> value
+      :timeout -> predicate.()
+    end
+  end
+
   defp status_local(branch) do
     case Process.whereis(name(branch)) do
       nil -> :not_running
@@ -93,8 +107,7 @@ defmodule AL.Serialisation do
   @doc """
   Whether `branch`'s serialiser has fully caught up: no queued Mnesia or file
   events, and no serialisation debounced for later. A caller that just made a
-  change and wants to observe its effect should poll this instead of
-  sleeping a guessed duration — it reflects real backlog, not a timer.
+  change can pass this predicate to `await/2` to observe real backlog events.
   """
   @spec quiescent?(AL.Branch.t()) :: boolean()
   def quiescent?(branch \\ AL.Branch.head()) do
@@ -304,11 +317,11 @@ defmodule AL.Serialisation do
 
     case serialise_definitions(branch, root) do
       {:ok, _paths} ->
-        {:noreply, %{state | definition_snapshot: definition_snapshot(root, branch)}}
+        noreply(%{state | definition_snapshot: definition_snapshot(root, branch)})
 
       {:error, reason} ->
         Logger.warning("AL could not serialise definitions: #{inspect(reason)}")
-        {:noreply, state}
+        noreply(state)
     end
   end
 
@@ -349,7 +362,7 @@ defmodule AL.Serialisation do
       |> Map.put(:definition_snapshot, snapshot)
       |> Map.put(:last_deserialisation, %{paths: paths, result: result})
 
-    {:noreply, refresh_definitions(state, result)}
+    state |> refresh_definitions(result) |> noreply()
   end
 
   @impl true
@@ -365,7 +378,7 @@ defmodule AL.Serialisation do
         Logger.warning("AL could not serialise tx_#{tx}: #{inspect(reason)}")
     end
 
-    {:noreply, mark_definitions_dirty(state)}
+    state |> mark_definitions_dirty() |> noreply()
   end
 
   @impl true
@@ -373,25 +386,25 @@ defmodule AL.Serialisation do
         {:mnesia_table_event, {_op, table, _record, _old, _tid}},
         %{soa_table: table} = state
       ) do
-    {:noreply, mark_definitions_dirty(state)}
+    state |> mark_definitions_dirty() |> noreply()
   end
 
   def handle_info(
         {:mnesia_table_event, {_op, table, _record, _old, _tid}},
         %{aos_table: table} = state
       ) do
-    {:noreply, mark_definitions_dirty(state)}
+    state |> mark_definitions_dirty() |> noreply()
   end
 
   @impl true
-  def handle_info({:mnesia_table_event, _event}, state), do: {:noreply, state}
+  def handle_info({:mnesia_table_event, _event}, state), do: noreply(state)
 
   @impl true
   def handle_info({:file_event, watcher, {path, _events}}, %{watcher: watcher} = state) do
     if Layout.definition_file?(state.definitions_root, path) do
-      {:noreply, handle_definition_file_event(state, path)}
+      state |> handle_definition_file_event(path) |> noreply()
     else
-      {:noreply, state}
+      noreply(state)
     end
   end
 
@@ -400,7 +413,7 @@ defmodule AL.Serialisation do
       "AL serialisation file watcher for #{state.definitions_root} stopped, restarting"
     )
 
-    {:noreply, start_watcher(%{state | watcher: nil})}
+    state |> Map.put(:watcher, nil) |> start_watcher() |> noreply()
   end
 
   @impl true
@@ -450,6 +463,12 @@ defmodule AL.Serialisation do
 
   defp refresh_definitions(state, _result), do: state
 
+  defp noreply(state) do
+    AL.Events.publish(:serialisation)
+    AL.Events.publish({:serialisation, state.branch.id})
+    {:noreply, state}
+  end
+
   defp name(%AL.Branch{id: branch}), do: String.to_atom("#{__MODULE__}.#{branch}")
 
   defp owner_node?, do: node() == AL.Command.owner_node()
@@ -467,51 +486,14 @@ defmodule AL.Serialisation do
 
   defp start_watcher(state) do
     with :ok <- File.mkdir_p(state.definitions_root),
-         {:ok, pid} <- FileSystem.start_link(dirs: [state.definitions_root]) do
-      FileSystem.subscribe(pid)
-      await_watcher_ready(pid, state.definitions_root)
+         {:ok, pid} <- AL.FileWatcher.start_link(dirs: [state.definitions_root]) do
+      AL.FileWatcher.subscribe(pid)
       %{state | watcher: pid}
     else
       {:error, reason} ->
         Logger.error("AL serialisation could not start file watcher: #{inspect(reason)}")
         state
     end
-  end
-
-  # inotifywait is a separate OS process; subscribing doesn't mean it has
-  # attached its watches yet -- recursive setup takes real time proportional
-  # to tree size, so a single fixed wait either wastes time on a small tree
-  # or loses the race on a large one (a fresh fork's ~150 serialised files
-  # regularly takes longer to watch than a single short wait). Retry a
-  # cheap sentinel write instead of guessing one timeout: succeeds as soon
-  # as the watch is actually live, bounded overall the same as before.
-  @watcher_ready_retry_ms 50
-  @watcher_ready_max_attempts 40
-
-  defp await_watcher_ready(pid, definitions_root),
-    do: await_watcher_ready(pid, definitions_root, @watcher_ready_max_attempts)
-
-  defp await_watcher_ready(_pid, definitions_root, 0) do
-    Logger.warning(
-      "AL serialisation file watcher for #{definitions_root} didn't confirm readiness"
-    )
-  end
-
-  defp await_watcher_ready(pid, definitions_root, attempts) do
-    sentinel = Path.join(definitions_root, ".watch-ready")
-    File.write!(sentinel, "")
-
-    outcome =
-      receive do
-        {:file_event, ^pid, {^sentinel, _events}} -> :ready
-        {:file_event, ^pid, :stop} -> :ready
-      after
-        @watcher_ready_retry_ms -> :retry
-      end
-
-    File.rm(sentinel)
-
-    if outcome == :retry, do: await_watcher_ready(pid, definitions_root, attempts - 1)
   end
 
   # A branch materializing lots of inherited state at once (a fresh fork,

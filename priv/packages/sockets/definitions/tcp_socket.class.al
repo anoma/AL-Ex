@@ -5,6 +5,9 @@ Class {
   #ivars : [
     host: [],
     port: [],
+    owner: [default: :none],
+    listener: [default: :none],
+    inbox: [default: []],
     status: [default: :disconnected]
   ]
 }
@@ -20,6 +23,12 @@ Class {
   emit_effect(:tcp, :connect, [self, host, port], effect)
 ]
 
+:tcp_socket >> :listen, [self, effect] [
+  get_slots(self, %{status: :disconnected, host: host, port: port})
+  set_slot(self, :status, :starting)
+  emit_effect(:tcp, :listen, [self, host, port], effect)
+]
+
 :tcp_socket >> :connected, [self] [
   get(self, :status, :connecting)
   set_slot(self, :status, :connected)
@@ -27,6 +36,15 @@ Class {
 
 :tcp_socket >> :connection_failed, [self, reason] [
   get(self, :status, :connecting)
+  set_slot(self, :status, {:error, reason})
+]
+
+:tcp_socket >> :listening, [self, port] [
+  get(self, :status, :starting)
+  set_slots(self, %{port: port, status: :listening})
+]
+
+:tcp_socket >> :listen_failed, [self, reason] [
   set_slot(self, :status, {:error, reason})
 ]
 
@@ -41,7 +59,29 @@ Class {
   emit_effect(:tcp, :close, [self], effect)
 ]
 
-:tcp_socket >> :receive, [_self, {:data, _data}] [
+:tcp_socket >> :close, [self, effect] [
+  get(self, :status, :listening)
+  set_slot(self, :status, :stopping)
+  emit_effect(:tcp, :close_listener, [self], effect)
+]
+
+:tcp_socket >> :receive, [self, bytes] [
+  get(self, :inbox, inbox)
+  concat(inbox, [bytes], updated)
+  set_slot(self, :inbox, updated)
+]
+
+:tcp_socket >> :accept, [self, peer, socket] [
+  new_socket(self, peer, socket)
+]
+
+:tcp_socket >> :new_socket, [self, peer, socket] [
+  get_slots(peer, %{address: host, port: port})
+  class(self, socket_class)
+  new(socket_class, %{host: host, port: port, listener: self, status: :connected}, socket)
+]
+
+:tcp_socket >> :accept_failed, [_self, _reason] [
 ]
 
 :tcp_socket >> :connection_lost, [self, :closed] [
@@ -49,5 +89,17 @@ Class {
 ]
 
 :tcp_socket >> :connection_lost, [self, reason] [
+  set_slot(self, :status, {:error, reason})
+]
+
+:tcp_socket >> :stopped, [self] [
+  set_slot(self, :status, :stopped)
+]
+
+:tcp_socket >> :stop_failed, [self, reason] [
+  set_slot(self, :status, {:error, reason})
+]
+
+:tcp_socket >> :listener_lost, [self, reason] [
   set_slot(self, :status, {:error, reason})
 ]

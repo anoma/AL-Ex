@@ -113,12 +113,67 @@ defmodule AL.Serialisation.Snapshot do
        ) do
     method_id
     |> clause_rows(branch)
-    |> Enum.map(fn {:oapply, ^method_id, _clause, _seq, _tx, :open, head, body} ->
-      {:ok, declaration, text} =
-        AL.Source.split_clause_source(AL.Source.defmethod_source(owner, selector, head, body))
+    |> Enum.map(fn {:oapply, ^method_id, clause, _seq, _tx, :open, _head, _body} ->
+      %{text: source} =
+        AL.Source.method_clause_source_in_transaction(
+          owner,
+          selector,
+          method_id,
+          clause,
+          branch
+        )
 
-      %Method{selector: selector, declaration: declaration, body: text}
+      {:ok, declaration, text} =
+        AL.Source.split_clause_source(source)
+
+      %Method{selector: selector, declaration: declaration, body: canonical_body(text)}
     end)
+  end
+
+  defp canonical_body(text) do
+    lines =
+      text
+      |> String.split("\n")
+      |> Enum.reduce([], fn line, lines ->
+        cond do
+          String.trim(line) != "" ->
+            [line | lines]
+
+          lines == [] ->
+            lines
+
+          String.starts_with?(String.trim_leading(hd(lines)), "#") ->
+            lines
+
+          hd(lines) == "" ->
+            lines
+
+          true ->
+            ["" | lines]
+        end
+      end)
+      |> Enum.drop_while(&(&1 == ""))
+      |> Enum.reverse()
+
+    case lines do
+      [] ->
+        ""
+
+      lines ->
+        indentation =
+          lines
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
+          |> Enum.min()
+
+        Enum.map_join(lines, "\n", fn line ->
+          if line == "" do
+            ""
+          else
+            "  " <> String.slice(line, indentation, String.length(line) - indentation)
+          end
+        end)
+    end
   end
 
   @doc false

@@ -11,12 +11,12 @@ defmodule Examples.ALGenserver do
     use GenServer
     use AL
 
-    def start_link(object_id) do
-      GenServer.start_link(__MODULE__, object_id)
+    def start_link(object_id, observer) do
+      GenServer.start_link(__MODULE__, {object_id, observer})
     end
 
     @impl true
-    def init(object_id) do
+    def init({object_id, observer}) do
       pid = self()
 
       run branch: Examples.Support.branch() do
@@ -29,17 +29,13 @@ defmodule Examples.ALGenserver do
         end
       end
 
-      {:ok, %{object_id: object_id, count: 0}}
+      {:ok, %{object_id: object_id, observer: observer, count: 0}}
     end
 
     @impl true
     def handle_info({:increment, amount}, state) do
-      {:noreply, %{state | count: state.count + amount}}
-    end
-
-    @impl true
-    def handle_info({:get_count, reply_to}, state) do
-      send(reply_to, {:count, state.count})
+      state = %{state | count: state.count + amount}
+      send(state.observer, {:count_changed, self(), state.count})
       {:noreply, state}
     end
 
@@ -52,42 +48,10 @@ defmodule Examples.ALGenserver do
         vm_retract_super(^object_id, s)
       end
     end
-
-    def count(pid) do
-      send(pid, {:get_count, self()})
-
-      receive do
-        {:count, n} -> n
-      after
-        1000 -> :timeout
-      end
-    end
-  end
-
-  # `send_async`'s outbox pickup has no ordering guarantee against this
-  # test's own next `count/1` call — `count/1` is already a real synchronous
-  # round-trip to `CounterService` (send + receive), so polling it is enough
-  # to wait for the actual result instead of guessing a `Process.sleep`
-  # duration; no new notification channel needed on top of what's already there.
-  defp wait_for_count(pid, expected, deadline \\ System.monotonic_time(:millisecond) + 1000)
-
-  defp wait_for_count(pid, expected, deadline) do
-    case CounterService.count(pid) do
-      ^expected ->
-        expected
-
-      other ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          flunk("timed out waiting for count to reach #{expected}, last saw #{inspect(other)}")
-        else
-          Process.sleep(5)
-          wait_for_count(pid, expected, deadline)
-        end
-    end
   end
 
   example genserver_registers_as_al_object() do
-    {:ok, pid} = CounterService.start_link(:my_counter)
+    {:ok, pid} = CounterService.start_link(:my_counter, self())
 
     {:atomic, results} =
       :mnesia.transaction(fn ->
@@ -101,11 +65,8 @@ defmodule Examples.ALGenserver do
         send_async(:my_counter, :increment, [5])
       end
 
-    assert wait_for_count(pid, 5) == 5
+    assert_receive {:count_changed, ^pid, 5}, 1000
 
-    # `GenServer.stop/1` is synchronous — it only returns once the process has
-    # actually terminated, which (for a normal stop) means `terminate/2` (and
-    # its retract transaction) has already run. No sleep needed after it.
     GenServer.stop(pid)
 
     {:atomic, after_stop} =

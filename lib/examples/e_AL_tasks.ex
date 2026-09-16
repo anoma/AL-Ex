@@ -11,13 +11,6 @@ defmodule Examples.ALTasks do
   use AL
   import ExUnit.Assertions
 
-  # A worker whose handler both performs its effect and notifies a registered
-  # `:process` — the same synchronization `Examples.ALConstraints` uses:
-  # `send_async`'s outbox pickup has no ordering guarantee against the test
-  # process's own next line, so waiting means an actual signal (a blocking
-  # `receive`), not a guessed `Process.sleep` duration. `name`/`subscriber` are
-  # unique per caller so two examples registering their own worker never
-  # accrete onto (or race with) each other's clauses.
   defp register_worker(name, subscriber, pid) do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
