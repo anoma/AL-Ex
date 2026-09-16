@@ -5,6 +5,7 @@ Class {
   #ivars : [
     host: [],
     port: [],
+    packet: [default: :raw],
     owner: [default: :none],
     listener: [default: :none],
     inbox: [default: []],
@@ -18,15 +19,15 @@ Class {
 ]
 
 :tcp_socket >> :connect, [self, effect] [
-  get_slots(self, %{status: :disconnected, host: host, port: port})
+  get_slots(self, %{status: :disconnected, host: host, port: port, packet: packet})
   set_slot(self, :status, :connecting)
-  emit_effect(:tcp, :connect, [self, host, port], effect)
+  emit_effect(:tcp, :connect, [self, host, port, packet], effect)
 ]
 
 :tcp_socket >> :listen, [self, effect] [
-  get_slots(self, %{status: :disconnected, host: host, port: port})
+  get_slots(self, %{status: :disconnected, host: host, port: port, packet: packet})
   set_slot(self, :status, :starting)
-  emit_effect(:tcp, :listen, [self, host, port], effect)
+  emit_effect(:tcp, :listen, [self, host, port, packet], effect)
 ]
 
 :tcp_socket >> :connected, [self] [
@@ -53,6 +54,11 @@ Class {
   emit_effect(:tcp, :send, [self, data], effect)
 ]
 
+:tcp_socket >> :send_term, [self, term, effect] [
+  encode_term(self, term, bytes)
+  send_bytes(self, bytes, effect)
+]
+
 :tcp_socket >> :close, [self, effect] [
   get(self, :status, :connected)
   set_slot(self, :status, :closing)
@@ -77,8 +83,14 @@ Class {
 
 :tcp_socket >> :new_socket, [self, peer, socket] [
   get_slots(peer, %{address: host, port: port})
+  get(self, :packet, packet)
   class(self, socket_class)
-  new(socket_class, %{host: host, port: port, listener: self, status: :connected}, socket)
+
+  new(
+    socket_class,
+    %{host: host, port: port, packet: packet, listener: self, status: :connected},
+    socket
+  )
 ]
 
 :tcp_socket >> :accept_failed, [_self, _reason] [

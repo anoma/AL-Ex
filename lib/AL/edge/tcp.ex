@@ -8,16 +8,23 @@ defmodule AL.Edge.TCP do
   def __edge_provider__, do: :tcp
 
   @connect_timeout 5_000
+  @max_packet_size 1_048_576
 
   def start_link(_options), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl AL.Edge
   def execute(:connect, [socket_id, host, port], %{branch: branch})
       when is_binary(host) and is_integer(port) and port > 0 and port <= 65_535 do
+    execute(:connect, [socket_id, host, port, :raw], %{branch: branch})
+  end
+
+  def execute(:connect, [socket_id, host, port, packet], %{branch: branch})
+      when is_binary(host) and is_integer(port) and port > 0 and port <= 65_535 and
+             packet in [:raw, 4] do
     outcome =
       GenServer.call(
         __MODULE__,
-        {:connect, {branch.id, socket_id}, host, port},
+        {:connect, {branch.id, socket_id}, host, port, packet},
         @connect_timeout + 1_000
       )
 
@@ -29,10 +36,16 @@ defmodule AL.Edge.TCP do
 
   def execute(:listen, [listener_id, address, port], %{branch: branch})
       when is_binary(address) and is_integer(port) and port >= 0 and port <= 65_535 do
+    execute(:listen, [listener_id, address, port, :raw], %{branch: branch})
+  end
+
+  def execute(:listen, [listener_id, address, port, packet], %{branch: branch})
+      when is_binary(address) and is_integer(port) and port >= 0 and port <= 65_535 and
+             packet in [:raw, 4] do
     outcome =
       GenServer.call(
         __MODULE__,
-        {:listen, {branch.id, listener_id}, address, port, branch}
+        {:listen, {branch.id, listener_id}, address, port, packet, branch}
       )
 
     case outcome do
@@ -84,14 +97,14 @@ defmodule AL.Edge.TCP do
     do: {:ok, %{connections: %{}, sockets: %{}, listeners: %{}}}
 
   @impl GenServer
-  def handle_call({:connect, key, host, port}, _from, state) do
+  def handle_call({:connect, key, host, port, packet}, _from, state) do
     if Map.has_key?(state.connections, key) do
       {:reply, {:error, :already_connected}, state}
     else
       case :gen_tcp.connect(
              String.to_charlist(host),
              port,
-             [:binary, active: :once],
+             socket_options(packet, active: :once),
              @connect_timeout
            ) do
         {:ok, socket} ->
@@ -117,13 +130,13 @@ defmodule AL.Edge.TCP do
     end
   end
 
-  def handle_call({:listen, key, address, port, branch}, _from, state) do
+  def handle_call({:listen, key, address, port, packet, branch}, _from, state) do
     listeners = Map.get(state, :listeners, %{})
 
     if Map.has_key?(listeners, key) do
       {:reply, {:error, :already_listening}, state}
     else
-      case listen(address, port) do
+      case listen(address, port, packet) do
         {:ok, socket, actual_port} ->
           {_, listener_id} = key
           owner = self()
@@ -237,15 +250,13 @@ defmodule AL.Edge.TCP do
     end
   end
 
-  defp listen(address, port) do
+  defp listen(address, port, packet) do
     with {:ok, ip} <- parse_address(address),
          {:ok, socket} <-
-           :gen_tcp.listen(port, [
-             :binary,
-             active: false,
-             reuseaddr: true,
-             ip: ip
-           ]),
+           :gen_tcp.listen(
+             port,
+             socket_options(packet, active: false, reuseaddr: true, ip: ip)
+           ),
          {:ok, {_address, actual_port}} <- :inet.sockname(socket) do
       {:ok, socket, actual_port}
     end
@@ -257,6 +268,11 @@ defmodule AL.Edge.TCP do
       {:error, reason} -> {:error, {:invalid_listen_address, address, reason}}
     end
   end
+
+  defp socket_options(:raw, options), do: [:binary, {:packet, :raw} | options]
+
+  defp socket_options(4, options),
+    do: [:binary, {:packet, 4}, {:packet_size, @max_packet_size} | options]
 
   defp accept_loop(owner, key, listener) do
     case :gen_tcp.accept(listener) do

@@ -30,7 +30,6 @@ defmodule AL.Application do
     AL.Outbox.start_all()
 
     bootstrap()
-    register_natives()
     AL.Branch.ensure_examples()
     AL.Serialisation.start_all()
 
@@ -48,7 +47,10 @@ defmodule AL.Application do
         AL.TransactionProgram.current?(program.name, program.version)
       end)
 
-    install_startup(programs, packages_pending?)
+    case install_startup(programs, packages_pending?) do
+      :ok -> register_natives()
+      other -> other
+    end
   end
 
   defp install_startup([], false), do: :ok

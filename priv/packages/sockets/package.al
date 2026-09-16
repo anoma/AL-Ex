@@ -1,5 +1,5 @@
 Package {
   #name : :sockets,
-  #version : 7,
+  #version : 8,
   #deps : []
 }

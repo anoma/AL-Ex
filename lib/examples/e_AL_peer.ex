@@ -1,5 +1,5 @@
 defmodule Examples.ALPeer do
-  @moduledoc "I connect peers and exchange byte messages."
+  @moduledoc "I connect peers and exchange AL terms."
 
   use ExExample
   use AL
@@ -7,6 +7,7 @@ defmodule Examples.ALPeer do
 
   example peers_connect_and_exchange_a_message() do
     pid = self()
+    message = %{kind: :greeting, text: "hello", values: [1, 2, {:three, true}]}
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
@@ -18,7 +19,7 @@ defmodule Examples.ALPeer do
           end
         end
 
-        defworkflow :peer_chat, [] do
+        defworkflow :peer_chat, [message] do
           transaction do
             new(:peer, %{peer_name: "Alice"}, alice)
             new(:observed_peer, %{peer_name: "Bob"}, bob)
@@ -30,7 +31,7 @@ defmodule Examples.ALPeer do
 
           transaction do
             get(connection, :outcome, {:ok, :connected})
-            send_message(alice, socket, "hello", sent)
+            send_message(alice, socket, message, sent)
           end
 
           transaction do
@@ -40,14 +41,14 @@ defmodule Examples.ALPeer do
       end
 
     assert {:ok, _workflow} =
-             AL.workflow(:peer_chat, [], branch: Examples.Support.branch())
+             AL.workflow(:peer_chat, [message], branch: Examples.Support.branch())
 
-    assert_receive {:peer_message, bob, socket, "hello"}, 1_000
+    assert_receive {:peer_message, bob, socket, ^message}, 1_000
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         get(^bob, :name, "Bob")
-        get(^bob, :messages, [[^socket, "hello"]])
+        get(^bob, :messages, [[^socket, ^message]])
         get(^socket, :status, :connected)
         stop(^bob)
       end

@@ -17,7 +17,7 @@ Class {
   get(args, :peer_name, name)
   call_next_method(self, args, self)
   get_slots(self, %{host: host, port: port})
-  new(:tcp_socket, %{host: host, port: port, owner: self}, listener)
+  new(:tcp_socket, %{host: host, port: port, packet: 4, owner: self}, listener)
   configure_listener(self, listener)
   set_slots(self, %{name: name, listener: listener, status: :starting})
   listen(listener, _)
@@ -50,17 +50,26 @@ Class {
 
   defmethod(connection, :receive, [socket, bytes]) do
     call_next_method(socket, bytes)
+    decode_term(socket, bytes, message)
     get(socket, :owner, peer)
-    receive(peer, socket, bytes)
+    receive(peer, socket, message)
   end
 ]
 
 :peer >> :accepted, [self, listener, address, socket] [
   get_slots(address, %{address: host, port: port})
+  get(listener, :packet, packet)
 
   new(
     :tcp_socket,
-    %{host: host, port: port, owner: self, listener: listener, status: :connected},
+    %{
+      host: host,
+      port: port,
+      packet: packet,
+      owner: self,
+      listener: listener,
+      status: :connected
+    },
     socket
   )
 
@@ -71,7 +80,7 @@ Class {
 :peer >> :connect, [self, remote, socket, effect] [
   get(remote, :listener, listener)
   get_slots(listener, %{host: host, port: port})
-  new(:tcp_socket, %{host: host, port: port, owner: self}, socket)
+  new(:tcp_socket, %{host: host, port: port, packet: 4, owner: self}, socket)
   configure_connection(self, socket)
   add_connection(self, socket)
   connect(socket, effect)
@@ -86,7 +95,7 @@ Class {
 :peer >> :send_message, [self, socket, message, effect] [
   get(self, :connections, connections)
   member(connections, socket)
-  send_bytes(socket, message, effect)
+  send_term(socket, message, effect)
 ]
 
 :peer >> :listening, [self, _socket, port] [

@@ -31,7 +31,11 @@ config :al,
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
 # {class, selector, module, function, arity} or {..., opts} tuples.
-config :al, natives: []
+config :al,
+  natives: [
+    {:tcp_socket, :encode_term, AL.ExternalTerm, :encode, 2},
+    {:tcp_socket, :decode_term, AL.ExternalTerm, :decode, 2}
+  ]
 
 config :al, edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP]
 
