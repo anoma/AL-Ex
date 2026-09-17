@@ -21,6 +21,38 @@ defmodule Examples.ALUsers do
     :ok
   end
 
+  example owned_subclasses_apply_their_declared_ivar_specs() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        defclass :owned_ivar_probe,
+          super: :owned,
+          ivars: [items: [type: :list, default: []]] do
+        end
+      end
+
+    {:atomic, {creation_bindings, _}} =
+      run branch: Examples.Support.branch() do
+        new(:owned_ivar_probe, %{}, object)
+      end
+
+    object = Map.fetch!(creation_bindings, :"$object")
+
+    {:atomic, {slot_bindings, _}} =
+      run branch: Examples.Support.branch() do
+        findall([key, value], [vm_get_slot(^object, key, value)], slots)
+      end
+
+    assert Map.get(slot_bindings, :"$slots") == [[:items, []]]
+
+    {:atomic, {get_bindings, _}} =
+      run branch: Examples.Support.branch() do
+        get(^object, :items, items)
+      end
+
+    assert Map.get(get_bindings, :"$items") == []
+    :ok
+  end
+
   example owner_gated_update() do
     {:atomic, {b, _}} =
       run branch: Examples.Support.branch() do

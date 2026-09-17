@@ -5,10 +5,6 @@ Class {
   #ivars : [:name, :owner, :data]
 }
 
-:owned >> :init, [self, args, self] [
-  set_slots(self, args)
-]
-
 :owned >> :update, [self, slots] [
   set_slots(self, slots)
 ]

@@ -1,5 +1,5 @@
 Package {
   #name : :users,
-  #version : 1,
+  #version : 2,
   #deps : []
 }
