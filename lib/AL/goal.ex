@@ -54,6 +54,7 @@ defmodule AL.Goal do
           | AL.Goal.Unify.t()
           | AL.Goal.Equal.t()
           | AL.Goal.Dif.t()
+          | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
           | AL.Goal.Either.t()
           | AL.Goal.AllDif.t()
@@ -303,6 +304,11 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Isa do
+    field(:object, AL.Var.t())
+    field(:class, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Compare do
     field(:op, atom())
     field(:a, AL.Var.t())
@@ -512,6 +518,7 @@ defmodule AL.Goal do
     {Ground, :ground, [term: :term]},
     {IsVar, :var, [term: :term]},
     {Dif, :dif, [a: :term, b: :term]},
+    {Isa, :isa, [object: :term, class: :term]},
     {InDomain, :in_domain, [var: :term, values: :term]},
     {Label, :label, [term: :term]},
     {Functor, :functor, [term: :term, name: :term, args: :term]},

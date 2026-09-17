@@ -164,7 +164,7 @@ defmodule Examples.ALFailures do
 
     {:aborted, isa_reason} =
       run branch: Examples.Support.branch() do
-        class(y, :number)
+        isa(y, :number)
         unify(y, :not_a_number)
       end
 

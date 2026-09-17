@@ -181,7 +181,7 @@ defmodule AL.Tooling do
   defp reference_run(target, branch) do
     AL.run branch: branch.id do
       findall(class, [class(^target, class)], target_classes)
-      findall(object, [class(object, ^target), label(object)], instances)
+      findall(object, [isa(object, ^target), label(object)], instances)
       findall(superclass, [super(^target, superclass)], supers)
       findall(subclass, [super(subclass, ^target)], subclasses)
 

@@ -662,6 +662,7 @@ defmodule AL.Source do
   defp goal({:var, x}), do: call(:var, [x])
   defp goal({:call_term, t}), do: call(:call_term, [t])
   defp goal({:dif, a, b}), do: call(:dif, [a, b])
+  defp goal({:isa, object, class}), do: call(:isa, [object, class])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
   defp goal({:functor, term, name, args}), do: call(:functor, [term, name, args])

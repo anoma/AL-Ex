@@ -31,7 +31,7 @@ Class {
 ]
 
 :propagator >> :narrow_output, [self, [first | rest], candidate] [
-  class(first, :interval_value)
+  isa(first, :interval_value)
   constrain(self, [first | rest], candidate)
 ]
 

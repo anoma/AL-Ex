@@ -1,6 +1,5 @@
 Package {
   #name : :blackjack,
-  #version : 1,
+  #version : 2,
   #deps : []
 }
-

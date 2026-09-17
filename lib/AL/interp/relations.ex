@@ -25,61 +25,34 @@ defmodule AL.Interp.Relations do
       when is_number(object),
       do: AL.put_bindings(state, AL.unify(state, :number, class_pattern), [class_pattern])
 
-  # An unbound `object` with a ground `class_pattern` doesn't need a witness to
-  # succeed — it's declaring "object resolves within class_pattern", not asking
-  # for an instance of it — so it just registers the same `isa` constraint the
-  # value dispatch leg does (see al-dif-constraints memory) and leaves `object`
-  # open, instead of scanning every durable object of every class for one that
-  # happens to already carry this row (`:number`'s case: guaranteed empty, since
-  # numbers are never durable). `object` already ground still needs the real
-  # scan (a real durable lookup, not something isa constraints know about) --
-  # `object` *and* `class_pattern` both open is the third case below, and
-  # doesn't need a scan either.
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
-    known_isa = AL.Var.isa_of(store(state), object)
+    known_direct = AL.Var.direct_classes_of(store(state), object)
 
     cond do
       AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class_pattern) ->
-        if AL.Dispatch.isa_conflict?(known_isa, class_pattern, state.branch) do
-          AL.put_bindings(state, nil, [])
-        else
-          AL.put_bindings(state, AL.Var.add_isa(store(state), object, class_pattern), [])
-        end
+        {new_store, _classes} = AL.Var.add_direct_class(store(state), object, class_pattern)
 
-      # Querying `object`'s class (`class_pattern` still open) rather than
-      # asserting it — if `object` already carries a known `isa` domain (e.g.
-      # from the value dispatch leg's `generative_candidate`), that domain *is* the
-      # answer, so answer from it directly instead of scanning the durable
-      # table for an object that, as a value receiver, was never durably
-      # classified to begin with.
+        if AL.Var.direct_class_conflict?(new_store, object),
+          do: AL.put_bindings(state, nil, []),
+          else: AL.put_bindings(state, new_store, [])
+
       AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
-          not Enum.empty?(known_isa) ->
-        rows = for class <- known_isa, do: {:class, object, :isa, class}
-        scan_relation(state, rows, {:class, object, fresh_seq(), class_pattern})
+          not Enum.empty?(known_direct) ->
+        AL.fan_out(state, MapSet.to_list(known_direct), fn class ->
+          {AL.unify(state, class_pattern, class), [class_pattern]}
+        end)
 
-      # Neither side carries any information at all yet -- not "no answer",
-      # but nothing to search for one *now* either. `object` gets the
-      # ordinary isa entry ("class_pattern is my class", same as any other
-      # isa post, just still open) so labeling *it* is exactly the existing
-      # "self is the object" case. `class_pattern` is not symmetric with
-      # that -- "object isa class_pattern" does NOT mean "class_pattern isa
-      # object" (that would be the false claim "the class is an instance of
-      # its own instance"), so it gets a distinct, directional marker
-      # instead: `{:object_link, object}`, "I'm not an instance of anything
-      # yet, but I *am* the pending class of `object`". Labeling
-      # `class_pattern` reads that marker and redirects to labeling `object`
-      # (see `AL.label_from_class_domain/3`) rather than mistakenly
-      # constructing itself as an object. No choicepoint, no scan --
-      # forcing either side later (ordinary `send` dispatch on `object`, or
-      # an explicit `label` on either) is what actually enumerates real
-      # matches.
-      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) ->
-        new_store =
+      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
+          class_pattern != :"$_" ->
+        {new_store, _classes} =
           store(state)
-          |> AL.Var.add_isa(object, class_pattern)
-          |> AL.Var.add_isa(class_pattern, {:object_link, object})
+          |> AL.Var.add_direct_class(object, class_pattern)
 
-        AL.put_bindings(state, new_store, [])
+        new_store = AL.Var.add_isa(new_store, class_pattern, {:object_link, object})
+
+        if AL.Var.direct_class_conflict?(new_store, object),
+          do: AL.put_bindings(state, nil, []),
+          else: AL.put_bindings(state, new_store, [])
 
       true ->
         scan_relation(
@@ -87,6 +60,56 @@ defmodule AL.Interp.Relations do
           AL.Object.scan_class(object, class_pattern, state.branch),
           {:class, object, fresh_seq(), class_pattern}
         )
+    end
+  end
+
+  def interp(%Goal.Isa{object: object, class: class_pattern}, state) do
+    known_isa = AL.Var.isa_of(store(state), object)
+    known_direct = AL.Var.direct_classes_of(store(state), object)
+
+    cond do
+      AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class_pattern) ->
+        if AL.Dispatch.isa_conflict?(known_isa, class_pattern, state.branch) do
+          AL.put_bindings(state, nil, [])
+        else
+          new_store = AL.Var.add_isa(store(state), object, class_pattern)
+          AL.put_bindings(state, new_store, [])
+        end
+
+      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
+          not Enum.empty?(known_direct) ->
+        classes =
+          known_direct
+          |> Enum.flat_map(&AL.Dispatch.MethodOrder.super_chain([&1], state.branch, :dfs))
+          |> Enum.uniq()
+
+        AL.fan_out(state, classes, fn class ->
+          {AL.unify(state, class_pattern, class), [class_pattern]}
+        end)
+
+      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
+          not Enum.empty?(known_isa) ->
+        AL.fan_out(state, MapSet.to_list(known_isa), fn class ->
+          {AL.unify(state, class_pattern, class), [class_pattern]}
+        end)
+
+      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) ->
+        new_store =
+          store(state)
+          |> AL.Var.add_isa(object, class_pattern)
+          |> AL.Var.add_isa(class_pattern, {:isa_object_link, object})
+
+        AL.put_bindings(state, new_store, [])
+
+      AL.Var.var?(class_pattern) ->
+        AL.fan_out(state, AL.Dispatch.instance_classes(object, state.branch), fn class ->
+          {AL.unify(state, class_pattern, class), [class_pattern]}
+        end)
+
+      true ->
+        if AL.Dispatch.instance_of?(object, class_pattern, state.branch),
+          do: state,
+          else: AL.backtrack(state)
     end
   end
 

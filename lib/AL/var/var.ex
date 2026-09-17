@@ -336,6 +336,7 @@ defmodule AL.Var do
   defp merge_constraint_sets(a, b),
     do: %ConstraintSet{
       dif: a.dif ++ b.dif,
+      direct_class: MapSet.union(a.direct_class, b.direct_class),
       isa: MapSet.union(a.isa, b.isa),
       bounds: merge_bounds(a.bounds, b.bounds),
       props: a.props ++ b.props,
@@ -391,6 +392,38 @@ defmodule AL.Var do
     end)
   end
 
+  @spec add_direct_class(store(), variable(), AL.Var.t()) :: {store(), MapSet.t(AL.Var.t())}
+  def add_direct_class(store, var, class) do
+    classes = MapSet.put(direct_classes_of(store, var), class)
+
+    new_store =
+      Map.update(store, var, %ConstraintSet{direct_class: classes}, fn
+        %ConstraintSet{} = set -> %{set | direct_class: classes}
+        other -> other
+      end)
+
+    {new_store, classes}
+  end
+
+  @spec direct_classes_of(store(), variable()) :: MapSet.t(AL.Var.t())
+  def direct_classes_of(store, var) do
+    case constraint_set(store, var) do
+      nil -> MapSet.new()
+      set -> set.direct_class
+    end
+  end
+
+  @spec direct_class_conflict?(store(), variable()) :: boolean()
+  def direct_class_conflict?(store, var) do
+    store
+    |> direct_classes_of(var)
+    |> Enum.map(&deref(store, &1))
+    |> Enum.reject(&var?/1)
+    |> Enum.uniq()
+    |> length()
+    |> Kernel.>(1)
+  end
+
   # Intersects `{lo, hi}` into whatever bounds `var` already carries (via
   # `tighten_max`/`tighten_min`, the same narrowing `AL.Var.Bounds` itself
   # uses for a `< > <= >=` propagator) rather than overwriting them --
@@ -418,7 +451,7 @@ defmodule AL.Var do
   # the class side still open) answer directly from what's already known
   # instead of falling back to a real scan for a receiver that, as a value
   # candidate, was never durably classified in the first place.
-  @spec isa_of(store(), variable()) :: MapSet.t(atom())
+  @spec isa_of(store(), variable()) :: MapSet.t(AL.Var.ConstraintSet.isa_entry())
   def isa_of(store, var) do
     case constraint_set(store, var) do
       nil -> MapSet.new()
@@ -519,7 +552,13 @@ defmodule AL.Var do
   # same store slot), so callers always pass the set they already found
   # separately, not re-derive it from `store` here.
   defp find_violation(
-         %ConstraintSet{dif: dif, isa: isa, bounds: bounds, domain: domain},
+         %ConstraintSet{
+           dif: dif,
+           direct_class: direct_class,
+           isa: isa,
+           bounds: bounds,
+           domain: domain
+         },
          store,
          term,
          branch
@@ -533,6 +572,15 @@ defmodule AL.Var do
           cond do
             not in_bounds?(bounds, term) ->
               {:bounds, bounds}
+
+            (class =
+               Enum.find_value(direct_class, fn raw_class ->
+                 class = deref(store, raw_class)
+
+                 if not var?(class) and not AL.Dispatch.direct_class?(term, class, branch),
+                   do: class
+               end)) != nil ->
+              {:class, class}
 
             (class = Enum.find_value(isa, &isa_violation_class(&1, term, store, branch))) != nil ->
               {:isa, class}
@@ -561,7 +609,7 @@ defmodule AL.Var do
   # same reason: binding `var` first would overwrite the very `ConstraintSet`
   # entry this needs to read.
   @spec constraint_violation(store(), variable(), t(), AL.Branch.t()) ::
-          {:dif, t(), t()} | {:isa, atom()} | nil
+          {:dif, t(), t()} | {:class, atom()} | {:isa, atom()} | nil
   def constraint_violation(store, var, term, branch) do
     case constraint_set(store, var) do
       nil -> nil
@@ -578,25 +626,26 @@ defmodule AL.Var do
   # itself has already returned `nil` for this exact `x`/`y` — it does not
   # unify anything itself.
   @spec diagnose_unify_failure(t(), t(), store(), AL.Branch.t()) ::
-          {:dif, t(), t()} | {:isa, variable(), atom()} | nil
+          {:dif, t(), t()} | {:class, variable(), atom()} | {:isa, variable(), atom()} | nil
   def diagnose_unify_failure(x, y, store, branch) do
     rx = deref(store, x)
     ry = deref(store, y)
 
     cond do
       var?(rx) and not var?(ry) ->
-        tag_isa(constraint_violation(store, rx, ry, branch), rx)
+        tag_class_constraint(constraint_violation(store, rx, ry, branch), rx)
 
       var?(ry) and not var?(rx) ->
-        tag_isa(constraint_violation(store, ry, rx, branch), ry)
+        tag_class_constraint(constraint_violation(store, ry, rx, branch), ry)
 
       true ->
         nil
     end
   end
 
-  defp tag_isa({:isa, class}, var), do: {:isa, var, class}
-  defp tag_isa(other, _var), do: other
+  defp tag_class_constraint({:class, class}, var), do: {:class, var, class}
+  defp tag_class_constraint({:isa, class}, var), do: {:isa, var, class}
+  defp tag_class_constraint(other, _var), do: other
 
   # `{:object_link, obj}` (posted on the *class* side of a still-open
   # `class(x, y)`, see `AL.Interp.Relations.GetClass`) never asserts "I belong
@@ -607,6 +656,7 @@ defmodule AL.Var do
   # (e.g. "is `:program_execution` an instance of `:bootstrap`") and reject an
   # otherwise-valid bind.
   defp isa_violation_class({:object_link, _obj}, _term, _store, _branch), do: nil
+  defp isa_violation_class({:isa_object_link, _obj}, _term, _store, _branch), do: nil
 
   # An isa entry that's still an open var (`class(x, y)` with both sides
   # open posts `y` onto `x` this way) hasn't resolved to a class yet, so it
@@ -633,14 +683,7 @@ defmodule AL.Var do
   # `term`'s own class/super chain (`AL.Dispatch.MethodOrder.method_scopes/2`)
   # — one object's own classification, not the scan generating durable
   # *candidates* needs (see al-dif-constraints memory for that distinction).
-  defp isa?(term, :number, _branch), do: is_number(term)
-  defp isa?(term, :list, _branch), do: is_list(term)
-  defp isa?(term, :map, _branch), do: is_map(term)
-
-  defp isa?(term, class, branch),
-    do:
-      class in AL.Dispatch.MethodOrder.method_scopes(term, branch) or
-        AL.Dispatch.value_member?(term, class, branch)
+  defp isa?(term, class, branch), do: AL.Dispatch.instance_of?(term, class, branch)
 
   # `def`, not `defp` — `AL.Var.Bounds`' own narrowing fixpoint (`< > <= >=`
   # consistency, including through affine `+ - *` expressions) uses these

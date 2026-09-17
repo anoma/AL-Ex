@@ -29,28 +29,19 @@ defmodule AL.Dispatch do
 
     cond do
       AL.Var.var?(self) and self != :"$_" ->
-        known_isa = AL.Var.isa_of(state.active_choicepoint.store, self)
+        store = state.active_choicepoint.store
+        known_direct = resolved_direct_classes(store, self)
+        known_isa = resolved_isa_classes(store, self)
 
         value_classes =
           state.branch
           |> generative_descendants()
           |> filter_by_selector(method, state.branch)
-          |> Enum.reject(&isa_conflict?(known_isa, &1, state.branch))
+          |> filter_by_direct_classes(known_direct)
+          |> Enum.filter(&candidate_satisfies_isa?(&1, known_isa, state.branch))
 
         maybe_trace_dispatch(state, self, method, value_classes)
 
-        # Each candidate is its own independent, mutually-exclusive
-        # alternative -- `generative_candidate/6` attaches `class`'s isa tag
-        # to `self` for *that candidate's own* choicepoint, which is right.
-        # But it does so by mutating `active_choicepoint.store` and handing
-        # the same mutated state back as the fold accumulator -- so without
-        # resetting it here, the next class in the list would build its own
-        # candidate starting from a store where `self` is *already* isa the
-        # previous (unrelated) candidate class, accumulating an impossible
-        # multi-class isa across siblings instead of each starting clean.
-        # `domino` (scope/trace bookkeeping, needed across every candidate
-        # for tracing) is untouched by this reset -- only `active_choicepoint`
-        # carried the leaking mutation.
         {generative_candidates, state} =
           Enum.map_reduce(value_classes, state, fn class, acc_state ->
             original_active = acc_state.active_choicepoint
@@ -121,7 +112,72 @@ defmodule AL.Dispatch do
     end)
   end
 
+  @spec instance_classes(term(), AL.Branch.t()) :: [atom()]
+  def instance_classes(term, branch) do
+    term
+    |> direct_classes(branch)
+    |> Enum.flat_map(&AL.Dispatch.MethodOrder.super_chain([&1], branch, :dfs))
+    |> Enum.uniq()
+  end
+
+  @spec instance_of?(term(), atom(), AL.Branch.t()) :: boolean()
+  def instance_of?(term, class, branch), do: class in instance_classes(term, branch)
+
+  @spec direct_classes(term(), AL.Branch.t()) :: [atom()]
+  def direct_classes(term, branch) do
+    structural =
+      cond do
+        is_map(term) -> [Map.get(term, :class, :map)]
+        is_list(term) -> [:list]
+        is_number(term) -> [:number]
+        true -> []
+      end
+
+    durable =
+      if is_atom(term) do
+        for {:class, ^term, _seq, class} <- AL.Object.scan_class(term, :"$direct_class", branch),
+            do: class
+      else
+        []
+      end
+
+    values =
+      branch
+      |> generative_descendants()
+      |> Enum.filter(&value_member?(term, &1, branch))
+
+    Enum.uniq(structural ++ durable ++ values)
+  end
+
+  @spec direct_class?(term(), atom(), AL.Branch.t()) :: boolean()
+  def direct_class?(term, class, branch), do: class in direct_classes(term, branch)
+
   defp resolved_isa_class?(existing), do: is_atom(existing) and not AL.Var.var?(existing)
+
+  defp resolved_direct_classes(store, self) do
+    store
+    |> AL.Var.direct_classes_of(self)
+    |> Enum.map(&AL.Var.deref(store, &1))
+    |> Enum.filter(&(is_atom(&1) and not AL.Var.var?(&1)))
+    |> Enum.uniq()
+  end
+
+  defp resolved_isa_classes(store, self) do
+    store
+    |> AL.Var.isa_of(self)
+    |> Enum.map(&AL.Var.deref(store, &1))
+    |> Enum.filter(&resolved_isa_class?/1)
+    |> Enum.uniq()
+  end
+
+  defp filter_by_direct_classes(classes, []), do: classes
+  defp filter_by_direct_classes(classes, [direct]), do: Enum.filter(classes, &(&1 == direct))
+  defp filter_by_direct_classes(_classes, _direct), do: []
+
+  defp candidate_satisfies_isa?(class, known_isa, branch) do
+    chain = AL.Dispatch.MethodOrder.super_chain([class], branch, :dfs)
+    Enum.all?(known_isa, &(&1 in chain))
+  end
 
   defp related?(a, b, branch) do
     b in AL.Dispatch.MethodOrder.super_chain([a], branch, :dfs) or
@@ -180,20 +236,16 @@ defmodule AL.Dispatch do
     ]
   end
 
-  # Only called for :value classes (dispatch/5's only generative leg — see
-  # moduledoc). Attaches isa at construction (live for the whole call, not
-  # just future binds — see al-clp-for-objects memory), then calls class's
-  # own new with a fresh var per declared ivar; :value's own init
-  # (bootstrap.ex) discards the scaffold, so self stays open for
-  # send_as_value to unify against class's own clause heads directly (sound
-  # only when clause heads fully spec an instance — super: :value opts in).
   defp generative_candidate(state, self, method, args, class, method_scope) do
+    {store, _classes} =
+      AL.Var.add_direct_class(state.active_choicepoint.store, self, class)
+
     state =
       %AL{
         state
         | active_choicepoint: %AL.Choicepoint{
             state.active_choicepoint
-            | store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
+            | store: store
           }
       }
 
@@ -203,19 +255,16 @@ defmodule AL.Dispatch do
     AL.wrap_clause_scope(state, method_scope, self, method, args, goals)
   end
 
-  # Shared by generative_candidate/5 (a send's own generative leg) and
-  # generative_witness/4 (Goal.Label's isa-fallback leg, below) -- both
-  # construct a fresh instance via witness_goals/3 and attach isa at
-  # construction, differing only in what extra goals run afterward (a
-  # requery for the send's own method, vs pending-link unifications for a
-  # bare label with no selector in hand).
   defp generative_choicepoint(state, self, class, extra_goals) do
     goals = AL.splice_goals(state, witness_goals(state, self, class) ++ extra_goals)
+
+    {store, _classes} =
+      AL.Var.add_direct_class(state.active_choicepoint.store, self, class)
 
     %AL.Choicepoint{
       state.active_choicepoint
       | goals: goals,
-        store: AL.Var.add_isa(state.active_choicepoint.store, self, class)
+        store: store
     }
   end
 
@@ -330,6 +379,12 @@ defmodule AL.Dispatch do
     |> Enum.map(&class_domain_witness(state, self, object_var, &1))
   end
 
+  @spec isa_class_domain_choicepoints(AL.t(), AL.Var.t(), AL.Var.t()) :: [AL.Choicepoint.t()]
+  def isa_class_domain_choicepoints(state, self, object_var) do
+    every_class(state.branch)
+    |> Enum.map(&isa_class_domain_witness(state, self, object_var, &1))
+  end
+
   defp every_class(branch) do
     durable = branch |> durable_classes() |> Enum.flat_map(fn {_object, classes} -> classes end)
     Enum.uniq(generative_descendants(branch) ++ durable)
@@ -339,6 +394,16 @@ defmodule AL.Dispatch do
     goals =
       AL.splice_goals(state, [
         %Goal.GetClass{object: object_var, class: class},
+        %Goal.Unify{a: self, b: class}
+      ])
+
+    %AL.Choicepoint{state.active_choicepoint | goals: goals}
+  end
+
+  defp isa_class_domain_witness(state, self, object_var, class) do
+    goals =
+      AL.splice_goals(state, [
+        %Goal.Isa{object: object_var, class: class},
         %Goal.Unify{a: self, b: class}
       ])
 
@@ -366,45 +431,37 @@ defmodule AL.Dispatch do
     # self with a real, already-existing id before this ever runs, so the
     # IsVar check inside requery_goals/4 always takes the SendQuery branch.
     requery = AL.splice_goals(state, requery_goals(self, self, method, args, nil))
-    known_isa = AL.Var.isa_of(state.active_choicepoint.store, self)
+    store = state.active_choicepoint.store
+    known_direct = resolved_direct_classes(store, self)
+    known_isa = resolved_isa_classes(store, self)
 
     candidates =
       state.branch
-      |> durable_candidates(method, known_isa)
+      |> durable_candidates(method, known_direct, known_isa)
       |> Enum.map(&durable_choicepoint(state, self, &1, requery))
       |> Enum.reject(&(&1.store == nil))
 
     install_choicepoints(state, candidates)
   end
 
-  defp durable_candidates(branch, method, known_isa) do
+  defp durable_candidates(branch, method, known_direct, known_isa) do
     branch
-    |> durable_object_class_pairs(known_isa)
+    |> durable_object_class_pairs(known_direct, known_isa)
     |> Enum.filter(fn {_object, classes} ->
       AL.Var.var?(method) or Enum.any?(classes, &answers_selector?(&1, method, branch))
     end)
     |> Enum.map(fn {object, _classes} -> object end)
   end
 
-  # `known_isa` empty -- the common case, most sends have no isa constraint
-  # posted on self before they dispatch -- means the same full, cached scan
-  # as always. Non-empty: narrow to one indexed scan_class call per class in
-  # the isa domain's *descendant* closure (isa is transitive, so a durable
-  # object classed :dog still satisfies isa: [:animal]) instead of reading
-  # every class row in the table and relying on the later bind-time isa
-  # check alone to reject the ones that don't apply. `resolved_isa_class?/1`
-  # (below) excludes anything not yet a real class atom (a still-open
-  # pending-link var, or an `{:object_link, _}` marker) the same way
-  # `isa_conflict?/3` already has to.
-  defp durable_object_class_pairs(branch, known_isa) do
-    case Enum.filter(known_isa, &resolved_isa_class?/1) do
-      [] ->
+  defp durable_object_class_pairs(branch, known_direct, known_isa) do
+    classes = durable_candidate_classes(branch, known_direct, known_isa)
+
+    case classes do
+      :any ->
         durable_classes(branch)
 
       classes ->
         classes
-        |> Enum.flat_map(&AL.Dispatch.MethodOrder.descendants_of(&1, branch))
-        |> Enum.uniq()
         |> Enum.flat_map(fn class ->
           AL.Object.scan_class(
             AL.Var.var("durable_narrow_scan_#{AL.fresh_scope()}"),
@@ -417,6 +474,25 @@ defmodule AL.Dispatch do
           fn {:class, _o, _seq, class} -> class end
         )
         |> Map.to_list()
+    end
+  end
+
+  defp durable_candidate_classes(branch, [class], known_isa) do
+    if candidate_satisfies_isa?(class, known_isa, branch), do: [class], else: []
+  end
+
+  defp durable_candidate_classes(_branch, classes, _known_isa) when classes != [], do: []
+
+  defp durable_candidate_classes(branch, [], known_isa) do
+    case Enum.filter(known_isa, &resolved_isa_class?/1) do
+      [] ->
+        :any
+
+      classes ->
+        classes
+        |> Enum.map(&MapSet.new(AL.Dispatch.MethodOrder.descendants_of(&1, branch)))
+        |> Enum.reduce(&MapSet.intersection/2)
+        |> MapSet.to_list()
     end
   end
 

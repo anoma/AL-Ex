@@ -151,7 +151,7 @@ run do
   new(:bicycle, my_bike)
   new(:fire_hydrant, hydrant)
 
-  class(x, :vehicle)
+  isa(x, :vehicle)
   get(x, :color, :red)
 end
 ```

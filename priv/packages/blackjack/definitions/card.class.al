@@ -26,7 +26,7 @@ Class {
 ]
 
 :card >> :rank_value, [self, r, r] [
-  class(r, :number)
+  isa(r, :number)
 ]
 
 :card >> :card_value, [self, v] [

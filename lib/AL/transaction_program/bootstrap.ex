@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 12, deps: [] do
+  defprogram :bootstrap, version: 13, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -356,7 +356,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       findall(name, [member(old_names, name), not [member(new_names, name)]], removed_names)
 
-      findall(o, [class(o, self)], instances)
+      findall(o, [isa(o, self), label(o)], instances)
 
       forall([member(instances, o)]) do
         reconcile_redefined_instance(o, added_specs, removed_names)
@@ -537,7 +537,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :init_value, [_self, class, _args, [], output]) do
-      class(output, class)
+      isa(output, class)
     end
 
     defmethod(:object, :init_value, [self, class, args, [spec | rest], output]) do
@@ -552,7 +552,7 @@ defmodule AL.TransactionProgram.Bootstrap do
           end
 
           implies do
-            [member(opts, {:type, type})] -> class(value, type)
+            [member(opts, {:type, type})] -> isa(value, type)
           end
 
           implies do
@@ -656,7 +656,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     ]) do
       findall(c, [class(self, c)], classes)
       findall([c, s], [class(self, c), super(c, s)], class_supers)
-      findall(c, [class(c, self), label(c)], objects)
+      findall(c, [isa(c, self), label(c)], objects)
       findall(s, [super(self, s)], supers)
       findall(sub, [super(sub, self)], subs)
       findall([n, id], [vm_method(self, n, id)], methods)

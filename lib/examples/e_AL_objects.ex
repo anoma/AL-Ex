@@ -139,6 +139,40 @@ defmodule Examples.ALObjects do
     :ok
   end
 
+  example class_is_direct_and_isa_is_transitive() do
+    {:atomic, {bindings, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :direct_vehicle, super: :object do
+        end
+
+        defclass :direct_car, super: :direct_vehicle do
+        end
+
+        defclass :direct_hydrant, super: :object do
+        end
+
+        set_slot(:direct_car, :color, :red)
+        set_slot(:direct_hydrant, :color, :red)
+
+        new(:direct_car, car)
+        new(:direct_hydrant, hydrant)
+
+        findall(x, [class(x, :direct_vehicle), label(x), get(x, :color, :red)], direct)
+        findall(x, [isa(x, :direct_vehicle), label(x), get(x, :color, :red)], inherited)
+
+        class(car, :direct_car)
+        not [class(car, :direct_vehicle)]
+        isa(car, :direct_vehicle)
+        isa(candidate, ancestor)
+        unify(ancestor, :direct_vehicle)
+        unify(candidate, car)
+      end
+
+    assert Map.get(bindings, :"$direct") == []
+    assert Map.get(bindings, :"$inherited") == [Map.get(bindings, :"$car")]
+    refute Map.get(bindings, :"$hydrant") in Map.get(bindings, :"$inherited")
+  end
+
   example slot_merge_semantics() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
@@ -1038,13 +1072,13 @@ defmodule Examples.ALObjects do
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
-        class(x, :isa_durable_class_a)
+        isa(x, :isa_durable_class_a)
         unify(x, :isa_durable_instance_b)
       end
 
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
-        class(x, :isa_durable_class_a)
+        isa(x, :isa_durable_class_a)
         unify(x, :isa_durable_instance_a)
       end
 
@@ -1052,7 +1086,7 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings2, _}} =
       run branch: Examples.Support.branch() do
-        class(o, :isa_durable_class_a)
+        isa(o, :isa_durable_class_a)
         findall(o, [isa_durable_probe(o, o)], os)
       end
 

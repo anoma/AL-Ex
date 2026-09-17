@@ -214,6 +214,7 @@ defmodule Examples.ALSource do
       {:label, :"$x"},
       {:call_term, :"$x"},
       {:dif, :"$a", :"$b"},
+      {:isa, :"$o", :thing},
       {:unify, :"$a", :"$b"},
       {:in_domain, :"$x", [1, 2]},
       {:all_dif, [:"$a", :"$b"]},

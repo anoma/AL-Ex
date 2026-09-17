@@ -231,8 +231,8 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        class(x, :left_value_class)
-        class(x, :right_value_class)
+        isa(x, :left_value_class)
+        isa(x, :right_value_class)
       end
 
     :ok
@@ -257,8 +257,8 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        class(x, :ghost_value_class)
-        class(x, :ghost_durable_class)
+        isa(x, :ghost_value_class)
+        isa(x, :ghost_durable_class)
       end
 
     :ok
@@ -282,7 +282,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, [class(x, :ghost_right)], xs)
+        findall(x, [isa(x, :ghost_right)], xs)
       end
 
     assert length(Map.get(bindings, :"$xs")) == 1
@@ -298,7 +298,7 @@ defmodule Examples.ALGenerative do
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
-        class(x, :card)
+        isa(x, :card)
         label(x)
         get(x, :suit, suit)
       end
@@ -330,7 +330,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
-        class(x, :durable_witness_class)
+        isa(x, :durable_witness_class)
         label(x)
       end
 
@@ -365,7 +365,7 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
-        class(x, :isa_descendant_parent)
+        isa(x, :isa_descendant_parent)
         isa_descendant_probe(x, r)
       end
 
@@ -385,7 +385,7 @@ defmodule Examples.ALGenerative do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        class(x, :witnessless_durable_class)
+        isa(x, :witnessless_durable_class)
         label(x)
       end
 
@@ -524,7 +524,7 @@ defmodule Examples.ALGenerative do
   example unbound_but_constrained_vars_surface_in_constraints() do
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
-        class(o, :class)
+        isa(o, :class)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$o"))
@@ -540,5 +540,29 @@ defmodule Examples.ALGenerative do
 
     refute Map.has_key?(bindings, :"$constraints")
     :ok
+  end
+
+  example direct_class_constraints_narrow_unbound_receiver_dispatch() do
+    {:atomic, {bindings, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :dispatch_vehicle, super: :value do
+          defmethod(:dispatch_kind, [_self, :vehicle])
+        end
+
+        defclass :dispatch_car, super: [:dispatch_vehicle, :value] do
+          defmethod(:dispatch_kind, [_self, :car])
+        end
+
+        findall(kind, [class(receiver, :dispatch_vehicle), dispatch_kind(receiver, kind)], exact)
+
+        findall(
+          kind,
+          [isa(receiver, :dispatch_vehicle), dispatch_kind(receiver, kind)],
+          inherited
+        )
+      end
+
+    assert Map.get(bindings, :"$exact") == [:vehicle]
+    assert Enum.sort(Map.get(bindings, :"$inherited")) == [:car, :vehicle]
   end
 end

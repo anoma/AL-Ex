@@ -266,6 +266,8 @@ defmodule AL.Trace do
 
   defp tree_step(%AL.Goal.Dif{} = goal, acc, store), do: attach_constraint_leaf(goal, acc, store)
 
+  defp tree_step(%AL.Goal.Isa{} = goal, acc, store), do: attach_constraint_leaf(goal, acc, store)
+
   defp tree_step(%AL.Goal.AllDif{} = goal, acc, store),
     do: attach_constraint_leaf(goal, acc, store)
 

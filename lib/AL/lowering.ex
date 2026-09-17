@@ -265,6 +265,9 @@ defmodule AL.Lowering do
   def ast_to_pattern({:dif, _, [a, b]}),
     do: %Goal.Dif{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
+  def ast_to_pattern({:isa, _, [object, class]}),
+    do: %Goal.Isa{object: ast_to_pattern(object), class: ast_to_pattern(class)}
+
   def ast_to_pattern({:in_domain, _, [var, values]}),
     do: %Goal.InDomain{var: ast_to_pattern(var), values: ast_to_pattern(values)}
 

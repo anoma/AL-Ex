@@ -170,7 +170,7 @@ defmodule Examples.ALNumbers do
     :ok
   end
 
-  example class_of_an_open_var_registers_isa_without_scanning() do
+  example class_of_an_open_var_registers_direct_class_without_scanning() do
     {:atomic, {bindings, _}} =
       run branch: Examples.Support.branch() do
         class(x, :number)

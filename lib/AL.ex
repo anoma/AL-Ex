@@ -402,15 +402,23 @@ defmodule AL do
 
   defp summarize_constraints(self, %AL.Var.ConstraintSet{
          dif: dif,
+         direct_class: direct_class,
          isa: isa,
          bounds: bounds,
          domain: domain
        }) do
     %{}
+    |> maybe_put_direct_class(direct_class)
     |> maybe_put_isa(isa)
     |> maybe_put_dif(self, dif)
     |> maybe_put_bounds(bounds)
     |> maybe_put_domain(domain)
+  end
+
+  defp maybe_put_direct_class(map, direct_class) do
+    if MapSet.size(direct_class) > 0,
+      do: Map.put(map, :class, MapSet.to_list(direct_class)),
+      else: map
   end
 
   defp maybe_put_isa(map, isa) do
@@ -651,6 +659,7 @@ defmodule AL do
 
   defp constraint_goal?(%Goal.Compare{}), do: true
   defp constraint_goal?(%Goal.Dif{}), do: true
+  defp constraint_goal?(%Goal.Isa{}), do: true
   defp constraint_goal?(%Goal.AllDif{}), do: true
   defp constraint_goal?(%Goal.InDomain{}), do: true
   defp constraint_goal?(_), do: false
@@ -875,6 +884,7 @@ defmodule AL do
 
   @spec interp(AL.Goal.t(), t()) :: t() | nil
   def interp(%Goal.GetClass{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.Isa{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetCommand{} = g, state), do: AL.Interp.Relations.interp(g, state)
@@ -2189,6 +2199,11 @@ defmodule AL do
       "class #{inspect(class)}."
   end
 
+  defp constraint_violation_message({:class, var, class}) do
+    "Constraint violated: #{inspect(AL.Trace.pretty(var))} was required to have direct class " <>
+      "#{inspect(class)}."
+  end
+
   defp constraint_violation_message({:bounds, {lo, hi}}) do
     "Constraint violated: value was required to stay within bounds [#{inspect(lo)}, #{inspect(hi)}]."
   end
@@ -2198,6 +2213,7 @@ defmodule AL do
   end
 
   defp pretty_violation({:dif, a, b}), do: {:dif, AL.Trace.pretty(a), AL.Trace.pretty(b)}
+  defp pretty_violation({:class, var, class}), do: {:class, AL.Trace.pretty(var), class}
   defp pretty_violation({:isa, var, class}), do: {:isa, AL.Trace.pretty(var), class}
   defp pretty_violation({:bounds, bounds}), do: {:bounds, bounds}
   defp pretty_violation({:domain, domain}), do: {:domain, MapSet.to_list(domain)}
@@ -2727,6 +2743,24 @@ defmodule AL do
   # No isa at all, or no candidate produces a witness: fails, same as an
   # unbounded domain always did.
   defp label_from_class_domain(v, store, state) do
+    case MapSet.to_list(AL.Var.direct_classes_of(store, v)) do
+      [] ->
+        label_from_isa_domain(v, store, state)
+
+      known_direct ->
+        {classes, pending_links} = partition_isa(known_direct, store)
+
+        choicepoints =
+          case classes do
+            [] -> AL.Dispatch.object_witness_choicepoints(state, v, :any, pending_links)
+            _ -> AL.Dispatch.object_witness_choicepoints(state, v, classes, pending_links)
+          end
+
+        AL.Dispatch.install_choicepoints(state, choicepoints)
+    end
+  end
+
+  defp label_from_isa_domain(v, store, state) do
     case MapSet.to_list(AL.Var.isa_of(store, v)) do
       [] ->
         backtrack(state)
@@ -2738,19 +2772,31 @@ defmodule AL do
               {classes, pending_links} = partition_isa(known_isa, store)
 
               case classes do
-                [] -> AL.Dispatch.object_witness_choicepoints(state, v, :any, pending_links)
-                _ -> AL.Dispatch.object_witness_choicepoints(state, v, classes)
+                [] ->
+                  AL.Dispatch.object_witness_choicepoints(state, v, :any, pending_links)
+
+                _ ->
+                  descendants =
+                    classes
+                    |> Enum.flat_map(&AL.Dispatch.MethodOrder.descendants_of(&1, state.branch))
+                    |> Enum.uniq()
+
+                  AL.Dispatch.object_witness_choicepoints(state, v, descendants)
               end
 
-            object_var ->
+            {:class, object_var} ->
               AL.Dispatch.class_domain_choicepoints(state, v, object_var)
+
+            {:isa, object_var} ->
+              AL.Dispatch.isa_class_domain_choicepoints(state, v, object_var)
           end
 
         AL.Dispatch.install_choicepoints(state, choicepoints)
     end
   end
 
-  defp object_link_target({:object_link, obj}), do: obj
+  defp object_link_target({:object_link, obj}), do: {:class, obj}
+  defp object_link_target({:isa_object_link, obj}), do: {:isa, obj}
   defp object_link_target(_), do: nil
 
   defp partition_isa(known_isa, store) do

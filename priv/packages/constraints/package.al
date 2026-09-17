@@ -1,5 +1,5 @@
 Package {
   #name : :constraints,
-  #version : 1,
+  #version : 2,
   #deps : [:elixir_process, :mapset, :interval]
 }
