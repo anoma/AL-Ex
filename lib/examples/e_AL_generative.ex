@@ -565,4 +565,38 @@ defmodule Examples.ALGenerative do
     assert Map.get(bindings, :"$exact") == [:vehicle]
     assert Enum.sort(Map.get(bindings, :"$inherited")) == [:car, :vehicle]
   end
+
+  example value_membership_uses_its_explicit_branch() do
+    branch_id = Examples.Support.branch()
+    branch = %AL.Branch{id: branch_id}
+
+    {:atomic, _} =
+      run branch: branch_id do
+        defclass :explicit_branch_value, super: :value do
+          defmethod(:identify, [
+            %{class: :explicit_branch_value, name: :member},
+            :member
+          ])
+        end
+      end
+
+    :erlang.trace(self(), true, [:call])
+    :erlang.trace_pattern({AL.Branch, :head, 0}, true, [:local])
+
+    try do
+      assert {:atomic, true} =
+               :mnesia.transaction(fn ->
+                 AL.Dispatch.value_member?(
+                   %{class: :explicit_branch_value, name: :member},
+                   :explicit_branch_value,
+                   branch
+                 )
+               end)
+
+      refute_receive {:trace, _pid, :call, {AL.Branch, :head, []}}
+    after
+      :erlang.trace(self(), false, [:call])
+      :erlang.trace_pattern({AL.Branch, :head, 0}, false, [:local])
+    end
+  end
 end

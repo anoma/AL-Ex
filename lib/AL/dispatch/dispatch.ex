@@ -116,12 +116,18 @@ defmodule AL.Dispatch do
   def instance_classes(term, branch) do
     term
     |> direct_classes(branch)
-    |> Enum.flat_map(&AL.Dispatch.MethodOrder.super_chain([&1], branch, :dfs))
+    |> Enum.flat_map(&AL.Dispatch.MethodOrder.cached_super_chain([&1], branch, :dfs))
     |> Enum.uniq()
   end
 
   @spec instance_of?(term(), atom(), AL.Branch.t()) :: boolean()
-  def instance_of?(term, class, branch), do: class in instance_classes(term, branch)
+  def instance_of?(term, class, branch) do
+    term
+    |> direct_classes(branch)
+    |> Enum.any?(fn direct_class ->
+      class in AL.Dispatch.MethodOrder.cached_super_chain([direct_class], branch, :dfs)
+    end)
+  end
 
   @spec direct_classes(term(), AL.Branch.t()) :: [atom()]
   def direct_classes(term, branch) do
@@ -615,7 +621,12 @@ defmodule AL.Dispatch do
       |> own_clause_self_patterns(branch)
       |> Enum.any?(fn pattern ->
         not AL.Var.var?(pattern) and
-          AL.Var.unify(AL.Var.freshen(pattern, Integer.to_string(AL.fresh_scope())), term) != nil
+          AL.Var.unify(
+            AL.Var.freshen(pattern, Integer.to_string(AL.fresh_scope())),
+            term,
+            %{},
+            branch
+          ) != nil
       end)
   end
 

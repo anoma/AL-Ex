@@ -99,7 +99,6 @@ defmodule Examples.ALPackages do
              Enum.sort([
                [:owned, :does_not_understand],
                [:owned, :guarded_send],
-               [:owned, :init],
                [:owned, :may],
                [:owned, :update]
              ])

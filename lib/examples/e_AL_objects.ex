@@ -173,6 +173,49 @@ defmodule Examples.ALObjects do
     refute Map.get(bindings, :"$hydrant") in Map.get(bindings, :"$inherited")
   end
 
+  example repeated_isa_checks_reuse_the_cached_hierarchy() do
+    branch_id = Examples.Support.branch()
+    branch = %AL.Branch{id: branch_id}
+
+    {:atomic, _} =
+      run branch: branch_id do
+        defclass :cached_isa_base, super: :object do
+        end
+
+        defclass :cached_isa_leaf, super: :cached_isa_base do
+        end
+
+        new(:cached_isa_leaf, %{name: :cached_isa_object}, _)
+      end
+
+    {:atomic, :ok} =
+      :mnesia.transaction(fn -> AL.ResolutionCache.invalidate_method_scopes(branch) end)
+
+    assert {:atomic, true} =
+             :mnesia.transaction(fn ->
+               AL.Dispatch.instance_of?(:cached_isa_object, :cached_isa_base, branch)
+             end)
+
+    assert {:atomic,
+            [
+              {:method_scopes, {[:cached_isa_leaf], :dfs}, hierarchy}
+            ]} =
+             :mnesia.transaction(fn ->
+               :mnesia.read(
+                 AL.ResolutionCache.table(:method_scopes, branch),
+                 {[:cached_isa_leaf], :dfs}
+               )
+             end)
+
+    assert :cached_isa_base in hierarchy
+
+    {:atomic, _} =
+      run branch: branch_id do
+        vm_set_super(:cached_isa_base, :cached_isa_root)
+        isa(:cached_isa_object, :cached_isa_root)
+      end
+  end
+
   example slot_merge_semantics() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
