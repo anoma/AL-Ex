@@ -197,7 +197,6 @@ defmodule Examples.ALSource do
       {:oapply, :fresh_id, [:"$id"]},
       {:oapply, :current_tx, [:"$tx"]},
       {:oapply, :transaction_object, [:"$tx", :"$object"]},
-      {:oapply, :workflow_waiter, [:"$effect", :"$waiter"]},
       {:oapply, :cached_ivar_specs, [:"$class", :"$specs"]},
       {:oapply, :cached_find_ivar_spec, [:"$o", :"$key", :"$spec"]},
       {:oapply, :source_method_parts, [:"$a", :"$b", :"$c", :"$d"]},

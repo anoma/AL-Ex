@@ -21,17 +21,11 @@ defmodule AL.Edge.TCP do
   def execute(:connect, [socket_id, host, port, packet], %{branch: branch})
       when is_binary(host) and is_integer(port) and port > 0 and port <= 65_535 and
              packet in [:raw, 4] do
-    outcome =
-      GenServer.call(
-        __MODULE__,
-        {:connect, {branch.id, socket_id}, host, port, packet},
-        @connect_timeout + 1_000
-      )
-
-    case outcome do
-      {:ok, :connected} -> {:notify, outcome, [{socket_id, :connected, []}]}
-      {:error, reason} -> {:notify, outcome, [{socket_id, :connection_failed, [reason]}]}
-    end
+    GenServer.call(
+      __MODULE__,
+      {:connect, {branch.id, socket_id}, host, port, packet},
+      @connect_timeout + 1_000
+    )
   end
 
   def execute(:listen, [listener_id, address, port], %{branch: branch})
@@ -42,46 +36,22 @@ defmodule AL.Edge.TCP do
   def execute(:listen, [listener_id, address, port, packet], %{branch: branch})
       when is_binary(address) and is_integer(port) and port >= 0 and port <= 65_535 and
              packet in [:raw, 4] do
-    outcome =
-      GenServer.call(
-        __MODULE__,
-        {:listen, {branch.id, listener_id}, address, port, packet, branch}
-      )
-
-    case outcome do
-      {:ok, actual_port} ->
-        {:notify, outcome, [{listener_id, :listening, [actual_port]}]}
-
-      {:error, reason} ->
-        {:notify, outcome, [{listener_id, :listen_failed, [reason]}]}
-    end
+    GenServer.call(
+      __MODULE__,
+      {:listen, {branch.id, listener_id}, address, port, packet, branch}
+    )
   end
 
   def execute(:send, [socket_id, data], %{branch: branch}) when is_binary(data) do
-    outcome = GenServer.call(__MODULE__, {:send, {branch.id, socket_id}, data})
-
-    case outcome do
-      {:ok, _bytes} -> outcome
-      {:error, reason} -> {:notify, outcome, [{socket_id, :connection_lost, [reason]}]}
-    end
+    GenServer.call(__MODULE__, {:send, {branch.id, socket_id}, data})
   end
 
   def execute(:close, [socket_id], %{branch: branch}) do
-    outcome = GenServer.call(__MODULE__, {:close, {branch.id, socket_id}})
-
-    case outcome do
-      {:ok, :closed} -> {:notify, outcome, [{socket_id, :connection_lost, [:closed]}]}
-      {:error, reason} -> {:notify, outcome, [{socket_id, :connection_lost, [reason]}]}
-    end
+    GenServer.call(__MODULE__, {:close, {branch.id, socket_id}})
   end
 
   def execute(:close_listener, [listener_id], %{branch: branch}) do
-    outcome = GenServer.call(__MODULE__, {:close_listener, {branch.id, listener_id}})
-
-    case outcome do
-      {:ok, :stopped} -> {:notify, outcome, [{listener_id, :stopped, []}]}
-      {:error, reason} -> {:notify, outcome, [{listener_id, :stop_failed, [reason]}]}
-    end
+    GenServer.call(__MODULE__, {:close_listener, {branch.id, listener_id}})
   end
 
   def execute(operation, arguments, _context)

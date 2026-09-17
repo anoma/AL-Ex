@@ -1,5 +1,5 @@
 defmodule Examples.ALHTTP do
-  @moduledoc "I exercise promise-like HTTP responses through workflows."
+  @moduledoc "I exercise HTTP effects and their future transactions."
 
   use ExExample
   use AL
@@ -7,48 +7,33 @@ defmodule Examples.ALHTTP do
 
   example http_request_resolves_a_response() do
     {server, url} = start_http_server("GET", "/hello", "", 200, "OK", "hello")
+    pid = self()
 
     try do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
-          defworkflow :http_fetch, [url],
-            outputs: [response, status_code, headers, body, error] do
-            transaction do
-              new(
-                :http_request,
-                %{method: :get, url: url, headers: [], body: "", timeout: 1000},
-                request
-              )
+          new(:process, %{name: :http_get_observer, pid: ^pid}, _)
 
-              execute(request, response)
-            end
+          new(
+            :http_request,
+            %{method: :get, url: ^url, headers: [], body: "", timeout: 1000},
+            request
+          )
 
-            transaction do
-              get(response, :outcome, {:ok, result})
+          execute(request, response)
 
-              get_slots(result, %{
-                status_code: status_code,
-                headers: headers,
-                body: body
-              })
-
-              unify(error, :none)
-            end
+          await(response, [outcome]) do
+            get(:http_get_observer, :pid, observer)
+            functor(event, :http_result, [response, outcome])
+            send_elixir(observer, event)
           end
         end
 
-      assert {:ok, workflow} =
-               AL.workflow(:http_fetch, [url], branch: Examples.Support.branch())
-
-      assert {:ok, result} =
-               AL.await_workflow(workflow, branch: Examples.Support.branch(), timeout: 1000)
-
-      response = result.response
+      assert_receive {:http_result, response, {:ok, result}}, 1_000
 
       assert result.status_code == 200
       assert {"x-al-example", "yes"} in result.headers
       assert result.body == "hello"
-      assert result.error == :none
 
       context = %{effect_id: response, branch: %AL.Branch{id: :examples}}
 
@@ -66,10 +51,13 @@ defmodule Examples.ALHTTP do
 
   example post_request_sends_a_body() do
     {server, url} = start_http_server("POST", "/items", "payload", 201, "Created", "saved")
+    pid = self()
 
     try do
-      {:atomic, {bindings, _runtime}} =
+      {:atomic, _} =
         run branch: Examples.Support.branch() do
+          new(:process, %{name: :http_post_observer, pid: ^pid}, _)
+
           new(
             :http_request,
             %{
@@ -84,12 +72,15 @@ defmodule Examples.ALHTTP do
           )
 
           execute(request, response)
+
+          await(response, [outcome]) do
+            get(:http_post_observer, :pid, observer)
+            functor(event, :http_post_result, [outcome])
+            send_elixir(observer, event)
+          end
         end
 
-      response = bindings[:"$response"]
-
-      assert {:ok, result} =
-               AL.await_effect(response, branch: Examples.Support.branch(), timeout: 1000)
+      assert_receive {:http_post_result, {:ok, result}}, 1_000
 
       assert result.status_code == 201
       assert result.body == "saved"
@@ -101,35 +92,29 @@ defmodule Examples.ALHTTP do
 
   example transport_failure_rejects_the_response() do
     url = "http://127.0.0.1:#{closed_tcp_port()}/unavailable"
+    pid = self()
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defworkflow :failed_http_fetch, [url], outputs: [status_code, error] do
-          transaction do
-            new(
-              :http_request,
-              %{method: :get, url: url, headers: [], body: "", timeout: 1000},
-              request
-            )
+        new(:process, %{name: :http_failure_observer, pid: ^pid}, _)
 
-            execute(request, response)
-          end
+        new(
+          :http_request,
+          %{method: :get, url: ^url, headers: [], body: "", timeout: 1000},
+          request
+        )
 
-          transaction do
-            get(response, :outcome, {:error, error})
-            unify(status_code, :none)
-          end
+        execute(request, response)
+
+        await(response, [outcome]) do
+          get(:http_failure_observer, :pid, observer)
+          functor(event, :http_failure, [outcome])
+          send_elixir(observer, event)
         end
       end
 
-    assert {:ok, workflow} =
-             AL.workflow(:failed_http_fetch, [url], branch: Examples.Support.branch())
-
-    assert {:ok, result} =
-             AL.await_workflow(workflow, branch: Examples.Support.branch(), timeout: 1000)
-
-    assert result.status_code == :none
-    refute result.error == :none
+    assert_receive {:http_failure, {:error, error}}, 1_000
+    refute error == :none
   end
 
   defp start_http_server(method, path, request_body, status_code, reason, response_body) do

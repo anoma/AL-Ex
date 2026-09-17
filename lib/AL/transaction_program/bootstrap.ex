@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 9, deps: [] do
+  defprogram :bootstrap, version: 12, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -677,13 +677,50 @@ defmodule AL.TransactionProgram.Bootstrap do
     new(
       :class,
       %{
+        name: :future_transaction,
+        super: :object,
+        ivars: [:effect, :head, :goals, :status]
+      },
+      _
+    )
+
+    defmethod(:future_transaction, :init, [self, args, self]) do
+      get_slots(args, %{effect: effect, head: head, goals: goals, status: status})
+      vm_set_slot(self, :effect, effect)
+      vm_set_slot(self, :head, head)
+      vm_set_slot(self, :goals, goals)
+      vm_set_slot(self, :status, status)
+    end
+
+    defmethod(:future_transaction, :run, [self]) do
+      get(self, :status, :ready)
+      run_goals(self, [])
+    end
+
+    defmethod(:future_transaction, :run, [self]) do
+      get(self, :status, :waiting)
+      get(self, :effect, effect)
+      get(effect, :status, :completed)
+      get(effect, :outcome, outcome)
+      run_goals(self, [outcome])
+    end
+
+    defmethod(:future_transaction, :run_goals, [self, arguments]) do
+      get_slots(self, %{head: head, goals: goals})
+      set_slot(self, :status, :running)
+      call(head, goals, arguments)
+      set_slot(self, :status, :completed)
+    end
+
+    new(
+      :class,
+      %{
         name: :effect,
         super: :object,
         ivars: [
           :provider,
           :operation,
           :arguments,
-          :waiter,
           :status,
           :outcome,
           :requested_by,
@@ -698,13 +735,11 @@ defmodule AL.TransactionProgram.Bootstrap do
       vm_map_get(args, :operation, operation)
       vm_map_get(args, :arguments, arguments)
       vm_transaction_object(requested_by)
-      vm_workflow_waiter(self, waiter)
 
       set_slots(self, %{
         provider: provider,
         operation: operation,
         arguments: arguments,
-        waiter: waiter,
         status: :pending,
         outcome: :none,
         requested_by: requested_by,
@@ -716,7 +751,6 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:effect, :complete, [self, outcome]) do
       get(self, :status, :pending)
-      get(self, :waiter, waiter)
       vm_transaction_object(completed_by)
 
       set_slots(self, %{
@@ -724,18 +758,6 @@ defmodule AL.TransactionProgram.Bootstrap do
         outcome: outcome,
         completed_by: completed_by
       })
-
-      complete_waiter(self, waiter, outcome)
-    end
-
-    defmethod(:effect, :complete_waiter, [_self, :none, _outcome])
-
-    defmethod(
-      :effect,
-      :complete_waiter,
-      [self, {workflow, selector, step}, outcome]
-    ) do
-      vm_workflow_effect_completed(workflow, selector, step, self, outcome)
     end
 
     defmethod(:transaction, :listing, [self, text]) do

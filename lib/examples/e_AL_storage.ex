@@ -10,6 +10,16 @@ defmodule Examples.ALStorage do
   use AL
   import ExUnit.Assertions
 
+  example durable_identities_are_atoms() do
+    result =
+      run branch: Examples.Support.branch() do
+        vm_set_class({:not, :an_identity}, :object)
+      end
+
+    assert {:aborted, reason} = result
+    assert inspect(reason) =~ "requires an atom durable identity"
+  end
+
   # Both ivars go through the exact same `set_slot`/`get` calls --
   # `storage: :soa` on `concentration`'s spec is invisible at every call
   # site, only observable via the explicit `vm_get_slot/4` checks below.

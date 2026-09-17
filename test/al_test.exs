@@ -34,10 +34,6 @@ defmodule ALFileWatchTest do
   use ExExample.ExUnit, for: Examples.ALFileWatch
 end
 
-defmodule ALWorkflowTest do
-  use ExExample.ExUnit, for: Examples.ALWorkflow
-end
-
 defmodule ALPeerTest do
   use ExExample.ExUnit, for: Examples.ALPeer
 end

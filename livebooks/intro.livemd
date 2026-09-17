@@ -40,4 +40,4 @@ If you'd rather work against a real, persistent, shared store instead (useful fo
 * [The command log](./command_log.livemd) — durability, branching, forking, multiple sessions.
 * [Debugging and tracing](./debugging_and_tracing.livemd) — live tracing, reading failures, derivation trees.
 * [Packages](./packages.livemd) — configuration, the package object model, authoring, extensions, import/export, dependencies, and branch-local activation.
-* [Effects, edges, and workflows](./effects_and_workflows.livemd) — first-class effect objects, edge providers, resource events, transaction composition, barriers, and blocked workflows.
+* [Effects and future transactions](./effects_and_future_transactions.livemd) — first-class effect objects, edge providers, resource events, `spawn`, and effect-scoped `await`.

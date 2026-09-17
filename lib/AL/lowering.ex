@@ -16,8 +16,6 @@ defmodule AL.Lowering do
     vm_fresh_id: :fresh_id,
     vm_current_tx: :current_tx,
     vm_transaction_object: :transaction_object,
-    vm_workflow_waiter: :workflow_waiter,
-    vm_workflow_effect_completed: :workflow_effect_completed,
     vm_cached_ivar_specs: :cached_ivar_specs,
     vm_cached_find_ivar_spec: :cached_find_ivar_spec,
     vm_source_method_parts: :source_method_parts
@@ -343,6 +341,33 @@ defmodule AL.Lowering do
     }
   end
 
+  def ast_to_pattern({:spawn, _, [[do: body]]}) do
+    goals = clause_goals(body)
+
+    if goals == [] do
+      raise ArgumentError, "spawn requires at least one goal"
+    end
+
+    %Goal.OApply{method_id: :spawn_transaction, args: [goals]}
+  end
+
+  def ast_to_pattern({:await, _, [effect, head, [do: body]]}) when is_list(head) do
+    goals = clause_goals(body)
+
+    if goals == [] do
+      raise ArgumentError, "await requires at least one goal"
+    end
+
+    %Goal.OApply{
+      method_id: :await_effect,
+      args: [ast_to_pattern(effect), ast_to_pattern(head), goals]
+    }
+  end
+
+  def ast_to_pattern({:await, _, [_effect, _head, [do: _body]]}) do
+    raise ArgumentError, "await result bindings must be a list"
+  end
+
   def ast_to_pattern({:defmethod, _, [class, method_name, head, body]}) do
     %Goal.OApply{
       method_id: :defmethod,
@@ -365,14 +390,6 @@ defmodule AL.Lowering do
         []
       ]
     }
-  end
-
-  def ast_to_pattern({:defworkflow, _, [name, arguments, options, [do: body]]}) do
-    build_workflow(name, arguments, workflow_outputs!(options), body)
-  end
-
-  def ast_to_pattern({:defworkflow, _, [name, arguments, [do: body]]}) do
-    build_workflow(name, arguments, [], body)
   end
 
   # `defclass name, super: ..., ivars: [...], categories: [...] do ... end` — a
@@ -463,234 +480,4 @@ defmodule AL.Lowering do
   defp unwrap_do_block([{:do, nil}]), do: []
   defp unwrap_do_block([{:do, {:__block__, _, stmts}}]), do: stmts
   defp unwrap_do_block([{:do, stmt}]), do: [stmt]
-
-  defp build_workflow(name, arguments, outputs, body)
-       when is_atom(name) and is_list(arguments) and is_list(outputs) do
-    argument_names = Enum.map(arguments, &workflow_variable!/1)
-    output_names = Enum.map(outputs, &workflow_variable!/1)
-
-    if length(argument_names) != MapSet.size(MapSet.new(argument_names)) do
-      raise ArgumentError, "workflow arguments must have distinct names"
-    end
-
-    if length(output_names) != MapSet.size(MapSet.new(output_names)) do
-      raise ArgumentError, "workflow outputs must have distinct names"
-    end
-
-    transactions = workflow_transactions!(body)
-    boundaries = workflow_boundaries(arguments, transactions, output_names)
-    methods = workflow_methods(arguments, transactions, boundaries, output_names)
-
-    %Goal.OApply{
-      method_id: :defclass,
-      args: [
-        {:workflow, name},
-        :class,
-        :object,
-        [
-          :definition,
-          :version,
-          :status,
-          :step,
-          :attempt,
-          :outputs,
-          :effect_id,
-          :condition,
-          :environment,
-          :pending_effects
-        ],
-        [],
-        methods,
-        false
-      ]
-    }
-  end
-
-  defp build_workflow(name, arguments, outputs, _body) do
-    raise ArgumentError,
-          "defworkflow expects a literal atom name and lists of input and output variables, got: #{inspect(name)}, #{Macro.to_string(arguments)}, #{Macro.to_string(outputs)}"
-  end
-
-  defp workflow_outputs!(outputs: outputs) when is_list(outputs), do: outputs
-
-  defp workflow_outputs!(options) do
-    raise ArgumentError,
-          "defworkflow options must be outputs: [variables], got: #{Macro.to_string(options)}"
-  end
-
-  defp unwrap_workflow_body({:__block__, _, statements}), do: statements
-  defp unwrap_workflow_body(nil), do: []
-  defp unwrap_workflow_body(statement), do: [statement]
-
-  defp workflow_transactions!(body) do
-    case unwrap_workflow_body(body) do
-      [] ->
-        raise ArgumentError, "workflow must contain at least one transaction block"
-
-      statements ->
-        Enum.map(statements, &workflow_transaction!/1)
-    end
-  end
-
-  defp workflow_transaction!({:transaction, _, [[do: body]]}) do
-    statements = unwrap_workflow_body(body)
-
-    if Enum.any?(statements, &match?({:return, _, _}, &1)) do
-      raise ArgumentError, "workflow outputs belong in the defworkflow declaration"
-    end
-
-    if Enum.any?(statements, &contains_workflow_effect?/1) do
-      raise ArgumentError,
-            "effects must be emitted by methods called inside workflow transactions"
-    end
-
-    statements
-  end
-
-  defp workflow_transaction!(statement) do
-    raise ArgumentError,
-          "workflow body must contain only transaction blocks, got: #{Macro.to_string(statement)}"
-  end
-
-  defp contains_workflow_effect?(ast) do
-    {_ast, found?} =
-      Macro.prewalk(ast, false, fn
-        {:effect, metadata, arguments} = node, _found?
-        when is_list(metadata) and is_list(arguments) ->
-          {node, true}
-
-        node, found? ->
-          {node, found?}
-      end)
-
-    found?
-  end
-
-  defp workflow_boundaries(arguments, transactions, output_names) do
-    initial = workflow_variables(arguments)
-    outputs = MapSet.new(output_names)
-
-    transactions
-    |> Enum.drop(-1)
-    |> Enum.with_index()
-    |> Enum.map_reduce(initial, fn {transaction, index}, available ->
-      available = MapSet.union(available, workflow_variables(transaction))
-
-      future_variables =
-        transactions
-        |> Enum.drop(index + 1)
-        |> workflow_variables()
-        |> MapSet.union(outputs)
-
-      environment =
-        available
-        |> MapSet.intersection(future_variables)
-        |> MapSet.delete(:self)
-        |> Enum.sort()
-
-      {%{
-         environment: environment,
-         selector: workflow_resume_selector(index + 1),
-         step: index + 1
-       }, available}
-    end)
-    |> elem(0)
-  end
-
-  defp workflow_methods(arguments, transactions, boundaries, output_names) do
-    self = AL.Var.var(:self)
-    start_body = workflow_stage(Enum.at(transactions, 0), 0, boundaries, output_names, self)
-    start = [:start, [self | Enum.map(arguments, &ast_to_pattern/1)], start_body]
-
-    resumptions =
-      transactions
-      |> Enum.with_index()
-      |> Enum.drop(1)
-      |> Enum.map(fn {transaction, index} ->
-        previous_boundary = Enum.at(boundaries, index - 1)
-
-        body =
-          workflow_guards(self, previous_boundary) ++
-            workflow_restore_environment(self, previous_boundary.environment) ++
-            workflow_stage(transaction, index, boundaries, output_names, self)
-
-        [previous_boundary.selector, [self, previous_boundary.step], body]
-      end)
-
-    [start | resumptions]
-  end
-
-  defp workflow_stage(statements, boundary_index, boundaries, output_names, self) do
-    boundary = Enum.at(boundaries, boundary_index)
-    next = if boundary == nil, do: :done, else: {boundary.selector, boundary.step}
-    environment = if boundary == nil, do: %{}, else: workflow_environment(boundary.environment)
-    outputs = if boundary == nil, do: workflow_environment(output_names), else: %{}
-
-    [
-      %Goal.OApply{method_id: :workflow_transaction_start, args: [self, next]}
-      | Enum.map(statements, &ast_to_pattern/1)
-    ] ++
-      [
-        %Goal.OApply{
-          method_id: :workflow_transaction_commit,
-          args: [self, next, environment, outputs]
-        }
-      ]
-  end
-
-  defp workflow_guards(self, boundary) do
-    [
-      workflow_get(self, :status, :advancing),
-      workflow_get(self, :step, boundary.step),
-      workflow_get(self, :attempt, boundary.step)
-    ]
-  end
-
-  defp workflow_restore_environment(_self, []), do: []
-
-  defp workflow_restore_environment(self, names),
-    do: [workflow_get(self, :environment, workflow_environment(names))]
-
-  defp workflow_environment(names),
-    do: Map.new(names, fn name -> {name, AL.Var.var(name)} end)
-
-  defp workflow_get(self, key, value),
-    do: %Goal.Send{object: self, method: :get, args: [key, value]}
-
-  defp workflow_resume_selector(step), do: String.to_atom("__workflow_resume_#{step}")
-
-  defp workflow_variable!({name, _, context})
-       when is_atom(name) and (is_atom(context) or is_nil(context)) and name != :_ do
-    if String.starts_with?(Atom.to_string(name), "_") do
-      raise ArgumentError, "workflow variables cannot start with an underscore"
-    end
-
-    name
-  end
-
-  defp workflow_variable!(ast) do
-    raise ArgumentError, "expected a workflow variable, got: #{Macro.to_string(ast)}"
-  end
-
-  defp workflow_variables(ast) do
-    {_ast, variables} =
-      Macro.prewalk(ast, MapSet.new(), fn
-        {:^, _, [_value]} = pin, _variables ->
-          raise ArgumentError,
-                "workflow definitions cannot capture pinned host values: #{Macro.to_string(pin)}"
-
-        {name, _, context} = variable, variables
-        when is_atom(name) and (is_atom(context) or is_nil(context)) and name != :_ ->
-          if String.starts_with?(Atom.to_string(name), "_") do
-            {variable, variables}
-          else
-            {variable, MapSet.put(variables, name)}
-          end
-
-        node, variables ->
-          {node, variables}
-      end)
-
-    variables
-  end
 end

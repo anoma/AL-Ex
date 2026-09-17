@@ -694,6 +694,12 @@ defmodule AL.Source do
   defp goal({:effect, provider, operation, arguments, effect}),
     do: call(:emit_effect, [provider, operation, arguments, effect])
 
+  defp goal({:oapply, :spawn_transaction, [goals]}),
+    do: {:spawn, [], [[do: goals(goals)]]}
+
+  defp goal({:oapply, :await_effect, [effect, head, goals]}),
+    do: {:await, [], [pat(effect), pat(head), [do: goals(goals)]]}
+
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
   defp goal({:get_oapply, o, :"$_", h, b}), do: call(:vm_clause, [o, h, b])

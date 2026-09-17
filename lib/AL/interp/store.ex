@@ -150,7 +150,21 @@ defmodule AL.Interp.Store do
     :retract_slot
   ]
 
+  @identity_positions %{
+    set_class: [0, 1],
+    set_super: [0, 1],
+    set_method: [0, 2],
+    set_oapply: [0],
+    set_slot: [0],
+    retract_class: [0, 1],
+    retract_super: [0, 1],
+    retract_method: [0, 2],
+    retract_oapply: [0],
+    retract_slot: [0]
+  }
+
   defp write(state, fun, args) when fun in @tx_stamped do
+    :ok = validate_durable_identities!(fun, args)
     :ok = AL.Goal.validate_storable!(args)
     tx = apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [tx, state.branch])
@@ -158,10 +172,26 @@ defmodule AL.Interp.Store do
   end
 
   defp write(state, fun, args) do
+    :ok = validate_durable_identities!(fun, args)
     :ok = AL.Goal.validate_storable!(args)
     apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [state.branch])
     state
+  end
+
+  defp validate_durable_identities!(operation, arguments) do
+    operation
+    |> then(&Map.get(@identity_positions, &1, []))
+    |> Enum.each(fn position ->
+      identity = Enum.at(arguments, position)
+
+      if not (is_atom(identity) or AL.Var.var?(identity)) do
+        raise ArgumentError,
+              "#{operation} requires an atom durable identity at argument #{position + 1}, got: #{inspect(identity)}"
+      end
+    end)
+
+    :ok
   end
 
   defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)

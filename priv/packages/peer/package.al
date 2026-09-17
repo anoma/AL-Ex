@@ -1,5 +1,5 @@
 Package {
   #name : :peers,
-  #version : 2,
+  #version : 5,
   #deps : [:sockets]
 }

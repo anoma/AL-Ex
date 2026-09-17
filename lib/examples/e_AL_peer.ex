@@ -19,38 +19,29 @@ defmodule Examples.ALPeer do
           end
         end
 
-        defworkflow :peer_chat, [message] do
-          transaction do
-            new(:peer, %{peer_name: "Alice"}, alice)
-            new(:observed_peer, %{peer_name: "Bob"}, bob)
-          end
+        new(:peer, %{name: :peer_alice, peer_name: "Alice"}, alice)
+        new(:observed_peer, %{name: :peer_bob, peer_name: "Bob"}, bob)
 
-          transaction do
-            connect(alice, bob, socket, connection)
-          end
+        defmethod(bob, :listening, [self, socket, port]) do
+          call_next_method(self, socket, port)
+          connect(alice, self, _, _)
+        end
 
-          transaction do
-            get(connection, :outcome, {:ok, :connected})
-            send_message(alice, socket, message, sent)
-          end
-
-          transaction do
-            get(sent, :outcome, {:ok, _bytes})
-          end
+        defmethod(alice, :connection_established, [self, socket]) do
+          call_next_method(self, socket)
+          send_message(self, socket, ^message, _)
         end
       end
 
-    assert {:ok, _workflow} =
-             AL.workflow(:peer_chat, [message], branch: Examples.Support.branch())
-
-    assert_receive {:peer_message, bob, socket, ^message}, 1_000
+    assert_receive {:peer_message, :peer_bob, socket, ^message}, 1_000
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        get(^bob, :name, "Bob")
-        get(^bob, :messages, [[^socket, ^message]])
+        get(:peer_bob, :name, "Bob")
+        get(:peer_bob, :messages, [[^socket, ^message]])
         get(^socket, :status, :connected)
-        stop(^bob)
+        stop(:peer_alice)
+        stop(:peer_bob)
       end
   end
 end

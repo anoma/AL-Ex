@@ -63,12 +63,22 @@ defmodule AL.Outbox do
   defp name(branch), do: :"#{__MODULE__}.#{branch.id}"
 
   @impl true
-  def init(branch), do: {:ok, %{branch: branch}}
+  def init(branch), do: {:ok, %{branch: branch}, {:continue, :recover}}
+
+  @impl true
+  def handle_continue(:recover, state) do
+    state.branch
+    |> recoverable_future_transactions()
+    |> dispatch_future_transactions(state.branch)
+
+    {:noreply, state}
+  end
 
   @impl true
   def handle_cast({:committed, tx_id}, state) do
     commands = commands_for_transaction(tx_id, state.branch)
     dispatch_commands(commands, state.branch)
+    dispatch_triggered_future_transactions(commands, state.branch)
     {:noreply, state}
   end
 
@@ -105,12 +115,127 @@ defmodule AL.Outbox do
     end)
   end
 
-  defp handle_async_result({:atomic, {_bindings, state}}, _object, _method, branch) do
-    AL.Workflow.continue_after_commit(state, branch)
+  defp dispatch_triggered_future_transactions(commands, branch) do
+    changed = changed_objects(commands)
+    created = created_future_transactions(commands)
+
+    futures =
+      case :mnesia.transaction(fn ->
+             triggered_future_transactions(changed, created, branch)
+           end) do
+        {:atomic, futures} -> futures
+        {:aborted, _reason} -> []
+      end
+
+    dispatch_future_transactions(futures, branch)
   end
 
+  defp dispatch_future_transactions(futures, branch) do
+    Enum.each(futures, fn future ->
+      Task.start(fn ->
+        result = AL.eval([%AL.Goal.Send{object: future, method: :run, args: []}], nil, branch)
+        handle_async_result(result, future, :run, branch)
+      end)
+    end)
+  end
+
+  defp changed_objects(commands) do
+    commands
+    |> Enum.flat_map(fn
+      {:command, _time, _tx_id, {operation, arguments}}
+      when operation in [
+             :set_class,
+             :set_super,
+             :set_method,
+             :set_oapply,
+             :set_slot,
+             :set_native,
+             :retract_class,
+             :retract_super,
+             :retract_method,
+             :retract_oapply,
+             :retract_slot,
+             :retract_native
+           ] and is_tuple(arguments) ->
+        [elem(arguments, 0)]
+
+      _command ->
+        []
+    end)
+    |> MapSet.new()
+  end
+
+  defp created_future_transactions(commands) do
+    commands
+    |> Enum.flat_map(fn
+      {:command, _time, _tx_id, {:set_class, {future, :future_transaction}}} -> [future]
+      _command -> []
+    end)
+    |> MapSet.new()
+  end
+
+  defp triggered_future_transactions(changed, created, branch) do
+    future_transactions(branch)
+    |> Enum.flat_map(fn {future, slots} ->
+      cond do
+        slots[:status] == :ready and MapSet.member?(created, future) ->
+          [future]
+
+        slots[:status] == :waiting and
+          (MapSet.member?(created, future) or MapSet.member?(changed, slots[:effect])) and
+            effect_completed?(slots[:effect], branch) ->
+          [future]
+
+        true ->
+          []
+      end
+    end)
+  end
+
+  defp recoverable_future_transactions(branch) do
+    case :mnesia.transaction(fn ->
+           future_transactions(branch)
+           |> Enum.flat_map(fn {future, slots} ->
+             cond do
+               slots[:status] == :ready ->
+                 [future]
+
+               slots[:status] == :waiting and effect_completed?(slots[:effect], branch) ->
+                 [future]
+
+               true ->
+                 []
+             end
+           end)
+         end) do
+      {:atomic, futures} -> futures
+      {:aborted, _reason} -> []
+    end
+  end
+
+  defp future_transactions(branch) do
+    AL.Object.scan_class(AL.Var.var("outbox_future_transaction"), :future_transaction, branch)
+    |> Enum.flat_map(fn {:class, future, _seq, :future_transaction} ->
+      case AL.Object.read_slots(future, branch) do
+        [{:slots, ^future, slots}] -> [{future, slots}]
+        _rows -> []
+      end
+    end)
+  end
+
+  defp effect_completed?(effect, branch) when is_atom(effect) do
+    case AL.Object.read_slots(effect, branch) do
+      [{:slots, ^effect, %{status: :completed}}] -> true
+      _rows -> false
+    end
+  end
+
+  defp effect_completed?(_effect, _branch), do: false
+
+  defp handle_async_result({:atomic, _result}, _object, _method, _branch), do: :ok
+
   defp handle_async_result(
-         _failure,
+         failure,
          object,
          :deliver,
          branch
@@ -121,8 +246,8 @@ defmodule AL.Outbox do
            branch
          ) do
       {:atomic, _result} -> :ok
-      {:aborted, reason} -> {:error, reason}
-      {:error, reason} -> {:error, reason}
+      {:aborted, reason} -> {:error, {failure, reason}}
+      {:error, reason} -> {:error, {failure, reason}}
     end
   end
 

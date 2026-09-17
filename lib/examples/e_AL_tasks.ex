@@ -83,4 +83,95 @@ defmodule Examples.ALTasks do
     await_handled(:async_obj_2)
     assert processed?(:async_obj_2)
   end
+
+  example spawn_arranges_a_fresh_transaction_after_commit() do
+    pid = self()
+
+    {:atomic, {_bindings, spawning_state}} =
+      run branch: Examples.Support.branch() do
+        new(:process, %{name: :spawn_observer, pid: ^pid}, _)
+        vm_set_class(:spawn_target, :object)
+
+        spawn do
+          set_slot(:spawn_target, :value, :done)
+          get(:spawn_observer, :pid, observer)
+          functor(message, :spawned, [:spawn_target])
+          send_elixir(observer, message)
+        end
+      end
+
+    assert_receive {:spawned, :spawn_target}, 1_000
+
+    {:atomic, spawning_commands} =
+      :mnesia.transaction(fn ->
+        AL.Command.commands_for_transaction(
+          spawning_state.tx_id,
+          %AL.Branch{id: Examples.Support.branch()}
+        )
+      end)
+
+    refute Enum.any?(spawning_commands, fn
+             {:command, _time, _tx_id, {:set_slot, {:spawn_target, :value, :done, _store}}} ->
+               true
+
+             _command ->
+               false
+           end)
+
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        get(:spawn_target, :value, :done)
+      end
+  end
+
+  example await_arranges_a_transaction_after_effect_completion() do
+    pid = self()
+
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        new(:process, %{name: :await_observer, pid: ^pid}, _)
+        vm_set_class(:await_target, :object)
+        vm_set_class(:await_effect, :effect)
+        vm_set_slot(:await_effect, :status, :pending)
+
+        await(:await_effect, [outcome]) do
+          set_slot(:await_target, :outcome, outcome)
+          get(:await_observer, :pid, observer)
+          functor(message, :continued, [outcome])
+          send_elixir(observer, message)
+        end
+      end
+
+    refute_receive {:continued, _outcome}, 25
+
+    {:atomic, {_bindings, completion_state}} =
+      run branch: Examples.Support.branch() do
+        complete(:await_effect, {:ok, :connected})
+      end
+
+    assert_receive {:continued, {:ok, :connected}}, 1_000
+
+    {:atomic, completion_commands} =
+      :mnesia.transaction(fn ->
+        AL.Command.commands_for_transaction(
+          completion_state.tx_id,
+          %AL.Branch{id: Examples.Support.branch()}
+        )
+      end)
+
+    refute Enum.any?(completion_commands, fn
+             {:command, _time, _tx_id, {:set_slot, {:await_target, _key, _value, _store}}} ->
+               true
+
+             _command ->
+               false
+           end)
+
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        get(:await_effect, :status, :completed)
+        get(:await_effect, :outcome, {:ok, :connected})
+        get(:await_target, :outcome, {:ok, :connected})
+      end
+  end
 end

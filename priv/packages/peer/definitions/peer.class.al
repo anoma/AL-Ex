@@ -42,17 +42,26 @@ Class {
 ]
 
 :peer >> :configure_connection, [_self, connection] [
-  defmethod(connection, :connected, [socket]) do
-    call_next_method(socket)
-    get(socket, :owner, peer)
-    connection_established(peer, socket)
-  end
-
   defmethod(connection, :receive, [socket, bytes]) do
     call_next_method(socket, bytes)
     decode_term(socket, bytes, message)
     get(socket, :owner, peer)
     receive(peer, socket, message)
+  end
+]
+
+:peer >> :configure_connection, [self, socket, connection] [
+  configure_connection(self, socket)
+
+  defmethod(socket, :connected, [socket]) do
+    call_next_method(socket)
+    get(socket, :owner, peer)
+    handshake(peer, socket, connection)
+  end
+
+  defmethod(socket, :connection_failed, [socket, reason]) do
+    call_next_method(socket, reason)
+    set_slot(connection, :state, {:error, reason})
   end
 ]
 
@@ -77,13 +86,23 @@ Class {
   add_connection(self, socket)
 ]
 
-:peer >> :connect, [self, remote, socket, effect] [
+:peer >> :connect, [self, remote, socket, connection] [
   get(remote, :listener, listener)
   get_slots(listener, %{host: host, port: port})
   new(:tcp_socket, %{host: host, port: port, packet: 4, owner: self}, socket)
-  configure_connection(self, socket)
+  new(
+    :peer_connection,
+    %{socket: socket},
+    connection
+  )
+  configure_connection(self, socket, connection)
   add_connection(self, socket)
-  connect(socket, effect)
+  connect(socket, _)
+]
+
+:peer >> :handshake, [self, socket, connection] [
+  set_slot(connection, :state, :connected)
+  connection_established(self, socket)
 ]
 
 :peer >> :add_connection, [self, socket] [

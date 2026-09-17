@@ -1,0 +1,165 @@
+# Effects and Future Transactions
+
+```elixir
+System.put_env("AL_MNESIA_DISTRIBUTED", "false")
+
+System.put_env(
+  "AL_MNESIA_DIR",
+  Path.join(System.tmp_dir!(), "al_livebook_#{:erlang.unique_integer([:positive])}")
+)
+
+Mix.install(
+  [{:al, github: "anoma/AL-Ex"}],
+  config: [
+    al: [
+      transaction_programs: [
+        AL.TransactionProgram.Bootstrap,
+        AL.TransactionProgram.PackageSystem
+      ],
+      package_channels: [{:builtin, {:priv, "packages"}}],
+      package_environment: [:elixir_process],
+      edge_providers: [AL.Edge.File],
+      natives: []
+    ]
+  ]
+)
+```
+
+```elixir
+use AL
+```
+
+## Why effects exist
+
+An AL transaction can change durable state atomically. Reading a file, making an HTTP request, or sending bytes over a socket happens outside that transaction and cannot be rolled back.
+
+An effect is a durable object describing host work. AL dispatches it only after the transaction that created it commits. The host records the outcome in its own completion transaction.
+
+```text
+request transaction -> host work -> completion transaction
+```
+
+Application work caused by that outcome belongs in another transaction. `await` arranges that future transaction when the effect is created.
+
+```text
+request transaction -> host work -> completion transaction -> future transaction
+```
+
+## Run an effect
+
+Define an ordinary object method that emits a file effect and arranges what AL should do with its outcome.
+
+```elixir
+{:atomic, _} =
+  run do
+    defclass :file_reader,
+      super: :object,
+      redef: true,
+      ivars: [path: [], contents: [default: :none], error: [default: :none]] do
+      defmethod(:init, [self, args, self]) do
+        get(args, :path, _)
+        call_next_method(self, args, self)
+      end
+
+      defmethod(:read, [self, observer, effect]) do
+        get(self, :path, path)
+        emit_effect(:file, :read, [path], effect)
+
+        await(effect, [outcome]) do
+          read_finished(self, observer, outcome)
+        end
+      end
+
+      defmethod(:read_finished, [self, observer, {:ok, contents}]) do
+        set_slot(self, :contents, contents)
+        get(observer, :pid, pid)
+        functor(message, :file_read, [self, contents])
+        send_elixir(pid, message)
+      end
+
+      defmethod(:read_finished, [self, observer, {:error, reason}]) do
+        set_slot(self, :error, reason)
+        get(observer, :pid, pid)
+        functor(message, :file_read_failed, [self, reason])
+        send_elixir(pid, message)
+      end
+    end
+  end
+```
+
+Create a file, then start the operation from a regular `run do` transaction.
+
+```elixir
+path =
+  Path.join(
+    System.tmp_dir!(),
+    "al_effects_livebook_#{System.unique_integer([:positive])}.txt"
+  )
+
+File.write!(path, "hello from an effect")
+notebook = self()
+
+{:atomic, {bindings, _state}} =
+  run do
+    new(:process, %{name: :notebook, pid: ^notebook}, _)
+    new(:file_reader, %{name: :guide_reader, path: ^path}, reader)
+    read(reader, :notebook, effect)
+  end
+
+effect = bindings[:"$effect"]
+
+receive do
+  message -> message
+after
+  1_000 -> :timeout
+end
+```
+
+`emit_effect(provider, operation, arguments, effect)` returns the effect object. `await(effect, [outcome]) do ... end` registers AL goals to run as a fresh transaction after completion and binds `outcome` to either `{:ok, value}` or `{:error, reason}`.
+
+It does not suspend the transaction containing it. If that transaction aborts, neither the effect nor its future transaction exists.
+
+## Arrange work after commit
+
+`spawn do ... end` arranges a fresh transaction immediately after the current transaction commits. It is useful when the future work does not depend on an effect.
+
+```elixir
+run do
+  spawn do
+    set_slot(:guide_reader, :error, :cleared)
+  end
+end
+```
+
+Like an effect continuation, spawned goals are durable data. They never run inside the transaction that arranged them.
+
+## Inspect an effect
+
+The effect remains available for history and introspection.
+
+```elixir
+run do
+  get(^effect, :status, :completed)
+  get(^effect, :outcome, outcome)
+end
+```
+
+If Elixir itself needs the result, `AL.await_effect/2` waits on a completion event without polling AL state. AL application code should normally use `await` instead.
+
+## Long-lived resources
+
+File watches, TCP listeners, and TCP connections can produce many events. Effects start, stop, connect, listen, send, or close those resources. Later host events enter AL as fresh transactions that call ordinary methods such as `receive` or `accept` on the resource object.
+
+Define those methods on the class or the individual object. Incoming events do not require `await`, because they are not the one-time outcome of an effect.
+
+## Where to go next
+
+- [`e_AL_tasks.ex`](../lib/examples/e_AL_tasks.ex) proves that `spawn` and `await` run in separate transactions.
+- [`e_AL_effects.ex`](../lib/examples/e_AL_effects.ex) covers effect objects, aborted transactions, completion, replay, and branches.
+- [`e_AL_file_watch.ex`](../lib/examples/e_AL_file_watch.ex) shows a long-lived host resource delivering events to an AL object.
+- [`e_AL_peer.ex`](../lib/examples/e_AL_peer.ex) shows TCP effects and incoming messages composed through ordinary AL methods.
+- [`AL.Edge`](../lib/AL/edge.ex) is the provider contract for adding a host capability.
+
+```elixir
+File.rm(path)
+```

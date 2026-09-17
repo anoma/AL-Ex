@@ -153,10 +153,9 @@ defmodule AL.Edge do
           end)
 
       case AL.eval(goals, nil, branch) do
-        {:atomic, {_bindings, state}} ->
-          result = AL.Workflow.continue_after_commit(state, branch)
+        {:atomic, _result} ->
           AL.Events.publish({:effect, branch.id, effect_id})
-          result
+          :ok
 
         {:aborted, reason} ->
           {:error, reason}

@@ -32,15 +32,6 @@ defmodule AL do
     field(:failure_candidate, failure_candidate() | nil, default: nil)
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
     field(:reductions, non_neg_integer(), default: 0)
-    field(:workflow_context, map() | nil, default: nil)
-
-    field(
-      :workflow_advance,
-      {term(), atom(), non_neg_integer()}
-      | {term(), atom(), non_neg_integer(), term()}
-      | nil,
-      default: nil
-    )
 
     field(:source_refs, %{optional(AL.Source.Ref.capture_id()) => AL.Source.Ref.t()},
       default: %{}
@@ -66,8 +57,6 @@ defmodule AL do
   defdelegate tracepoints(), to: AL.Trace
 
   defdelegate ast_to_pattern(ast), to: AL.Lowering
-  defdelegate workflow(name, arguments, options \\ []), to: AL.Workflow, as: :start
-  defdelegate await_workflow(workflow, options \\ []), to: AL.Workflow, as: :await
   defdelegate await_effect(effect, options \\ []), to: AL.Edge, as: :await
 
   @doc """
@@ -904,58 +893,13 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :transaction_object, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.transaction_object), [result])
 
-  def interp(%Goal.OApply{method_id: :workflow_waiter, args: [effect, waiter]}, state) do
-    effect = AL.Var.subst(effect, store(state))
-    {captured, state} = AL.Workflow.capture_effect_object(state, effect)
-    put_bindings(state, unify(state, waiter, captured), [waiter])
+  def interp(%Goal.OApply{method_id: :spawn_transaction, args: [goals]}, state) do
+    schedule_future_transaction(state, :ready, :none, [], goals)
   end
 
-  def interp(%Goal.OApply{method_id: :workflow_transaction_start, args: [workflow, next]}, state),
-    do: AL.Workflow.transaction_start(state, workflow, next)
-
-  def interp(
-        %Goal.OApply{
-          method_id: :workflow_transaction_commit,
-          args: [workflow, next, environment, outputs]
-        },
-        state
-      ),
-      do: AL.Workflow.transaction_commit(state, workflow, next, environment, outputs)
-
-  def interp(
-        %Goal.OApply{
-          method_id: :workflow_effect_completed,
-          args: [workflow, selector, step, effect_id]
-        },
-        state
-      ),
-      do: AL.Workflow.effect_completed_goal(state, workflow, selector, step, effect_id)
-
-  def interp(
-        %Goal.OApply{
-          method_id: :workflow_effect_completed,
-          args: [workflow, selector, step, effect_id, outcome]
-        },
-        state
-      ),
-      do:
-        AL.Workflow.effect_completed_goal(
-          state,
-          workflow,
-          selector,
-          step,
-          effect_id,
-          outcome
-        )
-
-  def interp(
-        %Goal.OApply{
-          method_id: :workflow_advance_blocked,
-          args: [workflow, step, condition]
-        },
-        state
-      ),
-      do: AL.Workflow.advance_blocked_goal(state, workflow, step, condition)
+  def interp(%Goal.OApply{method_id: :await_effect, args: [effect, head, goals]}, state) do
+    schedule_future_transaction(state, :waiting, effect, head, goals)
+  end
 
   def interp(
         %Goal.OApply{
@@ -1255,7 +1199,7 @@ defmodule AL do
     scope = fresh_scope()
     freshener = Integer.to_string(scope)
     fresh_head = AL.Var.freshen(head, freshener)
-    fresh_body = AL.Var.freshen(body, freshener)
+    fresh_body = body |> from_stored_body() |> AL.Var.freshen(freshener)
 
     case unify(state, fresh_head, args) do
       nil ->
@@ -1759,6 +1703,32 @@ defmodule AL do
   defp decompose_term(atomic), do: {atomic, []}
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
+
+  defp schedule_future_transaction(state, status, effect, head, goals) do
+    future = AL.Var.var("future_transaction_#{fresh_scope()}")
+
+    creation = %Goal.Send{
+      object: :future_transaction,
+      method: :new,
+      args: [
+        %{
+          effect: effect,
+          head: head,
+          goals: AL.Goal.to_stored(goals),
+          status: status
+        },
+        future
+      ]
+    }
+
+    %AL{
+      state
+      | active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | goals: splice_goals(state, [creation])
+        }
+    }
+  end
 
   defp from_stored_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.from_stored/1)
   defp from_stored_body(body), do: body
