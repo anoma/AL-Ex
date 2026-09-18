@@ -11,7 +11,7 @@ defmodule Examples.ALNumbers do
   import ExUnit.Assertions
 
   example class_of_number_is_structural() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         class(3, integer_class)
         class(3.5, float_class)
@@ -23,7 +23,7 @@ defmodule Examples.ALNumbers do
   end
 
   example send_dispatches_through_number_class() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         defmethod(:number, :double, [self, result]) do
           is(result, self * 2)
@@ -37,7 +37,7 @@ defmodule Examples.ALNumbers do
   end
 
   example number_falls_back_to_object() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         examine(3, info)
       end
@@ -49,7 +49,7 @@ defmodule Examples.ALNumbers do
   end
 
   example factorial_forward_mode() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         factorial(5, out)
       end
@@ -59,7 +59,7 @@ defmodule Examples.ALNumbers do
   end
 
   example unbound_receiver_grounds_through_value_leg() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         factorial(x, 1)
       end
@@ -69,7 +69,7 @@ defmodule Examples.ALNumbers do
   end
 
   example factorial_backward_search() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         factorial(n, 120)
       end
@@ -95,7 +95,7 @@ defmodule Examples.ALNumbers do
   # each candidate is only computed if backtracking actually reaches it, so
   # only 10 candidates ever run even though the domain is ~3.6M wide.
   example factorial_backward_search_stays_fast_on_a_wide_domain() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         factorial(n, 3_628_800)
       end
@@ -105,7 +105,7 @@ defmodule Examples.ALNumbers do
   end
 
   example fibonacci_forward_mode() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         fibonacci(8, out)
       end
@@ -115,7 +115,7 @@ defmodule Examples.ALNumbers do
   end
 
   example fibonacci_backward_search() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         fibonacci(n, 21)
       end
@@ -161,7 +161,7 @@ defmodule Examples.ALNumbers do
   # and leaves `x` open, rather than scanning the (always-empty, for
   # `:number`) durable object table for one.
   example between_enumerates() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         findall([v], [between(:object, 2, 5, v)], values)
       end
@@ -171,7 +171,7 @@ defmodule Examples.ALNumbers do
   end
 
   example class_of_an_open_var_registers_direct_class_without_scanning() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, :number)
       end
@@ -184,7 +184,7 @@ defmodule Examples.ALNumbers do
         unify(x, :not_a_number)
       end
 
-    {:atomic, {bindings2, _}} =
+    {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, :number)
         unify(x, 7)

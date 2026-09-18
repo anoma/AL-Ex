@@ -634,10 +634,14 @@ defmodule AL.MCP.Tools do
     failure(format_tooling_error(reason), max_length)
   end
 
-  defp query_source_result({:atomic, {bindings, %AL{} = state}}, branch, max_length) do
+  defp query_source_result(
+         {:atomic, {bindings, constraints, %AL{} = state}},
+         branch,
+         max_length
+       ) do
     result =
       transaction_summary("committed", branch, state)
-      |> Map.merge(AL.MCP.Term.encode_bindings(bindings))
+      |> Map.merge(AL.MCP.Term.encode_bindings(bindings, constraints))
 
     result
     |> Jason.encode!(pretty: true)
@@ -645,7 +649,7 @@ defmodule AL.MCP.Tools do
     |> success(result)
   end
 
-  defp query_source_result({:atomic, {bindings, nil}}, branch, max_length) do
+  defp query_source_result({:atomic, {bindings, constraints, nil}}, branch, max_length) do
     result =
       %{
         "status" => "committed",
@@ -653,7 +657,7 @@ defmodule AL.MCP.Tools do
         "transactionId" => nil,
         "commandTransaction" => nil
       }
-      |> Map.merge(AL.MCP.Term.encode_bindings(bindings))
+      |> Map.merge(AL.MCP.Term.encode_bindings(bindings, constraints))
 
     result
     |> Jason.encode!(pretty: true)
@@ -706,22 +710,28 @@ defmodule AL.MCP.Tools do
   defp failure_reason(reason) when is_map(reason), do: Map.delete(reason, :state)
   defp failure_reason(reason), do: reason
 
-  defp source_result({:atomic, {bindings, %AL{} = state}}, branch, max_length) do
+  defp source_result({:atomic, {bindings, constraints, %AL{} = state}}, branch, max_length) do
     summary = transaction_summary("committed", branch, state)
 
     text =
-      "Committed #{summary["transactionId"]}\nBindings: #{inspect_term(bindings, max_length)}"
+      "Committed #{summary["transactionId"]}\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}"
 
-    success(text, Map.put(summary, "bindings", inspect_term(bindings, max_length)))
+    result =
+      summary
+      |> Map.put("bindings", inspect_term(bindings, max_length))
+      |> Map.put("constraints", inspect_term(constraints, max_length))
+
+    success(text, result)
   end
 
-  defp source_result({:atomic, {bindings, nil}}, branch, max_length) do
+  defp source_result({:atomic, {bindings, constraints, nil}}, branch, max_length) do
     success(
-      "Committed\nBindings: #{inspect_term(bindings, max_length)}",
+      "Committed\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}",
       %{
         "status" => "committed",
         "branch" => to_string(branch.id),
-        "bindings" => inspect_term(bindings, max_length)
+        "bindings" => inspect_term(bindings, max_length),
+        "constraints" => inspect_term(constraints, max_length)
       }
     )
   end

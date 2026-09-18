@@ -368,7 +368,9 @@ defmodule AL.Tooling do
     |> al_run_result()
   end
 
-  defp al_run_result({:atomic, {bindings, %AL{} = state}}), do: {:ok, bindings, state}
+  defp al_run_result({:atomic, {bindings, _constraints, %AL{} = state}}),
+    do: {:ok, bindings, state}
+
   defp al_run_result({:aborted, reason}), do: {:error, {:al_run_failed, reason}}
   defp al_run_result({:error, reason}), do: {:error, {:al_run_failed, reason}}
 

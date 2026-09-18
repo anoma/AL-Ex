@@ -38,7 +38,7 @@ defmodule Examples.ALTransactionPrograms do
           listing(:transaction_program_fixture, source)
         end
 
-      assert {:atomic, {bindings, _}} = result
+      assert {:atomic, {bindings, _constraints, _}} = result
 
       assert bindings[:"$answer"] == 42
       assert bindings[:"$source"] =~ "set_slot(:program_created_object, :answer, 42)"
@@ -134,7 +134,7 @@ defmodule Examples.ALTransactionPrograms do
           listing(:legacy_receipt, source)
         end
 
-      assert {:atomic, {bindings, _}} = result
+      assert {:atomic, {bindings, _constraints, _}} = result
       assert bindings[:"$source"] == source
 
       assert {:error, {:depended_on_by, [:new_receipt]}} =
@@ -190,7 +190,7 @@ defmodule Examples.ALTransactionPrograms do
           listing(:retained_program_fixture, text)
         end
 
-      assert {:atomic, {bindings, _}} = result
+      assert {:atomic, {bindings, _constraints, _}} = result
 
       assert bindings[:"$text"] == retained
 

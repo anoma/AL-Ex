@@ -143,7 +143,7 @@ defmodule AL do
 
   @doc "Parse, retain, and evaluate one complete AL source input in one transaction."
   @spec eval_source(String.t(), AL.Branch.t(), keyword()) ::
-          {:atomic, {AL.Var.store(), t() | nil}}
+          {:atomic, {AL.Var.store(), map(), t() | nil}}
           | {:aborted, term()}
           | {:error, String.t() | AL.Source.Parser.Error.t()}
   def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
@@ -162,7 +162,10 @@ defmodule AL do
           AL.Var.store() | nil,
           AL.Branch.t(),
           keyword()
-        ) :: {:atomic, {AL.Var.store(), t() | nil}} | {:aborted, term()} | {:error, term()}
+        ) ::
+          {:atomic, {AL.Var.store(), map(), t() | nil}}
+          | {:aborted, term()}
+          | {:error, term()}
   def eval_captured(result, source_text, retained_text, origin, initial_store, branch, opts) do
     case AL.Source.prepare(result, source_text, origin, retained_text) do
       {:ok, source} -> eval_program(source.program, initial_store, branch, opts, source)
@@ -175,12 +178,14 @@ defmodule AL do
 
   @doc """
   Runs a goal list in a Mnesia transaction. Returns
-  `{:atomic, {output_vars, state}}` or `{:aborted, reason}`.
+  `{:atomic, {bindings, constraints, state}}` or `{:aborted, reason}`.
 
   `heap: words` runs in a capped process and returns bindings only.
   """
   @spec eval([AL.Goal.t()], AL.Var.store() | nil, AL.Branch.t(), keyword()) ::
-          {:atomic, {AL.Var.store(), t() | nil}} | {:aborted, term()} | {:error, String.t()}
+          {:atomic, {AL.Var.store(), map(), t() | nil}}
+          | {:aborted, term()}
+          | {:error, String.t()}
   def eval(program, initial_store \\ nil, branch \\ AL.Branch.head(), opts \\ []) do
     eval_program(program, initial_store, branch, opts, nil)
   end
@@ -275,7 +280,11 @@ defmodule AL do
           :mnesia.abort(format_failure(result))
         else
           if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
-          {format_output_vars(input_vars, result.active_choicepoint.store), result}
+
+          {bindings, constraints} =
+            format_output_vars(input_vars, result.active_choicepoint.store)
+
+          {bindings, constraints, result}
         end
       end)
 
@@ -319,13 +328,19 @@ defmodule AL do
         if result.active_choicepoint.store == nil do
           :mnesia.abort(format_failure(result))
         else
-          {format_output_vars(input_vars, result.active_choicepoint.store), result}
+          {bindings, constraints} =
+            format_output_vars(input_vars, result.active_choicepoint.store)
+
+          {bindings, constraints, result}
         end
       end)
 
     case result do
-      {:atomic, {_bindings, %AL{tx_id: tx_id}}} -> AL.Outbox.committed(state.branch, tx_id)
-      _ -> :ok
+      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id}}} ->
+        AL.Outbox.committed(state.branch, tx_id)
+
+      _ ->
+        :ok
     end
 
     result
@@ -363,7 +378,7 @@ defmodule AL do
     {residual_props, residual_variables} =
       AL.Var.Bounds.residual_constraints(store, Map.keys(display_names))
 
-    {display_names, _n} =
+    {display_names, n} =
       Enum.reduce(residual_variables, {display_names, n}, fn variable, {names, n} ->
         if Map.has_key?(names, variable) do
           {names, n}
@@ -371,6 +386,8 @@ defmodule AL do
           {Map.put(names, variable, AL.Var.var("_#{n + 1}")), n + 1}
         end
       end)
+
+    {display_names, _n} = expand_slot_display_names(display_names, n, store)
 
     rewrite_unbound = fn resolved -> Map.get(display_names, resolved, resolved) end
 
@@ -390,7 +407,7 @@ defmodule AL do
     # `display_names` (built via `find_vars`, which walks into bound
     # structures) reaches those, `canonical_names` only covers the case
     # where the query var itself stayed open.
-    constraints = constraint_summary(display_names, store)
+    constraints = constraint_summary(display_names, store, rewrite_unbound)
 
     relations =
       AL.Var.Bounds.summarize_residual_constraints(store, residual_props, rewrite_unbound)
@@ -398,16 +415,47 @@ defmodule AL do
     constraints =
       if relations == [], do: constraints, else: Map.put(constraints, :relations, relations)
 
-    if map_size(constraints) == 0,
-      do: bindings,
-      else: Map.put(bindings, :"$constraints", constraints)
+    {bindings, constraints}
   end
 
-  defp constraint_summary(canonical_names, store) do
+  defp expand_slot_display_names(display_names, n, store) do
+    linked_variables =
+      display_names
+      |> Map.keys()
+      |> Enum.flat_map(fn variable ->
+        case AL.Var.constraint_set(store, variable) do
+          %AL.Var.ConstraintSet{slot_links: links} -> links
+          _ -> []
+        end
+      end)
+      |> Enum.reduce(MapSet.new(), fn link, variables ->
+        link
+        |> AL.Var.subst(store)
+        |> AL.Var.find_vars(variables)
+      end)
+      |> MapSet.delete(:"$_")
+      |> Enum.reject(&Map.has_key?(display_names, &1))
+      |> Enum.sort()
+
+    case linked_variables do
+      [] ->
+        {display_names, n}
+
+      variables ->
+        {expanded, next_n} =
+          Enum.reduce(variables, {display_names, n}, fn variable, {names, index} ->
+            {Map.put(names, variable, AL.Var.var("_#{index + 1}")), index + 1}
+          end)
+
+        expand_slot_display_names(expanded, next_n, store)
+    end
+  end
+
+  defp constraint_summary(canonical_names, store, rewrite_unbound) do
     Enum.reduce(canonical_names, %{}, fn {resolved, display_name}, acc ->
       case AL.Var.constraint_set(store, resolved) do
         %AL.Var.ConstraintSet{} = set ->
-          case summarize_constraints(resolved, set) do
+          case summarize_constraints(resolved, set, store, rewrite_unbound) do
             empty when map_size(empty) == 0 -> acc
             summary -> Map.put(acc, display_name, summary)
           end
@@ -418,16 +466,25 @@ defmodule AL do
     end)
   end
 
-  defp summarize_constraints(self, %AL.Var.ConstraintSet{
-         dif: dif,
-         direct_class: direct_class,
-         isa: isa,
-         bounds: bounds,
-         domain: domain
-       }) do
+  defp summarize_constraints(
+         self,
+         %AL.Var.ConstraintSet{
+           dif: dif,
+           direct_class: direct_class,
+           isa: isa,
+           dispatch: dispatch,
+           bounds: bounds,
+           domain: domain,
+           slot_links: slot_links
+         },
+         store,
+         rewrite_unbound
+       ) do
     %{}
     |> maybe_put_direct_class(direct_class)
     |> maybe_put_isa(isa)
+    |> maybe_put_dispatch(dispatch)
+    |> maybe_put_slots(slot_links, store, rewrite_unbound)
     |> maybe_put_dif(self, dif)
     |> maybe_put_bounds(bounds)
     |> maybe_put_domain(domain)
@@ -441,6 +498,32 @@ defmodule AL do
 
   defp maybe_put_isa(map, isa) do
     if MapSet.size(isa) > 0, do: Map.put(map, :isa, MapSet.to_list(isa)), else: map
+  end
+
+  defp maybe_put_dispatch(map, dispatch) do
+    if MapSet.size(dispatch) > 0 do
+      entries =
+        dispatch
+        |> Enum.map(fn {selector, provider} -> %{selector: selector, provider: provider} end)
+        |> Enum.sort_by(&{&1.selector, &1.provider})
+
+      Map.put(map, :dispatch, entries)
+    else
+      map
+    end
+  end
+
+  defp maybe_put_slots(map, slot_links, store, rewrite_unbound) do
+    slots =
+      Enum.reduce(slot_links, %{}, fn
+        {:slot, key, value}, acc ->
+          Map.put(acc, key, AL.Var.subst(value, store, rewrite_unbound))
+
+        _link, acc ->
+          acc
+      end)
+
+    if map_size(slots) == 0, do: map, else: Map.put(map, :slots, slots)
   end
 
   defp maybe_put_dif(map, _self, []), do: map
@@ -458,7 +541,7 @@ defmodule AL do
 
   # A domino Call/Exit's "what's known about this position" -- reuses the
   # exact same constraint_set/summarize_constraints machinery
-  # format_output_vars/2 already uses for `$constraints`, just per-var
+  # format_output_vars/2 already uses for residual constraints, just per-var
   # rather than across a whole result map. `{:bound, v}` for a term with no
   # open vars left (subst'd as far as the given store can take it --
   # covers a compound arg like a constructed map, not just a bare var);
@@ -470,8 +553,11 @@ defmodule AL do
     if AL.Var.var?(resolved) do
       constraints =
         case AL.Var.constraint_set(store, resolved) do
-          %AL.Var.ConstraintSet{} = set -> summarize_constraints(resolved, set)
-          _ -> %{}
+          %AL.Var.ConstraintSet{} = set ->
+            summarize_constraints(resolved, set, store, &Function.identity/1)
+
+          _ ->
+            %{}
         end
 
       {:open, constraints}
@@ -1208,15 +1294,17 @@ defmodule AL do
            state.domino.trace_mode
          ) do
       {:ok, solutions} ->
-        # Per solution: resolve template against that solution's own
-        # bindings, then freshen any still-open vars so two solutions'
-        # leftovers can't collide/alias in the collected list.
-        collected =
-          Enum.map(solutions, fn store ->
-            template |> AL.Var.subst(store) |> standardize_apart()
+        {collected, copied_constraints} =
+          Enum.map_reduce(solutions, %{}, fn solution_store, constraint_store ->
+            {copied, constraints} =
+              AL.Var.copy_term_with_constraints(template, solution_store)
+
+            {copied, Map.merge(constraint_store, constraints)}
           end)
 
-        put_bindings(state, unify(state, result, collected), [result])
+        augmented_store = Map.merge(state.active_choicepoint.store, copied_constraints)
+        new_store = AL.Var.unify(result, collected, augmented_store, state.branch)
+        put_bindings(state, new_store, [result])
 
       :resource_limit_exceeded ->
         resource_limit_abort(state)
@@ -1301,7 +1389,8 @@ defmodule AL do
   # method. Ground var -> direct membership check, no constraint touched.
   def interp(%Goal.InDomain{var: var, values: values}, state) do
     if AL.Var.var?(var) do
-      {new_store, narrowed} = AL.Var.add_domain(store(state), var, values)
+      {new_store, _narrowed} = AL.Var.add_domain(store(state), var, values)
+      {new_store, narrowed} = AL.Var.narrow_domain(new_store, var, state.branch)
 
       cond do
         MapSet.size(narrowed) == 0 ->
@@ -1510,11 +1599,6 @@ defmodule AL do
         state
       ),
       do: AL.Dispatch.do_send_as(class, self, method, args, method_scope, state, &backtrack/1)
-
-  # Durable leg's placeholder entered: real scan_class/choicepoint expansion
-  # happens now (see dispatch.ex).
-  def interp(%Goal.DurableCandidates{object: self, method: method, args: args}, state),
-    do: AL.Dispatch.force_durable_candidates(self, method, args, state)
 
   # Run the next provider of the same selector, from this frame's cursor. No cursor
   # (called outside a resolved method) or none left → fail.
@@ -1782,7 +1866,8 @@ defmodule AL do
 
   # Only bindings may leave the capped process, and a refusal's goal
   # crosses as bounded text.
-  defp shed({:atomic, {bindings, _state}}), do: {:atomic, {bindings, nil}}
+  defp shed({:atomic, {bindings, constraints, _state}}),
+    do: {:atomic, {bindings, constraints, nil}}
 
   defp shed({:aborted, %{failed_on: goal} = reason}) do
     {:aborted,
@@ -2587,16 +2672,28 @@ defmodule AL do
   # `to_mnesia_pattern` treats an open one as a wildcard -- and offers each
   # real edge as a choicepoint, binding both `v` and `other` per row.
   defp label_from_link_or_isa(v, store, state) do
-    case AL.Var.super_link_of(store, v) do
-      nil ->
-        case AL.Var.slot_link_of(store, v) do
-          nil -> label_from_class_domain(v, store, state)
-          link -> label_from_slot_link(v, link, state)
-        end
+    if has_resolved_class_domain?(v, store) do
+      label_from_class_domain(v, store, state)
+    else
+      case AL.Var.super_link_of(store, v) do
+        nil ->
+          case AL.Var.slot_links_of(store, v) do
+            [] -> label_from_class_domain(v, store, state)
+            [link | _] -> label_from_slot_link(v, link, state)
+          end
 
-      link ->
-        label_from_super_link(v, link, state)
+        link ->
+          label_from_super_link(v, link, state)
+      end
     end
+  end
+
+  defp has_resolved_class_domain?(v, store) do
+    MapSet.size(AL.Var.direct_classes_of(store, v)) > 0 or
+      Enum.any?(AL.Var.isa_of(store, v), fn raw ->
+        resolved = AL.Var.deref(store, raw)
+        is_atom(resolved) and not AL.Var.var?(resolved)
+      end)
   end
 
   defp label_from_super_link(v, link, state) do
@@ -2673,15 +2770,6 @@ defmodule AL do
     %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
   end
 
-  # `vm_get_slot(object, key, value)` with `object` open, `key` ground
-  # (`AL.Interp.Relations.GetSlots`'s pending-link branch) -- `key` isn't a var to
-  # resolve, it's fixed context carried in the tag, so the real work is
-  # finding which durable object(s) have that key set at all.
-  # `AL.Object.scan_slots/3` returns one row per object holding its *whole*
-  # slots map (Mnesia can't partially match one key out of it), so this
-  # reads every row for the (possibly still-open, i.e. wildcard) object
-  # pattern and filters for the key in Elixir -- same "full read, filter
-  # after" shape `every_class/1` already uses for `class`.
   defp label_from_slot_link(v, link, state) do
     store = state.active_choicepoint.store
 
@@ -2699,13 +2787,6 @@ defmodule AL do
       |> AL.Object.scan_slots(slots_scope, state.branch)
       |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.has_key?(m, key) end)
 
-    # Labeling the object side is never over-eager -- the slots table is
-    # keyed by object, so each row's object is already unique, no
-    # deduplication needed. Labeling the *value* side while object is
-    # still open is exactly the same shape `label_from_super_link/3` had
-    # to fix: several objects can share the same value for `key`, so this
-    # must offer one choicepoint per distinct value (leaving object
-    # untouched), not one per object that happens to share it.
     choicepoints =
       if v == value_var and AL.Var.var?(object_pattern) do
         distinct_link_witnesses(state, v, rows, fn {:slots, _object, m} -> Map.fetch!(m, key) end)
@@ -2737,29 +2818,6 @@ defmodule AL do
     %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
   end
 
-  # `class/2` relates two different domains (objects, classes) -- a var's
-  # isa entries record which slot it plays, and labeling expands it
-  # according to that role (see `AL.Dispatch`'s moduledoc-level comment
-  # above `object_witness_choicepoints/4` for the full model). Both roles
-  # are `Goal.Label`'s fallback for an isa-constrained var with no numeric
-  # bounds/`in_domain` set, reusing the exact construction dispatch already
-  # runs for a var receiver instead of a separate hand-authored
-  # `:domain`-method convention -- labeling is the same forcing `send`
-  # already does implicitly, just with no method in mind.
-  #
-  # An isa entry can itself still be an open var (`class(x, y)` with both
-  # sides open posts `y` onto `x` this way) -- resolved entries narrow the
-  # object search as usual; *only* pending links (nothing resolved) means
-  # no class to filter by, so every generative descendant and every durable
-  # object is a candidate (`candidate_classes: :any`), each one also
-  # unifying the link var(s) to the class it turned out to be.
-  #
-  # An entry can also be `{:object_link, x}` -- this var is the *class*
-  # side of a pending `class(x, y)`, not the object side, so it takes
-  # the other role entirely (`AL.Dispatch.class_domain_choicepoints/3`).
-  #
-  # No isa at all, or no candidate produces a witness: fails, same as an
-  # unbounded domain always did.
   defp label_from_class_domain(v, store, state) do
     case MapSet.to_list(AL.Var.direct_classes_of(store, v)) do
       [] ->
@@ -2770,11 +2828,11 @@ defmodule AL do
 
         choicepoints =
           case classes do
-            [] -> AL.Dispatch.object_witness_choicepoints(state, v, :any, pending_links)
-            _ -> AL.Dispatch.object_witness_choicepoints(state, v, classes, pending_links)
+            [] -> AL.Label.object_choicepoints(state, v, :any, pending_links)
+            _ -> AL.Label.object_choicepoints(state, v, classes, pending_links)
           end
 
-        AL.Dispatch.install_choicepoints(state, choicepoints)
+        AL.Label.install_choicepoints(state, choicepoints)
     end
   end
 
@@ -2791,25 +2849,28 @@ defmodule AL do
 
               case classes do
                 [] ->
-                  AL.Dispatch.object_witness_choicepoints(state, v, :any, pending_links)
+                  AL.Label.object_choicepoints(state, v, :any, pending_links)
 
                 _ ->
                   descendants =
                     classes
-                    |> Enum.flat_map(&AL.Dispatch.MethodOrder.descendants_of(&1, state.branch))
-                    |> Enum.uniq()
+                    |> Enum.map(fn class ->
+                      MapSet.new(AL.Dispatch.MethodOrder.descendants_of(class, state.branch))
+                    end)
+                    |> Enum.reduce(&MapSet.intersection/2)
+                    |> MapSet.to_list()
 
-                  AL.Dispatch.object_witness_choicepoints(state, v, descendants)
+                  AL.Label.object_choicepoints(state, v, descendants)
               end
 
             {:class, object_var} ->
-              AL.Dispatch.class_domain_choicepoints(state, v, object_var)
+              AL.Label.class_choicepoints(state, v, object_var, :class)
 
             {:isa, object_var} ->
-              AL.Dispatch.isa_class_domain_choicepoints(state, v, object_var)
+              AL.Label.class_choicepoints(state, v, object_var, :isa)
           end
 
-        AL.Dispatch.install_choicepoints(state, choicepoints)
+        AL.Label.install_choicepoints(state, choicepoints)
     end
   end
 

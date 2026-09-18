@@ -11,7 +11,7 @@ defmodule Examples.ALNinetyNine do
   import ExUnit.Assertions
 
   example butlast_composes_reverse_tl_hd() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defmethod(:list, :butlast, [xs, butlast]) do
           reverse(xs, sx)

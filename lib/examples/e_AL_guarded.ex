@@ -12,7 +12,7 @@ defmodule Examples.ALGuarded do
     branch = AL.Branch.fork()
     goal = AL.ast_to_pattern(quote do: unify(x, 42))
 
-    {:atomic, {bindings, nil}} = AL.eval([goal], nil, branch, heap: 2_000_000)
+    {:atomic, {bindings, _constraints, nil}} = AL.eval([goal], nil, branch, heap: 2_000_000)
 
     assert AL.Var.deref(bindings, :"$x") == 42
     AL.Branch.discard(branch)

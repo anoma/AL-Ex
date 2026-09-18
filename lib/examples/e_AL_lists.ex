@@ -10,7 +10,7 @@ defmodule Examples.ALLists do
   import ExUnit.Assertions
 
   example deep_cons_patterns_bind() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         unify([first, second | rest], [:a, :b, :c, :d])
       end
@@ -21,7 +21,7 @@ defmodule Examples.ALLists do
   end
 
   example list_tests() do
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         hd([:w, :x, :y, :z], head)
         tl([:w, :x, :y, :z], tail)
@@ -49,7 +49,7 @@ defmodule Examples.ALLists do
   end
 
   example at_is_bidirectional() do
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         findall([i, x], [at([1, 2, 3], i, x)], elems)
       end
@@ -60,7 +60,7 @@ defmodule Examples.ALLists do
   end
 
   example sort_sorts_numbers() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         sort([3, 1, 4, 1, 5, 9, 2, 6], sorted)
       end
@@ -70,7 +70,7 @@ defmodule Examples.ALLists do
   end
 
   example dedupe_removes_adjacent_duplicates() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         dedupe([1, 1, 2, 3, 3, 3, 4], deduped)
       end
@@ -99,7 +99,7 @@ defmodule Examples.ALLists do
   end
 
   example call_lambda_map() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         map([:a, :b, :c], [x, %{id: x}], [], out)
       end
@@ -147,7 +147,7 @@ defmodule Examples.ALLists do
   # comment on `label_range`: `forall`'s collect-then-freshen splice would
   # mint an independent copy instead).
   example label_range_grounds_open_elements_within_bounds() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         unify(l, [1, x, 3])
         all_dif(l)
@@ -159,7 +159,7 @@ defmodule Examples.ALLists do
   end
 
   example all_dif_propagation_forces_a_naked_pair_chain() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         in_domain(a, [1, 2])
         in_domain(b, [1, 2])
@@ -171,14 +171,13 @@ defmodule Examples.ALLists do
     assert Map.get(bindings, :"$c") == 3
     assert Map.get(bindings, :"$d") == 4
 
-    constraints = Map.get(bindings, :"$constraints")
     assert Enum.sort(Map.get(constraints, :"$a").domain) == [1, 2]
     assert Enum.sort(Map.get(constraints, :"$b").domain) == [1, 2]
     :ok
   end
 
   example all_dif_leaves_slack_domains_unpruned() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         unify(d, [1, 2, 3, :a, :b, :c])
         in_domain(x, d)
@@ -187,7 +186,6 @@ defmodule Examples.ALLists do
         all_dif([x, y, z])
       end
 
-    constraints = Map.get(bindings, :"$constraints")
     full = [1, 2, 3, :a, :b, :c]
     assert Enum.sort(Map.get(constraints, :"$x").domain) == full
     assert Enum.sort(Map.get(constraints, :"$y").domain) == full

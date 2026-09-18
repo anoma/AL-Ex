@@ -880,7 +880,7 @@ defmodule AL.Package do
       [] ->
         chunks = [{"new(:channel, #{literal(slots)}, channel_instance)", nil}]
 
-        with {:ok, {bindings, _state}} <-
+        with {:ok, {bindings, _constraints, _state}} <-
                evaluate_chunks_result(chunks, channel_origin(channel), branch) do
           {:ok, Map.fetch!(bindings, :"$channel_instance")}
         end
@@ -963,7 +963,7 @@ defmodule AL.Package do
       [] ->
         chunks = [{"new(:package_provider, #{literal(slots)}, package_provider)", nil}]
 
-        with {:ok, {bindings, _state}} <-
+        with {:ok, {bindings, _constraints, _state}} <-
                evaluate_chunks_result(chunks, provider_origin(provider, channel), branch) do
           id = Map.fetch!(bindings, :"$package_provider")
           {:ok, %{provider | id: id, channel: channel}}
@@ -1088,7 +1088,7 @@ defmodule AL.Package do
       {"build(#{literal(provider.document.name)}, #{literal(args)}, package_build)", nil}
     ]
 
-    with {:ok, {bindings, _state}} <-
+    with {:ok, {bindings, _constraints, _state}} <-
            evaluate_chunks_result(chunks, build_origin(build, args), branch) do
       {:ok, Map.fetch!(bindings, :"$package_build")}
     end

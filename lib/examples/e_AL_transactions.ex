@@ -58,12 +58,12 @@ defmodule Examples.ALTransactions do
   example commands_are_available_as_a_relation() do
     object = fresh_id()
 
-    {:atomic, {_bindings, written}} =
+    {:atomic, {_bindings, _constraints, written}} =
       run branch: Examples.Support.branch() do
         vm_set_class(^object, :object)
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(
           [time, operation],

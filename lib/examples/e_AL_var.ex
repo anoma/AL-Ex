@@ -9,7 +9,7 @@ defmodule Examples.ALVar do
   import ExUnit.Assertions
 
   example unbound_is_var() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         var(x)
         unify(x, 1)

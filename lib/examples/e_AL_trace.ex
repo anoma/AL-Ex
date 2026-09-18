@@ -50,7 +50,7 @@ defmodule Examples.ALTrace do
   # (mark_exited/2, AL.ex) once the top-level fibonacci(3, x) call's own
   # clause exits, even though dispatch never had its own return address.
   example fibonacci_trace_shows_clause_level_ports() do
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(3, x)
       end
@@ -75,7 +75,7 @@ defmodule Examples.ALTrace do
   # against *that scope's own* store, not the run's final one. No need to
   # go hunt down the matching Call event to know which var to look up.
   example fibonacci_base_case_derives_a_bound_value_at_its_own_exit() do
-    {:atomic, {_bindings, state}} =
+    {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(3, x)
       end
@@ -93,15 +93,7 @@ defmodule Examples.ALTrace do
     assert derived == %{x2 => {:bound, 1}}
   end
 
-  # A var receiver with exactly one generative candidate class means the
-  # *other* candidate every open dispatch always offers -- the durable leg
-  # -- is what backtracking reaches next once the generative candidate's
-  # own clause (already exited once) turns out not to satisfy the caller.
-  # No durable instance of the class exists, so the durable leg finds
-  # nothing and the whole send is exhausted: clause_redo (retrying the
-  # generative candidate's own clause box) then method_fail (every
-  # candidate, generative and durable alike, is exhausted).
-  example dispatch_trace_shows_clause_level_redo_and_method_level_fail() do
+  example dispatch_trace_closes_the_failed_method() do
     {:atomic, _} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         defclass :redo_probe_class, super: :value, ivars: [] do
@@ -121,7 +113,7 @@ defmodule Examples.ALTrace do
         entry -> entry
       end)
 
-    assert :clause_redo in kinds
+    refute :clause_redo in kinds
     assert :method_fail in kinds
   end
 
@@ -133,7 +125,7 @@ defmodule Examples.ALTrace do
   # AL.Trace.render/1 can print both together with correct nesting from a
   # single forward walk.
   example full_trace_interleaves_raw_goals_into_trace() do
-    {:atomic, {_bindings, plain_state}} =
+    {:atomic, {_bindings, _constraints, plain_state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(3, x)
       end
@@ -141,7 +133,7 @@ defmodule Examples.ALTrace do
     refute Enum.any?(plain_state.domino.trace, &match?(%AL.Goal.Send{}, &1))
     assert plain_state.domino.trace_mode == :derivation_trace
 
-    {:atomic, {_bindings, traced_state}} =
+    {:atomic, {_bindings, _constraints, traced_state}} =
       run branch: Examples.Support.branch(), trace_mode: :full_trace do
         fibonacci(3, x)
       end
@@ -163,7 +155,7 @@ defmodule Examples.ALTrace do
   end
 
   example no_trace_is_the_default_and_retains_no_execution_history() do
-    {:atomic, {_bindings, state}} =
+    {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         fibonacci(3, x)
       end
@@ -181,7 +173,7 @@ defmodule Examples.ALTrace do
     output =
       try do
         capture_io(fn ->
-          {:atomic, {_bindings, state}} =
+          {:atomic, {_bindings, _constraints, state}} =
             run branch: Examples.Support.branch(), trace_mode: :no_trace do
               fibonacci(3, x)
             end
@@ -214,7 +206,7 @@ defmodule Examples.ALTrace do
   # so each method-box collapses cleanly into its clause-box -- one node
   # per `fibonacci` call, not two.
   example fibonacci_derivation_tree_collapses_and_nests() do
-    {:atomic, {_bindings, state}} =
+    {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(3, x)
       end
@@ -240,7 +232,7 @@ defmodule Examples.ALTrace do
   # its eventual clause match both nest correctly under the one send that
   # opened them, with the final bound answer on the root itself.
   example fibonacci_backward_search_derivation_tree_is_one_root() do
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(x, 8)
       end
@@ -263,7 +255,7 @@ defmodule Examples.ALTrace do
   defp all_nodes_derived?(node), do: Enum.all?(node.children, &all_nodes_derived?/1)
 
   example fibonacci_deep_backward_search_survives_fail_after_exit() do
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(x, 21)
       end
@@ -296,12 +288,12 @@ defmodule Examples.ALTrace do
   # backward-search tree (self open) both surface the identical intermediate
   # Fibonacci sequence up to their own target.
   example method_values_reads_intermediate_calls_either_direction() do
-    {:atomic, {_bindings, forward_state}} =
+    {:atomic, {_bindings, _constraints, forward_state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(3, x)
       end
 
-    {:atomic, {_bindings, backward_state}} =
+    {:atomic, {_bindings, _constraints, backward_state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         fibonacci(x, 8)
       end
@@ -333,7 +325,7 @@ defmodule Examples.ALTrace do
         defmethod(:redo_demo, :pick, [self, :second])
       end
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:redo_demo, %{}, obj)
         pick(obj, result)
@@ -367,7 +359,7 @@ defmodule Examples.ALTrace do
         end
       end
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:chain_box, %{}, obj)
         chain(obj, n, 21)
@@ -416,7 +408,7 @@ defmodule Examples.ALTrace do
         end
       end
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:pick_box, %{}, obj)
         pick(obj, chosen)
@@ -448,7 +440,7 @@ defmodule Examples.ALTrace do
         end
       end
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:attempt_box, %{}, obj)
         try(obj, answer)
@@ -490,7 +482,7 @@ defmodule Examples.ALTrace do
         end
       end
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:probe_box, %{}, obj)
         probe_answer(obj, r)
@@ -540,12 +532,11 @@ defmodule Examples.ALTrace do
     AL.notrace()
 
     assert String.contains?(output, "Dispatch: ")
-    assert String.contains?(output, "value=[:trace_leg_class]")
-    assert String.contains?(output, "durable=deferred")
+    assert String.contains?(output, "providers=[:trace_leg_class]")
   end
 
   example constraint_goals_are_retained_in_derivation_mode() do
-    {:atomic, {_bindings, state}} =
+    {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         unify(x, 5)
         eq(y, x + 1)
@@ -562,7 +553,7 @@ defmodule Examples.ALTrace do
   end
 
   example derivation_tree_includes_constraint_nodes_with_resolved_values() do
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         unify(y, 5)
         eq(x, y * 3)
@@ -596,7 +587,7 @@ defmodule Examples.ALTrace do
         end
       end
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:triple_class, %{}, obj)
         triple(obj, 4, r)

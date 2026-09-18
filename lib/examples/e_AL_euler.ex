@@ -11,7 +11,7 @@ defmodule Examples.ALEuler do
   import ExUnit.Assertions
 
   example euler_1_sums_multiples_of_3_or_5_below_1000() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         euler_1(1000, sum)
       end

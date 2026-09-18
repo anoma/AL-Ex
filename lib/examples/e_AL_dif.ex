@@ -10,7 +10,7 @@ defmodule Examples.ALDif do
   import ExUnit.Assertions
 
   example dif_resolves_immediately_when_ground() do
-    {:atomic, {_bindings, _state}} =
+    {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(1, 2)
       end
@@ -24,7 +24,7 @@ defmodule Examples.ALDif do
   end
 
   example dif_survives_a_non_conflicting_binding() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
         unify(x, 2)
@@ -48,7 +48,7 @@ defmodule Examples.ALDif do
   # and fails, so backtracking falls through to the recursive clause and tries
   # `x = 2` — never surfacing 1 as a candidate at all.
   example dif_prunes_a_generate_and_test_search() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
         member([1, 2, 3], x)
@@ -75,7 +75,7 @@ defmodule Examples.ALDif do
         unify(x, 1)
       end
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
@@ -93,18 +93,18 @@ defmodule Examples.ALDif do
   example dif_excludes_a_durable_candidate_from_generative_dispatch() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(:dif_dispatch_pingable, :object)
+        defclass :dif_dispatch_pingable, super: :object do
+          defmethod(:ping, [_self, :pong])
+        end
 
-        defmethod(:dif_dispatch_pingable, :ping, [self, :pong])
-
-        vm_set_class(:dif_dispatch_ping_a, :dif_dispatch_pingable)
-        vm_set_class(:dif_dispatch_ping_b, :dif_dispatch_pingable)
+        new(:dif_dispatch_pingable, %{name: :dif_dispatch_ping_a}, _)
+        new(:dif_dispatch_pingable, %{name: :dif_dispatch_ping_b}, _)
       end
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(o, :dif_dispatch_ping_a)
-        findall(o, [ping(o, :pong)], os)
+        findall(o, [ping(o, :pong), label(o)], os)
       end
 
     os = Map.get(bindings, :"$os")
@@ -117,7 +117,7 @@ defmodule Examples.ALDif do
   # rules the `[]` structural candidate out before it's pushed, so the very
   # first solution should already be a one-element list.
   example dif_excludes_the_empty_list_structural_candidate() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(x, [])
         reverse(x, y)

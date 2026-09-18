@@ -14,7 +14,7 @@ defmodule Examples.ALInDomain do
   import ExUnit.Assertions
 
   example in_domain_labels_every_candidate_exactly_once() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         in_domain(x, [:a, :b, :c])
         findall(x, [label(x)], all)
@@ -25,7 +25,7 @@ defmodule Examples.ALInDomain do
   end
 
   example two_in_domain_calls_narrow_via_intersection() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         in_domain(y, [:a, :b, :c, :d])
         in_domain(y, [:c, :d, :e])
@@ -47,7 +47,7 @@ defmodule Examples.ALInDomain do
   end
 
   example a_domain_narrowed_to_one_value_auto_binds() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         in_domain(z, [:only_one])
       end
@@ -59,7 +59,7 @@ defmodule Examples.ALInDomain do
   # dif rules out a candidate the same way it would for any other bind --
   # no special interaction code needed, the ordinary bind-time check does it.
   example dif_excludes_a_candidate_at_label_time() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         dif(v, :a)
         in_domain(v, [:a, :b])

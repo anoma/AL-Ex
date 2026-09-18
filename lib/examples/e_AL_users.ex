@@ -8,7 +8,7 @@ defmodule Examples.ALUsers do
   import ExUnit.Assertions
 
   example owner_is_a_slot() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:user, %{name: :alice}, alice)
         new(:owned, %{owner: alice, data: %{label: :thing}}, obj)
@@ -30,21 +30,21 @@ defmodule Examples.ALUsers do
         end
       end
 
-    {:atomic, {creation_bindings, _}} =
+    {:atomic, {creation_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:owned_ivar_probe, %{}, object)
       end
 
     object = Map.fetch!(creation_bindings, :"$object")
 
-    {:atomic, {slot_bindings, _}} =
+    {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall([key, value], [vm_get_slot(^object, key, value)], slots)
       end
 
     assert Map.get(slot_bindings, :"$slots") == [[:items, []]]
 
-    {:atomic, {get_bindings, _}} =
+    {:atomic, {get_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         get(^object, :items, items)
       end
@@ -54,7 +54,7 @@ defmodule Examples.ALUsers do
   end
 
   example owner_gated_update() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:user, %{name: :bob}, bob)
         new(:user, %{name: :charlie}, charlie)
@@ -70,7 +70,7 @@ defmodule Examples.ALUsers do
         update(^obj, ^charlie, [%{data: %{label: :updated}}])
       end
 
-    {:atomic, {b2, _}} =
+    {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         get(^obj, :data, d)
       end
@@ -88,7 +88,7 @@ defmodule Examples.ALUsers do
   # An unspecified caller must be denied: ground is checked before the
   # relational slot lookup, so an unbound caller can't be bound to the owner.
   example owner_gate_rejects_unbound_caller() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:user, %{name: :dana}, dana)
         new(:owned, %{owner: dana, data: %{label: :guarded}}, obj)
@@ -101,7 +101,7 @@ defmodule Examples.ALUsers do
         update(^obj, caller, [%{data: %{label: :leaked}}])
       end
 
-    {:atomic, {b2, _}} =
+    {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         get(^obj, :data, d)
       end

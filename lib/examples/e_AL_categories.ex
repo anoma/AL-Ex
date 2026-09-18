@@ -12,7 +12,7 @@ defmodule Examples.ALCategories do
   # defmethod(SomeClass, ...) -- sending to the class atom itself doesn't work
   # (a class isn't an instance of itself).
   example import_shares_implementation_without_inheritance() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :greeter_behaviour, metaclass: :category, super: :object do
           defmethod(:greet, [self, :hello])
@@ -37,7 +37,7 @@ defmodule Examples.ALCategories do
   end
 
   example import_creates_no_super_edge() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :shared_behaviour, metaclass: :category, super: :object do
           defmethod(:trait, [self, :shared_trait])
@@ -61,7 +61,7 @@ defmodule Examples.ALCategories do
   end
 
   example category_is_reflectively_queryable() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :reflect_behaviour, metaclass: :category, super: :object do
         end
@@ -78,7 +78,7 @@ defmodule Examples.ALCategories do
   # copied onto importers. method_scopes's self-prefix guard covers :class but
   # missed :category/:behaviour until this showed up live.
   example category_is_not_offered_as_an_unbound_receiver_candidate() do
-    {:atomic, {b1, _}} =
+    {:atomic, {b1, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :counts_behaviour, metaclass: :category, super: :object do
           defmethod(:count, [self, 0])
@@ -89,7 +89,7 @@ defmodule Examples.ALCategories do
 
         new(:countable, instance)
 
-        findall(s, [count(s, 0)], candidates)
+        findall(s, [count(s, 0), label(s)], candidates)
       end
 
     candidates = Map.get(b1, :"$candidates")

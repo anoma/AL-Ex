@@ -48,7 +48,7 @@ defmodule Examples.ALBranch do
     tip = AL.Branch.fork()
 
     # write only into the fork, then read it back from the fork's projection
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: tip.id do
         vm_set_slot(:widget, :x, 3)
         vm_get_slot(:widget, :x, x)
@@ -193,7 +193,7 @@ defmodule Examples.ALBranch do
       1000 -> flunk("timed out waiting for :fork_obj to be handled")
     end
 
-    {:atomic, {fork_bindings, _}} =
+    {:atomic, {fork_bindings, _constraints, _}} =
       run branch: branch.id do
         vm_get_slot(:fork_obj, :processed, v)
       end

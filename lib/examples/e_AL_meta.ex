@@ -45,7 +45,7 @@ defmodule Examples.ALMeta do
   end
 
   example findall_supers() do
-    {:atomic, {bindings, _result}} =
+    {:atomic, {bindings, _constraints, _result}} =
       run branch: Examples.Support.branch() do
         vm_set_super(:findall_test, :a)
         vm_set_super(:findall_test, :b)
@@ -80,7 +80,7 @@ defmodule Examples.ALMeta do
   end
 
   example not_succeeds_when_goal_fails() do
-    {:atomic, {_bindings, _}} =
+    {:atomic, {_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         not [class(:nonexistent_xyz, c)]
       end

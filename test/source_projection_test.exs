@@ -102,7 +102,7 @@ defmodule ALSourceProjectionTest do
       assert rendered =~ "# leading note"
       assert rendered =~ "# trailing note"
 
-      assert {:atomic, {bindings, _state}} =
+      assert {:atomic, {bindings, _constraints, _state}} =
                AL.eval_source("commented_example(:object, answer)\n", branch)
 
       assert Map.get(bindings, :"$answer") == 1

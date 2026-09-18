@@ -49,7 +49,7 @@ defmodule Examples.ALTasks do
   example async_send_runs_handler() do
     register_worker(:async_worker_1, :async_subscriber_1, self())
 
-    {:atomic, {_bindings, state}} =
+    {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         send_async(:async_worker_1, :handle, [:async_obj])
       end
@@ -87,7 +87,7 @@ defmodule Examples.ALTasks do
   example spawn_arranges_a_fresh_transaction_after_commit() do
     pid = self()
 
-    {:atomic, {_bindings, spawning_state}} =
+    {:atomic, {_bindings, _constraints, spawning_state}} =
       run branch: Examples.Support.branch() do
         new(:process, %{name: :spawn_observer, pid: ^pid}, _)
         vm_set_class(:spawn_target, :object)
@@ -144,7 +144,7 @@ defmodule Examples.ALTasks do
 
     refute_receive {:continued, _outcome}, 25
 
-    {:atomic, {_bindings, completion_state}} =
+    {:atomic, {_bindings, _constraints, completion_state}} =
       run branch: Examples.Support.branch() do
         complete(:await_effect, {:ok, :connected})
       end

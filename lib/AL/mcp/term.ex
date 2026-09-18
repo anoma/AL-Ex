@@ -59,13 +59,10 @@ defmodule AL.MCP.Term do
     %{"type" => "map", "entries" => entries}
   end
 
-  @spec encode_bindings(AL.Var.store()) :: map()
-  def encode_bindings(bindings) do
-    constraints = Map.get(bindings, :"$constraints", %{})
-
+  @spec encode_bindings(AL.Var.store(), map()) :: map()
+  def encode_bindings(bindings, constraints) do
     encoded_bindings =
       bindings
-      |> Map.delete(:"$constraints")
       |> Enum.sort_by(fn {variable, _value} -> AL.Var.name(variable) end)
       |> Enum.map(fn {variable, value} ->
         %{"variable" => encode(variable), "value" => encode(value)}

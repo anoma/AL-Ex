@@ -16,7 +16,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example cut() do
-    {:atomic, {_bindings, result}} =
+    {:atomic, {_bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
         class(object, class)
         cut
@@ -58,12 +58,12 @@ defmodule Examples.ALControlFlow do
         end
       end
 
-    {:atomic, {cut_bindings, _}} =
+    {:atomic, {cut_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(x, [pick(^chooser_cut, x)], xs)
       end
 
-    {:atomic, {plain_bindings, _}} =
+    {:atomic, {plain_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(x, [pick(^chooser_plain, x)], xs)
       end
@@ -75,7 +75,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example implies_block_runs_then() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         implies do
           [class(:object, c)] -> unify(out, :then_ran)
@@ -88,7 +88,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example implies_block_runs_else() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         implies do
           [class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
@@ -101,7 +101,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example implies_block_multiway() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_set_class(:branch_pick, :widget)
 
@@ -119,7 +119,7 @@ defmodule Examples.ALControlFlow do
   # if-then-else commits to the condition's first solution (soft cut): even with
   # a multi-solution condition, `then` runs once and the else branch is discarded.
   example if_then_else_commits_to_first_condition_solution() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_set_super(:ite_test, :s1)
         vm_set_super(:ite_test, :s2)
@@ -141,7 +141,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example call_lambda() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         call([x, result], [unify(result, x)], [:hello, out])
       end
@@ -153,7 +153,7 @@ defmodule Examples.ALControlFlow do
   # `pass` is the always-succeeds no-op goal -- a branch that has nothing left
   # to do (its condition already did the work) shouldn't need a self-unify.
   example pass_succeeds_without_changing_bindings() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         unify(out, :hello)
         pass
@@ -164,7 +164,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example pass_as_an_implies_branch() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         implies do
           [class(:object, c)] -> pass

@@ -445,24 +445,16 @@ defmodule AL.Trace do
   defp tree_derived_suffix(derived) when map_size(derived) == 0, do: ""
   defp tree_derived_suffix(derived), do: [" => ", inspect(pretty(derived))]
 
-  # Method-level `call/4`/`fail/3` only fire once a clause is actually applied
-  # — nothing says *which candidate legs an unbound receiver had to try* to
-  # get there. This fires once, at `AL.Dispatch.dispatch/5`'s var-receiver
-  # branch, before any leg has actually run. `durable` deliberately reports
-  # as `deferred`, not a candidate count: durable candidate generation is
-  # lazy (`AL.Dispatch.force_durable_candidates/4`) precisely so it doesn't
-  # pay for a scan a cheaper leg might make unnecessary — reporting a count
-  # here would force that scan just to trace it, undoing the laziness.
   @spec dispatch(term(), term(), [atom()]) :: :ok
-  def dispatch(self, method, value_classes) do
+  def dispatch(self, method, providers) do
     IO.puts([
       "Dispatch: ",
       inspect(pretty(self)),
       " <- ",
       inspect(pretty(method)),
-      " (legs: value=",
-      inspect(value_classes),
-      ", durable=deferred)"
+      " (providers=",
+      inspect(providers),
+      ")"
     ])
   end
 

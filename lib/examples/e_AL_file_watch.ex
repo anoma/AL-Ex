@@ -11,7 +11,7 @@ defmodule Examples.ALFileWatch do
     File.write!(path, "initial")
 
     try do
-      {:atomic, {bindings, _state}} =
+      {:atomic, {bindings, _constraints, _state}} =
         run branch: Examples.Support.branch() do
           defclass :observed_file_watch,
             super: :file_watch,
@@ -63,7 +63,7 @@ defmodule Examples.ALFileWatch do
       File.write!(path, "second")
       assert_receive {:file_changed, ^watcher, "second"}, 2_000
 
-      {:atomic, {stop_bindings, _state}} =
+      {:atomic, {stop_bindings, _constraints, _state}} =
         run branch: Examples.Support.branch() do
           stop_watching(^watcher, stop_effect)
         end

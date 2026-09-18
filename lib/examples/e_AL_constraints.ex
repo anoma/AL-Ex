@@ -14,7 +14,7 @@ defmodule Examples.ALConstraints do
   example constant() do
     pid = self()
 
-    {:atomic, {_bindings, _state}} =
+    {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         new(:process, %{name: :constant_subscriber, pid: ^pid}, _)
 
@@ -49,7 +49,7 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _state}} ->
+        {:atomic, {bindings, _constraints, _state}} ->
           Map.get(bindings, :"$domain")
 
         {:aborted, _} ->
@@ -62,7 +62,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(:x, :domain, domain)
       end
@@ -77,7 +77,7 @@ defmodule Examples.ALConstraints do
 
     pid = self()
 
-    {:atomic, {_bindings, _state}} =
+    {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         new(:process, %{name: :inc_subscriber, pid: ^pid}, _)
 
@@ -108,7 +108,7 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _state}} ->
+        {:atomic, {bindings, _constraints, _state}} ->
           Map.get(bindings, :"$domain")
 
         {:aborted, _} ->
@@ -121,7 +121,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :mapset_value, elems: %{3 => true}}
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(:y, :domain, domain)
       end
@@ -134,7 +134,7 @@ defmodule Examples.ALConstraints do
   example network_dependents() do
     inc()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dependents(:x, dependents)
       end
@@ -149,7 +149,7 @@ defmodule Examples.ALConstraints do
   example bidirectional_adder() do
     pid = self()
 
-    {:atomic, {_bindings, _state}} =
+    {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         new(:process, %{name: :bidirectional_adder_subscriber, pid: ^pid}, _)
 
@@ -198,7 +198,7 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _state}} ->
+        {:atomic, {bindings, _constraints, _state}} ->
           Map.get(bindings, :"$domain")
 
         {:aborted, _} ->
@@ -211,7 +211,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(:a, :domain, domain)
       end
@@ -224,7 +224,7 @@ defmodule Examples.ALConstraints do
   example network_dependents_do_not_infinitely_recur() do
     bidirectional_adder()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dependents(:a, dependents)
       end
@@ -239,7 +239,7 @@ defmodule Examples.ALConstraints do
   example interval_propagation_skips_enumeration() do
     pid = self()
 
-    {:atomic, {_bindings, _state}} =
+    {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         new(:process, %{name: :interval_subscriber, pid: ^pid}, _)
 
@@ -286,7 +286,7 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _state}} ->
+        {:atomic, {bindings, _constraints, _state}} ->
           Map.get(bindings, :"$domain")
 
         {:aborted, _} ->
@@ -299,7 +299,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :interval_value, lo: 4, hi: 13}
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(:ic, :domain, domain)
       end

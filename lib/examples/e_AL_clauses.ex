@@ -17,7 +17,7 @@ defmodule Examples.ALClauses do
 
   @doc "A clause body read via `clause/n` must be executable structs: reflect reverse's recursive clause and run its body through `call`."
   example reflected_clause_body_executes() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_method(:list, :reverse, m)
         vm_clause(m, [[h | t], out], body)
@@ -41,7 +41,7 @@ defmodule Examples.ALClauses do
         defmethod(^c, :tag, [self, :second])
       end
 
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(t, [tag(^c, t)], ts)
       end
@@ -74,7 +74,7 @@ defmodule Examples.ALClauses do
 
     tip = AL.Branch.fork(:tip, base)
 
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: tip.id do
         findall(t, [tag(^c, t)], ts)
       end
@@ -117,7 +117,7 @@ defmodule Examples.ALClauses do
         end
       end
 
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(t, [tag(^c, t)], ts)
       end
@@ -142,7 +142,7 @@ defmodule Examples.ALClauses do
         defmethod(^c, :tag, [self, :first])
       end
 
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
         vm_clause(id, seq_before, [_self, :first], _)
@@ -172,7 +172,7 @@ defmodule Examples.ALClauses do
         defmethod(^c, :tag, [self, :second])
       end
 
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_method(^c, :tag, id)
         findall(s, [vm_clause(id, s, h, body)], seqs)
@@ -214,7 +214,7 @@ defmodule Examples.ALClauses do
         end
       end
 
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(t, [tag(^c, t)], ts)
       end
@@ -229,7 +229,7 @@ defmodule Examples.ALClauses do
   # and fail the occurs-check — yielding nothing. Scanned clauses are now
   # standardized apart, so the query matches regardless of the names it uses.
   example clause_read_does_not_capture_query_vars() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(head, [vm_clause(:defmethod, head, body)], heads)
       end
@@ -269,7 +269,7 @@ defmodule Examples.ALClauses do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         wrap(:cons_arg_test, 1, [2, 3], out)
       end
@@ -279,7 +279,7 @@ defmodule Examples.ALClauses do
   end
 
   defp at_clause_arities() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_method(:list, :at, id)
         findall(head, [vm_clause(id, head, body)], heads)
@@ -289,7 +289,7 @@ defmodule Examples.ALClauses do
   end
 
   defp swap_first_two_at_clauses() do
-    {:atomic, {b, _}} =
+    {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_method(:list, :at, id)
         findall([head, body], [vm_clause(id, head, body)], clauses)

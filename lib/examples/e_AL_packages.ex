@@ -92,7 +92,7 @@ defmodule Examples.ALPackages do
         findall(owner, [extends_class(build, owner)], extensions)
       end
 
-    assert {:atomic, {bindings, _state}} = result
+    assert {:atomic, {bindings, _constraints, _state}} = result
     assert Enum.sort(bindings[:"$classes"]) == [:owned, :user]
 
     assert Enum.sort(bindings[:"$methods"]) ==
@@ -158,7 +158,7 @@ defmodule Examples.ALPackages do
           adds_superclass(build, :handmade_value, :object)
         end
 
-      assert {:atomic, {creation_bindings, _}} = creation
+      assert {:atomic, {creation_bindings, _constraints, _}} = creation
       build = creation_bindings[:"$build"]
 
       assert {:ok,
@@ -273,7 +273,7 @@ defmodule Examples.ALPackages do
           rendering_package(widget, :widget_rendering)
         end
 
-      assert {:atomic, {bindings, _}} = result
+      assert {:atomic, {bindings, _constraints, _}} = result
       assert bindings[:"$extensions"] == [:composable_widget]
 
       assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_core, branch: branch)
@@ -738,7 +738,7 @@ defmodule Examples.ALPackages do
         parts(welcome, parts)
       end
 
-    assert {:atomic, {bindings, _}} = result
+    assert {:atomic, {bindings, _constraints, _}} = result
     bindings[:"$parts"]
   end
 

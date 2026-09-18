@@ -178,7 +178,7 @@ defmodule Examples.ALSourceInput do
     unify(result, :ok)
     """
 
-    assert {:atomic, {bindings, nil}} =
+    assert {:atomic, {bindings, _constraints, nil}} =
              AL.eval_source(source, AL.Branch.head(), heap: 2_000_000)
 
     assert Map.fetch!(bindings, :"$result") == :ok

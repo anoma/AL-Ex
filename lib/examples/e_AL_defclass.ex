@@ -11,7 +11,7 @@ defmodule Examples.ALDefclass do
   import ExUnit.Assertions
 
   example defclass_declares_class_imports_and_methods() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:category, %{name: :widget_behaviour}, _)
 
@@ -43,7 +43,7 @@ defmodule Examples.ALDefclass do
 
   # metaclass defaults to :class — same as new(:class, %{...}, _) by hand.
   example defclass_defaults_metaclass_to_class() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :durable_thing, super: :object, ivars: [] do
         end
@@ -60,7 +60,7 @@ defmodule Examples.ALDefclass do
   # metaclass: :object -- the class itself is a plain durable object, no
   # per-instance construction.
   example defclass_supports_metaclass_override() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :singleton_thing, metaclass: :object, super: :object do
           defmethod(:ping, [self, :pong])
@@ -79,7 +79,7 @@ defmodule Examples.ALDefclass do
   # whole class (couldn't even reach :object for :allocate). `set_supers`
   # now branches on `class(super, :list)` and writes one fact per element.
   example defclass_supports_multiple_supers() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :multi_super_a, super: :object do
           defmethod(:from_a, [self, :a_val])
@@ -109,7 +109,7 @@ defmodule Examples.ALDefclass do
   # defclass now retracts every entry's prior clauses in one pass before
   # defining any of them, so both survive.
   example defclass_supports_multiple_clauses_on_one_selector() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :multi_clause_thing, super: :object do
           defmethod(:pick, [self, :a, :first])
@@ -131,7 +131,7 @@ defmodule Examples.ALDefclass do
   # to crash lowering (methods-list extraction only matched the 3-element
   # with-body shape).
   example defclass_supports_bodyless_methods() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :bodyless_thing, super: :value do
           defmethod(:known, [42])
@@ -169,7 +169,7 @@ defmodule Examples.ALDefclass do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :redef_probe_b, super: :value, ivars: [], redef: true do
           defmethod(:generation, [self, :second])
@@ -200,7 +200,7 @@ defmodule Examples.ALDefclass do
         end
       end
 
-    {:atomic, {bindings1, _}} =
+    {:atomic, {bindings1, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
         set_slot(obj, :count, 99)
@@ -209,7 +209,7 @@ defmodule Examples.ALDefclass do
 
     assert Map.get(bindings1, :"$count") == 99
 
-    {:atomic, {bindings2, _}} =
+    {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:redef_probe_c, %{name: :redef_probe_c_instance, redef: true}, obj)
         get(obj, :count, count)
@@ -232,7 +232,7 @@ defmodule Examples.ALDefclass do
         end
       end
 
-    {:atomic, {bindings1, _}} =
+    {:atomic, {bindings1, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
         set_slot(obj, :count, 99)
@@ -241,7 +241,7 @@ defmodule Examples.ALDefclass do
 
     assert Map.get(bindings1, :"$count") == 99
 
-    {:atomic, {bindings2, _}} =
+    {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:redef_probe_soa, %{name: :redef_probe_soa_instance, redef: true}, obj)
         get(obj, :count, count)
@@ -279,7 +279,7 @@ defmodule Examples.ALDefclass do
         greet(:redef_probe_d_instance, _g)
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         greet_v2(:redef_probe_d_instance, g)
       end
@@ -335,7 +335,7 @@ defmodule Examples.ALDefclass do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :logged_thing,
           metaclass: :logging_metaclass,
@@ -357,7 +357,7 @@ defmodule Examples.ALDefclass do
   # `shared-initialize` on `added-slots`) -- no metaclass override needed,
   # this is `:class`'s own `class_redefined` body.
   example redef_backfills_new_ivars_with_their_default_on_existing_instances() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :redef_backfill_probe, super: :object, redef: true, ivars: [] do
         end

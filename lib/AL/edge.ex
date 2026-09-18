@@ -86,7 +86,7 @@ defmodule AL.Edge do
     goal = %Goal.Send{object: receiver, method: selector, args: arguments ++ [reply]}
 
     case AL.eval([goal], nil, branch) do
-      {:atomic, {bindings, _state}} ->
+      {:atomic, {bindings, _constraints, _state}} ->
         call_reply(bindings, reply)
 
       {:aborted, reason} ->

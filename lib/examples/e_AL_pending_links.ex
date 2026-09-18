@@ -21,7 +21,7 @@ defmodule Examples.ALPendingLinks do
   # back on `y`) and succeeds once, both still open. No choicepoint, no
   # table read.
   example class_with_both_sides_open_posts_a_pending_link() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, y)
       end
@@ -31,13 +31,8 @@ defmodule Examples.ALPendingLinks do
     :ok
   end
 
-  # `label` is what actually forces the pending link open -- with no
-  # resolved class on either side, there's nothing to filter by, so every
-  # generative descendant and every durable object is a candidate
-  # (`AL.Dispatch.object_witness_choicepoints/4` with `candidate_classes:
-  # :any`), each one unifying *both* `x` and `y` consistently, not just `x`.
   example labeling_a_pending_class_link_finds_a_real_witness() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, y)
         label(x)
@@ -58,21 +53,21 @@ defmodule Examples.ALPendingLinks do
   example binding_the_class_side_later_still_resolves_the_link() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :link_reactive_class, super: :value, ivars: [] do
+        defclass :link_reactive_class, super: :value, ivars: [tag: []] do
         end
 
-        defclass :link_reactive_other, super: :value, ivars: [] do
+        defclass :link_reactive_other, super: :value, ivars: [tag: []] do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, y)
         unify(y, :link_reactive_class)
         label(x)
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    assert %{class: :link_reactive_class} = Map.get(bindings, :"$x")
     assert Map.get(bindings, :"$y") == :link_reactive_class
 
     {:aborted, _} =
@@ -93,7 +88,7 @@ defmodule Examples.ALPendingLinks do
   # still open (ordinary `GetClass` branch-1 semantics, same as
   # `class(x, :known_class)` alone always leaves it), not witnessed.
   example labeling_the_class_side_names_a_class_without_constructing_an_object() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
@@ -117,7 +112,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
@@ -137,20 +132,14 @@ defmodule Examples.ALPendingLinks do
     :ok
   end
 
-  # Full round trip: label the class side first (names a class, leaves `x`
-  # open-but-tagged), then label the object side -- `x`'s isa is by then a
-  # single resolved class, so this goes through the ordinary, already-known
-  # `object_witness_choicepoints/4` path (not the unfiltered `:any` one, and
-  # not the class-domain one either), constructing a real witness consistent
-  # with whichever class `y` was labeled to.
   example labeling_the_class_side_then_the_object_side_is_consistent() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :roundtrip_class, super: :value, ivars: [] do
+        defclass :roundtrip_class, super: :value, ivars: [tag: []] do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, y)
         label(y)
@@ -159,7 +148,7 @@ defmodule Examples.ALPendingLinks do
       end
 
     assert Map.get(bindings, :"$y") == :roundtrip_class
-    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    assert %{class: :roundtrip_class} = Map.get(bindings, :"$x")
     :ok
   end
 
@@ -171,7 +160,7 @@ defmodule Examples.ALPendingLinks do
   # would falsely claim one side is "an instance of" the other, when the
   # real relation is subclass-of).
   example super_with_both_sides_open_posts_a_pending_link() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(y, z)
       end
@@ -194,7 +183,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(y, z)
         unify(y, :super_link_child)
@@ -219,7 +208,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(y, z)
         unify(z, :super_link_parent2)
@@ -268,7 +257,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall([y, z], [super(y, z), label(z)], pairs)
       end
@@ -298,7 +287,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(y, [super(y, z), unify(z, :dedup_super_parent2), label(y)], ys)
       end
@@ -313,7 +302,7 @@ defmodule Examples.ALPendingLinks do
   # open object can't answer today without this). Alone, no forcing: both
   # sides stay open.
   example vm_get_slot_with_open_object_posts_a_pending_link() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(x, :slot_link_probe, v)
       end
@@ -335,7 +324,7 @@ defmodule Examples.ALPendingLinks do
         set_slots(obj, %{slot_link_probe: 42})
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(x, :slot_link_probe, v)
         label(x)
@@ -348,7 +337,7 @@ defmodule Examples.ALPendingLinks do
   # Same row, found from the other side -- labeling `v` (the value slot)
   # after `x` is independently ground still resolves `v` correctly.
   example labeling_the_value_side_of_a_pending_slot_link_finds_a_real_row() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :slot_link_class2, super: :object, ivars: [slot_link_probe2: []] do
         end
@@ -359,7 +348,7 @@ defmodule Examples.ALPendingLinks do
 
     obj = Map.get(bindings, :"$obj")
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(x, :slot_link_probe2, v)
         unify(x, ^obj)
@@ -400,7 +389,7 @@ defmodule Examples.ALPendingLinks do
         set_slots(obj_c, %{dedup_slot_probe: 99})
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall([x, v], [vm_get_slot(x, :dedup_slot_probe, v), label(v)], pairs)
       end
@@ -426,7 +415,7 @@ defmodule Examples.ALPendingLinks do
         set_slots(obj_b, %{dedup_slot_probe2: 7})
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         findall(x, [vm_get_slot(x, :dedup_slot_probe2, v), unify(v, 7), label(x)], xs)
       end
@@ -450,7 +439,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(y, z)
         unify(y, :propagate_super_only_child)
@@ -472,7 +461,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(y, z)
         unify(z, :propagate_super_parent2)
@@ -497,7 +486,7 @@ defmodule Examples.ALPendingLinks do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(y, z)
         unify(z, :propagate_super_parent3)
@@ -510,7 +499,7 @@ defmodule Examples.ALPendingLinks do
   # Same propagation for `slot_link` -- binding the object side always
   # auto-resolves the value (a single, keyed lookup, never ambiguous).
   example binding_the_object_side_of_a_slot_link_auto_propagates_the_value() do
-    {:atomic, {setup_bindings, _}} =
+    {:atomic, {setup_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :propagate_slot_class, super: :object, ivars: [propagate_slot_probe: []] do
         end
@@ -521,7 +510,7 @@ defmodule Examples.ALPendingLinks do
 
     obj = Map.get(setup_bindings, :"$obj")
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(x, :propagate_slot_probe, v)
         unify(x, ^obj)
@@ -543,7 +532,7 @@ defmodule Examples.ALPendingLinks do
         set_slots(obj, %{propagate_slot_probe2: 77})
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(x, :propagate_slot_probe2, v)
         unify(v, 77)
@@ -567,13 +556,37 @@ defmodule Examples.ALPendingLinks do
         set_slots(obj_b, %{propagate_slot_probe3: 88})
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         vm_get_slot(x, :propagate_slot_probe3, v)
         unify(v, 88)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$x"))
+    :ok
+  end
+
+  example get_then_label_finds_only_matching_durable_objects() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        defclass :labelled_slot_object, super: :object, ivars: [color: []] do
+        end
+
+        new(:labelled_slot_object, %{name: :blue_labelled_slot_object}, blue)
+        set_slot(blue, :color, :blue)
+        new(:labelled_slot_object, %{name: :red_labelled_slot_object}, red)
+        set_slot(red, :color, :red)
+      end
+
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        findall(x, [get(x, :color, :red), label(x)], matches)
+      end
+
+    matches = Map.get(bindings, :"$matches")
+    assert :red_labelled_slot_object in matches
+    refute :blue_labelled_slot_object in matches
+    refute Enum.any?(matches, &AL.Var.var?/1)
     :ok
   end
 end

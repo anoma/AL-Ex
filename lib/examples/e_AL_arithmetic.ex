@@ -9,7 +9,7 @@ defmodule Examples.ALArithmetic do
   import ExUnit.Assertions
 
   example arithmetic() do
-    {:atomic, {bindings, result}} =
+    {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
         is(a, 123 + 5 - 3)
         is(f, 10000 - 3)
@@ -56,7 +56,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example remainder() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         is(a, rem(7, 2))
         is(b, rem(10, 5))
@@ -77,7 +77,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example comparison_succeeds_when_true() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         is(x, 5)
         x > 3
@@ -115,7 +115,7 @@ defmodule Examples.ALArithmetic do
   # open rather than crashing the transaction. A non-numeric ground operand
   # still has no interval to narrow, so it's still a hard failure.
   example comparison_narrows_rather_than_failing_on_unbound() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         y > 1
       end

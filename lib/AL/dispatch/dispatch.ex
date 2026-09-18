@@ -1,60 +1,25 @@
 defmodule AL.Dispatch do
   @moduledoc """
-  Resolves a `send` into a method application.
+  I resolve a `send` into a method application.
 
-  Ground receiver+selector -> `do_send/5`. Open receiver -> query: enumerate
-  `:value` candidates (`generative_candidate/5` — calls class's own `new`,
-  whose `init` discards the constructed scaffold, so self comes back
-  exactly as open as it started; a class's own clauses then unify against
-  it directly or run whatever relational construction logic they define
-  with self still open, e.g. `:mapset_value`'s `list_to_elems`), plus durable (a
-  real scan, deferred behind a placeholder until backtracking reaches it,
-  `force_durable_candidates/4`). `isa` attaches to each candidate's
-  choicepoint before its goals run; each candidate is its own choicepoint.
-  Open selector -> enumerate self's own method names
-  (`enumerate_selectors/4`), re-dispatch per name. Both ground -> `do_send/5`
-  runs the first matching provider (`run_providers/6`); miss -> DNU
-  (directed) or backtrack (query).
+  An open receiver remains open. Each applicable class provider posts an
+  `isa` constraint and a selected-provider constraint before applying its
+  method relationally. Constructing or finding a concrete witness belongs
+  to explicit labeling, not dispatch.
   """
 
   alias AL.Goal
 
   @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
 
-  # A var receiver or selector makes the send a query: enumerate candidates, ground
-  # the hole, re-dispatch as a query (misses backtrack, not DNU). Only a fully ground
-  # send is directed and uses `on_miss`. `:"$_"` is the wildcard, not a hole.
+  # A variable receiver or selector makes the send a query. Only a fully
+  # ground send is directed and uses `on_miss`. `:"$_"` is the wildcard.
   def dispatch(self, method, args, state, on_miss) do
     {state, method_scope, on_miss} = AL.begin_method_scope(state, self, method, args, on_miss)
 
     cond do
       AL.Var.var?(self) and self != :"$_" ->
-        store = state.active_choicepoint.store
-        known_direct = resolved_direct_classes(store, self)
-        known_isa = resolved_isa_classes(store, self)
-
-        value_classes =
-          state.branch
-          |> generative_descendants()
-          |> filter_by_selector(method, state.branch)
-          |> filter_by_direct_classes(known_direct)
-          |> Enum.filter(&candidate_satisfies_isa?(&1, known_isa, state.branch))
-
-        maybe_trace_dispatch(state, self, method, value_classes)
-
-        {generative_candidates, state} =
-          Enum.map_reduce(value_classes, state, fn class, acc_state ->
-            original_active = acc_state.active_choicepoint
-
-            {choicepoint, next_state} =
-              generative_candidate(acc_state, self, method, args, class, method_scope)
-
-            {choicepoint, %AL{next_state | active_choicepoint: original_active}}
-          end)
-
-        candidates = generative_candidates ++ [durable_placeholder(state, self, method, args)]
-
-        install_method_choicepoints(state, method_scope, candidates)
+        dispatch_open_receiver(self, method, args, state, method_scope)
 
       AL.Var.var?(method) and method != :"$_" ->
         enumerate_selectors(self, method, args, state, method_scope)
@@ -82,33 +47,16 @@ defmodule AL.Dispatch do
     end
   end
 
-  # An object is single-classed, period -- the same invariant `AL.Interp.Store`'s
-  # `SetClass` already enforces for a durable atom's direct class. Two
-  # distinct classes on the same var only coexist when one is an ancestor of
-  # the other (real inheritance, not a coincidence): `:number`/`:list`/`:map`
-  # can't overlap, no two unrelated `super: :value` classes can (`:card` vs
-  # `:number`), and neither can a value class and an unrelated durable one
-  # (`:number` vs `:program_execution`) -- there's no special "exclusive" subset, every
-  # class is exclusive of every other unrelated class. Used both to filter
-  # which candidates dispatch offers (here) and by `GetClass`'s
-  # no-witness-needed isa fast path (`AL.Interp.Relations`), which used to be able to
-  # union in a conflicting class with no check at all.
-  #
-  # An isa entry that's still an open var (`class(x, y)` with both sides
-  # open posts `y` onto `x`) hasn't resolved to a class yet, so it can't
-  # conflict with anything -- a var is a superset of any atom until it
-  # resolves, not a competing class. Same for `{:object_link, _}` (posted on
-  # the *class* side of that same pending `class` -- see
-  # `AL.Interp.Relations.GetClass`): it's a directional marker, never a class atom,
-  # so `not AL.Var.var?/1` alone would wrongly treat it as one (a 2-tuple
-  # isn't a var, but it isn't a resolved class either). Only a genuinely
-  # resolved atom -- not a var, not a link marker -- ever gets the real
-  # `related?` check.
+  # Two isa constraints are compatible when at least one direct class can
+  # witness both, including a common descendant under multiple inheritance.
   @spec isa_conflict?(Enumerable.t(atom()), atom(), AL.Branch.t()) :: boolean()
   def isa_conflict?(known_isa, class, branch) do
     Enum.any?(known_isa, fn existing ->
       resolved_isa_class?(existing) and existing != class and
-        not related?(class, existing, branch)
+        MapSet.disjoint?(
+          MapSet.new(AL.Dispatch.MethodOrder.descendants_of(class, branch)),
+          MapSet.new(AL.Dispatch.MethodOrder.descendants_of(existing, branch))
+        )
     end)
   end
 
@@ -176,18 +124,141 @@ defmodule AL.Dispatch do
     |> Enum.uniq()
   end
 
-  defp filter_by_direct_classes(classes, []), do: classes
-  defp filter_by_direct_classes(classes, [direct]), do: Enum.filter(classes, &(&1 == direct))
-  defp filter_by_direct_classes(_classes, _direct), do: []
+  defp dispatch_open_receiver(self, method, args, state, method_scope) do
+    providers = direct_providers(method, state.branch)
 
-  defp candidate_satisfies_isa?(class, known_isa, branch) do
-    chain = AL.Dispatch.MethodOrder.super_chain([class], branch, :dfs)
-    Enum.all?(known_isa, &(&1 in chain))
+    candidates =
+      providers
+      |> Enum.map(&open_receiver_candidate(state, self, method, args, &1, method_scope))
+      |> Enum.reject(&is_nil/1)
+
+    maybe_trace_dispatch(state, self, method, Enum.map(providers, &elem(&1, 0)))
+
+    install_method_choicepoints(state, method_scope, candidates)
   end
 
-  defp related?(a, b, branch) do
-    b in AL.Dispatch.MethodOrder.super_chain([a], branch, :dfs) or
-      a in AL.Dispatch.MethodOrder.super_chain([b], branch, :dfs)
+  defp direct_providers(method, branch) do
+    scope = AL.fresh_scope()
+
+    AL.Object.scan_method(
+      AL.Var.var("open_provider_#{scope}"),
+      method,
+      AL.Var.var("open_provider_method_#{scope}"),
+      branch
+    )
+    |> Enum.map(fn {:method, provider, selector, _id} -> {provider, selector} end)
+    |> Enum.uniq()
+  end
+
+  defp open_receiver_candidate(
+         state,
+         self,
+         method,
+         args,
+         {provider, selector},
+         method_scope
+       ) do
+    case AL.Var.unify(method, selector, state.active_choicepoint.store, state.branch) do
+      nil ->
+        nil
+
+      store ->
+        candidate_state =
+          %AL{
+            state
+            | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: store}
+          }
+
+        if class_provider?(provider, state.branch) do
+          open_class_receiver_candidate(
+            candidate_state,
+            self,
+            selector,
+            args,
+            provider,
+            method_scope
+          )
+        else
+          open_singleton_receiver_candidate(
+            candidate_state,
+            self,
+            selector,
+            args,
+            provider,
+            method_scope
+          )
+        end
+    end
+  end
+
+  defp open_class_receiver_candidate(state, self, method, args, provider, method_scope) do
+    store = state.active_choicepoint.store
+    known_isa = resolved_isa_classes(store, self)
+    known_direct = resolved_direct_classes(store, self)
+    selected = Enum.map(known_direct, &selected_provider_for_class(&1, method, state.branch))
+
+    compatible =
+      not isa_conflict?(known_isa, provider, state.branch) and
+        (selected == [] or Enum.all?(selected, &(&1 == provider))) and
+        not dispatch_conflict?(store, self, method, provider)
+
+    if compatible do
+      new_store =
+        store
+        |> AL.Var.add_isa(self, provider)
+        |> AL.Var.add_dispatch(self, method, provider)
+
+      candidate_state =
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: new_store}
+        }
+
+      goals = [
+        %Goal.SendAsValue{
+          class: provider,
+          object: self,
+          method: method,
+          args: args,
+          method_scope: method_scope
+        }
+      ]
+
+      {choicepoint, _state} =
+        AL.wrap_clause_scope(candidate_state, method_scope, self, method, args, goals)
+
+      choicepoint
+    end
+  end
+
+  defp open_singleton_receiver_candidate(state, self, method, args, provider, method_scope) do
+    case AL.Var.unify(self, provider, state.active_choicepoint.store, state.branch) do
+      nil ->
+        nil
+
+      store ->
+        candidate_state =
+          %AL{
+            state
+            | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: store}
+          }
+
+        goals = [%Goal.SendQuery{object: self, method: method, args: args}]
+
+        {choicepoint, _state} =
+          AL.wrap_clause_scope(candidate_state, method_scope, self, method, args, goals)
+
+        choicepoint
+    end
+  end
+
+  defp class_provider?(provider, branch), do: instance_of?(provider, :class, branch)
+
+  defp dispatch_conflict?(store, self, selector, provider) do
+    Enum.any?(AL.Var.dispatch_of(store, self), fn
+      {^selector, existing} -> existing != provider
+      _ -> false
+    end)
   end
 
   # method must be ground to check tracepoints — a var selector has nothing
@@ -195,310 +266,6 @@ defmodule AL.Dispatch do
   defp maybe_trace_dispatch(state, self, method, value_classes) do
     if not AL.Var.var?(method) and MapSet.member?(state.domino.tracepoints, method) do
       AL.Trace.dispatch(self, method, value_classes)
-    end
-  end
-
-  # Offers self = shape as one hypothesis, re-querying once grounded. Shared
-  # by force_durable_candidates/4 (a send's own durable leg, wrapping each
-  # real object as a candidate) and durable_witness/5 (Goal.Label's
-  # isa-fallback leg, below) -- both eagerly unify self against a concrete
-  # shape (a real object id either way), differing only in what goals run
-  # afterward.
-  defp durable_choicepoint(state, self, shape, goals) do
-    new_store = AL.Var.unify(self, shape, state.active_choicepoint.store, state.branch)
-
-    %AL.Choicepoint{
-      state.active_choicepoint
-      | goals: goals,
-        store: new_store
-    }
-  end
-
-  # Shared between both legs: which requery a candidate needs is purely
-  # "is self still open once its own construction goals have actually run" —
-  # not which leg produced the candidate. Durable's own unify (in
-  # structural_candidate, above) is eager, so self is already ground by the
-  # time this splices in; generative's isn't (new/init hasn't run yet at
-  # splice time, so whether self stays open depends on that class's own
-  # init), so the check has to be a goal that runs *after* construction, not
-  # an Elixir-level branch decided up front. One Implies/IsVar fragment
-  # covers both — for durable it's a no-op (the condition is already
-  # settled), for generative it's the actual decision.
-  defp requery_goals(self, class, method, args, method_scope) do
-    [
-      %Goal.Implies{
-        condition: [%Goal.IsVar{term: self}],
-        then: [
-          %Goal.SendAsValue{
-            class: class,
-            object: self,
-            method: method,
-            args: args,
-            method_scope: method_scope
-          }
-        ],
-        otherwise: [%Goal.SendQuery{object: self, method: method, args: args}]
-      }
-    ]
-  end
-
-  defp generative_candidate(state, self, method, args, class, method_scope) do
-    {store, _classes} =
-      AL.Var.add_direct_class(state.active_choicepoint.store, self, class)
-
-    state =
-      %AL{
-        state
-        | active_choicepoint: %AL.Choicepoint{
-            state.active_choicepoint
-            | store: store
-          }
-      }
-
-    goals =
-      witness_goals(state, self, class) ++ requery_goals(self, class, method, args, method_scope)
-
-    AL.wrap_clause_scope(state, method_scope, self, method, args, goals)
-  end
-
-  defp generative_choicepoint(state, self, class, extra_goals) do
-    goals = AL.splice_goals(state, witness_goals(state, self, class) ++ extra_goals)
-
-    {store, _classes} =
-      AL.Var.add_direct_class(state.active_choicepoint.store, self, class)
-
-    %AL.Choicepoint{
-      state.active_choicepoint
-      | goals: goals,
-        store: store
-    }
-  end
-
-  # The part of `generative_candidate/5` that has nothing to do with which
-  # method was asked for: call the class's own `new` with a fresh var per
-  # declared ivar, unify `self` against whatever it builds. Shared with
-  # `witness_choicepoints/3` (below), which needs exactly this and nothing
-  # else — labeling an isa-constrained var has no selector in hand at all.
-  defp witness_goals(state, self, class) do
-    scope = AL.fresh_scope()
-    shape = AL.Var.var("candidate_shape_#{scope}")
-
-    fresh_args =
-      Map.new(class_ivars(class, state.branch), fn ivar ->
-        name = ivar_name(ivar)
-        {name, AL.Var.var("candidate_ivar_#{name}_#{scope}")}
-      end)
-
-    [
-      %Goal.Send{object: class, method: :new, args: [fresh_args, shape]},
-      %Goal.Unify{a: self, b: shape}
-    ]
-  end
-
-  # `class/2` is a typed relation over two different domains, the same way
-  # `parent(X, Y)` ranges over "people" in both positions but *means*
-  # something different per slot -- position 1 ranges over objects,
-  # position 2 over classes, and forcing a var open means something
-  # different depending which slot it's standing in. An isa entry records
-  # which slot a var plays: a bare class atom/still-open var means "I'm an
-  # object, this is my class" (`object_witness_choicepoints/4` below); an
-  # `{:object_link, x}` marker means "I'm a class, `x` is my object"
-  # (`class_domain_choicepoints/3`). Both are `Goal.Label`'s fallback for an
-  # isa-constrained var with no numeric bounds/`in_domain` set, and both are
-  # exactly what `send` dispatch already forces implicitly on an open
-  # receiver -- labeling is the same forcing with no method in mind.
-
-  # The object slot: reuses the exact construction dispatch already runs
-  # for a var receiver -- one choicepoint per candidate class (construction
-  # only, no method to run after) plus one per matching durable object.
-  # `candidate_classes` is `:any` when nothing is known yet (`class(x,
-  # y)` posted a pending link, no filter to narrow by) or a concrete list
-  # once isa has narrowed it; `pending_links` are extra vars (`y`, when
-  # still open) that also get unified to the class a candidate turns out to
-  # be, so the far end of a pending link resolves too. No compatibility
-  # check needed beyond the cheap membership filter below: whichever
-  # candidate gets tried still unifies `self` through `AL.Var.bind`, which
-  # validates against *every* constraint already on `self` -- a candidate
-  # that only satisfies part of a multi-class isa (e.g. an ancestor's own
-  # `new` when a more specific descendant is also required) simply fails
-  # there and backtracking moves on, the same way any other wrong candidate
-  # already does.
-  @spec object_witness_choicepoints(AL.t(), AL.Var.t(), :any | [atom()], [AL.Var.t()]) ::
-          [AL.Choicepoint.t()]
-  def object_witness_choicepoints(state, self, candidate_classes, pending_links \\ []) do
-    generative_classes =
-      case candidate_classes do
-        :any -> generative_descendants(state.branch)
-        list -> Enum.filter(list, &(&1 in generative_descendants(state.branch)))
-      end
-
-    generative = Enum.map(generative_classes, &generative_witness(state, self, &1, pending_links))
-
-    durable =
-      state.branch
-      |> durable_classes()
-      |> Enum.flat_map(fn {object, obj_classes} ->
-        obj_classes
-        |> Enum.filter(&candidate_class?(candidate_classes, &1))
-        |> Enum.map(&durable_witness(state, self, object, &1, pending_links))
-      end)
-      |> Enum.reject(&(&1.store == nil))
-
-    generative ++ durable
-  end
-
-  defp candidate_class?(:any, _class), do: true
-  defp candidate_class?(list, class), do: class in list
-
-  defp generative_witness(state, self, class, pending_links) do
-    extra = Enum.map(pending_links, &%Goal.Unify{a: &1, b: class})
-    generative_choicepoint(state, self, class, extra)
-  end
-
-  # No requery, no method -- self is already unified to a real object, so
-  # there's nothing left to run beyond any pending links.
-  defp durable_witness(state, self, object, class, pending_links) do
-    extra = Enum.map(pending_links, &%Goal.Unify{a: &1, b: class})
-    durable_choicepoint(state, self, object, AL.splice_goals(state, extra))
-  end
-
-  # The class slot (`{:object_link, x}`, posted on the *class* position of a
-  # still-open `class(x, y)` -- see `AL.Interp.Relations.GetClass`) is a
-  # fundamentally different labeling question than the object slot: an
-  # object needs a real witness constructed or found; a class already
-  # exists as a declared entity, so labeling one just needs to name it, not
-  # construct anything -- reusing `object_witness_choicepoints/4` here would
-  # wrongly force a concrete instance of `x` into existence just to name
-  # `x`'s class. So this enumerates every class in the system (every
-  # generative descendant, every class that already classifies some durable
-  # object) and, for each, splices `GetClass`'s *own* branch-1 goal
-  # (`class(x, class)`) rather than re-deriving its isa-conflict check
-  # here -- a conflicting candidate simply fails when its spliced goal runs,
-  # same as any other wrong choicepoint, not something pre-filtered before
-  # the choicepoint exists. A class with zero existing instances still gets
-  # listed by name; `x` ends up isa-tagged and open, not witnessed --
-  # ordinary `GetClass` branch-1 semantics, same as `class(x,
-  # :known_class)` alone always leaves it.
-  @spec class_domain_choicepoints(AL.t(), AL.Var.t(), AL.Var.t()) :: [AL.Choicepoint.t()]
-  def class_domain_choicepoints(state, self, object_var) do
-    every_class(state.branch)
-    |> Enum.map(&class_domain_witness(state, self, object_var, &1))
-  end
-
-  @spec isa_class_domain_choicepoints(AL.t(), AL.Var.t(), AL.Var.t()) :: [AL.Choicepoint.t()]
-  def isa_class_domain_choicepoints(state, self, object_var) do
-    every_class(state.branch)
-    |> Enum.map(&isa_class_domain_witness(state, self, object_var, &1))
-  end
-
-  defp every_class(branch) do
-    durable = branch |> durable_classes() |> Enum.flat_map(fn {_object, classes} -> classes end)
-    Enum.uniq(generative_descendants(branch) ++ durable)
-  end
-
-  defp class_domain_witness(state, self, object_var, class) do
-    goals =
-      AL.splice_goals(state, [
-        %Goal.GetClass{object: object_var, class: class},
-        %Goal.Unify{a: self, b: class}
-      ])
-
-    %AL.Choicepoint{state.active_choicepoint | goals: goals}
-  end
-
-  defp isa_class_domain_witness(state, self, object_var, class) do
-    goals =
-      AL.splice_goals(state, [
-        %Goal.Isa{object: object_var, class: class},
-        %Goal.Unify{a: self, b: class}
-      ])
-
-    %AL.Choicepoint{state.active_choicepoint | goals: goals}
-  end
-
-  # Deferred durable candidates. Scanning every durable object of a matching
-  # class (`durable_candidates/2`) and building a choicepoint per one is real,
-  # immediate work — a full table read — done whether or not backtracking ever
-  # reaches this leg (e.g. the value leg matches first and the query never
-  # needs another candidate; `cut` drops this leg's whole region of the stack
-  # unentered). So dispatch pushes one cheap placeholder choicepoint instead
-  # of the real candidates; force_durable_candidates/4 (called only once this
-  # placeholder becomes active) does the scan and expands then, not before.
-  defp durable_placeholder(state, self, method, args) do
-    goals =
-      AL.splice_goals(state, [%Goal.DurableCandidates{object: self, method: method, args: args}])
-
-    %AL.Choicepoint{state.active_choicepoint | goals: goals}
-  end
-
-  @spec force_durable_candidates(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.t()) :: AL.t()
-  def force_durable_candidates(self, method, args, state) do
-    # `class` here is never actually read -- durable_choicepoint/4 unifies
-    # self with a real, already-existing id before this ever runs, so the
-    # IsVar check inside requery_goals/4 always takes the SendQuery branch.
-    requery = AL.splice_goals(state, requery_goals(self, self, method, args, nil))
-    store = state.active_choicepoint.store
-    known_direct = resolved_direct_classes(store, self)
-    known_isa = resolved_isa_classes(store, self)
-
-    candidates =
-      state.branch
-      |> durable_candidates(method, known_direct, known_isa)
-      |> Enum.map(&durable_choicepoint(state, self, &1, requery))
-      |> Enum.reject(&(&1.store == nil))
-
-    install_choicepoints(state, candidates)
-  end
-
-  defp durable_candidates(branch, method, known_direct, known_isa) do
-    branch
-    |> durable_object_class_pairs(known_direct, known_isa)
-    |> Enum.filter(fn {_object, classes} ->
-      AL.Var.var?(method) or Enum.any?(classes, &answers_selector?(&1, method, branch))
-    end)
-    |> Enum.map(fn {object, _classes} -> object end)
-  end
-
-  defp durable_object_class_pairs(branch, known_direct, known_isa) do
-    classes = durable_candidate_classes(branch, known_direct, known_isa)
-
-    case classes do
-      :any ->
-        durable_classes(branch)
-
-      classes ->
-        classes
-        |> Enum.flat_map(fn class ->
-          AL.Object.scan_class(
-            AL.Var.var("durable_narrow_scan_#{AL.fresh_scope()}"),
-            class,
-            branch
-          )
-        end)
-        |> Enum.group_by(
-          fn {:class, object, _seq, _class} -> object end,
-          fn {:class, _o, _seq, class} -> class end
-        )
-        |> Map.to_list()
-    end
-  end
-
-  defp durable_candidate_classes(branch, [class], known_isa) do
-    if candidate_satisfies_isa?(class, known_isa, branch), do: [class], else: []
-  end
-
-  defp durable_candidate_classes(_branch, classes, _known_isa) when classes != [], do: []
-
-  defp durable_candidate_classes(branch, [], known_isa) do
-    case Enum.filter(known_isa, &resolved_isa_class?/1) do
-      [] ->
-        :any
-
-      classes ->
-        classes
-        |> Enum.map(&MapSet.new(AL.Dispatch.MethodOrder.descendants_of(&1, branch)))
-        |> Enum.reduce(&MapSet.intersection/2)
-        |> MapSet.to_list()
     end
   end
 
@@ -521,27 +288,6 @@ defmodule AL.Dispatch do
         fn {:class, _o, _seq, class} -> class end
       )
       |> Map.to_list()
-    end)
-  end
-
-  # Ground selector: prune candidates that couldn't answer it before they're
-  # even constructed (cheap, reuses method lookup) — keeps this from paying
-  # for every value descendant on every open dispatch. Unbound selector:
-  # nothing to check, every class stays a candidate.
-  defp filter_by_selector(classes, method, branch) do
-    if AL.Var.var?(method) do
-      classes
-    else
-      Enum.filter(classes, &answers_selector?(&1, method, branch))
-    end
-  end
-
-  defp answers_selector?(class, method, branch) do
-    AL.ResolutionCache.fetch_providers(branch, {:answers, class, method}, fn ->
-      Enum.any?(
-        AL.Dispatch.MethodOrder.super_chain([class], branch, :dfs),
-        &(method_ids(&1, method, branch) != [])
-      )
     end)
   end
 
@@ -598,14 +344,9 @@ defmodule AL.Dispatch do
     end
   end
 
-  # Classes with :value as direct super. seq is per-object, no cross-class
-  # ordering guarantee.
   defp generative_descendants(branch) do
     AL.ResolutionCache.fetch_generative_descendants(branch, fn ->
-      scope = AL.fresh_scope()
-
-      AL.Object.scan_super(AL.Var.var("value_scan_class_#{scope}"), :value, branch)
-      |> Enum.map(fn {:super, class, _seq, :value} -> class end)
+      AL.Dispatch.MethodOrder.descendants_of(:value, branch)
     end)
   end
 
@@ -635,26 +376,6 @@ defmodule AL.Dispatch do
           AL.Object.scan_method(class, :"$isa_check_name", :"$isa_check_id", branch),
         {:oapply, _id, _seq, [self_pattern | _], _body} <- AL.cached_scan_clauses(id, branch),
         do: self_pattern
-  end
-
-  # Shared "first candidate becomes active, the rest queue up behind it"
-  # idiom for installing N already-built choicepoint alternatives -- used by
-  # both dispatch legs (via dispatch/5 and force_durable_candidates/4) and
-  # by Goal.Label's isa fallback (label_from_class_domain/3, AL.ex), so
-  # there's exactly one way this happens anywhere in the codebase. Order is
-  # try-order: `candidates`' own order is preserved (the first element is
-  # tried first), not reversed -- unlike a LIFO push loop, this sets the
-  # whole stack in one assignment, so there's no double-reversal to reason
-  # about.
-  @spec install_choicepoints(AL.t(), [AL.Choicepoint.t()]) :: AL.t()
-  def install_choicepoints(state, candidates) do
-    case candidates do
-      [] ->
-        AL.backtrack(state)
-
-      [first | rest] ->
-        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
-    end
   end
 
   # Same idiom, but for a method-level (dispatch) candidate set rather than
@@ -776,6 +497,24 @@ defmodule AL.Dispatch do
       providers_for(resolution_key(self), selector, branch, fn ->
         AL.Dispatch.MethodOrder.method_scopes(self, branch)
       end)
+
+  @spec selected_provider(term(), atom(), AL.Branch.t()) :: atom() | nil
+  def selected_provider(self, selector, branch) do
+    case providers(self, selector, branch) do
+      [{provider, _id} | _] -> provider
+      [] -> nil
+    end
+  end
+
+  @spec selected_provider_for_class(atom(), atom(), AL.Branch.t()) :: atom() | nil
+  def selected_provider_for_class(class, selector, branch) do
+    case providers_for(class, selector, branch, fn ->
+           AL.Dispatch.MethodOrder.super_chain([class], branch, :dfs)
+         end) do
+      [{provider, _id} | _] -> provider
+      [] -> nil
+    end
+  end
 
   # `scopes_fn` is a thunk, not an already-computed list — `method_scopes`/
   # `super_chain` (Kahn's algorithm over the class hierarchy) is real work,

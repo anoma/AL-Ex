@@ -37,7 +37,7 @@ defmodule Examples.ALEffects do
     File.write!(path, "alpha\nbeta\n")
 
     try do
-      {:atomic, {bindings, _state}} =
+      {:atomic, {bindings, _constraints, _state}} =
         run branch: Examples.Support.branch() do
           emit_effect(:file, :read, [^path], effect)
         end
@@ -54,7 +54,7 @@ defmodule Examples.ALEffects do
   example effect_runs_after_commit_and_records_its_outcome_in_a_new_transaction() do
     observe_effects()
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :transaction_context, [], effect)
       end
@@ -94,7 +94,7 @@ defmodule Examples.ALEffects do
   example al_method_can_expose_the_effect_object() do
     observe_effects()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         vm_set_class(:effect_emitter, :object)
 
@@ -131,7 +131,7 @@ defmodule Examples.ALEffects do
   example pending_effect_can_complete_later() do
     observe_effects()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :wait, [:later], effect)
       end
@@ -149,7 +149,7 @@ defmodule Examples.ALEffects do
   example effect_object_initialization_emits_its_host_request() do
     observe_effects()
 
-    {:atomic, {bindings, state}} =
+    {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         new(
           :effect,
@@ -185,7 +185,7 @@ defmodule Examples.ALEffects do
   example effects_are_objects_completed_by_al_transactions() do
     observe_effects()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :wait, [:object_effect], effect)
       end
@@ -193,7 +193,7 @@ defmodule Examples.ALEffects do
     effect = bindings[:"$effect"]
     assert_receive {:effect_pending, context, :object_effect}, 1000
 
-    {:atomic, {pending, _state}} =
+    {:atomic, {pending, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         class(^effect, :effect)
 
@@ -215,7 +215,7 @@ defmodule Examples.ALEffects do
     assert pending[:"$completed_by"] == :none
     assert :ok = AL.Edge.complete(context, {:ok, :changed})
 
-    {:atomic, {completed, _state}} =
+    {:atomic, {completed, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         get_slots(^effect, %{
           status: status,
@@ -233,7 +233,7 @@ defmodule Examples.ALEffects do
   example provider_exception_is_recorded_as_the_effect_outcome() do
     observe_effects()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :raise, [], effect)
       end
@@ -247,7 +247,7 @@ defmodule Examples.ALEffects do
   example multiple_effects_in_one_transaction_have_distinct_objects() do
     observe_effects()
 
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         emit_effect(:example_effect, :echo, [:first], first)
         emit_effect(:example_effect, :echo, [:second], second)
@@ -270,7 +270,7 @@ defmodule Examples.ALEffects do
     :ok = AL.Outbox.stop(branch)
 
     try do
-      {:atomic, {_bindings, state}} =
+      {:atomic, {_bindings, _constraints, state}} =
         run branch: Examples.Support.branch() do
           emit_effect(:example_effect, :notify, [], _)
         end
@@ -310,7 +310,7 @@ defmodule Examples.ALEffects do
       try do
         refute_receive :effect_ran, 100
 
-        {:atomic, {bindings, _state}} =
+        {:atomic, {bindings, _constraints, _state}} =
           run branch: child.id do
             emit_effect(:example_effect, :branch, [], effect)
           end
@@ -332,7 +332,7 @@ defmodule Examples.ALEffects do
   end
 
   defp effect_status(effect) do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         get(^effect, :status, status)
       end

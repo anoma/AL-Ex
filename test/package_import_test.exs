@@ -279,7 +279,7 @@ defmodule ALPackageImportTest do
         provides(^second_provider_id, :shared)
       end
 
-    assert {:atomic, {bindings, _}} = result
+    assert {:atomic, {bindings, _constraints, _}} = result
     assert bindings[:"$first_channel"] != bindings[:"$second_channel"]
   end
 
@@ -357,7 +357,7 @@ defmodule ALPackageImportTest do
         new(:owned, %{owner: dana, data: :guarded}, owned)
       end
 
-    assert {:atomic, {bindings, _}} = creation
+    assert {:atomic, {bindings, _constraints, _}} = creation
 
     owned = Map.fetch!(bindings, :"$owned")
 

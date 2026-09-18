@@ -73,7 +73,19 @@ defmodule AL.Interp.Relations do
           AL.put_bindings(state, nil, [])
         else
           new_store = AL.Var.add_isa(store(state), object, class_pattern)
-          AL.put_bindings(state, new_store, [])
+          {new_store, narrowed} = AL.Var.narrow_domain(new_store, object, state.branch)
+
+          cond do
+            narrowed != nil and MapSet.size(narrowed) == 0 ->
+              AL.put_bindings(state, nil, [])
+
+            narrowed != nil and MapSet.size(narrowed) == 1 ->
+              [only] = MapSet.to_list(narrowed)
+              AL.put_bindings(state, AL.Var.bind(new_store, object, only, state.branch), [object])
+
+            true ->
+              AL.put_bindings(state, new_store, [])
+          end
         end
 
       AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class_pattern) and
@@ -290,9 +302,9 @@ defmodule AL.Interp.Relations do
 
   defp transaction_source_id(tx, _branch), do: tx
 
-  defp maybe_add_value_slot_link(store, value, key, object) do
+  defp maybe_add_value_slot_link(store, value, key, object, branch) do
     if AL.Var.var?(value) and value != :"$_" do
-      AL.Var.add_slot_link(store, value, {:slot_value, key, object})
+      AL.Var.add_slot_link(store, value, {:slot_value, key, object}, branch)
     else
       store
     end
@@ -336,17 +348,76 @@ defmodule AL.Interp.Relations do
   defp get_aos_slot(state, object, key, value) when key != :"$_" do
     if AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(key) do
       new_store =
-        store(state)
-        |> AL.Var.add_slot_link(object, {:slot, key, value})
-        |> maybe_add_value_slot_link(value, key, object)
+        with linked when not is_nil(linked) <-
+               AL.Var.add_slot_link(
+                 store(state),
+                 object,
+                 {:slot, key, value},
+                 state.branch
+               ) do
+          maybe_add_value_slot_link(linked, value, key, object, state.branch)
+        end
 
-      AL.put_bindings(state, new_store, [])
+      state = AL.put_bindings(state, new_store, [])
+      prepend_slot_constraints(state, object, key, value)
     else
       scan_slots_directly(state, object, key, value)
     end
   end
 
   defp get_aos_slot(state, object, key, value), do: scan_slots_directly(state, object, key, value)
+
+  defp prepend_slot_constraints(
+         %AL{active_choicepoint: %AL.Choicepoint{store: nil}} = state,
+         _object,
+         _key,
+         _value
+       ),
+       do: state
+
+  defp prepend_slot_constraints(state, object, key, value) do
+    store = store(state)
+
+    classes =
+      (MapSet.to_list(AL.Var.direct_classes_of(store, object)) ++
+         MapSet.to_list(AL.Var.isa_of(store, object)))
+      |> Enum.map(&AL.Var.deref(store, &1))
+      |> Enum.filter(&(is_atom(&1) and not AL.Var.var?(&1)))
+      |> Enum.uniq()
+
+    goals =
+      classes
+      |> Enum.flat_map(&AL.Dispatch.ivar_specs_for_classes([&1], state.branch))
+      |> Enum.uniq()
+      |> Enum.flat_map(&slot_spec_goals(&1, key, value))
+      |> Enum.uniq()
+
+    case goals do
+      [] ->
+        state
+
+      _ ->
+        choicepoint = state.active_choicepoint
+
+        %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{
+              choicepoint
+              | goals: AL.splice_goals(state, goals)
+            }
+        }
+    end
+  end
+
+  defp slot_spec_goals({name, opts}, key, value) when name == key and is_list(opts) do
+    Enum.flat_map(opts, fn
+      {:domain, domain} when is_list(domain) -> [%Goal.InDomain{var: value, values: domain}]
+      {:type, type} -> [%Goal.Isa{object: value, class: type}]
+      _ -> []
+    end)
+  end
+
+  defp slot_spec_goals(_spec, _key, _value), do: []
 
   # an unbound key here only ever enumerates the aos map -- never widen
   # this to also scan soa, it'd pick up reserved keys (:class, :super,

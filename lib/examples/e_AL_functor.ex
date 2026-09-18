@@ -14,7 +14,7 @@ defmodule Examples.ALFunctor do
   import ExUnit.Assertions
 
   example decomposes_a_ground_tuple() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         functor(term, :foo, [1, 2])
         functor(term, name, args)
@@ -25,7 +25,7 @@ defmodule Examples.ALFunctor do
   end
 
   example decomposes_an_atomic_term() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         functor(3, name, args)
       end
@@ -35,7 +35,7 @@ defmodule Examples.ALFunctor do
   end
 
   example constructs_a_tuple_from_name_and_args() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         functor(term, :foo, [1, 2])
       end
@@ -44,7 +44,7 @@ defmodule Examples.ALFunctor do
   end
 
   example constructs_an_atomic_term_from_empty_args() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         functor(term, 3, [])
       end
@@ -62,7 +62,7 @@ defmodule Examples.ALFunctor do
   end
 
   example calls_a_constructed_term_as_a_send() do
-    {:atomic, {bindings, _state}} =
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         defmethod(:number, :triple, [self, result]) do
           is(result, self * 3)

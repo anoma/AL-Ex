@@ -32,7 +32,7 @@ defmodule Examples.ALStorage do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:storage_probe, obj)
         set_slot(obj, :regulators, [:geneA])
@@ -65,7 +65,7 @@ defmodule Examples.ALStorage do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:storage_probe_construction, %{regulators: [:geneA], concentration: 5}, obj)
 
@@ -94,7 +94,7 @@ defmodule Examples.ALStorage do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:storage_probe_independence, obj)
         set_slot(obj, :concentration, 5)

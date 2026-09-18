@@ -17,7 +17,7 @@ defmodule AL.GtBridge do
       end
 
     case result do
-      {:atomic, {bindings, _}} ->
+      {:atomic, {bindings, _constraints, _}} ->
         case Map.get(bindings, :"$name") do
           name when is_binary(name) and name != "" -> name
           name when is_atom(name) and name not in [nil, false] -> Atom.to_string(name)
@@ -38,7 +38,7 @@ defmodule AL.GtBridge do
       end
 
     case result do
-      {:atomic, {bindings, _}} ->
+      {:atomic, {bindings, _constraints, _}} ->
         info = Map.fetch!(bindings, :"$info")
 
         identity = [
@@ -304,7 +304,7 @@ defmodule AL.GtBridge do
       end
 
     case result do
-      {:atomic, {bindings, _program_state}} ->
+      {:atomic, {bindings, _constraints, _program_state}} ->
         dependents = Map.get(bindings, :"$dependents")
 
         builder.mondrian()

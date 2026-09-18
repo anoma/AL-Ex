@@ -32,7 +32,7 @@ defmodule AL.Domino do
 
   # A var's constraint summary: `%{isa: [...], dif: [...], bounds: {lo,hi},
   # domain: [...]}`, whichever apply, `%{}` if genuinely unconstrained --
-  # same shape `AL`'s `format_output_vars/2` already puts under `$constraints`.
+  # same shape `AL`'s `format_output_vars/2` returns as residual constraints.
   @type constraint_summary() :: %{optional(atom()) => term()}
   @type var_description() :: {:bound, term()} | {:open, constraint_summary()}
 

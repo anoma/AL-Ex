@@ -844,6 +844,19 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     new(:class, %{name: :list, super: :value, ivars: []}, _)
+
+    defmethod(:class, :witness, [:list, []])
+    defmethod(:class, :witness, [:list, [_head | _tail]])
+
+    defmethod(:class, :witness, [self, output]) do
+      dif(self, :list)
+      dif(self, :number)
+      reachable_classes([self], [], chain)
+      not [not [member(chain, :value)]]
+      construct(self, scaffold)
+      init(scaffold, %{}, output)
+    end
+
     # Every clause below pattern-matches self as []/[h|t] — the value leg's
     # own requirement (clause heads are the complete spec of an instance).
 

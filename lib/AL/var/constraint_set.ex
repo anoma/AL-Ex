@@ -35,23 +35,27 @@ defmodule AL.Var.ConstraintSet do
           | {:object_link, AL.Var.variable()}
           | {:isa_object_link, AL.Var.variable()}
 
+  @type dispatch_entry() :: {atom(), atom()}
+
   @type t() :: %__MODULE__{
           dif: [{AL.Var.t(), AL.Var.t()}],
           direct_class: MapSet.t(AL.Var.t()),
           isa: MapSet.t(isa_entry()),
+          dispatch: MapSet.t(dispatch_entry()),
           bounds: {bound(), bound()},
           props: [propagator()],
           domain: MapSet.t(AL.Var.t()) | nil,
           super_link: super_link() | nil,
-          slot_link: slot_link() | nil
+          slot_links: [slot_link()]
         }
 
   defstruct dif: [],
             direct_class: MapSet.new(),
             isa: MapSet.new(),
+            dispatch: MapSet.new(),
             bounds: {nil, nil},
             props: [],
             domain: nil,
             super_link: nil,
-            slot_link: nil
+            slot_links: []
 end

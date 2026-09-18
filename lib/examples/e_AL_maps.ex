@@ -30,14 +30,14 @@ defmodule Examples.ALMaps do
   # `get/3` on a map with two keys mapping to the same value is a genuine
   # backward search -- both keys are valid solutions, found via backtracking.
   example map_get() do
-    {:atomic, {bindings, program_state}} =
+    {:atomic, {bindings, _constraints, program_state}} =
       run branch: Examples.Support.branch() do
         get(%{a: 3, b: 4, c: 3}, k, 3)
       end
 
     assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
 
-    {:atomic, {bindings, program_state}} = next_solution(program_state)
+    {:atomic, {bindings, _constraints, program_state}} = next_solution(program_state)
 
     assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
 
@@ -45,7 +45,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_get_with_default() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run do
         get(%{present: 7}, :present, :fallback, present)
         get(%{present: 7}, :missing, :fallback, missing)
@@ -57,7 +57,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_put() do
-    {:atomic, {bindings, program_state}} =
+    {:atomic, {bindings, _constraints, program_state}} =
       run branch: Examples.Support.branch() do
         put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
       end
@@ -68,7 +68,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_put_new() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run do
         put_new(%{present: 7}, :present, :fallback, preserved)
         put_new(%{present: 7}, :missing, :fallback, extended)

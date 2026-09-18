@@ -69,7 +69,6 @@ defmodule AL.Goal do
           | AL.Goal.Send.t()
           | AL.Goal.SendQuery.t()
           | AL.Goal.SendAsValue.t()
-          | AL.Goal.DurableCandidates.t()
           | AL.Goal.CallNextMethod.t()
           | AL.Goal.SourceScope.t()
           | AL.Goal.SourceScopeExit.t()
@@ -401,16 +400,6 @@ defmodule AL.Goal do
     field(:method, AL.Var.t())
     field(:args, AL.Var.t())
     field(:method_scope, AL.scope())
-  end
-
-  # Internal, dispatch-only: the durable leg's placeholder — one choicepoint
-  # standing in for the real per-object scan, which only happens if backtracking
-  # (or a `Fail` immediately after push) actually reaches it. See "Deferred
-  # durable candidates" in dispatch.ex.
-  typedstruct enforce: true, module: DurableCandidates do
-    field(:object, AL.Var.t())
-    field(:method, AL.Var.t())
-    field(:args, AL.Var.t())
   end
 
   typedstruct enforce: true, module: SourceScope do

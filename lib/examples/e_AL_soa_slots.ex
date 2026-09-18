@@ -17,7 +17,7 @@ defmodule Examples.ALSoaSlots do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:soa_slot_probe, obj)
         set_slot(obj, :level, 1)
@@ -36,7 +36,7 @@ defmodule Examples.ALSoaSlots do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:soa_slot_probe_resets, obj)
         set_slot(obj, :level, 1)
@@ -61,7 +61,7 @@ defmodule Examples.ALSoaSlots do
         end
       end
 
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:soa_slot_probe_many, obj1)
         new(:soa_slot_probe_many, obj2)

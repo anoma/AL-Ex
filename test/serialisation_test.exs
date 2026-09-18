@@ -488,7 +488,7 @@ defmodule ALSerialisationTest do
     source = "vm_set_class(:serialisation_repair, :object)\n"
 
     try do
-      {:atomic, {_, state}} = AL.eval_source(source, branch)
+      {:atomic, {_, _constraints, state}} = AL.eval_source(source, branch)
       {:slots, _, %{tx: _tx}} = transaction_slots(state, branch)
       assert {:ok, [path]} = AL.Serialisation.serialise_branch(branch, root)
       File.write!(path, "incorrect transaction source")

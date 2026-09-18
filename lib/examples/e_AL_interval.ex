@@ -15,7 +15,7 @@ defmodule Examples.ALInterval do
   import ExUnit.Assertions
 
   example new_interval_holds_lo_and_hi() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 1, hi: 4}, i)
       end
@@ -25,7 +25,7 @@ defmodule Examples.ALInterval do
   end
 
   example new_interval_is_empty_when_lo_is_greater_than_hi() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 5, hi: 4}, i)
       end
@@ -35,7 +35,7 @@ defmodule Examples.ALInterval do
   end
 
   example interval_elem_checks_containment() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 1, hi: 4}, i)
 
@@ -53,7 +53,7 @@ defmodule Examples.ALInterval do
   end
 
   example elem_never_holds_for_the_empty_interval() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 5, hi: 4}, empty)
         not [elem(empty, 0)]
@@ -66,7 +66,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_of_overlapping_intervals_narrows_to_the_overlap() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 1, hi: 5}, a)
         new(:interval_value, %{lo: 3, hi: 8}, b)
@@ -78,7 +78,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_is_commutative() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 1, hi: 5}, a)
         new(:interval_value, %{lo: 3, hi: 8}, b)
@@ -91,7 +91,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_of_disjoint_intervals_is_empty() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 1, hi: 2}, a)
         new(:interval_value, %{lo: 3, hi: 4}, b)
@@ -103,7 +103,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_with_an_empty_interval_stays_empty() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:interval_value, %{lo: 5, hi: 4}, empty)
         new(:interval_value, %{lo: 1, hi: 10}, a)

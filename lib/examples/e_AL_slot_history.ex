@@ -12,7 +12,7 @@ defmodule Examples.ALSlotHistory do
   import ExUnit.Assertions
 
   example slot_history_finds_every_value_a_slot_has_held() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :history_probe, super: :object, ivars: [count: []] do
         end
@@ -34,7 +34,7 @@ defmodule Examples.ALSlotHistory do
   # single value, not three repeats -- the collapsing (`dedupe`, bootstrap.ex)
   # is what makes that true, not an accident of how few writes happened.
   example slot_history_collapses_repeats_from_unrelated_key_changes() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :history_probe_unrelated, super: :object, ivars: [count: [], other: []] do
         end
@@ -63,7 +63,7 @@ defmodule Examples.ALSlotHistory do
   # on -- see `slot_at_open_time_posts_a_real_upper_bound`, below, which
   # avoids it entirely instead).
   example slot_at_ground_time_finds_the_value_in_effect_at_the_boundary() do
-    {:atomic, {bindings, _}} =
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         defclass :clp_boundary_probe, super: :object, ivars: [count: []] do
         end
