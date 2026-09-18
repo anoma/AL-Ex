@@ -9,10 +9,13 @@ defmodule AL.ResolutionCache do
 
   @relations [
     :providers,
+    :open_providers,
+    :class_methods,
     :generative_descendants,
     :durable_classes,
     :oapply_clauses,
     :method_scopes,
+    :descendants,
     :ivar_specs,
     :native
   ]
@@ -49,6 +52,24 @@ defmodule AL.ResolutionCache do
   def fetch_providers(branch, key, compute),
     do: fetch(table(:providers, branch), :providers, key, compute)
 
+  @doc """
+  Every {provider, selector} pair answering `selector`, for an open-receiver
+  send. The scan behind it leaves provider and method id unbound, so it reads
+  the whole method relation rather than one key.
+  """
+  @spec fetch_open_providers(AL.Branch.t(), atom(), (-> term())) :: term()
+  def fetch_open_providers(branch, selector, compute),
+    do: fetch(table(:open_providers, branch), :open_providers, selector, compute)
+
+  @doc """
+  The method ids bound directly on one owner. Only the binding is cached here;
+  a clause body still resolves through `fetch_oapply_clauses/3`, which is the
+  cache `set_oapply` actually invalidates.
+  """
+  @spec fetch_class_methods(AL.Branch.t(), atom(), (-> term())) :: term()
+  def fetch_class_methods(branch, owner, compute),
+    do: fetch(table(:class_methods, branch), :class_methods, owner, compute)
+
   # Classes with :value as a direct super — invalidated by :super writes.
   @spec fetch_generative_descendants(AL.Branch.t(), (-> term())) :: term()
   def fetch_generative_descendants(branch, compute),
@@ -74,6 +95,15 @@ defmodule AL.ResolutionCache do
   def fetch_method_scopes(branch, key, compute),
     do: fetch(table(:method_scopes, branch), :method_scopes, key, compute)
 
+  @doc """
+  Every class with `class` somewhere in its own super chain. Keyed by class,
+  invalidated with `method_scopes` because both are answers about the `super`
+  relation and nothing else changes them.
+  """
+  @spec fetch_descendants(AL.Branch.t(), atom(), (-> term())) :: term()
+  def fetch_descendants(branch, class, compute),
+    do: fetch(table(:descendants, branch), :descendants, class, compute)
+
   # keyed by classes (a class list). ancestor-resolved, merged ivar spec
   # list for that class chain. shared across every instance of the same
   # class(es). invalidated by super writes and by an :ivars slot change.
@@ -96,6 +126,16 @@ defmodule AL.ResolutionCache do
   @spec invalidate_providers(AL.Branch.t()) :: :ok
   def invalidate_providers(branch) do
     clear(table(:providers, branch))
+  end
+
+  @doc """
+  Both caches read the method relation and nothing else, so a class or slot
+  write leaves them intact; only binding a method to an owner can change them.
+  """
+  @spec invalidate_method_bindings(AL.Branch.t()) :: :ok
+  def invalidate_method_bindings(branch) do
+    clear(table(:open_providers, branch))
+    clear(table(:class_methods, branch))
   end
 
   @spec invalidate_generative_descendants(AL.Branch.t()) :: :ok
@@ -127,6 +167,7 @@ defmodule AL.ResolutionCache do
   @spec invalidate_method_scopes(AL.Branch.t()) :: :ok
   def invalidate_method_scopes(branch) do
     clear(table(:method_scopes, branch))
+    clear(table(:descendants, branch))
   end
 
   @spec invalidate_ivar_specs(AL.Branch.t()) :: :ok

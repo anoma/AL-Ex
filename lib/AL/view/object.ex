@@ -29,7 +29,6 @@ defmodule AL.Object do
     soa: [:object, :key, :seq, :tx_from, :tx_to, :value]
   }
   @bags [:aos, :soa]
-  @tx_indexed [:aos, :soa]
 
   typedstruct enforce: true do
     field(:id, any(), enforce: true)
@@ -61,7 +60,6 @@ defmodule AL.Object do
 
   defp create_table(relation, branch) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
-    opts = if relation in @tx_indexed, do: [{:index, [:tx_to]} | opts], else: opts
     opts = if branch.id == :main, do: opts, else: [{:record_name, relation} | opts]
 
     case :mnesia.create_table(table(relation, branch), opts) do
@@ -334,6 +332,7 @@ defmodule AL.Object do
 
     close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
     AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_method_bindings(branch)
   end
 
   defp open_rows(relation, pattern, branch) do
@@ -459,6 +458,7 @@ defmodule AL.Object do
     seq = next_soa_seq(object, key, branch)
     :mnesia.write(table(:soa, branch), {:soa, object, key, seq, tx, :open, method_id}, :write)
     AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_method_bindings(branch)
   end
 
   @spec set_oapply(

@@ -61,7 +61,11 @@ defmodule AL.Dispatch.MethodOrder do
   # resolution order) and no dispatch_strategy involved -- this is a plain
   # membership/enumeration question, not a try-order one.
   @spec descendants_of(atom(), AL.Branch.t()) :: [atom()]
-  def descendants_of(class, branch), do: descendants_of([class], branch, MapSet.new())
+  def descendants_of(class, branch) do
+    AL.ResolutionCache.fetch_descendants(branch, class, fn ->
+      descendants_of([class], branch, MapSet.new())
+    end)
+  end
 
   defp descendants_of([], _branch, seen), do: MapSet.to_list(seen)
 

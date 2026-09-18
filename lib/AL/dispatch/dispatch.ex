@@ -138,16 +138,18 @@ defmodule AL.Dispatch do
   end
 
   defp direct_providers(method, branch) do
-    scope = AL.fresh_scope()
+    AL.ResolutionCache.fetch_open_providers(branch, method, fn ->
+      scope = AL.fresh_scope()
 
-    AL.Object.scan_method(
-      AL.Var.var("open_provider_#{scope}"),
-      method,
-      AL.Var.var("open_provider_method_#{scope}"),
-      branch
-    )
-    |> Enum.map(fn {:method, provider, selector, _id} -> {provider, selector} end)
-    |> Enum.uniq()
+      AL.Object.scan_method(
+        AL.Var.var("open_provider_#{scope}"),
+        method,
+        AL.Var.var("open_provider_method_#{scope}"),
+        branch
+      )
+      |> Enum.map(fn {:method, provider, selector, _id} -> {provider, selector} end)
+      |> Enum.uniq()
+    end)
   end
 
   defp open_receiver_candidate(
@@ -369,10 +371,17 @@ defmodule AL.Dispatch do
   end
 
   defp own_clause_self_patterns(class, branch) do
-    for {:method, _o, _n, id} <-
-          AL.Object.scan_method(class, :"$isa_check_name", :"$isa_check_id", branch),
+    for id <- own_method_ids(class, branch),
         {:oapply, _id, _seq, [self_pattern | _], _body} <- AL.cached_scan_clauses(id, branch),
         do: self_pattern
+  end
+
+  defp own_method_ids(class, branch) do
+    AL.ResolutionCache.fetch_class_methods(branch, class, fn ->
+      for {:method, _o, _n, id} <-
+            AL.Object.scan_method(class, :"$isa_check_name", :"$isa_check_id", branch),
+          do: id
+    end)
   end
 
   # Same idiom, but for a method-level (dispatch) candidate set rather than
