@@ -270,10 +270,7 @@ defmodule AL.Dispatch do
   end
 
   # Every {object, classes} pair with a durable class row. Unbound self/class scan
-  # (no key to bind), so cached per branch rather than rescanned per dispatch.
-  # `def`, not `defp` -- `AL.Interp.Relations`'s `ClassInstances` also reads this (a
-  # real witness scan for one specific class), so both share the one cached
-  # scan rather than each paying for their own.
+  # (no key to bind), so cached per branch rather than rescanned per label.
   def durable_classes(branch) do
     AL.ResolutionCache.fetch_durable_classes(branch, fn ->
       scope = AL.fresh_scope()
@@ -385,8 +382,8 @@ defmodule AL.Dispatch do
   # exhausted" -- exactly what `{:mark, scope}` already does one level down,
   # for clauses. No retagging needed here: every candidate a caller passes
   # in is itself a struct-copy of `state.active_choicepoint`
-  # (`generative_choicepoint`/`durable_choicepoint`/`enumerate_selectors`'s
-  # own candidate builder), and `AL.begin_method_scope/5` already retagged
+  # (the open-provider candidate builders and `enumerate_selectors`), and
+  # `AL.begin_method_scope/5` already retagged
   # *that* to `method_scope` before any of them were built.
   @spec install_method_choicepoints(AL.t(), AL.scope(), [AL.Choicepoint.t()]) :: AL.t()
   def install_method_choicepoints(state, method_scope, candidates) do

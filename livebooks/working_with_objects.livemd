@@ -56,7 +56,7 @@ run do
 end
 ```
 
-In AL, durable objects are represented by an ID, which currently takes the form of an atom (soon, we will change these to binaries, as it can eventually fill up the atom table). You can inspect basic information about a durable object using examine/2.
+In AL, durable objects are represented by atom IDs. You can inspect basic information about a durable object using `examine/2`.
 
 ```elixir
 run do
@@ -106,6 +106,30 @@ run do
   set_slot(:switch_instance_1, :state, :sideways)
 end
 ```
+
+## Method dispatch
+
+A send and `label` solve different problems. Dispatch decides which method can answer a message. It does not search for or construct every possible receiver.
+
+For a ground receiver, AL dispatches a message like this:
+
+1. Determine the receiver's exact class. Lists, numbers, and maps have structural classes; durable objects have recorded classes; custom values carry their value class.
+2. Walk that class and its superclasses in method-resolution order.
+3. Select the nearest class that defines the selector. That provider owns the call; an overriding method does not silently fall through to an inherited provider when its clauses fail.
+4. Try that method's clauses by ordinary unification and backtracking.
+5. `call_next_method` explicitly continues with the next provider in the resolution order.
+
+If the selected provider has no applicable clause, the send reaches `does_not_understand`. It does not silently try an inherited implementation.
+
+For an open receiver, AL keeps the receiver symbolic:
+
+1. Find the classes and singleton objects that directly provide the selector.
+2. Create one logical branch for each possible effective provider.
+3. On a class branch, post both `isa(receiver, provider)` and the fact that this provider was selected for this selector.
+4. Run the method clauses relationally. Their heads and bodies can narrow the receiver further.
+5. Let later `class`, `isa`, slot, `dif`, and other constraints discard incompatible branches.
+
+The provider regions are selector-relative. If `:car` overrides `:move`, the `:vehicle` branch for `:move` excludes cars, while a subclass that inherits `:vehicle`'s implementation remains in the `:vehicle` branch. The receiver becomes concrete only if ordinary unification determines it or the program explicitly calls `label`.
 
 ## Inheritance
 

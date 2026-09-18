@@ -66,6 +66,18 @@ defmodule ALGenerativeTest do
   use ExExample.ExUnit, for: Examples.ALGenerative
 end
 
+defmodule ALMethodSelectionTest do
+  use ExExample.ExUnit, for: Examples.ALMethodSelection
+end
+
+defmodule ALResidualConstraintsTest do
+  use ExExample.ExUnit, for: Examples.ALResidualConstraints
+end
+
+defmodule ALObjectLabelingTest do
+  use ExExample.ExUnit, for: Examples.ALObjectLabeling
+end
+
 defmodule ALBranchTest do
   use ExExample.ExUnit, for: Examples.ALBranch
 end

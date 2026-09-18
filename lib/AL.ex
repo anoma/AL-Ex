@@ -387,7 +387,7 @@ defmodule AL do
         end
       end)
 
-    {display_names, _n} = expand_slot_display_names(display_names, n, store)
+    {display_names, _n} = expand_constraint_display_names(display_names, n, store)
 
     rewrite_unbound = fn resolved -> Map.get(display_names, resolved, resolved) end
 
@@ -418,13 +418,13 @@ defmodule AL do
     {bindings, constraints}
   end
 
-  defp expand_slot_display_names(display_names, n, store) do
+  defp expand_constraint_display_names(display_names, n, store) do
     linked_variables =
       display_names
       |> Map.keys()
       |> Enum.flat_map(fn variable ->
         case AL.Var.constraint_set(store, variable) do
-          %AL.Var.ConstraintSet{slot_links: links} -> links
+          %AL.Var.ConstraintSet{} = set -> constraint_terms(set)
           _ -> []
         end
       end)
@@ -447,8 +447,19 @@ defmodule AL do
             {Map.put(names, variable, AL.Var.var("_#{index + 1}")), index + 1}
           end)
 
-        expand_slot_display_names(expanded, next_n, store)
+        expand_constraint_display_names(expanded, next_n, store)
     end
+  end
+
+  defp constraint_terms(set) do
+    [
+      set.dif,
+      MapSet.to_list(set.direct_class),
+      MapSet.to_list(set.isa),
+      if(set.domain, do: MapSet.to_list(set.domain), else: []),
+      set.super_link,
+      set.slot_links
+    ]
   end
 
   defp constraint_summary(canonical_names, store, rewrite_unbound) do
@@ -475,29 +486,35 @@ defmodule AL do
            dispatch: dispatch,
            bounds: bounds,
            domain: domain,
+           super_link: super_link,
            slot_links: slot_links
          },
          store,
          rewrite_unbound
        ) do
     %{}
-    |> maybe_put_direct_class(direct_class)
-    |> maybe_put_isa(isa)
+    |> maybe_put_direct_class(direct_class, store, rewrite_unbound)
+    |> maybe_put_isa(isa, store, rewrite_unbound)
     |> maybe_put_dispatch(dispatch)
+    |> maybe_put_super(super_link, store, rewrite_unbound)
     |> maybe_put_slots(slot_links, store, rewrite_unbound)
-    |> maybe_put_dif(self, dif)
+    |> maybe_put_dif(self, dif, store, rewrite_unbound)
     |> maybe_put_bounds(bounds)
-    |> maybe_put_domain(domain)
+    |> maybe_put_domain(domain, store, rewrite_unbound)
   end
 
-  defp maybe_put_direct_class(map, direct_class) do
-    if MapSet.size(direct_class) > 0,
-      do: Map.put(map, :class, MapSet.to_list(direct_class)),
-      else: map
+  defp maybe_put_direct_class(map, direct_class, store, rewrite_unbound) do
+    values = summarize_terms(direct_class, store, rewrite_unbound)
+    if values == [], do: map, else: Map.put(map, :class, values)
   end
 
-  defp maybe_put_isa(map, isa) do
-    if MapSet.size(isa) > 0, do: Map.put(map, :isa, MapSet.to_list(isa)), else: map
+  defp maybe_put_isa(map, isa, store, rewrite_unbound) do
+    values =
+      isa
+      |> Enum.reject(&internal_relation_link?/1)
+      |> summarize_terms(store, rewrite_unbound)
+
+    if values == [], do: map, else: Map.put(map, :isa, values)
   end
 
   defp maybe_put_dispatch(map, dispatch) do
@@ -513,31 +530,64 @@ defmodule AL do
     end
   end
 
-  defp maybe_put_slots(map, slot_links, store, rewrite_unbound) do
-    slots =
-      Enum.reduce(slot_links, %{}, fn
-        {:slot, key, value}, acc ->
-          Map.put(acc, key, AL.Var.subst(value, store, rewrite_unbound))
+  defp maybe_put_super(map, nil, _store, _rewrite_unbound), do: map
 
-        _link, acc ->
-          acc
-      end)
-
-    if map_size(slots) == 0, do: map, else: Map.put(map, :slots, slots)
+  defp maybe_put_super(map, {side, other}, store, rewrite_unbound) do
+    key = if side == :super, do: :super, else: :subclass
+    Map.put(map, key, AL.Var.subst(other, store, rewrite_unbound))
   end
 
-  defp maybe_put_dif(map, _self, []), do: map
+  defp maybe_put_slots(map, slot_links, store, rewrite_unbound) do
+    {slots, slot_of} =
+      Enum.reduce(slot_links, {%{}, %{}}, fn
+        {:slot, key, value}, {slots, slot_of} ->
+          {Map.put(slots, key, AL.Var.subst(value, store, rewrite_unbound)), slot_of}
 
-  defp maybe_put_dif(map, self, dif),
-    do: Map.put(map, :dif, Enum.map(dif, fn {a, b} -> if a == self, do: b, else: a end))
+        {:slot_value, key, object}, {slots, slot_of} ->
+          {slots, Map.put(slot_of, key, AL.Var.subst(object, store, rewrite_unbound))}
+      end)
+
+    map
+    |> then(fn summary ->
+      if map_size(slots) == 0, do: summary, else: Map.put(summary, :slots, slots)
+    end)
+    |> then(fn summary ->
+      if map_size(slot_of) == 0, do: summary, else: Map.put(summary, :slot_of, slot_of)
+    end)
+  end
+
+  defp maybe_put_dif(map, _self, [], _store, _rewrite_unbound), do: map
+
+  defp maybe_put_dif(map, self, dif, store, rewrite_unbound) do
+    values =
+      Enum.map(dif, fn {a, b} ->
+        other = if AL.Var.deref(store, a) == self, do: b, else: a
+        AL.Var.subst(other, store, rewrite_unbound)
+      end)
+
+    Map.put(map, :dif, values)
+  end
 
   defp maybe_put_bounds(map, {nil, nil}), do: map
   defp maybe_put_bounds(map, bounds), do: Map.put(map, :bounds, bounds)
 
-  defp maybe_put_domain(map, nil), do: map
+  defp maybe_put_domain(map, nil, _store, _rewrite_unbound), do: map
 
-  defp maybe_put_domain(map, domain),
-    do: Map.put(map, :domain, Enum.sort(MapSet.to_list(domain)))
+  defp maybe_put_domain(map, domain, store, rewrite_unbound) do
+    values = summarize_terms(domain, store, rewrite_unbound)
+    Map.put(map, :domain, values)
+  end
+
+  defp summarize_terms(terms, store, rewrite_unbound) do
+    terms
+    |> Enum.map(&AL.Var.subst(&1, store, rewrite_unbound))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp internal_relation_link?({:object_link, _object}), do: true
+  defp internal_relation_link?({:isa_object_link, _object}), do: true
+  defp internal_relation_link?(_entry), do: false
 
   # A domino Call/Exit's "what's known about this position" -- reuses the
   # exact same constraint_set/summarize_constraints machinery
@@ -2332,8 +2382,8 @@ defmodule AL do
   # active_choicepoint's scope_pointer here (rather than only tagging
   # newly-built candidate choicepoints) is what makes every choicepoint
   # dispatch subsequently builds inherit `scope` for free -- they're all
-  # struct-copies of `state.active_choicepoint` (see dispatch.ex's
-  # `generative_choicepoint`/`durable_choicepoint`/`enumerate_selectors`),
+  # struct-copies of `state.active_choicepoint` (see dispatch.ex's open
+  # provider candidate builders and selector enumeration),
   # and the very next `OApply` (ground path) or candidate choicepoint (open
   # receiver/selector path) captures this same value as its own parent link
   # (`scope_parents`) either way -- no separate retagging pass needed in
@@ -2754,7 +2804,7 @@ defmodule AL do
     |> Enum.uniq()
     |> Enum.map(fn value ->
       new_store = AL.Var.unify(v, value, state.active_choicepoint.store, state.branch)
-      %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
+      %AL.Choicepoint{state.active_choicepoint | store: new_store}
     end)
   end
 
@@ -2767,7 +2817,7 @@ defmodule AL do
         store1 -> AL.Var.unify(super_var, super_class, store1, branch)
       end
 
-    %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
+    %AL.Choicepoint{state.active_choicepoint | store: new_store}
   end
 
   defp label_from_slot_link(v, link, state) do
@@ -2815,7 +2865,7 @@ defmodule AL do
         store1 -> AL.Var.unify(value_var, value, store1, branch)
       end
 
-    %AL.Choicepoint{state.active_choicepoint | goals: [], store: new_store}
+    %AL.Choicepoint{state.active_choicepoint | store: new_store}
   end
 
   defp label_from_class_domain(v, store, state) do

@@ -69,10 +69,6 @@ run do
       unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
     end
 
-    defmethod(:get, [self, k, v]) do
-      vm_map_get(self, k, v)
-    end
-
     defmethod(:area, [self, result]) do
       get(self, :width, w)
       get(self, :height, h)
@@ -265,6 +261,24 @@ run do
   label(x)
 end
 ```
+
+### How `label` chooses witnesses
+
+`label(term)` is the explicit boundary between describing possible values and enumerating concrete ones. It follows this order:
+
+1. If `term` is already ground, succeed without changing it.
+2. If it has an explicit finite domain, create one backtracking alternative per compatible member.
+3. If it has finite integer bounds, enumerate the integers within those bounds.
+4. If it is one side of an open `super` or slot relation, enumerate the distinct values found in real relation rows. A known value on the other side filters that search.
+5. If it has object constraints, enumerate every compatible existing durable identity. Only real durable IDs are candidates.
+6. Also find every compatible exact value class. For each one, ask the class's `witness` method for a concrete value. Numbers and lists provide their own witnesses; ordinary value classes normally construct one through their initialization protocol.
+7. Propagate all existing `class`, `isa`, selected-method, slot, domain, bounds, and `dif` constraints through each candidate. Reject a candidate as soon as any constraint conflicts.
+
+Each surviving candidate is an ordinary choicepoint, so `findall` can collect all of them. An `isa` constraint permits exact instances of that class and its descendants; a `class` constraint permits only that exact class. Intersecting `isa` constraints keep only common descendants.
+
+Labeling a class variable in an open relation such as `class(object, exact_class)` only chooses a class name. It does not construct `object`. Label the object separately when a concrete object or value is required.
+
+If AL cannot derive a finite domain, a relational row, a durable identity, or a value witness, `label` fails. It never guesses from an unbounded space.
 
 ## `either`: disjunctive constraints
 

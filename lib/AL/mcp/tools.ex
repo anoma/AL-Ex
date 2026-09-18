@@ -27,7 +27,7 @@ defmodule AL.MCP.Tools do
   }
   @evaluation_prelude """
   import AL
-  alias AL.{Branch, Command, Object, Scheduler, Source, SourceStore, Trace, Transaction, TransactionProgram, Var}
+  alias AL.{Branch, Command, Object, Source, SourceStore, Trace, Transaction, TransactionProgram, Var}
   """
 
   @spec list() :: [map()]
