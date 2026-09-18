@@ -1,41 +1,30 @@
 defmodule AL.Transaction do
+  @moduledoc """
+  I mint a transaction's durable identity and record it as an object.
+
+  Both `open/1` and `record/5` run inside an already-open Mnesia transaction.
+  A run that commits records itself from inside its own transaction; a run that
+  aborts is recorded by `AL.eval`'s cleanup transaction instead, because a
+  transaction cannot durably record its own abort.
+  """
+
   @spec id(non_neg_integer()) :: atom()
   def id(command_tx), do: String.to_atom("tx_#{command_tx}")
 
-  @spec begin(atom()) :: {:atomic, {non_neg_integer(), atom()}} | {:aborted, term()}
-  def begin(branch) do
-    :mnesia.transaction(fn ->
-      {tx, _next} = AL.Command.inc_system_time(%AL.Branch{id: branch})
-      {tx, create(tx, branch)}
-    end)
+  @spec open(AL.Branch.t()) :: {non_neg_integer(), atom()}
+  def open(branch) do
+    {tx, _next} = AL.Command.inc_system_time(branch)
+    {tx, id(tx)}
   end
 
-  defp create(tx, branch) do
-    object = id(tx)
-    reference = %AL.Branch{id: branch}
-    write_class(tx, object, :transaction, reference)
-    write_slot(tx, object, :tx, tx, reference)
-    write_slot(tx, object, :branch, branch, reference)
-    write_slot(tx, object, :status, :running, reference)
-    object
-  end
-
-  @doc "Finish a transaction object and optionally archive its source in the same write."
-  def finish(tx, object, branch, status, details \\ %{}) do
-    {source, details} = Map.pop(details, :__retained_source__)
-
-    :mnesia.transaction(fn ->
-      reference = %AL.Branch{id: branch}
-      write_slot(tx, object, :status, status, reference)
-
-      if source != nil do
-        :ok = AL.SourceStore.put_text(tx, source.text, source.origin, reference)
-      end
-
-      Enum.each(details, fn {key, value} ->
-        write_slot(tx, object, key, value, reference)
-      end)
-    end)
+  @spec record(non_neg_integer(), atom(), AL.Branch.t(), atom(), map()) :: :ok
+  def record(tx, object, branch, status, details \\ %{}) do
+    write_class(tx, object, :transaction, branch)
+    write_slot(tx, object, :tx, tx, branch)
+    write_slot(tx, object, :branch, branch.id, branch)
+    write_slot(tx, object, :status, status, branch)
+    Enum.each(details, fn {key, value} -> write_slot(tx, object, key, value, branch) end)
+    :ok
   end
 
   defp write_class(tx, object, class, branch) do

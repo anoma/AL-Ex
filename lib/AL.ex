@@ -32,6 +32,7 @@ defmodule AL do
     field(:failure_candidate, failure_candidate() | nil, default: nil)
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
     field(:reductions, non_neg_integer(), default: 0)
+    field(:output, [iodata()], default: [])
 
     field(:source_refs, %{optional(AL.Source.Ref.capture_id()) => AL.Source.Ref.t()},
       default: %{}
@@ -236,22 +237,12 @@ defmodule AL do
     input_vars = observable_vars(program)
     trace_mode = trace_mode!(opts)
 
-    {:atomic, {command_tx, transaction_object}} = AL.Transaction.begin(branch.id)
-    retain_on_failure? = source != nil and source.origin.kind == :al_run
-
-    if retain_on_failure? do
-      {:atomic, :ok} =
-        :mnesia.transaction(fn ->
-          AL.SourceStore.put_text(command_tx, source.text, source.origin, branch)
-        end)
-    end
-
     result =
       :mnesia.transaction(fn ->
-        tx_id = command_tx
+        {tx_id, transaction_object} = AL.Transaction.open(branch)
         source_refs = source_refs(source, tx_id)
 
-        if source != nil and not retain_on_failure? do
+        if source != nil do
           :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
         end
 
@@ -281,6 +272,8 @@ defmodule AL do
         else
           if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
 
+          AL.Transaction.record(tx_id, transaction_object, branch, :committed)
+
           {bindings, constraints} =
             format_output_vars(input_vars, result.active_choicepoint.store)
 
@@ -289,25 +282,51 @@ defmodule AL do
       end)
 
     case result do
-      {:atomic, _} ->
-        AL.Transaction.finish(command_tx, transaction_object, branch.id, :committed)
-        AL.Outbox.committed(branch, command_tx)
+      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id} = state}} ->
+        flush_output(state)
+        AL.Outbox.committed(branch, tx_id)
+        result
 
       {:aborted, reason} ->
-        AL.Transaction.finish(
-          command_tx,
-          transaction_object,
-          branch.id,
-          :failed,
-          %{
-            reason: reason,
-            __retained_source__: if(retain_on_failure?, do: nil, else: source)
-          }
-        )
+        flush_output(reason)
+        record_failed_transaction(branch, source, reason)
     end
-
-    result
   end
+
+  # Mnesia may re-run a transaction fun after a lock conflict, so a goal
+  # cannot perform its side effect where it runs. `vm_format` accumulates
+  # onto the state a restart discards, and the run flushes once the
+  # transaction has actually settled.
+  defp flush_output(%AL{output: []}), do: :ok
+  defp flush_output(%AL{output: chunks}), do: IO.write(Enum.reverse(chunks))
+  defp flush_output(%{state: %AL{} = state}), do: flush_output(state)
+  defp flush_output(_other), do: :ok
+
+  # A transaction cannot durably record its own abort, so the one case that
+  # needs a second transaction is failure. It mints a fresh identity, since
+  # the aborted run's own reservation rolled back with everything else, and
+  # retags the reported failure so the id the caller sees is the id the
+  # retained source and the failed transaction object were written under.
+  defp record_failed_transaction(branch, source, reason) do
+    {:atomic, tx_id} =
+      :mnesia.transaction(fn ->
+        {tx_id, transaction_object} = AL.Transaction.open(branch)
+
+        if source != nil do
+          :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
+        end
+
+        AL.Transaction.record(tx_id, transaction_object, branch, :failed, %{reason: reason})
+        tx_id
+      end)
+
+    {:aborted, retag_failure(reason, tx_id)}
+  end
+
+  defp retag_failure(%{state: %AL{} = state} = reason, tx_id),
+    do: %{reason | state: %AL{state | tx_id: tx_id}}
+
+  defp retag_failure(reason, _tx_id), do: reason
 
   defp source_refs(nil, _tx_id), do: %{}
 
@@ -336,11 +355,12 @@ defmodule AL do
       end)
 
     case result do
-      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id}}} ->
+      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id} = solved}} ->
+        flush_output(solved)
         AL.Outbox.committed(state.branch, tx_id)
 
-      _ ->
-        :ok
+      other ->
+        flush_output(other)
     end
 
     result
@@ -1275,8 +1295,7 @@ defmodule AL do
 
     case plan_format(control_ground, args_ground) do
       {_new_control, _new_args, []} ->
-        IO.write(render_format(control_ground, args_ground))
-        state
+        %AL{state | output: [render_format(control_ground, args_ground) | state.output]}
 
       {new_control, new_args, pending_sends} ->
         implies_goals =
