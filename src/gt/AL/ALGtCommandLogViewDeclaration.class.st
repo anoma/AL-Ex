@@ -17,26 +17,23 @@ ALGtCommandLogViewDeclaration >> viewName [
 
 { #category : 'view' }
 ALGtCommandLogViewDeclaration >> treatView: view [
-	| formattedItems rawItems colors colorMap textMap |
+	"Rows are indices; a row's operation is fetched only when it is sent."
+	| formattedItems colors rawItems |
 	formattedItems := (self rawData attributeAt: #items) asList.
-	rawItems := (self rawData attributeAt: #rawItems) asList.
 	colors := (self rawData attributeAt: #colors) asList.
-	textMap := IdentityDictionary new: rawItems size.
-	colorMap := IdentityDictionary new: rawItems size.
-	rawItems withIndexDo: [ :item :idx |
-		textMap at: item put: (formattedItems at: idx).
-		colorMap at: item put: (colors at: idx) ].
-	view items: [ rawItems ].
+	rawItems := self rawData attributeAt: #rawItems.
+	view items: [ 1 to: formattedItems size ].
+	view send: [ :index | rawItems itemAt: index - 1 ].
 
 	(self rawData attributeAt: #columns) asList
 		withIndexDo: [ :aColumn :anIndex |
 			| title textBlock width |
 			title := aColumn attributeAt: #title.
 			width := #(22 80 65) at: anIndex ifAbsent: [ 0 ].
-			textBlock := [ :item |
+			textBlock := [ :index |
 				| text color |
-				text := (textMap at: item) asList at: anIndex.
-				color := colorMap at: item ifAbsent: [ nil ].
+				text := (formattedItems at: index) asList at: anIndex.
+				color := colors at: index.
 				(anIndex = 1 and: [ color notNil ])
 					ifTrue: [ text asRopedText
 						foreground: (Color fromHexString: color);

@@ -1,8 +1,20 @@
 # AL
 
-AL is a live, ACID, bitemporal, relational-object operating system built around an append-only command log. We model AL as the ideal substrate for constructing 'commitment machines'. 
+AL is a bitemporal operating system which performs constraint resolution through a metaobject protocol. 
 
-By this, we mean it is structured as a tower of transactional state machines with distinct semantic layers, separating exploratory computation from durable commitments. The command log forms the locally authoritative, durable base of a single node. Logical resolution through a metaobject protocol permits the machine to dynamically grow new abstract layers, and the machine's roots deepen through distributed interactions between nodes.
+## Features
+
+- **Inside-Out Architecture** Every change is logged to disk. Restart and continue where you left off.
+- **Relational Objects** Objects support multiple inheritance and constraint-resolving method dispatch. Partially known objects are refined through ordinary message sends.
+- **CLP(FD)** Bounds consistency, `dif`, and global constraints like `all_dif` (Régin's algorithm). Pluggable constraint systems.
+- **ACID Effects** OS-level operations are performed 'at the edge' of ACID transactions and their results cascade into subsequent transactions.
+- **Git-like branching** Fork system state from historical states, work in isolation, discard or retain work.
+- **Bitemporal Querying** Query independently over transaction time and valid time.
+- **Internal package management** GUIX-inspired package resolution + general build solving.
+
+## Inspiration
+
+We model AL as the ideal substrate for constructing 'commitment machines'. By this, we mean it is structured as a tower of transactional state machines with distinct semantic layers, separating exploratory computation from durable commitments. The command log forms the locally authoritative, durable base of a single node. The relational-object system permits the machine to dynamically grow new abstract layers, and the machine's roots deepen through distributed interactions between nodes.
 
 Modern long-lived, data-intensive applications scatter wonderful ideas across many unrelated systems. AL provides an operating environment where all of these concepts are unified. The goal of the system is to provide the largest open-polymorphic surface possible in a virtualised operating system, and, as a north star, to be the personal computing environment of the future.
 
@@ -10,7 +22,7 @@ AL combines inspiration from:
 
 - XTDB
 
-- GlamorousToolkit/Pharo (from which we take )
+- GlamorousToolkit/Pharo
 
 - Git
 
@@ -25,20 +37,6 @@ AL combines inspiration from:
 - Gemstone/S
 
 This runtime is the prototypical version of AL, written in Elixir. The irony of the first Erlang interpreter having been written in PROLOG is not lost on us.
-
-## Features
-
-- Objects defined relationally, with multiple inheritance and bidirectional dispatch. Sending to an unbound receiver turns a call into a search.
-- Durable by default. Every change is logged to disk. Restart and continue where you left off.
-- Constraint solving over finite domains: bounds consistency, `dif`, global constraints like `all_dif` (Régin's algorithm). Objects can be reasoned about via constraints.
-- ACID transactions 
-- A built-in algebraic effect system where OS-level operations are performed 'at the edge' and cascade into new transactions.
-- Git-like branching. Fork state, work in isolation, discard or keep.
-- Nascent bitemporality features: Query objects as of certain times, working with system and business time separately.
-- GUIX-like internal package management with dependency solving
-
-For discussion of the design philosophy of AL and resources that were consulted during its design, please see: 
-https://forum.anoma.net/t/design-philosophy-of-al-bibliography/2698
 
 ## Quickstart
 

@@ -328,23 +328,39 @@ defmodule AL.Command do
     end
   end
 
-  def command_log_rows(commands) do
-    Enum.map(commands, fn {:command, time, tx, operation} ->
-      {_marker, action, target, details} = describe_command(operation)
+  @parallel_rows_threshold 1_000
 
-      %{
-        marker: "##",
-        time: time,
-        tx: tx,
-        color: command_color(operation),
-        op: operation |> elem(0) |> inspect(),
-        command: command_display(operation),
-        action: action,
-        target: target,
-        details: details,
-        operation: operation
-      }
-    end)
+  def command_log_rows(commands) when length(commands) < @parallel_rows_threshold,
+    do: Enum.map(commands, &command_log_row/1)
+
+  def command_log_rows(commands) do
+    schedulers = System.schedulers_online()
+
+    commands
+    |> Enum.chunk_every(max(div(length(commands), schedulers), 1))
+    |> Task.async_stream(fn chunk -> Enum.map(chunk, &command_log_row/1) end,
+      ordered: true,
+      max_concurrency: schedulers,
+      timeout: :infinity
+    )
+    |> Enum.flat_map(fn {:ok, rows} -> rows end)
+  end
+
+  defp command_log_row({:command, time, tx, operation}) do
+    {_marker, action, target, details} = describe_command(operation)
+
+    %{
+      marker: "##",
+      time: time,
+      tx: tx,
+      color: command_color(operation),
+      op: operation |> elem(0) |> inspect(),
+      command: command_display(operation),
+      action: action,
+      target: target,
+      details: details,
+      operation: operation
+    }
   end
 
   defp describe_command({action, {object, class}})
