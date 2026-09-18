@@ -48,6 +48,204 @@ defmodule AL.Var.Bounds do
   @spec bounds_of(AL.Var.store(), AL.Var.t()) :: {ConstraintSet.bound(), ConstraintSet.bound()}
   def bounds_of(store, term), do: raw_domain(store, term)
 
+  @spec residual_constraints(AL.Var.store(), [AL.Var.variable()]) ::
+          {[term()], [AL.Var.variable()]}
+  def residual_constraints(store, roots) do
+    roots =
+      roots
+      |> Enum.map(&AL.Var.deref(store, &1))
+      |> Enum.filter(&AL.Var.var?/1)
+      |> Enum.uniq()
+
+    {props, variables} = collect_residual_constraints(store, roots, MapSet.new(), MapSet.new())
+    {Enum.sort(MapSet.to_list(props)), Enum.sort(MapSet.to_list(variables))}
+  end
+
+  @spec summarize_residual_constraints(
+          AL.Var.store(),
+          [term()],
+          (AL.Var.variable() -> term())
+        ) :: [map()]
+  def summarize_residual_constraints(store, props, display) do
+    prop_set = MapSet.new(props)
+
+    {linear, seen} =
+      Enum.reduce(props, {[], MapSet.new()}, fn prop, {relations, seen} ->
+        cond do
+          MapSet.member?(seen, prop) ->
+            {relations, seen}
+
+          affine_propagator?(prop) ->
+            reverse = reverse_affine_propagator(prop)
+
+            if equality_pair?(prop, reverse, prop_set) do
+              relation = summarize_affine_propagator(store, prop, :eq, display)
+              {[relation | relations], seen |> MapSet.put(prop) |> MapSet.put(reverse)}
+            else
+              relation = summarize_affine_propagator(store, prop, affine_op(prop), display)
+              {[relation | relations], MapSet.put(seen, prop)}
+            end
+
+          true ->
+            {relations, seen}
+        end
+      end)
+
+    other =
+      props
+      |> Enum.reject(&MapSet.member?(seen, &1))
+      |> Enum.flat_map(&summarize_non_affine_propagator(store, &1, display))
+
+    (linear ++ other)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp collect_residual_constraints(_store, [], props, variables), do: {props, variables}
+
+  defp collect_residual_constraints(store, [variable | rest], props, variables) do
+    if MapSet.member?(variables, variable) do
+      collect_residual_constraints(store, rest, props, variables)
+    else
+      own_props =
+        case AL.Var.constraint_set(store, variable) do
+          %ConstraintSet{props: own_props} -> own_props
+          _ -> []
+        end
+
+      related =
+        own_props
+        |> Enum.flat_map(&variables_in_propagator/1)
+        |> Enum.map(&AL.Var.deref(store, &1))
+        |> Enum.filter(&AL.Var.var?/1)
+        |> Enum.uniq()
+
+      collect_residual_constraints(
+        store,
+        rest ++ related,
+        Enum.reduce(own_props, props, &MapSet.put(&2, &1)),
+        MapSet.put(variables, variable)
+      )
+    end
+  end
+
+  defp variables_in_propagator({{:sum, left, _}, {:sum, right, _}, strict})
+       when is_map(left) and is_map(right) and is_boolean(strict),
+       do: Map.keys(left) ++ Map.keys(right)
+
+  defp variables_in_propagator({:either, {_op1, a1, b1}, {_op2, a2, b2}}),
+    do: Enum.flat_map([a1, b1, a2, b2], &AL.Var.find_vars/1)
+
+  defp variables_in_propagator({:all_dif, variables}),
+    do: Enum.flat_map(variables, &AL.Var.find_vars/1)
+
+  defp variables_in_propagator(_prop), do: []
+
+  defp affine_propagator?({{:sum, left, _}, {:sum, right, _}, strict}),
+    do: is_map(left) and is_map(right) and is_boolean(strict)
+
+  defp affine_propagator?(_prop), do: false
+
+  defp reverse_affine_propagator({left, right, strict}), do: {right, left, strict}
+
+  defp equality_pair?({_left, _right, false}, reverse, prop_set),
+    do: MapSet.member?(prop_set, reverse)
+
+  defp equality_pair?(_prop, _reverse, _prop_set), do: false
+
+  defp affine_op({_left, _right, true}), do: :lt
+  defp affine_op({_left, _right, false}), do: :lte
+
+  defp summarize_affine_propagator(store, {left, right, _strict}, op, display) do
+    summarize_linear_relation(store, left, right, op, display)
+  end
+
+  defp summarize_non_affine_propagator(store, {:either, left, right}, display) do
+    alternatives =
+      [left, right]
+      |> Enum.map(&summarize_comparison(store, &1, display))
+      |> Enum.reject(&is_nil/1)
+
+    if length(alternatives) == 2,
+      do: [%{op: :either, alternatives: alternatives}],
+      else: []
+  end
+
+  defp summarize_non_affine_propagator(store, {:all_dif, variables}, display) do
+    variables =
+      Enum.map(variables, fn variable ->
+        case AL.Var.deref(store, variable) do
+          value when is_number(value) -> value
+          value -> if AL.Var.var?(value), do: display.(value), else: value
+        end
+      end)
+
+    [%{op: :all_dif, variables: variables}]
+  end
+
+  defp summarize_non_affine_propagator(_store, _prop, _display), do: []
+
+  defp summarize_comparison(store, {:eq, a, b}, display) do
+    with {:ok, left} <- affine(store, a), {:ok, right} <- affine(store, b) do
+      summarize_linear_relation(store, left, right, :eq, display)
+    else
+      :error -> nil
+    end
+  end
+
+  defp summarize_comparison(store, {op, a, b}, display) when op in [:<, :<=, :>, :>=] do
+    {left_term, right_term, strict} = normalize(op, a, b)
+
+    with {:ok, left} <- affine(store, left_term),
+         {:ok, right} <- affine(store, right_term) do
+      summarize_linear_relation(store, left, right, if(strict, do: :lt, else: :lte), display)
+    else
+      :error -> nil
+    end
+  end
+
+  defp summarize_comparison(_store, _comparison, _display), do: nil
+
+  defp summarize_linear_relation(store, left, right, op, display) do
+    {:sum, left_coeffs, left_constant} = left
+    {:sum, right_coeffs, right_constant} = right
+    coeffs = merge_coeffs(left_coeffs, right_coeffs, -1)
+    constant = left_constant - right_constant
+
+    {coeffs, constant} =
+      Enum.reduce(coeffs, {%{}, constant}, fn {variable, coefficient}, {terms, value} ->
+        case AL.Var.deref(store, variable) do
+          number when is_number(number) ->
+            {terms, value + coefficient * number}
+
+          live ->
+            if AL.Var.var?(live) do
+              {Map.update(terms, display.(live), coefficient, &(&1 + coefficient)), value}
+            else
+              {terms, value}
+            end
+        end
+      end)
+
+    terms = drop_zero_coeffs(coeffs)
+    value = -constant
+    {terms, value} = normalize_relation_sign(terms, value, op)
+    %{op: op, terms: terms, value: value}
+  end
+
+  defp normalize_relation_sign(terms, value, :eq) do
+    case Enum.sort(terms) do
+      [{_variable, coefficient} | _] when coefficient < 0 ->
+        {Map.new(terms, fn {variable, coefficient} -> {variable, -coefficient} end), -value}
+
+      _ ->
+        {terms, value}
+    end
+  end
+
+  defp normalize_relation_sign(terms, value, _op), do: {terms, value}
+
   # Each side -> affine form -> propagator on every var it mentions -> a
   # worklist fixpoint (narrowing one var re-queues the narrow-woken
   # propagators parked on it, grounding it re-queues all of them, so a chain

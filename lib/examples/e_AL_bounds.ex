@@ -319,6 +319,26 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  example unresolved_linear_equations_surface_as_residual_relations() do
+    {:atomic, {bindings, _state}} =
+      run branch: Examples.Support.branch() do
+        x > 0
+        y > 0
+        eq(x + y, 22)
+        eq(2 * x, 3 * h)
+        eq(4 * y, 5 * h)
+      end
+
+    constraints = Map.fetch!(bindings, :"$constraints")
+
+    assert MapSet.new(constraints.relations) ==
+             MapSet.new([
+               %{op: :eq, terms: %{"$x": 1, "$y": 1}, value: 22},
+               %{op: :eq, terms: %{"$h": 3, "$x": -2}, value: 0},
+               %{op: :eq, terms: %{"$h": 5, "$y": -4}, value: 0}
+             ])
+  end
+
   # Reactive binds, not just reactive `eq`/compare calls: `a`/`b` above get
   # grounded via ordinary `unify`, not another `eq` — the fixpoint still has
   # to fire from `AL.Var.bind` itself, or `z` would be left stale.

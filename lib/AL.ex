@@ -344,7 +344,7 @@ defmodule AL do
 
     # No alias = purely internal var: label `_N` (Prolog-style opaque),
     # stable/reused so aliasing between two of them stays visible.
-    {display_names, _n} =
+    {display_names, n} =
       Enum.reduce(sorted_vars, {canonical_names, 0}, fn variable, {names, n} ->
         variable
         |> AL.Var.subst(store)
@@ -358,6 +358,18 @@ defmodule AL do
             {Map.put(names, leaf, AL.Var.var("_#{n + 1}")), n + 1}
           end
         end)
+      end)
+
+    {residual_props, residual_variables} =
+      AL.Var.Bounds.residual_constraints(store, Map.keys(display_names))
+
+    {display_names, _n} =
+      Enum.reduce(residual_variables, {display_names, n}, fn variable, {names, n} ->
+        if Map.has_key?(names, variable) do
+          {names, n}
+        else
+          {Map.put(names, variable, AL.Var.var("_#{n + 1}")), n + 1}
+        end
       end)
 
     rewrite_unbound = fn resolved -> Map.get(display_names, resolved, resolved) end
@@ -379,6 +391,12 @@ defmodule AL do
     # structures) reaches those, `canonical_names` only covers the case
     # where the query var itself stayed open.
     constraints = constraint_summary(display_names, store)
+
+    relations =
+      AL.Var.Bounds.summarize_residual_constraints(store, residual_props, rewrite_unbound)
+
+    constraints =
+      if relations == [], do: constraints, else: Map.put(constraints, :relations, relations)
 
     if map_size(constraints) == 0,
       do: bindings,
