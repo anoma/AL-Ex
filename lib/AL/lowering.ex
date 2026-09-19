@@ -164,15 +164,15 @@ defmodule AL.Lowering do
       value: ast_to_pattern(value)
     }
 
-  def ast_to_pattern({:vm_get_slot, _, [object, key, value]}),
+  def ast_to_pattern({:slot, _, [object, key, value]}),
     do: %Goal.GetSlots{
       object: ast_to_pattern(object),
       key: ast_to_pattern(key),
       value: ast_to_pattern(value),
-      store: :aos
+      store: :auto
     }
 
-  def ast_to_pattern({:vm_get_slot, _, [object, key, value, store]}),
+  def ast_to_pattern({:slot, _, [object, key, value, store]}),
     do: %Goal.GetSlots{
       object: ast_to_pattern(object),
       key: ast_to_pattern(key),

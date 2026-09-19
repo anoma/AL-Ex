@@ -240,9 +240,9 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # Same regression, for a storage: :soa ivar -- vm_get_slot's own
+  # Same regression, for a storage: :soa ivar -- slot's own
   # unbound-key enumeration is aos-only, so retract_existing_facts also
-  # checks self's declared ivar names against vm_get_slot/4 :soa to find
+  # checks self's declared ivar names against slot/4 :soa to find
   # a soa-stored key worth retracting (bootstrap.ex).
   example new_redef_true_resets_a_storage_soa_instance_slot() do
     {:atomic, _} =

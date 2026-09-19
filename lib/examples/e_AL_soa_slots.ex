@@ -1,6 +1,6 @@
 defmodule Examples.ALSoaSlots do
   @moduledoc """
-  examples for vm_get_slot/4 (store: :soa).
+  examples for slot/4 (store: :soa).
   one row per (object, key), not one row per whole-map version.
   program authors never call this directly -- set_slot/get route
   storage: :soa ivars here transparently.
@@ -21,7 +21,7 @@ defmodule Examples.ALSoaSlots do
       run branch: Examples.Support.branch() do
         new(:soa_slot_probe, obj)
         set_slot(obj, :level, 1)
-        vm_get_slot(obj, :level, v, :soa)
+        slot(obj, :level, v, :soa)
       end
 
     assert Map.get(bindings, :"$v") == 1
@@ -41,7 +41,7 @@ defmodule Examples.ALSoaSlots do
         new(:soa_slot_probe_resets, obj)
         set_slot(obj, :level, 1)
         set_slot(obj, :level, 2)
-        vm_get_slot(obj, :level, v, :soa)
+        slot(obj, :level, v, :soa)
       end
 
     assert Map.get(bindings, :"$v") == 2
@@ -67,7 +67,7 @@ defmodule Examples.ALSoaSlots do
         new(:soa_slot_probe_many, obj2)
         set_slot(obj1, :soa_slot_probe_many_level, 1)
         set_slot(obj2, :soa_slot_probe_many_level, 2)
-        findall([o, v], [vm_get_slot(o, :soa_slot_probe_many_level, v, :soa)], results)
+        findall([o, v], [slot(o, :soa_slot_probe_many_level, v, :soa)], results)
       end
 
     expected =

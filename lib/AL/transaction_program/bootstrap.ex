@@ -84,18 +84,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :get, [self, key, value]) do
-      vm_map_get(self, key, value)
-    end
-
-    # aos direct lookup, common case
-    defmethod(:object, :get, [self, key, value]) do
-      vm_get_slot(self, key, value)
-    end
-
-    # soa direct lookup, fallback
-    defmethod(:object, :get, [self, key, value]) do
-      not [vm_get_slot(self, key, _)]
-      vm_get_slot(self, key, value, :soa)
+      slot(self, key, value)
     end
 
     # escape hatches skip ivar-spec validation (class/category/behaviour,
@@ -111,7 +100,7 @@ defmodule AL.TransactionProgram.Bootstrap do
         [reachable_classes([class_name], [], class_supers), member(class_supers, :class)] ->
           pass
 
-        [not [vm_get_slot(class_name, :ivars, _)]] ->
+        [not [slot(class_name, :ivars, _)]] ->
           pass
 
         :else ->
@@ -214,9 +203,9 @@ defmodule AL.TransactionProgram.Bootstrap do
     # redef: true wipes class/super/slots/methods so a reclaimed name comes
     # back genuinely fresh, not accumulating state across redefs.
     #
-    # aos keys: vm_get_slot unbound-key enumeration.
+    # aos keys: slot unbound-key enumeration.
     # soa keys: no unbound-key scan, so check declared ivar names
-    # (vm_cached_ivar_specs, self's old class) against vm_get_slot/4 :soa.
+    # (vm_cached_ivar_specs, self's old class) against slot/4 :soa.
     #
     # methods: all of them, not just names the new defclass body
     # redeclares (that check happens separately, below) -- else a dropped
@@ -234,11 +223,11 @@ defmodule AL.TransactionProgram.Bootstrap do
         vm_retract_super(self, s)
       end
 
-      findall(k, [vm_get_slot(self, k, _)], existing_aos_keys)
+      findall(k, [slot(self, k, _)], existing_aos_keys)
 
       vm_cached_ivar_specs(self, ivar_specs)
       ivar_names(ivar_specs, declared_names)
-      findall(k, [member(declared_names, k), vm_get_slot(self, k, _, :soa)], existing_soa_keys)
+      findall(k, [member(declared_names, k), slot(self, k, _, :soa)], existing_soa_keys)
 
       concat(existing_aos_keys, existing_soa_keys, existing_slot_keys)
 
@@ -282,7 +271,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       implies do
         [class(name, _)] ->
           findall(s, [super(name, s)], old_supers)
-          vm_get_slot(name, :ivars, old_ivars)
+          slot(name, :ivars, old_ivars)
           unify(was_redef, true)
 
         :else ->
@@ -343,7 +332,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:class, :delete_class, [self]) do
       findall(s, [super(self, s)], old_supers)
-      vm_get_slot(self, :ivars, old_ivars)
+      slot(self, :ivars, old_ivars)
 
       class_redefined(
         self,
@@ -417,13 +406,13 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :collect_ivar_specs, [[c | rest], specs]) do
       collect_ivar_specs(rest, rest_specs)
-      vm_get_slot(c, :ivars, own_specs)
+      slot(c, :ivars, own_specs)
       concat(own_specs, rest_specs, specs)
     end
 
     defmethod(:list, :collect_ivar_specs, [[c | rest], rest_specs]) do
       collect_ivar_specs(rest, rest_specs)
-      not [vm_get_slot(c, :ivars, _)]
+      not [slot(c, :ivars, _)]
     end
 
     defmethod(:object, :build_durable_slots, [_self, _class, _args, [], %{}])
@@ -632,7 +621,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       findall([provider, n], [method(provider, n, self), label(provider)], providers)
       findall([head, body], [clause(self, head, body)], clauses)
 
-      findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
+      findall([slot_name, slot_value], [slot(self, slot_name, slot_value)], direct_slots)
     end
 
     new(

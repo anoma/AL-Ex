@@ -677,8 +677,8 @@ defmodule AL.Source do
   defp goal({:set_class, o, c}), do: call(:vm_set_class, [o, c])
   defp goal({:set_super, o, s}), do: call(:vm_set_super, [o, s])
   defp goal({:set_slot, o, k, v}), do: call(:vm_set_slot, [o, k, v])
-  defp goal({:get_slot, o, k, v, :aos}), do: call(:vm_get_slot, [o, k, v])
-  defp goal({:get_slot, o, k, v, store}), do: call(:vm_get_slot, [o, k, v, store])
+  defp goal({:get_slot, o, k, v, :auto}), do: call(:slot, [o, k, v])
+  defp goal({:get_slot, o, k, v, store}), do: call(:slot, [o, k, v, store])
   defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), Enum.map(cond, &goal/1), pat(r)]}
   defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
   defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])

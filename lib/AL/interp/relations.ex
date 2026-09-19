@@ -289,6 +289,30 @@ defmodule AL.Interp.Relations do
 
   # store can be literal or a var (get's ancestor-walk fallback
   # passes a resolved spec var through) -- deref before branching.
+  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state)
+      when is_map(object) do
+    entries =
+      if AL.Var.var?(key) do
+        Map.to_list(object)
+      else
+        case Map.fetch(object, key) do
+          {:ok, v} -> [{key, v}]
+          :error -> []
+        end
+      end
+
+    scan_relation(state, entries, {key, value})
+  end
+
+  def interp(%Goal.GetSlots{object: object, key: key, store: :auto} = goal, state) do
+    store =
+      if is_atom(object) and not AL.Var.var?(object) and not AL.Var.var?(key),
+        do: AL.Dispatch.ivar_storage(object, key, state.branch),
+        else: :aos
+
+    interp(%{goal | store: store}, state)
+  end
+
   def interp(%Goal.GetSlots{object: object, key: key, value: value, store: store_pattern}, state) do
     case AL.Var.deref(store(state), store_pattern) do
       :soa ->

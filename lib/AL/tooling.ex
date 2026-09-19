@@ -230,8 +230,8 @@ defmodule AL.Tooling do
         object_clauses
       )
 
-      findall([key, value], [vm_get_slot(^object, key, value)], object_aos_slots)
-      findall([key, value], [vm_get_slot(^object, key, value, :soa)], object_soa_slots)
+      findall([key, value], [slot(^object, key, value)], object_aos_slots)
+      findall([key, value], [slot(^object, key, value, :soa)], object_soa_slots)
     end
     |> al_run_result()
   end
@@ -269,7 +269,7 @@ defmodule AL.Tooling do
           get(transaction, :tx, ^tx),
           get(transaction, :status, status),
           findall(reason, [get(transaction, :reason, reason)], reasons),
-          findall([key, value], [vm_get_slot(transaction, key, value)], slots)
+          findall([key, value], [slot(transaction, key, value)], slots)
         ],
         inspected_transactions
       )
@@ -326,7 +326,7 @@ defmodule AL.Tooling do
             [
               class(build, ^name),
               label(build),
-              findall([key, value], [vm_get_slot(build, key, value)], slots)
+              findall([key, value], [slot(build, key, value)], slots)
             ],
             builds
           ),
@@ -336,7 +336,7 @@ defmodule AL.Tooling do
               class(provider, :package_provider),
               label(provider),
               provides(provider, ^name),
-              findall([key, value], [vm_get_slot(provider, key, value)], slots)
+              findall([key, value], [slot(provider, key, value)], slots)
             ],
             providers
           )

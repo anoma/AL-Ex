@@ -795,7 +795,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_a, %{suit: :hearts}, obj)
-        vm_get_slot(obj, :suit, suit)
+        slot(obj, :suit, suit)
       end
 
     assert Map.get(bindings, :"$suit") == :hearts
@@ -818,7 +818,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_b, %{}, obj)
-        findall([k, v], [vm_get_slot(obj, k, v)], slots)
+        findall([k, v], [slot(obj, k, v)], slots)
       end
 
     assert Map.get(bindings, :"$slots") == []
@@ -861,7 +861,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_bare, %{}, obj)
-        findall([k, v], [vm_get_slot(obj, k, v)], slots)
+        findall([k, v], [slot(obj, k, v)], slots)
       end
 
     assert Map.get(bindings, :"$slots") == []
@@ -878,7 +878,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_typed, %{}, obj)
-        findall([k, v], [vm_get_slot(obj, k, v)], slots)
+        findall([k, v], [slot(obj, k, v)], slots)
       end
 
     assert Map.get(bindings, :"$slots") == []

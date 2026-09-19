@@ -13,7 +13,7 @@ defmodule AL.GtBridge do
   def display_name(self = %AL.Object{}) do
     result =
       AL.run branch: AL.Object.branch_id(self) do
-        vm_get_slot(^self.id, :name, name)
+        slot(^self.id, :name, name)
       end
 
     case result do
