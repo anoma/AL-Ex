@@ -98,28 +98,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       vm_get_slot(self, key, value, :soa)
     end
 
-    # neither table has it directly -- storage resolved once via self
-    # (vm_cached_find_ivar_spec), then walk ancestors on that same store.
-    defmethod(:object, :get, [self, key, value]) do
-      not [vm_get_slot(self, key, _)]
-      not [vm_get_slot(self, key, _, :soa)]
-      vm_cached_find_ivar_spec(self, key, spec)
-      ivar_spec_storage(self, spec, storage)
-      inheritance_chain(self, [self | chain])
-
-      get_inherited_slot(chain, key, storage, value)
-    end
-
-    defmethod(:list, :get_inherited_slot, [chain, key, :soa, value]) do
-      member(chain, ancestor)
-      vm_get_slot(ancestor, key, value, :soa)
-    end
-
-    defmethod(:list, :get_inherited_slot, [chain, key, :aos, value]) do
-      member(chain, ancestor)
-      vm_get_slot(ancestor, key, value, :aos)
-    end
-
     # escape hatches skip ivar-spec validation (class/category/behaviour,
     # or no :ivars slot at all). storage routed by vm_set_slot's interp
     # handler, not here.
@@ -565,15 +543,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       end
 
       get_optional(args, name, value)
-    end
-
-    defmethod(:object, :ivar_spec_storage, [_self, spec, storage]) do
-      functor(spec, _name, [opts])
-      member(opts, {:storage, storage})
-    end
-
-    defmethod(:object, :ivar_spec_storage, [_self, spec, :aos]) do
-      not [functor(spec, _name, [opts]), member(opts, {:storage, _given})]
     end
 
     defmethod(:object, :build_from_ivar_specs, [self, class, args, [], %{class: class}])

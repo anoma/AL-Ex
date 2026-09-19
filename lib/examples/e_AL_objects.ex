@@ -145,20 +145,18 @@ defmodule Examples.ALObjects do
         defclass :direct_vehicle, super: :object do
         end
 
-        defclass :direct_car, super: :direct_vehicle do
+        defclass :direct_car, super: :direct_vehicle, ivars: [color: [default: :red]] do
         end
 
-        defclass :direct_hydrant, super: :object do
+        defclass :direct_hydrant, super: :object, ivars: [color: [default: :red]] do
         end
-
-        set_slot(:direct_car, :color, :red)
-        set_slot(:direct_hydrant, :color, :red)
 
         new(:direct_car, car)
         new(:direct_hydrant, hydrant)
 
         findall(x, [class(x, :direct_vehicle), label(x), get(x, :color, :red)], direct)
         findall(x, [isa(x, :direct_vehicle), label(x), get(x, :color, :red)], inherited)
+        findall(x, [isa(x, :direct_vehicle), get(x, :color, :red), label(x)], constrained_first)
 
         class(car, :direct_car)
         not [class(car, :direct_vehicle)]
@@ -170,6 +168,7 @@ defmodule Examples.ALObjects do
 
     assert Map.get(bindings, :"$direct") == []
     assert Map.get(bindings, :"$inherited") == [Map.get(bindings, :"$car")]
+    assert Map.get(bindings, :"$constrained_first") == Map.get(bindings, :"$inherited")
     refute Map.get(bindings, :"$hydrant") in Map.get(bindings, :"$inherited")
   end
 
@@ -627,21 +626,44 @@ defmodule Examples.ALObjects do
     assert map_bindings[:"$right"] == :b
   end
 
-  example get_inherits_from_class() do
+  example get_reads_only_the_objects_own_row() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :slot_inherit_class, super: :object, ivars: [:legs] do
+        defclass :slot_own_row_class, super: :object, ivars: [:legs] do
         end
 
-        set_slots(:slot_inherit_class, %{legs: 4})
+        set_slots(:slot_own_row_class, %{legs: 4})
 
-        new(:slot_inherit_class, obj)
+        new(:slot_own_row_class, obj)
 
+        findall(legs, [get(obj, :legs, legs)], instance_legs)
+        findall(legs, [get(:slot_own_row_class, :legs, legs)], class_legs)
+        findall(v, [get(%{class: :slot_own_row_class}, :legs, v)], map_legs)
+        findall(v, [get(%{class: :slot_own_row_class, legs: 8}, :legs, v)], map_own_legs)
+      end
+
+    assert Map.get(bindings, :"$instance_legs") == []
+    assert Map.get(bindings, :"$class_legs") == [4]
+    assert Map.get(bindings, :"$map_legs") == []
+    assert Map.get(bindings, :"$map_own_legs") == [8]
+  end
+
+  example default_ivar_copies_into_the_instance() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :slot_default_class, super: :object, ivars: [legs: [default: 4]] do
+        end
+
+        new(:slot_default_class, obj)
         get(obj, :legs, legs)
+        set_slot(obj, :legs, 3)
+        get(obj, :legs, after_set)
+        findall(v, [get(:slot_default_class, :legs, v)], class_legs)
       end
 
     assert Map.get(bindings, :"$legs") == 4
-    bindings
+    assert Map.get(bindings, :"$after_set") == 3
+    assert Map.get(bindings, :"$class_legs") == []
   end
 
   example get_does_not_fall_through_to_inherited_on_value_mismatch() do

@@ -126,29 +126,29 @@ The second one fails: `10` can't be less than something itself less than `5`. No
 An open receiver turns the last two calls below into a search, not a lookup.
 
 ```elixir
-run do
-  defclass :vehicle, super: :object do
-  end
+run branch: Examples.Support.branch() do
+    defclass :direct_vehicle, super: :object do
+    end
 
-  defclass :car, super: :vehicle do
-  end
+    defclass :direct_car, super: :direct_vehicle, ivars: [color: [default: :red]] do
+    end
 
-  defclass :bicycle, super: :vehicle do
-  end
+    defclass :direct_hydrant, super: :object, ivars: [color: [default: :red]] do
+    end
 
-  defclass :fire_hydrant, super: :object do
-  end
+    new(:direct_car, car)
+    new(:direct_hydrant, hydrant)
 
-  set_slots(:car, %{color: :red})
-  set_slots(:bicycle, %{color: :blue})
-  set_slots(:fire_hydrant, %{color: :red})
+    findall(x, [class(x, :direct_vehicle), label(x), get(x, :color, :red)], direct)
+    findall(x, [isa(x, :direct_vehicle), label(x), get(x, :color, :red)], inherited)
+    findall(x, [isa(x, :direct_vehicle), get(x, :color, :red), label(x)], constrained_first)
 
-  new(:car, my_car)
-  new(:bicycle, my_bike)
-  new(:fire_hydrant, hydrant)
-
-  isa(x, :vehicle)
-  get(x, :color, :red)
+    class(car, :direct_car)
+    not [class(car, :direct_vehicle)]
+    isa(car, :direct_vehicle)
+    isa(candidate, ancestor)
+    unify(ancestor, :direct_vehicle)
+    unify(candidate, car)
 end
 ```
 
