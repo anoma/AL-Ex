@@ -23,7 +23,7 @@ defmodule AL.Dispatch.MethodOrder do
     classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
     chain = cached_super_chain(classes, branch, dispatch_strategy(classes, branch))
 
-    if Enum.any?(classes, &(&1 in [:class, :category, :behaviour])) do
+    if Enum.any?(chain, &(&1 in [:class, :category, :behaviour])) do
       chain
     else
       [self | chain]
