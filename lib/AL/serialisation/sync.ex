@@ -3,7 +3,7 @@ defmodule AL.Serialisation.Sync do
   Calculates the AL transaction represented by definition-document edits.
 
   Planning is pure and needs no store-local identity. A selector's clauses are
-  retracted by enumerating `vm_clause` at run time, which leaves the method
+  retracted by enumerating `clause` at run time, which leaves the method
   binding in place so `defmethod` reuses its existing method id.
   """
 
@@ -169,12 +169,12 @@ defmodule AL.Serialisation.Sync do
     scope = scope(owner, selector)
 
     """
-    findall(id_#{scope}, [vm_method(#{literal(owner)}, #{literal(selector)}, id_#{scope})], ids_#{scope})
+    findall(id_#{scope}, [method(#{literal(owner)}, #{literal(selector)}, id_#{scope})], ids_#{scope})
 
     forall([member(ids_#{scope}, id_#{scope})]) do
       findall(
         [head_#{scope}, body_#{scope}],
-        [vm_clause(id_#{scope}, head_#{scope}, body_#{scope})],
+        [clause(id_#{scope}, head_#{scope}, body_#{scope})],
         clauses_#{scope}
       )
 

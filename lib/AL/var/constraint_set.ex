@@ -22,7 +22,7 @@ defmodule AL.Var.ConstraintSet do
   # one can reconstruct the correct `GetSuper{object:, super:}` goal.
   @type super_link() :: {:object, AL.Var.t()} | {:super, AL.Var.t()}
 
-  # A pending `vm_get_slot(object, key, value)` with `object` still open and
+  # A pending `slot(object, key, value)` with `object` still open and
   # `key` ground (`AL.Interp.Relations.GetSlots`) -- same shape as `super_link`, one
   # slot each. `key` isn't itself a var here (it's the fixed context, not a
   # domain to enumerate), so it just rides along in the tag rather than

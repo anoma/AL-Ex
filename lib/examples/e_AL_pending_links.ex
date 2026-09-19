@@ -185,7 +185,7 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(object, :pending_tag, value)
+        slot(object, :pending_tag, value)
         unify(object, :pending_unique_record)
       end
 
@@ -197,7 +197,7 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(object, :pending_tag, value)
+        slot(object, :pending_tag, value)
         unify(value, :unique_value)
       end
 
@@ -209,7 +209,7 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(object, :pending_tag, value)
+        slot(object, :pending_tag, value)
         unify(value, :shared_value)
       end
 
@@ -227,7 +227,7 @@ defmodule Examples.ALPendingLinks do
         findall(
           object,
           [
-            vm_get_slot(object, :pending_tag, value),
+            slot(object, :pending_tag, value),
             unify(value, :shared_value),
             label(object)
           ],
@@ -244,7 +244,7 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(value, [vm_get_slot(object, :pending_tag, value), label(value)], values)
+        findall(value, [slot(object, :pending_tag, value), label(value)], values)
       end
 
     assert Enum.count(bindings[:"$values"], &(&1 == :shared_value)) == 1
@@ -255,7 +255,7 @@ defmodule Examples.ALPendingLinks do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(object, :missing_pending_tag, value)
+        slot(object, :missing_pending_tag, value)
         label(object)
       end
 

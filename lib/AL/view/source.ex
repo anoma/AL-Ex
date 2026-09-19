@@ -677,13 +677,13 @@ defmodule AL.Source do
   defp goal({:set_class, o, c}), do: call(:vm_set_class, [o, c])
   defp goal({:set_super, o, s}), do: call(:vm_set_super, [o, s])
   defp goal({:set_slot, o, k, v}), do: call(:vm_set_slot, [o, k, v])
-  defp goal({:get_slot, o, k, v, :aos}), do: call(:vm_get_slot, [o, k, v])
-  defp goal({:get_slot, o, k, v, store}), do: call(:vm_get_slot, [o, k, v, store])
+  defp goal({:get_slot, o, k, v, :auto}), do: call(:slot, [o, k, v])
+  defp goal({:get_slot, o, k, v, store}), do: call(:slot, [o, k, v, store])
   defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), Enum.map(cond, &goal/1), pat(r)]}
   defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
   defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])
   defp goal({:retract_slot, o, k}), do: call(:vm_retract_slot, [o, k])
-  defp goal({:get_method, o, n, i}), do: call(:vm_method, [o, n, i])
+  defp goal({:get_method, o, n, i}), do: call(:method, [o, n, i])
   defp goal({:get_command, tx, time, operation}), do: call(:vm_command, [tx, time, operation])
   defp goal({:set_method, o, n, i}), do: call(:vm_set_method, [o, n, i])
   defp goal({:send_async, o, m, a}), do: call(:send_async, [o, m, a])
@@ -703,8 +703,8 @@ defmodule AL.Source do
 
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
-  defp goal({:get_oapply, o, :"$_", h, b}), do: call(:vm_clause, [o, h, b])
-  defp goal({:get_oapply, o, seq, h, b}), do: call(:vm_clause, [o, seq, h, b])
+  defp goal({:get_oapply, o, :"$_", h, b}), do: call(:clause, [o, h, b])
+  defp goal({:get_oapply, o, seq, h, b}), do: call(:clause, [o, seq, h, b])
   defp goal({:set_oapply, o, :next, h, b}), do: call(:vm_set_oapply, [o, h, b])
   defp goal({:set_oapply, o, seq, h, b}), do: call(:vm_set_oapply, [o, seq, h, b])
 

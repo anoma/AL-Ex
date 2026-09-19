@@ -19,7 +19,7 @@ defmodule Examples.ALConstraints do
         new(:process, %{name: :constant_subscriber, pid: ^pid}, _)
 
         defmethod(:constant_subscriber, :cell_updated, [self, cell, domain]) do
-          vm_get_slot(self, :pid, p)
+          slot(self, :pid, p)
           functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
@@ -44,7 +44,7 @@ defmodule Examples.ALConstraints do
     # directly instead of waiting on one.
     slot_result =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:x, :domain, domain)
+        slot(:x, :domain, domain)
       end
 
     domain =
@@ -64,7 +64,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:x, :domain, domain)
+        slot(:x, :domain, domain)
       end
 
     assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{2 => true}}
@@ -82,7 +82,7 @@ defmodule Examples.ALConstraints do
         new(:process, %{name: :inc_subscriber, pid: ^pid}, _)
 
         defmethod(:inc_subscriber, :cell_updated, [self, cell, domain]) do
-          vm_get_slot(self, :pid, p)
+          slot(self, :pid, p)
           functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
@@ -103,7 +103,7 @@ defmodule Examples.ALConstraints do
 
     slot_result =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:y, :domain, domain)
+        slot(:y, :domain, domain)
       end
 
     domain =
@@ -123,7 +123,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:y, :domain, domain)
+        slot(:y, :domain, domain)
       end
 
     assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{3 => true}}
@@ -154,7 +154,7 @@ defmodule Examples.ALConstraints do
         new(:process, %{name: :bidirectional_adder_subscriber, pid: ^pid}, _)
 
         defmethod(:bidirectional_adder_subscriber, :cell_updated, [self, cell, domain]) do
-          vm_get_slot(self, :pid, p)
+          slot(self, :pid, p)
           functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
@@ -193,7 +193,7 @@ defmodule Examples.ALConstraints do
 
     slot_result =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:a, :domain, domain)
+        slot(:a, :domain, domain)
       end
 
     domain =
@@ -213,7 +213,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:a, :domain, domain)
+        slot(:a, :domain, domain)
       end
 
     assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{2 => true}}
@@ -244,7 +244,7 @@ defmodule Examples.ALConstraints do
         new(:process, %{name: :interval_subscriber, pid: ^pid}, _)
 
         defmethod(:interval_subscriber, :cell_updated, [self, cell, domain]) do
-          vm_get_slot(self, :pid, p)
+          slot(self, :pid, p)
           functor(message, :cell_updated, [cell, domain])
           send_elixir(p, message)
         end
@@ -281,7 +281,7 @@ defmodule Examples.ALConstraints do
 
     slot_result =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:ic, :domain, domain)
+        slot(:ic, :domain, domain)
       end
 
     domain =
@@ -301,7 +301,7 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(:ic, :domain, domain)
+        slot(:ic, :domain, domain)
       end
 
     assert Map.get(bindings, :"$domain") == %{class: :interval_value, lo: 4, hi: 13}

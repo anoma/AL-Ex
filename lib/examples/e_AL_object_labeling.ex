@@ -214,7 +214,7 @@ defmodule Examples.ALObjectLabeling do
         findall(
           [object, marker],
           [
-            vm_get_slot(object, :labeling_unique_slot, :labeling_unique_value),
+            slot(object, :labeling_unique_slot, :labeling_unique_value),
             label(object),
             unify(marker, :after_slot_label)
           ],

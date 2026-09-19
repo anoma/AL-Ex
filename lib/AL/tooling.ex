@@ -187,13 +187,13 @@ defmodule AL.Tooling do
 
       findall(
         [owner, selector, method_id],
-        [vm_method(owner, selector, method_id)],
+        [method(owner, selector, method_id), label(owner)],
         method_bindings
       )
 
       findall(
         [method_id, sequence, head, body],
-        [vm_clause(method_id, sequence, head, body)],
+        [clause(method_id, sequence, head, body), label(method_id)],
         clauses
       )
     end
@@ -222,16 +222,16 @@ defmodule AL.Tooling do
     AL.run branch: branch.id do
       findall(class, [class(^object, class)], object_classes)
       findall(superclass, [super(^object, superclass)], object_supers)
-      findall([selector, method_id], [vm_method(^object, selector, method_id)], object_methods)
+      findall([selector, method_id], [method(^object, selector, method_id)], object_methods)
 
       findall(
         [sequence, head, body],
-        [vm_clause(^object, sequence, head, body)],
+        [clause(^object, sequence, head, body)],
         object_clauses
       )
 
-      findall([key, value], [vm_get_slot(^object, key, value)], object_aos_slots)
-      findall([key, value], [vm_get_slot(^object, key, value, :soa)], object_soa_slots)
+      findall([key, value], [slot(^object, key, value)], object_aos_slots)
+      findall([key, value], [slot(^object, key, value, :soa)], object_soa_slots)
     end
     |> al_run_result()
   end
@@ -241,10 +241,10 @@ defmodule AL.Tooling do
       findall(
         [method_id, clauses, sources],
         [
-          vm_method(^owner, ^selector, method_id),
+          method(^owner, ^selector, method_id),
           findall(
             [sequence, head, body],
-            [vm_clause(method_id, sequence, head, body)],
+            [clause(method_id, sequence, head, body)],
             clauses
           ),
           findall(
@@ -269,7 +269,7 @@ defmodule AL.Tooling do
           get(transaction, :tx, ^tx),
           get(transaction, :status, status),
           findall(reason, [get(transaction, :reason, reason)], reasons),
-          findall([key, value], [vm_get_slot(transaction, key, value)], slots)
+          findall([key, value], [slot(transaction, key, value)], slots)
         ],
         inspected_transactions
       )
@@ -326,7 +326,7 @@ defmodule AL.Tooling do
             [
               class(build, ^name),
               label(build),
-              findall([key, value], [vm_get_slot(build, key, value)], slots)
+              findall([key, value], [slot(build, key, value)], slots)
             ],
             builds
           ),
@@ -336,7 +336,7 @@ defmodule AL.Tooling do
               class(provider, :package_provider),
               label(provider),
               provides(provider, ^name),
-              findall([key, value], [vm_get_slot(provider, key, value)], slots)
+              findall([key, value], [slot(provider, key, value)], slots)
             ],
             providers
           )
@@ -355,10 +355,10 @@ defmodule AL.Tooling do
         [scope, method_id, clauses],
         [
           member(lookup_scopes, scope),
-          vm_method(scope, ^selector, method_id),
+          method(scope, ^selector, method_id),
           findall(
             [sequence, head, body],
-            [vm_clause(method_id, sequence, head, body)],
+            [clause(method_id, sequence, head, body)],
             clauses
           )
         ],

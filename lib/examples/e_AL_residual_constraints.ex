@@ -187,7 +187,7 @@ defmodule Examples.ALResidualConstraints do
   example open_slot_relations_include_the_value_in_the_constraint_graph() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_get_slot(object, :title, value)
+        slot(object, :title, value)
       end
 
     object = bindings[:"$object"]

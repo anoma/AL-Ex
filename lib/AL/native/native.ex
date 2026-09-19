@@ -80,7 +80,7 @@ defmodule AL.Native do
     branch = Keyword.get(opts, :branch, AL.Branch.head())
     mfa = {module, function, arity, style}
 
-    unless function_exported?(module, function, arity) do
+    unless Code.ensure_loaded?(module) and function_exported?(module, function, arity) do
       raise "AL.Native: #{inspect(module)}.#{function}/#{arity} is not exported"
     end
 

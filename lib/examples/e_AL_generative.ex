@@ -5,7 +5,7 @@ defmodule Examples.ALGenerative do
   (number/list included) are tried directly -- clause heads are the whole
   spec, no construction step. Isa-constraint pinning, exclusivity, and
   witness construction from a labeled isa live here too; the open-open
-  relational-link mechanism (`class`/`super`/`vm_get_slot` with both sides
+  relational-link mechanism (`class`/`super`/`slot` with both sides
   unbound) is a separate, self-contained feature in `e_AL_pending_links.ex`.
   """
 
@@ -567,7 +567,7 @@ defmodule Examples.ALGenerative do
     :ok
   end
 
-  # `class`/`super`/`vm_get_slot` with both sides open posting a pending
+  # `class`/`super`/`slot` with both sides open posting a pending
   # link + label/auto-propagate resolution is a self-contained feature --
   # see `e_AL_pending_links.ex`.
 

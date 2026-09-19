@@ -51,7 +51,7 @@ defmodule Examples.ALBranch do
     {:atomic, {bindings, _constraints, _}} =
       run branch: tip.id do
         vm_set_slot(:widget, :x, 3)
-        vm_get_slot(:widget, :x, x)
+        slot(:widget, :x, x)
       end
 
     assert Map.get(bindings, :"$x") == 3
@@ -59,7 +59,7 @@ defmodule Examples.ALBranch do
     # main never saw :widget — the write stayed in the fork's log
     {:aborted, _} =
       run do
-        vm_get_slot(:widget, :x, x)
+        slot(:widget, :x, x)
       end
 
     AL.Branch.discard(tip)
@@ -195,14 +195,14 @@ defmodule Examples.ALBranch do
 
     {:atomic, {fork_bindings, _constraints, _}} =
       run branch: branch.id do
-        vm_get_slot(:fork_obj, :processed, v)
+        slot(:fork_obj, :processed, v)
       end
 
     assert Map.get(fork_bindings, :"$v") == true
 
     {:aborted, _} =
       run do
-        vm_get_slot(:fork_obj, :processed, v)
+        slot(:fork_obj, :processed, v)
       end
 
     AL.Branch.discard(branch)

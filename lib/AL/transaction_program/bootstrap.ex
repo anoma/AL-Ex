@@ -29,7 +29,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       # clause, so repeated `defmethod`s on one name accrete clauses (Prolog-style)
       # rather than creating separate, unreachable method ids.
       implies do
-        [vm_method(self, method_name, impl)] ->
+        [method(self, method_name, impl)] ->
           vm_set_oapply(impl, head, body)
 
         :else ->
@@ -55,8 +55,8 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
-      vm_method(self, method_name, method_object)
-      findall([head, body], [vm_clause(method_object, head, body)], left)
+      method(self, method_name, method_object)
+      findall([head, body], [clause(method_object, head, body)], left)
 
       forall([member(left, [head, _])]) do
         vm_retract_oapply(method_object, head)
@@ -76,7 +76,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :listing, [class, name]) do
-      vm_method(class, name, impl)
+      method(class, name, impl)
 
       forall([print_object(impl, text)]) do
         vm_format("~a~%~%", [text])
@@ -84,40 +84,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :get, [self, key, value]) do
-      vm_map_get(self, key, value)
-    end
-
-    # aos direct lookup, common case
-    defmethod(:object, :get, [self, key, value]) do
-      vm_get_slot(self, key, value)
-    end
-
-    # soa direct lookup, fallback
-    defmethod(:object, :get, [self, key, value]) do
-      not [vm_get_slot(self, key, _)]
-      vm_get_slot(self, key, value, :soa)
-    end
-
-    # neither table has it directly -- storage resolved once via self
-    # (vm_cached_find_ivar_spec), then walk ancestors on that same store.
-    defmethod(:object, :get, [self, key, value]) do
-      not [vm_get_slot(self, key, _)]
-      not [vm_get_slot(self, key, _, :soa)]
-      vm_cached_find_ivar_spec(self, key, spec)
-      ivar_spec_storage(self, spec, storage)
-      inheritance_chain(self, [self | chain])
-
-      get_inherited_slot(chain, key, storage, value)
-    end
-
-    defmethod(:list, :get_inherited_slot, [chain, key, :soa, value]) do
-      member(chain, ancestor)
-      vm_get_slot(ancestor, key, value, :soa)
-    end
-
-    defmethod(:list, :get_inherited_slot, [chain, key, :aos, value]) do
-      member(chain, ancestor)
-      vm_get_slot(ancestor, key, value, :aos)
+      slot(self, key, value)
     end
 
     # escape hatches skip ivar-spec validation (class/category/behaviour,
@@ -133,7 +100,7 @@ defmodule AL.TransactionProgram.Bootstrap do
         [reachable_classes([class_name], [], class_supers), member(class_supers, :class)] ->
           pass
 
-        [not [vm_get_slot(class_name, :ivars, _)]] ->
+        [not [slot(class_name, :ivars, _)]] ->
           pass
 
         :else ->
@@ -236,9 +203,9 @@ defmodule AL.TransactionProgram.Bootstrap do
     # redef: true wipes class/super/slots/methods so a reclaimed name comes
     # back genuinely fresh, not accumulating state across redefs.
     #
-    # aos keys: vm_get_slot unbound-key enumeration.
+    # aos keys: slot unbound-key enumeration.
     # soa keys: no unbound-key scan, so check declared ivar names
-    # (vm_cached_ivar_specs, self's old class) against vm_get_slot/4 :soa.
+    # (vm_cached_ivar_specs, self's old class) against slot/4 :soa.
     #
     # methods: all of them, not just names the new defclass body
     # redeclares (that check happens separately, below) -- else a dropped
@@ -256,11 +223,11 @@ defmodule AL.TransactionProgram.Bootstrap do
         vm_retract_super(self, s)
       end
 
-      findall(k, [vm_get_slot(self, k, _)], existing_aos_keys)
+      findall(k, [slot(self, k, _)], existing_aos_keys)
 
       vm_cached_ivar_specs(self, ivar_specs)
       ivar_names(ivar_specs, declared_names)
-      findall(k, [member(declared_names, k), vm_get_slot(self, k, _, :soa)], existing_soa_keys)
+      findall(k, [member(declared_names, k), slot(self, k, _, :soa)], existing_soa_keys)
 
       concat(existing_aos_keys, existing_soa_keys, existing_slot_keys)
 
@@ -268,7 +235,7 @@ defmodule AL.TransactionProgram.Bootstrap do
         vm_retract_slot(self, k)
       end
 
-      findall([n, id], [vm_method(self, n, id)], existing_methods)
+      findall([n, id], [method(self, n, id)], existing_methods)
 
       forall([member(existing_methods, [n, id])]) do
         vm_retract_method(self, n, id)
@@ -304,7 +271,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       implies do
         [class(name, _)] ->
           findall(s, [super(name, s)], old_supers)
-          vm_get_slot(name, :ivars, old_ivars)
+          slot(name, :ivars, old_ivars)
           unify(was_redef, true)
 
         :else ->
@@ -365,7 +332,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:class, :delete_class, [self]) do
       findall(s, [super(self, s)], old_supers)
-      vm_get_slot(self, :ivars, old_ivars)
+      slot(self, :ivars, old_ivars)
 
       class_redefined(
         self,
@@ -439,13 +406,13 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :collect_ivar_specs, [[c | rest], specs]) do
       collect_ivar_specs(rest, rest_specs)
-      vm_get_slot(c, :ivars, own_specs)
+      slot(c, :ivars, own_specs)
       concat(own_specs, rest_specs, specs)
     end
 
     defmethod(:list, :collect_ivar_specs, [[c | rest], rest_specs]) do
       collect_ivar_specs(rest, rest_specs)
-      not [vm_get_slot(c, :ivars, _)]
+      not [slot(c, :ivars, _)]
     end
 
     defmethod(:object, :build_durable_slots, [_self, _class, _args, [], %{}])
@@ -514,7 +481,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :import, [self, category]) do
-      findall([name, id], [vm_method(category, name, id)], pairs)
+      findall([name, id], [method(category, name, id)], pairs)
       copy_methods(self, pairs)
     end
 
@@ -567,15 +534,6 @@ defmodule AL.TransactionProgram.Bootstrap do
       get_optional(args, name, value)
     end
 
-    defmethod(:object, :ivar_spec_storage, [_self, spec, storage]) do
-      functor(spec, _name, [opts])
-      member(opts, {:storage, storage})
-    end
-
-    defmethod(:object, :ivar_spec_storage, [_self, spec, :aos]) do
-      not [functor(spec, _name, [opts]), member(opts, {:storage, _given})]
-    end
-
     defmethod(:object, :build_from_ivar_specs, [self, class, args, [], %{class: class}])
 
     defmethod(:object, :build_from_ivar_specs, [self, class, args, [spec | rest], output]) do
@@ -626,7 +584,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       # freshly-added clause.
       forall([member(methods, entry)]) do
         vm_source_method_parts(entry, method_name, _head, _body, _source_kind, _capture_id)
-        findall(id, [vm_method(name, method_name, id)], existing_ids)
+        findall(id, [method(name, method_name, id)], existing_ids)
 
         forall([member(existing_ids, id)]) do
           vm_retract_method(name, method_name, id)
@@ -659,11 +617,11 @@ defmodule AL.TransactionProgram.Bootstrap do
       findall(c, [isa(c, self), label(c)], objects)
       findall(s, [super(self, s)], supers)
       findall(sub, [super(sub, self)], subs)
-      findall([n, id], [vm_method(self, n, id)], methods)
-      findall([provider, n], [vm_method(provider, n, self)], providers)
-      findall([head, body], [vm_clause(self, head, body)], clauses)
+      findall([n, id], [method(self, n, id)], methods)
+      findall([provider, n], [method(provider, n, self), label(provider)], providers)
+      findall([head, body], [clause(self, head, body)], clauses)
 
-      findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
+      findall([slot_name, slot_value], [slot(self, slot_name, slot_value)], direct_slots)
     end
 
     new(
@@ -831,7 +789,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:number, :count_to_via_oapply, [n, target]) do
-      vm_method(:number, :count_to_oapply_loop, id)
+      method(:number, :count_to_oapply_loop, id)
       vm_oapply(id, [n, target, id])
     end
 

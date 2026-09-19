@@ -73,6 +73,27 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
+  example custom_metaclass_keeps_instance_side_methods_off_the_class() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :side_meta, super: :class do
+          defmethod(:describe, [self, :class_side])
+        end
+
+        defclass :sided_thing, metaclass: :side_meta, super: :object do
+          defmethod(:describe, [self, :instance_side])
+        end
+
+        new(:sided_thing, instance)
+        findall(r, [describe(:sided_thing, r)], on_class)
+        findall(r, [describe(instance, r)], on_instance)
+      end
+
+    assert Map.get(bindings, :"$on_class") == [:class_side]
+    assert Map.get(bindings, :"$on_instance") == [:instance_side]
+    :ok
+  end
+
   # Regression: `allocate_class` used to hand `super:` straight to a single
   # `vm_set_super` call, so a list wrote one malformed fact (the super
   # pointing at a list, not a class) instead of two real ones -- broke the
@@ -219,9 +240,9 @@ defmodule Examples.ALDefclass do
     :ok
   end
 
-  # Same regression, for a storage: :soa ivar -- vm_get_slot's own
+  # Same regression, for a storage: :soa ivar -- slot's own
   # unbound-key enumeration is aos-only, so retract_existing_facts also
-  # checks self's declared ivar names against vm_get_slot/4 :soa to find
+  # checks self's declared ivar names against slot/4 :soa to find
   # a soa-stored key worth retracting (bootstrap.ex).
   example new_redef_true_resets_a_storage_soa_instance_slot() do
     {:atomic, _} =

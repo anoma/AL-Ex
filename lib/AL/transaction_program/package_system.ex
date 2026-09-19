@@ -132,7 +132,7 @@ defmodule AL.TransactionProgram.PackageSystem do
 
       defmethod(:include_method, [self, owner, selector]) do
         build_status(self, :open)
-        vm_method(owner, selector, _method)
+        method(owner, selector, _method)
         include_contribution(self, :added_methods, [owner, selector])
       end
 
@@ -146,7 +146,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         build_status(self, :open)
         class(owner, _metaclass)
         include_contribution(self, :originated_classes, owner)
-        findall(selector, [vm_method(owner, selector, _method)], selectors)
+        findall(selector, [method(owner, selector, _method)], selectors)
 
         forall([member(selectors, selector)]) do
           include_method(self, owner, selector)

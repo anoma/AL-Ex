@@ -22,7 +22,7 @@ defmodule Examples.ALStorage do
 
   # Both ivars go through the exact same `set_slot`/`get` calls --
   # `storage: :soa` on `concentration`'s spec is invisible at every call
-  # site, only observable via the explicit `vm_get_slot/4` checks below.
+  # site, only observable via the explicit `slot/4` checks below.
   example set_slot_and_get_route_by_declared_storage() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
@@ -41,8 +41,8 @@ defmodule Examples.ALStorage do
         get(obj, :regulators, regulators)
         get(obj, :concentration, concentration)
 
-        vm_get_slot(obj, :regulators, regulators_direct)
-        vm_get_slot(obj, :concentration, concentration_direct, :soa)
+        slot(obj, :regulators, regulators_direct)
+        slot(obj, :concentration, concentration_direct, :soa)
       end
 
     assert Map.get(bindings, :"$regulators") == [:geneA]
@@ -69,9 +69,9 @@ defmodule Examples.ALStorage do
       run branch: Examples.Support.branch() do
         new(:storage_probe_construction, %{regulators: [:geneA], concentration: 5}, obj)
 
-        vm_get_slot(obj, :regulators, regulators_direct)
-        vm_get_slot(obj, :concentration, concentration_direct, :soa)
-        findall([k, v], [vm_get_slot(obj, k, v)], all_slots)
+        slot(obj, :regulators, regulators_direct)
+        slot(obj, :concentration, concentration_direct, :soa)
+        findall([k, v], [slot(obj, k, v)], all_slots)
       end
 
     assert Map.get(bindings, :"$regulators_direct") == [:geneA]

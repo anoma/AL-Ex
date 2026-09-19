@@ -66,7 +66,7 @@ defmodule AL.Lowering do
     %Goal.SourceScope{capture_id: ast_to_pattern(capture_id), goals: goals}
   end
 
-  def ast_to_pattern({:vm_method, _, [object, name, id]}),
+  def ast_to_pattern({:method, _, [object, name, id]}),
     do: %Goal.GetMethod{
       object: ast_to_pattern(object),
       name: ast_to_pattern(name),
@@ -80,7 +80,7 @@ defmodule AL.Lowering do
       operation: ast_to_pattern(operation)
     }
 
-  def ast_to_pattern({:vm_clause, _, [object, head, body]}),
+  def ast_to_pattern({:clause, _, [object, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
       seq: :"$_",
@@ -88,7 +88,7 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:vm_clause, _, [object, seq, head, body]}),
+  def ast_to_pattern({:clause, _, [object, seq, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
       seq: ast_to_pattern(seq),
@@ -164,15 +164,15 @@ defmodule AL.Lowering do
       value: ast_to_pattern(value)
     }
 
-  def ast_to_pattern({:vm_get_slot, _, [object, key, value]}),
+  def ast_to_pattern({:slot, _, [object, key, value]}),
     do: %Goal.GetSlots{
       object: ast_to_pattern(object),
       key: ast_to_pattern(key),
       value: ast_to_pattern(value),
-      store: :aos
+      store: :auto
     }
 
-  def ast_to_pattern({:vm_get_slot, _, [object, key, value, store]}),
+  def ast_to_pattern({:slot, _, [object, key, value, store]}),
     do: %Goal.GetSlots{
       object: ast_to_pattern(object),
       key: ast_to_pattern(key),

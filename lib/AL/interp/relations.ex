@@ -160,13 +160,37 @@ defmodule AL.Interp.Relations do
         {:super, object, fresh_seq(), super_pattern}
       )
 
-  def interp(%Goal.GetMethod{object: object, name: name, id: id}, state),
-    do:
+  def interp(%Goal.GetMethod{object: object, name: name, id: id} = goal, state) do
+    if AL.Var.var?(object) and object != :"$_" do
+      owners =
+        AL.Object.scan_method(
+          AL.Var.var("method_owner_#{AL.fresh_scope()}"),
+          name,
+          id,
+          state.branch
+        )
+        |> Enum.map(fn {:method, owner, _name, _id} -> owner end)
+        |> Enum.uniq()
+
+      goals = [
+        %Goal.InDomain{var: object, values: owners},
+        %Goal.Freeze{var: object, goals: [goal]}
+      ]
+
+      choicepoint = state.active_choicepoint
+
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{choicepoint | goals: AL.splice_goals(state, goals)}
+      }
+    else
       scan_relation(
         state,
         AL.Object.scan_method(object, name, id, state.branch),
         {:method, object, name, id}
       )
+    end
+  end
 
   def interp(
         %Goal.GetCommand{transaction: transaction, time: time, operation: operation},
@@ -219,20 +243,62 @@ defmodule AL.Interp.Relations do
           {:method_source, object, seq, text, provenance}
         )
 
-  def interp(%Goal.GetOapply{object: object, seq: seq, head: head, body: body}, state) do
-    clause = {:oapply, object, seq, head, body}
+  def interp(%Goal.GetOapply{object: object, seq: seq, head: head, body: body} = goal, state) do
+    if AL.Var.var?(object) and object != :"$_" do
+      clause = {:oapply, object, seq, head, body}
 
-    # Standardize each scanned clause apart before unifying, so a stored clause's
-    # own vars can't collide with the caller's query vars (e.g. reading `:defmethod`,
-    # head `[self, method_name, head, body]`, with a query that also names
-    # `head`/`body` would fail the occurs-check and match nothing).
-    AL.fan_out(state, AL.scan_clauses(object, seq, head, body, state.branch), fn row ->
-      {AL.unify(state, AL.standardize_apart(row), clause), [clause]}
-    end)
+      owners =
+        AL.scan_clauses(
+          AL.Var.var("clause_owner_#{AL.fresh_scope()}"),
+          seq,
+          head,
+          body,
+          state.branch
+        )
+        |> Enum.filter(fn row -> AL.unify(state, AL.standardize_apart(row), clause) != nil end)
+        |> Enum.map(fn {:oapply, owner, _seq, _head, _body} -> owner end)
+        |> Enum.uniq()
+
+      goals = [
+        %Goal.InDomain{var: object, values: owners},
+        %Goal.Freeze{var: object, goals: [goal]}
+      ]
+
+      choicepoint = state.active_choicepoint
+
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{choicepoint | goals: AL.splice_goals(state, goals)}
+      }
+    else
+      scan_oapply_rows(state, object, seq, head, body)
+    end
   end
 
-  # store can be literal or a var (get's ancestor-walk fallback
-  # passes a resolved spec var through) -- deref before branching.
+  def interp(%Goal.GetSlots{object: object, key: key, value: value}, state)
+      when is_map(object) do
+    entries =
+      if AL.Var.var?(key) do
+        Map.to_list(object)
+      else
+        case Map.fetch(object, key) do
+          {:ok, v} -> [{key, v}]
+          :error -> []
+        end
+      end
+
+    scan_relation(state, entries, {key, value})
+  end
+
+  def interp(%Goal.GetSlots{object: object, key: key, store: :auto} = goal, state) do
+    store =
+      if is_atom(object) and not AL.Var.var?(object) and not AL.Var.var?(key),
+        do: AL.Dispatch.ivar_storage(object, key, state.branch),
+        else: :aos
+
+    interp(%{goal | store: store}, state)
+  end
+
   def interp(%Goal.GetSlots{object: object, key: key, value: value, store: store_pattern}, state) do
     case AL.Var.deref(store(state), store_pattern) do
       :soa ->
@@ -291,6 +357,20 @@ defmodule AL.Interp.Relations do
     end)
   end
 
+  defp scan_oapply_rows(state, object, seq, head, body) do
+    clause = {:oapply, object, seq, head, body}
+
+    # Standardize each scanned clause apart before unifying, so a stored clause's
+    # own vars can't collide with the caller's query vars (e.g. reading `:defmethod`,
+    # head `[self, method_name, head, body]`, with a query that also names
+    # `head`/`body` would fail the occurs-check and match nothing).
+    AL.fan_out(state, AL.scan_clauses(object, seq, head, body, state.branch), fn row ->
+      {AL.unify(state, AL.standardize_apart(row), clause), [clause]}
+    end)
+  end
+
+  # store can be literal or a var (get's ancestor-walk fallback
+  # passes a resolved spec var through) -- deref before branching.
   defp transaction_source_id({:transaction, tx}, _branch), do: tx
 
   defp transaction_source_id(tx, branch) when is_atom(tx) do

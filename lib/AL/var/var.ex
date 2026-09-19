@@ -72,6 +72,8 @@ defmodule AL.Var do
     end
   end
 
+  def to_mnesia_pattern(:"$_", acc), do: {:_, acc}
+
   def to_mnesia_pattern(v, {n, seen}) when is_atom(v) do
     if var?(v) do
       case Map.get(seen, v) do
@@ -511,7 +513,7 @@ defmodule AL.Var do
     end
   end
 
-  # `vm_get_slot(object, key, value)` with `object` open and `key` ground
+  # `slot(object, key, value)` with `object` open and `key` ground
   # (`AL.Interp.Relations.GetSlots`) posts one of these -- `{:slot, key, value}` on
   # `object`, `{:slot_value, key, object}` on `value` if it's also open.
   # Same shape as `super_link` (a directional tag, not an isa claim), `key`
@@ -558,7 +560,7 @@ defmodule AL.Var do
   defp reconcile_slot_link(store, _var, _link, _branch), do: store
 
   # The read side of `add_slot_link/4` -- `[]` if this var was never one
-  # end of a pending `vm_get_slot(object, key, value)`.
+  # end of a pending `slot(object, key, value)`.
   @spec slot_links_of(store(), variable()) :: [ConstraintSet.slot_link()]
   def slot_links_of(store, var) do
     case constraint_set(store, var) do
