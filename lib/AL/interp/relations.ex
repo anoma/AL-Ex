@@ -160,13 +160,32 @@ defmodule AL.Interp.Relations do
         {:super, object, fresh_seq(), super_pattern}
       )
 
-  def interp(%Goal.GetMethod{object: object, name: name, id: id}, state),
-    do:
+  def interp(%Goal.GetMethod{object: object, name: name, id: id} = goal, state) do
+    if AL.Var.var?(object) and object != :"$_" do
+      owners =
+        AL.Object.scan_method(AL.Var.var("method_owner_#{AL.fresh_scope()}"), name, id, state.branch)
+        |> Enum.map(fn {:method, owner, _name, _id} -> owner end)
+        |> Enum.uniq()
+
+      goals = [
+        %Goal.InDomain{var: object, values: owners},
+        %Goal.Freeze{var: object, goals: [goal]}
+      ]
+
+      choicepoint = state.active_choicepoint
+
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{choicepoint | goals: AL.splice_goals(state, goals)}
+      }
+    else
       scan_relation(
         state,
         AL.Object.scan_method(object, name, id, state.branch),
         {:method, object, name, id}
       )
+    end
+  end
 
   def interp(
         %Goal.GetCommand{transaction: transaction, time: time, operation: operation},

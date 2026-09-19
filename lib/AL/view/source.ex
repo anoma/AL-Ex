@@ -683,7 +683,7 @@ defmodule AL.Source do
   defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
   defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])
   defp goal({:retract_slot, o, k}), do: call(:vm_retract_slot, [o, k])
-  defp goal({:get_method, o, n, i}), do: call(:vm_method, [o, n, i])
+  defp goal({:get_method, o, n, i}), do: call(:method, [o, n, i])
   defp goal({:get_command, tx, time, operation}), do: call(:vm_command, [tx, time, operation])
   defp goal({:set_method, o, n, i}), do: call(:vm_set_method, [o, n, i])
   defp goal({:send_async, o, m, a}), do: call(:send_async, [o, m, a])

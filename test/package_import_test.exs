@@ -343,10 +343,10 @@ defmodule ALPackageImportTest do
         class(:elixir_process, :package)
         class(^elixir_process_build, :elixir_process)
         class(:process, :class)
-        vm_method(:owned, :update, _)
-        vm_method(:owned, :may, _)
-        vm_method(:process, :allocate, _)
-        vm_method(:process, :init, _)
+        method(:owned, :update, _)
+        method(:owned, :may, _)
+        method(:process, :allocate, _)
+        method(:process, :init, _)
       end
 
     assert {:atomic, _} = result

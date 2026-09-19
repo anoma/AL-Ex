@@ -19,7 +19,7 @@ defmodule Examples.ALClauses do
   example reflected_clause_body_executes() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_method(:list, :reverse, m)
+        method(:list, :reverse, m)
         vm_clause(m, [[h | t], out], body)
         call([[h | t], out], body, [[1, 2, 3], result])
       end
@@ -102,13 +102,13 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_method(^c, :tag, id)
+        method(^c, :tag, id)
         vm_retract_oapply(id, _)
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_method(^c, :tag, id)
+        method(^c, :tag, id)
 
         vm_set_oapply(id, [self, :second]) do
         end
@@ -144,7 +144,7 @@ defmodule Examples.ALClauses do
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_method(^c, :tag, id)
+        method(^c, :tag, id)
         vm_clause(id, seq_before, [_self, :first], _)
         vm_retract_oapply(id, [_self, :first])
 
@@ -174,7 +174,7 @@ defmodule Examples.ALClauses do
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_method(^c, :tag, id)
+        method(^c, :tag, id)
         findall(s, [vm_clause(id, s, h, body)], seqs)
       end
 
@@ -199,13 +199,13 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_method(^c, :tag, id)
+        method(^c, :tag, id)
         vm_retract_oapply(id, _)
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_method(^c, :tag, id)
+        method(^c, :tag, id)
 
         vm_set_oapply(id, 1, [self, :first]) do
         end
@@ -281,7 +281,7 @@ defmodule Examples.ALClauses do
   defp at_clause_arities() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_method(:list, :at, id)
+        method(:list, :at, id)
         findall(head, [vm_clause(id, head, body)], heads)
       end
 
@@ -291,7 +291,7 @@ defmodule Examples.ALClauses do
   defp swap_first_two_at_clauses() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_method(:list, :at, id)
+        method(:list, :at, id)
         findall([head, body], [vm_clause(id, head, body)], clauses)
       end
 

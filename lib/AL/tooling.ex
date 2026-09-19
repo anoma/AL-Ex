@@ -187,7 +187,7 @@ defmodule AL.Tooling do
 
       findall(
         [owner, selector, method_id],
-        [vm_method(owner, selector, method_id)],
+        [method(owner, selector, method_id), label(owner)],
         method_bindings
       )
 
@@ -222,7 +222,7 @@ defmodule AL.Tooling do
     AL.run branch: branch.id do
       findall(class, [class(^object, class)], object_classes)
       findall(superclass, [super(^object, superclass)], object_supers)
-      findall([selector, method_id], [vm_method(^object, selector, method_id)], object_methods)
+      findall([selector, method_id], [method(^object, selector, method_id)], object_methods)
 
       findall(
         [sequence, head, body],
@@ -241,7 +241,7 @@ defmodule AL.Tooling do
       findall(
         [method_id, clauses, sources],
         [
-          vm_method(^owner, ^selector, method_id),
+          method(^owner, ^selector, method_id),
           findall(
             [sequence, head, body],
             [vm_clause(method_id, sequence, head, body)],
@@ -355,7 +355,7 @@ defmodule AL.Tooling do
         [scope, method_id, clauses],
         [
           member(lookup_scopes, scope),
-          vm_method(scope, ^selector, method_id),
+          method(scope, ^selector, method_id),
           findall(
             [sequence, head, body],
             [vm_clause(method_id, sequence, head, body)],

@@ -313,7 +313,7 @@ defmodule Examples.ALPackages do
           active_build(:widget_core, _originator)
           not [active_build(:widget_rendering, _extender)]
           not [super(:composable_widget, :renderable)]
-          not [vm_method(:composable_widget, :rendering_package, _method)]
+          not [method(:composable_widget, :rendering_package, _method)]
           new(:composable_widget, widget)
           package_origin(widget, :widget_core)
         end

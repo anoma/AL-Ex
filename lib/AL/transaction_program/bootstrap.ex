@@ -29,7 +29,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       # clause, so repeated `defmethod`s on one name accrete clauses (Prolog-style)
       # rather than creating separate, unreachable method ids.
       implies do
-        [vm_method(self, method_name, impl)] ->
+        [method(self, method_name, impl)] ->
           vm_set_oapply(impl, head, body)
 
         :else ->
@@ -55,7 +55,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
-      vm_method(self, method_name, method_object)
+      method(self, method_name, method_object)
       findall([head, body], [vm_clause(method_object, head, body)], left)
 
       forall([member(left, [head, _])]) do
@@ -76,7 +76,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :listing, [class, name]) do
-      vm_method(class, name, impl)
+      method(class, name, impl)
 
       forall([print_object(impl, text)]) do
         vm_format("~a~%~%", [text])
@@ -246,7 +246,7 @@ defmodule AL.TransactionProgram.Bootstrap do
         vm_retract_slot(self, k)
       end
 
-      findall([n, id], [vm_method(self, n, id)], existing_methods)
+      findall([n, id], [method(self, n, id)], existing_methods)
 
       forall([member(existing_methods, [n, id])]) do
         vm_retract_method(self, n, id)
@@ -492,7 +492,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :import, [self, category]) do
-      findall([name, id], [vm_method(category, name, id)], pairs)
+      findall([name, id], [method(category, name, id)], pairs)
       copy_methods(self, pairs)
     end
 
@@ -595,7 +595,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       # freshly-added clause.
       forall([member(methods, entry)]) do
         vm_source_method_parts(entry, method_name, _head, _body, _source_kind, _capture_id)
-        findall(id, [vm_method(name, method_name, id)], existing_ids)
+        findall(id, [method(name, method_name, id)], existing_ids)
 
         forall([member(existing_ids, id)]) do
           vm_retract_method(name, method_name, id)
@@ -628,8 +628,8 @@ defmodule AL.TransactionProgram.Bootstrap do
       findall(c, [isa(c, self), label(c)], objects)
       findall(s, [super(self, s)], supers)
       findall(sub, [super(sub, self)], subs)
-      findall([n, id], [vm_method(self, n, id)], methods)
-      findall([provider, n], [vm_method(provider, n, self)], providers)
+      findall([n, id], [method(self, n, id)], methods)
+      findall([provider, n], [method(provider, n, self), label(provider)], providers)
       findall([head, body], [vm_clause(self, head, body)], clauses)
 
       findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
@@ -800,7 +800,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:number, :count_to_via_oapply, [n, target]) do
-      vm_method(:number, :count_to_oapply_loop, id)
+      method(:number, :count_to_oapply_loop, id)
       vm_oapply(id, [n, target, id])
     end
 

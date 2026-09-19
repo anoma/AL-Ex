@@ -27,7 +27,7 @@ defmodule Examples.ALObjects do
   example metaclass() do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
-        vm_method(:object, :init, init_method)
+        method(:object, :init, init_method)
         class(init_method, b)
         class(b, :class)
       end
@@ -43,7 +43,7 @@ defmodule Examples.ALObjects do
   example execute_metaclass_method() do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
-        vm_method(:object, :init, init_method)
+        method(:object, :init, init_method)
         meta(init_method, :"$class", :"$metaclass")
       end
 
@@ -310,7 +310,7 @@ defmodule Examples.ALObjects do
     # the two defmethods accreted clauses onto one id, not two separate methods
     {:atomic, {b3, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(id, [vm_method(:multi, :pick, id)], ids)
+        findall(id, [method(:multi, :pick, id)], ids)
       end
 
     assert length(Enum.uniq(Map.get(b3, :"$ids"))) == 1
@@ -624,6 +624,31 @@ defmodule Examples.ALObjects do
 
     assert map_bindings[:"$left"] == :a
     assert map_bindings[:"$right"] == :b
+  end
+
+  example method_with_an_open_owner_is_a_domain_constraint() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :method_domain_ping, super: :object do
+          defmethod(:domain_ping, [self, :p])
+        end
+
+        defclass :method_domain_both, super: :object do
+          defmethod(:domain_ping, [self, :p])
+          defmethod(:domain_pong, [self, :q])
+        end
+
+        findall(o, [method(o, :domain_ping, _), label(o)], pingers)
+        findall(o, [method(o, :domain_ping, _), method(o, :domain_pong, _), label(o)], both)
+        findall([o, id], [method(o, :domain_pong, id), label(o)], pong_ids)
+        findall(o, [method(o, :domain_missing, _)], none)
+      end
+
+    assert Enum.sort(Map.get(bindings, :"$pingers")) == [:method_domain_both, :method_domain_ping]
+    assert Map.get(bindings, :"$both") == [:method_domain_both]
+    assert [[:method_domain_both, id]] = Map.get(bindings, :"$pong_ids")
+    refute AL.Var.var?(id)
+    assert Map.get(bindings, :"$none") == []
   end
 
   example get_reads_only_the_objects_own_row() do

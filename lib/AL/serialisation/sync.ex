@@ -169,7 +169,7 @@ defmodule AL.Serialisation.Sync do
     scope = scope(owner, selector)
 
     """
-    findall(id_#{scope}, [vm_method(#{literal(owner)}, #{literal(selector)}, id_#{scope})], ids_#{scope})
+    findall(id_#{scope}, [method(#{literal(owner)}, #{literal(selector)}, id_#{scope})], ids_#{scope})
 
     forall([member(ids_#{scope}, id_#{scope})]) do
       findall(

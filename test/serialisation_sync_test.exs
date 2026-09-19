@@ -47,7 +47,7 @@ defmodule ALSyncTest do
     assert {:ok, [{retract, nil}, {definition, {:example, :pick}}]} =
              Sync.plan(snapshot(%{example: old}), [edited])
 
-    assert retract =~ "vm_method(:example, :pick, id_serialisation_"
+    assert retract =~ "method(:example, :pick, id_serialisation_"
     assert retract =~ "vm_retract_oapply(id_serialisation_"
     refute retract =~ "vm_retract_method"
     assert definition == "defmethod(:example, :pick, [self, :old]) do\n  fail()\nend"

@@ -66,7 +66,7 @@ defmodule AL.Lowering do
     %Goal.SourceScope{capture_id: ast_to_pattern(capture_id), goals: goals}
   end
 
-  def ast_to_pattern({:vm_method, _, [object, name, id]}),
+  def ast_to_pattern({:method, _, [object, name, id]}),
     do: %Goal.GetMethod{
       object: ast_to_pattern(object),
       name: ast_to_pattern(name),
