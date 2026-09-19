@@ -551,12 +551,19 @@ defmodule AL.Dispatch do
   def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)
 
   def dnu(self, method, args, state) do
-    state =
-      if default_dnu?(self, state.branch),
-        do: record_dnu(state, self, method, args),
-        else: state
+    if default_dnu?(self, state.branch) do
+      state =
+        if providers(self, method, state.branch) == [],
+          do: record_dnu(state, self, method, args),
+          else: state
 
-    AL.interp(%Goal.Send{object: self, method: :does_not_understand, args: [method, args]}, state)
+      AL.backtrack(state)
+    else
+      AL.interp(
+        %Goal.Send{object: self, method: :does_not_understand, args: [method, args]},
+        state
+      )
+    end
   end
 
   # True when receiver has no does_not_understand of its own — only then is

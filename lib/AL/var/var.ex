@@ -969,4 +969,12 @@ defmodule AL.Var do
       leaf -> if var?(leaf), do: fresh(leaf, f), else: leaf
     end)
   end
+
+  @spec freshen(t(), String.t(), MapSet.t(variable())) :: t()
+  def freshen(term, f, only) do
+    AL.Goal.map(term, fn
+      :"$_" -> :"$_"
+      leaf -> if MapSet.member?(only, leaf), do: fresh(leaf, f), else: leaf
+    end)
+  end
 end

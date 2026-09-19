@@ -158,10 +158,11 @@ defmodule Examples.ALMethodSelection do
       end
 
     assert match?(
-             {:does_not_understand, :selection_override_object, :selection_route, 2,
-              _suggestions},
+             {:goal_failed, {:method_call, :selection_override_object, :selection_route, _}},
              reason.reason
            )
+
+    refute reason.message =~ "does not understand"
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

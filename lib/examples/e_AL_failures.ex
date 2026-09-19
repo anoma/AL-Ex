@@ -121,6 +121,36 @@ defmodule Examples.ALFailures do
     :ok
   end
 
+  example label_of_an_unconstrained_var_is_blamed_over_the_search_that_ran_out() do
+    {:aborted, reason} =
+      run branch: Examples.Support.branch(), trace_mode: :no_trace do
+        member([1, 2, 3], m)
+        label(x)
+      end
+
+    assert reason.reason == {:label_unconstrained, :"$x"}
+    assert reason.message =~ "nothing to enumerate"
+    refute reason.message =~ "member"
+
+    {:aborted, traced} =
+      run branch: Examples.Support.branch() do
+        member([1, 2, 3], m)
+        label(x)
+      end
+
+    assert traced.reason == {:label_unconstrained, :"$x"}
+
+    {:aborted, aliased} =
+      run branch: Examples.Support.branch() do
+        hd([x, 7], v)
+        label(x)
+      end
+
+    assert aliased.reason == {:label_unconstrained, :"$x"}
+    assert aliased.message =~ "label(:\"$x\")"
+    :ok
+  end
+
   example no_trace_preserves_does_not_understand_errors() do
     {:aborted, reason} =
       run branch: Examples.Support.branch(), trace_mode: :no_trace do

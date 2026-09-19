@@ -968,6 +968,16 @@ defmodule AL.TransactionProgram.Bootstrap do
       dedupe([y | rest], result)
     end
 
+    defmethod(:list, :min_by, [xs, func, min]) do
+      member(xs, min)
+      send(min, func, [v])
+
+      forall([member(xs, other)]) do
+        send(other, func, [w])
+        v <= w
+      end
+    end
+
     defmethod(:list, :sum, [[], 0])
 
     defmethod(:list, :sum, [[h | t], n]) do

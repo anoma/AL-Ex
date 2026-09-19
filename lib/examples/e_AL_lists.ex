@@ -1,7 +1,7 @@
 defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
-  reverse, sort, dedupe, map, fold, flatten, same_length, at, all_dif,
+  reverse, sort, min_by, dedupe, map, fold, flatten, same_length, at, all_dif,
   label_range) and mapping a lambda over a list.
   """
 
@@ -66,6 +66,79 @@ defmodule Examples.ALLists do
       end
 
     assert Map.get(bindings, :"$sorted") == [1, 1, 2, 3, 4, 5, 6, 9]
+    :ok
+  end
+
+  example min_by_picks_the_element_with_the_least_value() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        min_by([[3, 5], [4, 5], [6, 3], [4, 7]], :hd, min)
+      end
+
+    assert Map.get(bindings, :"$min") == [3, 5]
+    :ok
+  end
+
+  example min_by_yields_every_tied_minimum() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        findall(m, [min_by([[2, :a], [1, :b], [1, :c]], :hd, m)], mins)
+      end
+
+    assert Map.get(bindings, :"$mins") == [[1, :b], [1, :c]]
+    :ok
+  end
+
+  example min_by_constrains_an_open_element() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        x >= 0
+        x <= 10
+
+        findall(
+          [x, m],
+          [min_by([[3, 5], [4, 5], [6, 3], [x, 7]], :hd, m), label(x)],
+          pairs
+        )
+      end
+
+    pairs = Map.get(bindings, :"$pairs")
+    assert length(pairs) == 12
+    assert [3, [3, 5]] in pairs
+    assert [3, [3, 7]] in pairs
+    assert [0, [0, 7]] in pairs
+    assert [10, [3, 5]] in pairs
+    refute [5, [5, 7]] in pairs
+    :ok
+  end
+
+  example forall_binds_shared_open_elements() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        unify(l, [a, b])
+
+        forall([member(l, c)]) do
+          unify(c, 7)
+        end
+      end
+
+    assert Map.get(bindings, :"$a") == 7
+    assert Map.get(bindings, :"$b") == 7
+    :ok
+  end
+
+  example forall_keeps_body_locals_per_solution() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        forall([member([1, 2, 3], n)]) do
+          eq(double, n * 2)
+          double <= 6
+        end
+
+        unify(done, true)
+      end
+
+    assert Map.get(bindings, :"$done") == true
     :ok
   end
 
@@ -141,11 +214,6 @@ defmodule Examples.ALLists do
     :ok
   end
 
-  # Recurses via clause-head matching (`[h|t]`), not `forall`/`member` — a
-  # still-open shared element gets bound through ordinary unification this
-  # way, threading back to the caller's own var (see bootstrap.ex's own
-  # comment on `label_range`: `forall`'s collect-then-freshen splice would
-  # mint an independent copy instead).
   example label_range_grounds_open_elements_within_bounds() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

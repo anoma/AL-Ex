@@ -1332,13 +1332,43 @@ defmodule AL do
            state.domino.trace_mode
          ) do
       {:ok, solutions} ->
+        {raw_condition, raw_body} =
+          case state.active_choicepoint.done do
+            [%Goal.Forall{condition: c, body: b} | _] -> {c, b}
+            _ -> {condition, body}
+          end
+
+        raw_vars = AL.Var.find_vars({raw_condition, raw_body}) |> MapSet.delete(:"$_")
+        body_vars = AL.Var.find_vars(body)
+        connectable = raw_condition |> AL.Var.find_vars() |> MapSet.intersection(body_vars)
+        outer = MapSet.difference(visible_vars(state), raw_vars)
+
         body_goals =
           Enum.flat_map(solutions, fn store ->
             freshener = Integer.to_string(fresh_scope())
 
-            Enum.map(body, fn goal ->
-              goal |> AL.Var.subst(store) |> AL.Var.freshen(freshener)
-            end)
+            representatives =
+              Enum.reduce(outer, %{}, fn v, acc ->
+                case AL.Var.deref(store, v) do
+                  ^v -> acc
+                  root -> if AL.Var.var?(root), do: Map.put_new(acc, root, v), else: acc
+                end
+              end)
+
+            rewrite = &Map.get(representatives, &1, &1)
+
+            connects =
+              connectable
+              |> Enum.map(fn c -> {c, AL.Var.subst(c, store, rewrite)} end)
+              |> Enum.reject(fn {c, value} -> value == c end)
+              |> Enum.map(fn {c, value} ->
+                %Goal.Unify{
+                  a: AL.Var.freshen(c, freshener, raw_vars),
+                  b: AL.Var.freshen(value, freshener, raw_vars)
+                }
+              end)
+
+            connects ++ AL.Var.freshen(body, freshener, raw_vars)
           end)
 
         spliced = splice_goals(state, body_goals)
@@ -2204,6 +2234,13 @@ defmodule AL do
      {:native_error, method_id, {module, function}, exception_message}}
   end
 
+  defp failure_cause([{:label_unconstrained, v} | _], _ancestry, _failed_on, _state) do
+    pretty = AL.Trace.pretty(v)
+
+    {"label(#{inspect(pretty)}) has nothing to enumerate: no finite bounds, domain, or class.",
+     {:label_unconstrained, pretty}}
+  end
+
   defp failure_cause([{:unify_failed, a, b} | _], _ancestry, _failed_on, _state) do
     {"#{inspect(a)} and #{inspect(b)} can't be the same.", {:unify_failed, a, b}}
   end
@@ -2391,6 +2428,21 @@ defmodule AL do
   defp pretty_violation({:domain, domain}), do: {:domain, MapSet.to_list(domain)}
 
   def fresh_scope(), do: System.unique_integer([:positive, :monotonic])
+
+  defp visible_vars(%AL{active_choicepoint: choice}) do
+    frames = [{tl(choice.done), choice.goals} | Enum.map(choice.continuations, &{&1.done, &1.goals})]
+
+    Enum.reduce(frames, MapSet.new(), fn {done, goals}, acc ->
+      AL.Var.find_vars({done, goals}, acc)
+    end)
+  end
+
+  defp observable_name(state, v) do
+    case state.active_choicepoint.done do
+      [%Goal.Label{term: written} | _] -> written
+      _ -> v
+    end
+  end
 
   defp record_cursor(cursors, _scope, nil), do: cursors
   defp record_cursor(cursors, scope, cursor), do: Map.put(cursors, scope, cursor)
@@ -2908,7 +2960,7 @@ defmodule AL do
   defp label_from_isa_domain(v, store, state) do
     case MapSet.to_list(AL.Var.isa_of(store, v)) do
       [] ->
-        backtrack(state)
+        backtrack(record_diagnostic(state, {:label_unconstrained, observable_name(state, v)}))
 
       known_isa ->
         choicepoints =
@@ -2970,10 +3022,8 @@ defmodule AL do
   end
 end
 
-unless Protocol.consolidated?(Inspect) do
-  defimpl Inspect, for: AL do
-    def inspect(%AL{}, _opts) do
-      "#AL<>"
-    end
+defimpl Inspect, for: AL do
+  def inspect(%AL{}, _opts) do
+    "#AL<>"
   end
 end

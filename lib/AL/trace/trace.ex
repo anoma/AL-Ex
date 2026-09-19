@@ -469,6 +469,8 @@ defmodule AL.Trace do
     end
   end
 
+  def pretty({:"$fresh", base, _scope}), do: pretty(base)
+
   def pretty(t) when is_tuple(t),
     do: t |> Tuple.to_list() |> Enum.map(&pretty/1) |> List.to_tuple()
 
