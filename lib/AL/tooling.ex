@@ -193,7 +193,7 @@ defmodule AL.Tooling do
 
       findall(
         [method_id, sequence, head, body],
-        [vm_clause(method_id, sequence, head, body)],
+        [clause(method_id, sequence, head, body), label(method_id)],
         clauses
       )
     end
@@ -226,7 +226,7 @@ defmodule AL.Tooling do
 
       findall(
         [sequence, head, body],
-        [vm_clause(^object, sequence, head, body)],
+        [clause(^object, sequence, head, body)],
         object_clauses
       )
 
@@ -244,7 +244,7 @@ defmodule AL.Tooling do
           method(^owner, ^selector, method_id),
           findall(
             [sequence, head, body],
-            [vm_clause(method_id, sequence, head, body)],
+            [clause(method_id, sequence, head, body)],
             clauses
           ),
           findall(
@@ -358,7 +358,7 @@ defmodule AL.Tooling do
           method(scope, ^selector, method_id),
           findall(
             [sequence, head, body],
-            [vm_clause(method_id, sequence, head, body)],
+            [clause(method_id, sequence, head, body)],
             clauses
           )
         ],

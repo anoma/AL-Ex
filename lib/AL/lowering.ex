@@ -80,7 +80,7 @@ defmodule AL.Lowering do
       operation: ast_to_pattern(operation)
     }
 
-  def ast_to_pattern({:vm_clause, _, [object, head, body]}),
+  def ast_to_pattern({:clause, _, [object, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
       seq: :"$_",
@@ -88,7 +88,7 @@ defmodule AL.Lowering do
       body: ast_to_pattern(body)
     }
 
-  def ast_to_pattern({:vm_clause, _, [object, seq, head, body]}),
+  def ast_to_pattern({:clause, _, [object, seq, head, body]}),
     do: %Goal.GetOapply{
       object: ast_to_pattern(object),
       seq: ast_to_pattern(seq),

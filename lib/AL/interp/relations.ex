@@ -163,7 +163,12 @@ defmodule AL.Interp.Relations do
   def interp(%Goal.GetMethod{object: object, name: name, id: id} = goal, state) do
     if AL.Var.var?(object) and object != :"$_" do
       owners =
-        AL.Object.scan_method(AL.Var.var("method_owner_#{AL.fresh_scope()}"), name, id, state.branch)
+        AL.Object.scan_method(
+          AL.Var.var("method_owner_#{AL.fresh_scope()}"),
+          name,
+          id,
+          state.branch
+        )
         |> Enum.map(fn {:method, owner, _name, _id} -> owner end)
         |> Enum.uniq()
 
@@ -238,7 +243,39 @@ defmodule AL.Interp.Relations do
           {:method_source, object, seq, text, provenance}
         )
 
-  def interp(%Goal.GetOapply{object: object, seq: seq, head: head, body: body}, state) do
+  def interp(%Goal.GetOapply{object: object, seq: seq, head: head, body: body} = goal, state) do
+    if AL.Var.var?(object) and object != :"$_" do
+      clause = {:oapply, object, seq, head, body}
+
+      owners =
+        AL.scan_clauses(
+          AL.Var.var("clause_owner_#{AL.fresh_scope()}"),
+          seq,
+          head,
+          body,
+          state.branch
+        )
+        |> Enum.filter(fn row -> AL.unify(state, AL.standardize_apart(row), clause) != nil end)
+        |> Enum.map(fn {:oapply, owner, _seq, _head, _body} -> owner end)
+        |> Enum.uniq()
+
+      goals = [
+        %Goal.InDomain{var: object, values: owners},
+        %Goal.Freeze{var: object, goals: [goal]}
+      ]
+
+      choicepoint = state.active_choicepoint
+
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{choicepoint | goals: AL.splice_goals(state, goals)}
+      }
+    else
+      scan_oapply_rows(state, object, seq, head, body)
+    end
+  end
+
+  defp scan_oapply_rows(state, object, seq, head, body) do
     clause = {:oapply, object, seq, head, body}
 
     # Standardize each scanned clause apart before unifying, so a stored clause's

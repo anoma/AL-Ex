@@ -56,7 +56,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
       method(self, method_name, method_object)
-      findall([head, body], [vm_clause(method_object, head, body)], left)
+      findall([head, body], [clause(method_object, head, body)], left)
 
       forall([member(left, [head, _])]) do
         vm_retract_oapply(method_object, head)
@@ -630,7 +630,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       findall(sub, [super(sub, self)], subs)
       findall([n, id], [method(self, n, id)], methods)
       findall([provider, n], [method(provider, n, self), label(provider)], providers)
-      findall([head, body], [vm_clause(self, head, body)], clauses)
+      findall([head, body], [clause(self, head, body)], clauses)
 
       findall([slot_name, slot_value], [vm_get_slot(self, slot_name, slot_value)], direct_slots)
     end

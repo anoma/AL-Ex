@@ -703,8 +703,8 @@ defmodule AL.Source do
 
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
-  defp goal({:get_oapply, o, :"$_", h, b}), do: call(:vm_clause, [o, h, b])
-  defp goal({:get_oapply, o, seq, h, b}), do: call(:vm_clause, [o, seq, h, b])
+  defp goal({:get_oapply, o, :"$_", h, b}), do: call(:clause, [o, h, b])
+  defp goal({:get_oapply, o, seq, h, b}), do: call(:clause, [o, seq, h, b])
   defp goal({:set_oapply, o, :next, h, b}), do: call(:vm_set_oapply, [o, h, b])
   defp goal({:set_oapply, o, seq, h, b}), do: call(:vm_set_oapply, [o, seq, h, b])
 

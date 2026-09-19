@@ -651,6 +651,39 @@ defmodule Examples.ALObjects do
     assert Map.get(bindings, :"$none") == []
   end
 
+  example clause_with_an_open_owner_is_a_domain_constraint() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :clause_domain_a, super: :object do
+          defmethod(:clause_domain_sel, [self, :shared])
+          defmethod(:clause_domain_sel, [self, :only_a])
+        end
+
+        defclass :clause_domain_b, super: :object do
+          defmethod(:clause_domain_sel, [self, :shared])
+        end
+
+        method(:clause_domain_a, :clause_domain_sel, id_a)
+        method(:clause_domain_b, :clause_domain_sel, id_b)
+
+        findall(m, [clause(m, [_, :shared], _), label(m)], shared_owners)
+        findall(m, [clause(m, [_, :only_a], _), label(m)], only_a_owners)
+        findall([m, s], [clause(m, s, [_, :only_a], _), label(m)], only_a_rows)
+        findall(m, [clause(m, [_, :clause_domain_nobody], _)], none)
+        findall(s, [clause(id_a, s, [_, :shared], _)], a_shared_seqs)
+      end
+
+    id_a = Map.get(bindings, :"$id_a")
+    id_b = Map.get(bindings, :"$id_b")
+    assert Enum.sort(Map.get(bindings, :"$shared_owners")) == Enum.sort([id_a, id_b])
+    assert Map.get(bindings, :"$only_a_owners") == [id_a]
+    assert [[^id_a, seq]] = Map.get(bindings, :"$only_a_rows")
+    assert is_integer(seq)
+    assert Map.get(bindings, :"$none") == []
+    assert [s] = Map.get(bindings, :"$a_shared_seqs")
+    assert is_integer(s)
+  end
+
   example get_reads_only_the_objects_own_row() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

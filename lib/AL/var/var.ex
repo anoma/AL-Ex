@@ -72,6 +72,8 @@ defmodule AL.Var do
     end
   end
 
+  def to_mnesia_pattern(:"$_", acc), do: {:_, acc}
+
   def to_mnesia_pattern(v, {n, seen}) when is_atom(v) do
     if var?(v) do
       case Map.get(seen, v) do
