@@ -220,11 +220,10 @@ defmodule Examples.ALGenerative do
           _
         )
 
-        findall(
-          [receiver, result],
-          [dispatch_partition_probe(receiver, result), label(receiver)],
-          answers
-        )
+        findall([receiver, result], answers) do
+          dispatch_partition_probe(receiver, result)
+          label(receiver)
+        end
       end
 
     assert MapSet.new(Map.fetch!(bindings, :"$answers")) ==
@@ -416,7 +415,9 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, [isa(x, :ghost_right)], xs)
+        findall(x, xs) do
+          isa(x, :ghost_right)
+        end
       end
 
     assert length(Map.get(bindings, :"$xs")) == 1
@@ -667,7 +668,10 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:coins, coins)
-        findall(combo, [change(coins, 30, [25, 10, 5, 1], combo)], all)
+
+        findall(combo, all) do
+          change(coins, 30, [25, 10, 5, 1], combo)
+        end
       end
 
     combos = Map.get(bindings, :"$all")
@@ -743,13 +747,15 @@ defmodule Examples.ALGenerative do
           defmethod(:dispatch_kind, [_self, :car])
         end
 
-        findall(kind, [class(receiver, :dispatch_vehicle), dispatch_kind(receiver, kind)], exact)
+        findall(kind, exact) do
+          class(receiver, :dispatch_vehicle)
+          dispatch_kind(receiver, kind)
+        end
 
-        findall(
-          kind,
-          [isa(receiver, :dispatch_vehicle), dispatch_kind(receiver, kind)],
-          inherited
-        )
+        findall(kind, inherited) do
+          isa(receiver, :dispatch_vehicle)
+          dispatch_kind(receiver, kind)
+        end
       end
 
     assert Map.get(bindings, :"$exact") == [:vehicle]

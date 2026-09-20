@@ -84,11 +84,9 @@ defmodule Examples.ALResidualConstraints do
   example findall_copies_each_answers_constraint_graph() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          value,
-          [alternative([in_domain(value, [1, 2])], [in_domain(value, [3, 4])])],
-          values
-        )
+        findall(value, values) do
+          alternative([in_domain(value, [1, 2])], [in_domain(value, [3, 4])])
+        end
       end
 
     [first, second] = bindings[:"$values"]
@@ -105,7 +103,11 @@ defmodule Examples.ALResidualConstraints do
   example copied_arithmetic_relations_reference_the_collected_variables() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([left, right], [left > 0, right > 0, left + right = 10], answers)
+        findall([left, right], answers) do
+          left > 0
+          right > 0
+          left + right = 10
+        end
       end
 
     [[left, right]] = bindings[:"$answers"]

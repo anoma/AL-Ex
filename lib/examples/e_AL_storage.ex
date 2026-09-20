@@ -71,7 +71,10 @@ defmodule Examples.ALStorage do
 
         slot(obj, :regulators, regulators_direct)
         slot(obj, :concentration, concentration_direct, :soa)
-        findall([k, v], [slot(obj, k, v)], all_slots)
+
+        findall([k, v], all_slots) do
+          slot(obj, k, v)
+        end
       end
 
     assert Map.get(bindings, :"$regulators_direct") == [:geneA]

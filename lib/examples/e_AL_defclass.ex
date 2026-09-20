@@ -85,8 +85,14 @@ defmodule Examples.ALDefclass do
         end
 
         new(:sided_thing, instance)
-        findall(r, [describe(:sided_thing, r)], on_class)
-        findall(r, [describe(instance, r)], on_instance)
+
+        findall(r, on_class) do
+          describe(:sided_thing, r)
+        end
+
+        findall(r, on_instance) do
+          describe(instance, r)
+        end
       end
 
     assert Map.get(bindings, :"$on_class") == [:class_side]
@@ -116,7 +122,10 @@ defmodule Examples.ALDefclass do
         new(:multi_super_child, instance)
         from_a(instance, av)
         from_b(instance, bv)
-        findall(s, [super(:multi_super_child, s)], supers)
+
+        findall(s, supers) do
+          super(:multi_super_child, s)
+        end
       end
 
     assert Map.get(bindings, :"$av") == :a_val
@@ -196,7 +205,10 @@ defmodule Examples.ALDefclass do
           defmethod(:generation, [self, :second])
         end
 
-        findall(s, [super(:redef_probe_b, s)], supers)
+        findall(s, supers) do
+          super(:redef_probe_b, s)
+        end
+
         new(:redef_probe_b, obj)
         generation(obj, g)
       end

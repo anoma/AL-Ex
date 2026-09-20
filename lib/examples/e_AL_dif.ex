@@ -104,7 +104,11 @@ defmodule Examples.ALDif do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(o, :dif_dispatch_ping_a)
-        findall(o, [ping(o, :pong), label(o)], os)
+
+        findall(o, os) do
+          ping(o, :pong)
+          label(o)
+        end
       end
 
     os = Map.get(bindings, :"$os")

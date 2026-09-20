@@ -51,7 +51,9 @@ defmodule Examples.ALLists do
   example at_is_bidirectional() do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
-        findall([i, x], [at([1, 2, 3], i, x)], elems)
+        findall([i, x], elems) do
+          at([1, 2, 3], i, x)
+        end
       end
 
     assert Map.get(bindings, :"$elems") == [[0, 1], [1, 2], [2, 3]]
@@ -82,7 +84,9 @@ defmodule Examples.ALLists do
   example min_by_yields_every_tied_minimum() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(m, [min_by([[2, :a], [1, :b], [1, :c]], :hd, m)], mins)
+        findall(m, mins) do
+          min_by([[2, :a], [1, :b], [1, :c]], :hd, m)
+        end
       end
 
     assert Map.get(bindings, :"$mins") == [[1, :b], [1, :c]]
@@ -95,11 +99,10 @@ defmodule Examples.ALLists do
         x >= 0
         x <= 10
 
-        findall(
-          [x, m],
-          [min_by([[3, 5], [4, 5], [6, 3], [x, 7]], :hd, m), label(x)],
-          pairs
-        )
+        findall([x, m], pairs) do
+          min_by([[3, 5], [4, 5], [6, 3], [x, 7]], :hd, m)
+          label(x)
+        end
       end
 
     pairs = Map.get(bindings, :"$pairs")
@@ -117,7 +120,7 @@ defmodule Examples.ALLists do
       run branch: Examples.Support.branch() do
         l = [a, b]
 
-        forall([member(l, c)]) do
+        forall(member(l, c)) do
           c = 7
         end
       end
@@ -130,7 +133,7 @@ defmodule Examples.ALLists do
   example forall_keeps_body_locals_per_solution() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        forall([member([1, 2, 3], n)]) do
+        forall(member([1, 2, 3], n)) do
           double = n * 2
           double <= 6
         end

@@ -9,7 +9,7 @@ Class {
   get_slots(args, %{input_cells: input_cells, output_cell: output_cell})
   set_slots(self, %{name: self, input_cells: input_cells, output_cell: output_cell})
 
-  forall([member(input_cells, input_cell)]) do
+  forall(member(input_cells, input_cell)) do
     subscribe(input_cell, self)
   end
 
@@ -19,11 +19,10 @@ Class {
 :propagator >> :cell_updated, [self, _cell_name, _domain] [
   get_slots(self, %{input_cells: input_cells, output_cell: output_cell})
 
-  findall(
-    input_domain,
-    [member(input_cells, input_cell), get(input_cell, :domain, input_domain)],
-    input_domains
-  )
+  findall(input_domain, input_domains) do
+    member(input_cells, input_cell)
+    get(input_cell, :domain, input_domain)
+  end
 
   same_length(input_cells, input_domains)
   narrow_output(self, input_domains, candidate)
@@ -36,14 +35,16 @@ Class {
 ]
 
 :propagator >> :narrow_output, [self, input_domains, candidate] [
-  findall(input_list, [member(input_domains, domain), members(domain, input_list)], input_lists)
+  findall(input_list, input_lists) do
+    member(input_domains, domain)
+    members(domain, input_list)
+  end
   combos(input_lists, input_combos)
 
-  findall(
-    output_value,
-    [member(input_combos, combo), constrain(self, combo, output_value)],
-    output_values
-  )
+  findall(output_value, output_values) do
+    member(input_combos, combo)
+    constrain(self, combo, output_value)
+  end
 
   members(candidate, output_values)
 ]

@@ -89,7 +89,10 @@ defmodule Examples.ALCategories do
 
         new(:countable, instance)
 
-        findall(s, [count(s, 0), label(s)], candidates)
+        findall(s, candidates) do
+          count(s, 0)
+          label(s)
+        end
       end
 
     candidates = Map.get(b1, :"$candidates")

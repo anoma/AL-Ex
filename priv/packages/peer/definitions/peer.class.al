@@ -135,7 +135,7 @@ Class {
   close(listener, _)
   get(self, :connections, connections)
 
-  forall([member(connections, socket)]) do
+  forall(member(connections, socket)) do
     close(socket, _)
   end
 

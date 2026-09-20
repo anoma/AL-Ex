@@ -67,7 +67,10 @@ defmodule Examples.ALSoaSlots do
         new(:soa_slot_probe_many, obj2)
         set_slot(obj1, :soa_slot_probe_many_level, 1)
         set_slot(obj2, :soa_slot_probe_many_level, 2)
-        findall([o, v], [slot(o, :soa_slot_probe_many_level, v, :soa)], results)
+
+        findall([o, v], results) do
+          slot(o, :soa_slot_probe_many_level, v, :soa)
+        end
       end
 
     expected =

@@ -138,7 +138,9 @@ defmodule Examples.ALNative do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(d, [al_native_divisors(6, d)], all)
+        findall(d, all) do
+          al_native_divisors(6, d)
+        end
       end
 
     assert Enum.sort(Map.get(bindings, :"$all")) == [1, 2, 3, 6]

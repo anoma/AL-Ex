@@ -103,11 +103,13 @@ Some goals can succeed more than one way. `member` checks whether something is i
 
 ```elixir
 run do
-  findall(x, [member([1, 2, 3], x)], results)
+  findall(x, results) do
+    member([1, 2, 3], x)
+  end
 end
 ```
 
-`findall(template, goals, result)` runs `goals`, collects every way they can succeed, and gathers `template`'s binding from each into a list.
+`findall(template, result) do goals end` runs `goals`, collects every way they can succeed, and gathers `template`'s binding from each into a list.
 
 ## Running a goal once per solution
 
@@ -115,7 +117,7 @@ end
 
 ```elixir
 run do
-  forall([member([1, 2, 3], x)]) do
+  forall(member([1, 2, 3], x)) do
     vm_format("~d~%", [x])
   end
 end
@@ -139,7 +141,9 @@ end
 
 ```elixir
 run do
-  findall(x, [alternative([x = :a], [x = :b])], results)
+  findall(x, results) do
+    alternative([x = :a], [x = :b])
+  end
 end
 ```
 
@@ -147,7 +151,9 @@ end
 
 ```elixir
 run do
-  findall(x, [alternative([x = :a, cut], [x = :b])], results)
+  findall(x, results) do
+    alternative([x = :a, cut], [x = :b])
+  end
 end
 ```
 

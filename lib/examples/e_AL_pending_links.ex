@@ -141,15 +141,11 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          subclass,
-          [
-            super(subclass, superclass),
-            superclass = :pending_shared_parent,
-            label(subclass)
-          ],
-          subclasses
-        )
+        findall(subclass, subclasses) do
+          super(subclass, superclass)
+          superclass = :pending_shared_parent
+          label(subclass)
+        end
       end
 
     assert MapSet.new(bindings[:"$subclasses"]) ==
@@ -161,7 +157,10 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(superclass, [super(subclass, superclass), label(superclass)], superclasses)
+        findall(superclass, superclasses) do
+          super(subclass, superclass)
+          label(superclass)
+        end
       end
 
     assert Enum.count(bindings[:"$superclasses"], &(&1 == :pending_shared_parent)) == 1
@@ -224,15 +223,11 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          object,
-          [
-            slot(object, :pending_tag, value),
-            value = :shared_value,
-            label(object)
-          ],
-          objects
-        )
+        findall(object, objects) do
+          slot(object, :pending_tag, value)
+          value = :shared_value
+          label(object)
+        end
       end
 
     assert MapSet.new(bindings[:"$objects"]) ==
@@ -244,7 +239,10 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(value, [slot(object, :pending_tag, value), label(value)], values)
+        findall(value, values) do
+          slot(object, :pending_tag, value)
+          label(value)
+        end
       end
 
     assert Enum.count(bindings[:"$values"], &(&1 == :shared_value)) == 1

@@ -59,11 +59,11 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 
 - **`do…end` bodies vs `[…]` goal lists.** A method/`run` body is a `do…end`
   block (goals newline- *or* comma-separated). `forall` takes its condition
-  as a `[…]` list literal (comma-separated) but its body as a `do…end` block:
-  `forall([cond_goals]) do body_goals end`. `findall(t, cond, r)`, `not`, and
-  `call` still take **list literals** throughout — goals must be
-  **comma-separated**, else a confusing `syntax error before: <goal>` (Elixir
-  list syntax, not a parser bug).
+  goals as call arguments and its body as a `do…end` block, like `for`:
+  `forall(cond1, cond2) do body_goals end`. `findall(template, result) do
+  cond_goals end` likewise. `not` and `call` still take **list literals** —
+  goals must be **comma-separated**, else a confusing `syntax error before:
+  <goal>` (Elixir list syntax, not a parser bug).
 - **`implies` uses a `cond`-style `->` block** (the only form):
   ```elixir
   implies do
@@ -128,7 +128,7 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 - **A relation used by foundational/early bootstrap code must not depend on
   another class's method defined later in the same file.** `:object`'s
   `:import` used to walk its copied-methods list via
-  `forall([member(pairs, [name, id])])` — `member` isn't a VM primitive, it's
+  `forall(member(pairs, [name, id]))` — `member` isn't a VM primitive, it's
   `:list`'s own method, defined ~200 lines later in `bootstrap.ex`. Any
   `import(..., category)` call earlier than that point had the `member` send
   silently DNU-fail inside `findall`/`forall`, indistinguishable from `pairs`

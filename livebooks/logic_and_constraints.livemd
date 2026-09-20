@@ -139,9 +139,21 @@ run branch: Examples.Support.branch() do
     new(:direct_car, car)
     new(:direct_hydrant, hydrant)
 
-    findall(x, [class(x, :direct_vehicle), label(x), get(x, :color, :red)], direct)
-    findall(x, [isa(x, :direct_vehicle), label(x), get(x, :color, :red)], inherited)
-    findall(x, [isa(x, :direct_vehicle), get(x, :color, :red), label(x)], constrained_first)
+    findall(x, direct) do
+      class(x, :direct_vehicle)
+      label(x)
+      get(x, :color, :red)
+    end
+    findall(x, inherited) do
+      isa(x, :direct_vehicle)
+      label(x)
+      get(x, :color, :red)
+    end
+    findall(x, constrained_first) do
+      isa(x, :direct_vehicle)
+      get(x, :color, :red)
+      label(x)
+    end
 
     class(car, :direct_car)
     not [class(car, :direct_vehicle)]
@@ -212,7 +224,9 @@ end
 ```elixir
 run do
   in_domain(x, [:a, :b, :c])
-  findall(x, [label(x)], all)
+  findall(x, all) do
+    label(x)
+  end
 end
 ```
 
@@ -222,7 +236,9 @@ Posting `in_domain` twice narrows by intersection.
 run do
   in_domain(y, [:a, :b, :c, :d])
   in_domain(y, [:c, :d, :e])
-  findall(y, [label(y)], all)
+  findall(y, all) do
+    label(y)
+  end
 end
 ```
 
@@ -312,15 +328,11 @@ Putting `findall`, `=`, `either`, and `label` together: every multiple of 3 or 5
 
 ```elixir
 run do
-  findall(
-    candidate,
-    [
-      candidate < 20,
-      candidate > 0,
-      (candidate = x * 5) or (candidate = y * 3),
-      label(candidate)
-    ],
-    candidates
-  )
+  findall(candidate, candidates) do
+    candidate < 20
+    candidate > 0
+    (candidate = x * 5) or (candidate = y * 3)
+    label(candidate)
+  end
 end
 ```

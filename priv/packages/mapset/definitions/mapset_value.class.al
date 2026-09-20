@@ -33,7 +33,9 @@ Class {
 :mapset_value >> :members, [self, list] [
   ground(self)
   get(self, :elems, elems)
-  findall(k, [get(elems, k, _)], list)
+  findall(k, list) do
+    get(elems, k, _)
+  end
 ]
 
 :mapset_value >> :members, [self, list] [
@@ -51,7 +53,9 @@ Class {
 :mapset_value >> :union, [self, s, new] [
   get(self, :elems, elems1)
   get(s, :elems, elems2)
-  findall(k, [get(elems2, k, _)], list2)
+  findall(k, list2) do
+    get(elems2, k, _)
+  end
   fold_left(list2, :map_insert, elems1, merged)
   new = %{elems: merged, class: :mapset_value}
 ]
@@ -59,7 +63,10 @@ Class {
 :mapset_value >> :intersection, [self, s, new] [
   get(self, :elems, elems1)
   get(s, :elems, elems2)
-  findall(k, [get(elems1, k, _), get(elems2, k, _)], common)
+  findall(k, common) do
+    get(elems1, k, _)
+    get(elems2, k, _)
+  end
   list_to_elems(common, merged)
   new = %{elems: merged, class: :mapset_value}
 ]

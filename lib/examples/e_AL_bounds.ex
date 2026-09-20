@@ -525,16 +525,12 @@ defmodule Examples.ALBounds do
   example either_finds_multiples_of_3_or_5_with_no_duplicates() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        findall(
-          candidate,
-          [
-            candidate < 20,
-            candidate > 0,
-            (candidate = x * 5) or (candidate = y * 3),
-            label(candidate)
-          ],
-          candidates
-        )
+        findall(candidate, candidates) do
+          candidate < 20
+          candidate > 0
+          (candidate = x * 5) or (candidate = y * 3)
+          label(candidate)
+        end
       end
 
     values = Map.get(bindings, :"$candidates")

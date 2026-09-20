@@ -680,7 +680,7 @@ defmodule AL.Source do
   defp goal({:set_slot, o, k, v}), do: call(:vm_set_slot, [o, k, v])
   defp goal({:get_slot, o, k, v, :auto}), do: call(:slot, [o, k, v])
   defp goal({:get_slot, o, k, v, store}), do: call(:slot, [o, k, v, store])
-  defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), Enum.map(cond, &goal/1), pat(r)]}
+  defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), pat(r), [do: goals(cond)]]}
   defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
   defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])
   defp goal({:retract_slot, o, k}), do: call(:vm_retract_slot, [o, k])
@@ -720,7 +720,7 @@ defmodule AL.Source do
   defp goal({:oapply, fun, args}), do: call(:vm_oapply, [fun, args])
 
   defp goal({:forall, cond, body}),
-    do: {:forall, [], [Enum.map(cond, &goal/1), [do: goals(body)]]}
+    do: {:forall, [], Enum.map(cond, &goal/1) ++ [[do: goals(body)]]}
 
   defp goal({:or, left, right}),
     do: {:alternative, [], [Enum.map(left, &goal/1), Enum.map(right, &goal/1)]}

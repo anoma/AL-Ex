@@ -56,13 +56,16 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:object, :reorder_clauses, [self, method_name, left, right]) do
       method(self, method_name, method_object)
-      findall([head, body], [clause(method_object, head, body)], left)
 
-      forall([member(left, [head, _])]) do
+      findall([head, body], left) do
+        clause(method_object, head, body)
+      end
+
+      forall(member(left, [head, _])) do
         vm_retract_oapply(method_object, head)
       end
 
-      forall([member(right, [head, body])]) do
+      forall(member(right, [head, body])) do
         vm_set_oapply(method_object, head, body)
       end
     end
@@ -78,7 +81,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:object, :listing, [class, name]) do
       method(class, name, impl)
 
-      forall([print_object(impl, text)]) do
+      forall(print_object(impl, text)) do
         vm_format("~a~%~%", [text])
       end
     end
@@ -121,13 +124,16 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :set_slots, [self, slots]) do
-      forall([vm_map_get(slots, key, value)]) do
+      forall(vm_map_get(slots, key, value)) do
         set_slot(self, key, value)
       end
     end
 
     defmethod(:object, :get_slots, [self, requested]) do
-      findall(key, [vm_map_get(requested, key, _)], keys)
+      findall(key, keys) do
+        vm_map_get(requested, key, _)
+      end
+
       slots(self, keys, requested)
     end
 
@@ -149,7 +155,10 @@ defmodule AL.TransactionProgram.Bootstrap do
     # new whole-map row even when `key` itself didn't, so the raw
     # per-version values would otherwise repeat).
     defmethod(:object, :slot_history, [self, key, values]) do
-      findall(v, [vm_slot_at(self, key, v, _t)], raw_values)
+      findall(v, raw_values) do
+        vm_slot_at(self, key, v, _t)
+      end
+
       dedupe(raw_values, values)
     end
 
@@ -211,33 +220,45 @@ defmodule AL.TransactionProgram.Bootstrap do
     # redeclares (that check happens separately, below) -- else a dropped
     # name survives as a zombie.
     defmethod(:object, :retract_existing_facts, [self]) do
-      findall(c, [class(self, c)], existing_classes)
+      findall(c, existing_classes) do
+        class(self, c)
+      end
 
-      forall([member(existing_classes, c)]) do
+      forall(member(existing_classes, c)) do
         vm_retract_class(self, c)
       end
 
-      findall(s, [super(self, s)], existing_supers)
+      findall(s, existing_supers) do
+        super(self, s)
+      end
 
-      forall([member(existing_supers, s)]) do
+      forall(member(existing_supers, s)) do
         vm_retract_super(self, s)
       end
 
-      findall(k, [slot(self, k, _)], existing_aos_keys)
+      findall(k, existing_aos_keys) do
+        slot(self, k, _)
+      end
 
       vm_cached_ivar_specs(self, ivar_specs)
       ivar_names(ivar_specs, declared_names)
-      findall(k, [member(declared_names, k), slot(self, k, _, :soa)], existing_soa_keys)
+
+      findall(k, existing_soa_keys) do
+        member(declared_names, k)
+        slot(self, k, _, :soa)
+      end
 
       concat(existing_aos_keys, existing_soa_keys, existing_slot_keys)
 
-      forall([member(existing_slot_keys, k)]) do
+      forall(member(existing_slot_keys, k)) do
         vm_retract_slot(self, k)
       end
 
-      findall([n, id], [method(self, n, id)], existing_methods)
+      findall([n, id], existing_methods) do
+        method(self, n, id)
+      end
 
-      forall([member(existing_methods, [n, id])]) do
+      forall(member(existing_methods, [n, id])) do
         vm_retract_method(self, n, id)
       end
     end
@@ -270,7 +291,10 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       implies do
         [class(name, _)] ->
-          findall(s, [super(name, s)], old_supers)
+          findall(s, old_supers) do
+            super(name, s)
+          end
+
           slot(name, :ivars, old_ivars)
           was_redef = true
 
@@ -288,7 +312,9 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       implies do
         [was_redef = true] ->
-          findall(s, [super(name, s)], new_supers)
+          findall(s, new_supers) do
+            super(name, s)
+          end
 
           class_redefined(
             name,
@@ -315,23 +341,32 @@ defmodule AL.TransactionProgram.Bootstrap do
       ivar_names(old_ivars, old_names)
       ivar_names(new_ivars, new_names)
 
-      findall(
-        spec,
-        [member(new_ivars, spec), functor(spec, name, _), not [member(old_names, name)]],
-        added_specs
-      )
+      findall(spec, added_specs) do
+        member(new_ivars, spec)
+        functor(spec, name, _)
+        not [member(old_names, name)]
+      end
 
-      findall(name, [member(old_names, name), not [member(new_names, name)]], removed_names)
+      findall(name, removed_names) do
+        member(old_names, name)
+        not [member(new_names, name)]
+      end
 
-      findall(o, [isa(o, self), label(o)], instances)
+      findall(o, instances) do
+        isa(o, self)
+        label(o)
+      end
 
-      forall([member(instances, o)]) do
+      forall(member(instances, o)) do
         reconcile_redefined_instance(o, added_specs, removed_names)
       end
     end
 
     defmethod(:class, :delete_class, [self]) do
-      findall(s, [super(self, s)], old_supers)
+      findall(s, old_supers) do
+        super(self, s)
+      end
+
       slot(self, :ivars, old_ivars)
 
       class_redefined(
@@ -344,11 +379,11 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :reconcile_redefined_instance, [self, added_specs, removed_names]) do
-      forall([member(removed_names, key)]) do
+      forall(member(removed_names, key)) do
         vm_retract_slot(self, key)
       end
 
-      forall([member(added_specs, spec)]) do
+      forall(member(added_specs, spec)) do
         backfill_ivar(self, spec)
       end
     end
@@ -469,7 +504,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     # Copies a category's methods onto self by shared method_id — no
     # ancestry edge, works regardless of self's own super chain.
     #
-    # Recurses directly rather than forall([member(pairs, ...)]) — member is
+    # Recurses directly rather than forall(member(pairs, ...)) — member is
     # :list's own method (defined later in this file), and a member-based
     # walk here would make :object's foundational :import depend on bootstrap
     # ordering.
@@ -481,7 +516,10 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :import, [self, category]) do
-      findall([name, id], [method(category, name, id)], pairs)
+      findall([name, id], pairs) do
+        method(category, name, id)
+      end
+
       copy_methods(self, pairs)
     end
 
@@ -575,23 +613,26 @@ defmodule AL.TransactionProgram.Bootstrap do
     vm_set_oapply(:defclass, [name, metaclass, super, ivars, categories, methods, redef]) do
       new(metaclass, %{name: name, super: super, ivars: ivars, redef: redef}, _)
 
-      forall([member(categories, category)]) do
+      forall(member(categories, category)) do
         import(name, category)
       end
 
       # Retract pass runs to completion *before* any defmethod call, so two
       # methods-list entries sharing a selector don't retract each other's
       # freshly-added clause.
-      forall([member(methods, entry)]) do
+      forall(member(methods, entry)) do
         vm_source_method_parts(entry, method_name, _head, _body, _source_kind, _capture_id)
-        findall(id, [method(name, method_name, id)], existing_ids)
 
-        forall([member(existing_ids, id)]) do
+        findall(id, existing_ids) do
+          method(name, method_name, id)
+        end
+
+        forall(member(existing_ids, id)) do
           vm_retract_method(name, method_name, id)
         end
       end
 
-      forall([member(methods, entry)]) do
+      forall(member(methods, entry)) do
         vm_source_method_parts(entry, method_name, head, body, source_kind, capture_id)
         source_define_method(:object, name, method_name, head, body, source_kind, capture_id)
       end
@@ -612,16 +653,44 @@ defmodule AL.TransactionProgram.Bootstrap do
         direct_slots: direct_slots
       }
     ]) do
-      findall(c, [class(self, c)], classes)
-      findall([c, s], [class(self, c), super(c, s)], class_supers)
-      findall(c, [isa(c, self), label(c)], objects)
-      findall(s, [super(self, s)], supers)
-      findall(sub, [super(sub, self)], subs)
-      findall([n, id], [method(self, n, id)], methods)
-      findall([provider, n], [method(provider, n, self), label(provider)], providers)
-      findall([head, body], [clause(self, head, body)], clauses)
+      findall(c, classes) do
+        class(self, c)
+      end
 
-      findall([slot_name, slot_value], [slot(self, slot_name, slot_value)], direct_slots)
+      findall([c, s], class_supers) do
+        class(self, c)
+        super(c, s)
+      end
+
+      findall(c, objects) do
+        isa(c, self)
+        label(c)
+      end
+
+      findall(s, supers) do
+        super(self, s)
+      end
+
+      findall(sub, subs) do
+        super(sub, self)
+      end
+
+      findall([n, id], methods) do
+        method(self, n, id)
+      end
+
+      findall([provider, n], providers) do
+        method(provider, n, self)
+        label(provider)
+      end
+
+      findall([head, body], clauses) do
+        clause(self, head, body)
+      end
+
+      findall([slot_name, slot_value], direct_slots) do
+        slot(self, slot_name, slot_value)
+      end
     end
 
     new(
@@ -972,7 +1041,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       member(xs, min)
       send(min, func, [v])
 
-      forall([member(xs, other)]) do
+      forall(member(xs, other)) do
         send(other, func, [w])
         v <= w
       end
@@ -1008,7 +1077,10 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :inheritance_chain, [self, [self | chain]]) do
-      findall(class, [class(self, class)], immediate_classes)
+      findall(class, immediate_classes) do
+        class(self, class)
+      end
+
       reachable_classes(immediate_classes, [], classes)
       in_degrees(classes, degrees)
       filter_zero_degree(immediate_classes, degrees, ready)
@@ -1024,7 +1096,11 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :reachable_classes, [[c | cs], seen, result]) do
       not [member(seen, c)]
-      findall(s, [super(c, s)], supers)
+
+      findall(s, supers) do
+        super(c, s)
+      end
+
       concat(supers, cs, cs2)
       concat(seen, [c], seen_2)
       reachable_classes(cs2, seen_2, result)
@@ -1045,7 +1121,10 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :accumulate_degrees, [[], degrees, degrees])
 
     defmethod(:list, :accumulate_degrees, [[c | cs], acc, degrees]) do
-      findall(s, [super(c, s)], supers)
+      findall(s, supers) do
+        super(c, s)
+      end
+
       increment_degrees(supers, acc, acc2)
       accumulate_degrees(cs, acc2, degrees)
     end
@@ -1076,7 +1155,10 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :kahn, [[], _degrees, []])
 
     defmethod(:list, :kahn, [[c | rest], degrees, [c | chain]]) do
-      findall(s, [super(c, s)], supers)
+      findall(s, supers) do
+        super(c, s)
+      end
+
       decrement_ready(supers, degrees, degrees2, newly_ready)
       concat(newly_ready, rest, queue)
       kahn(queue, degrees2, chain)

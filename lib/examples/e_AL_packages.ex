@@ -86,10 +86,22 @@ defmodule Examples.ALPackages do
     result =
       AL.run do
         active_build(:users, build)
-        findall(class, [originates_class(build, class)], classes)
-        findall([owner, selector], [adds_method(build, owner, selector)], methods)
-        findall([owner, superclass], [adds_superclass(build, owner, superclass)], superclasses)
-        findall(owner, [extends_class(build, owner)], extensions)
+
+        findall(class, classes) do
+          originates_class(build, class)
+        end
+
+        findall([owner, selector], methods) do
+          adds_method(build, owner, selector)
+        end
+
+        findall([owner, superclass], superclasses) do
+          adds_superclass(build, owner, superclass)
+        end
+
+        findall(owner, extensions) do
+          extends_class(build, owner)
+        end
       end
 
     assert {:atomic, {bindings, _constraints, _state}} = result
@@ -267,7 +279,11 @@ defmodule Examples.ALPackages do
           not [originates_class(extender, :composable_widget)]
           adds_superclass(extender, :composable_widget, :renderable)
           adds_method(extender, :composable_widget, :rendering_package)
-          findall(class, [extends_class(extender, class)], extensions)
+
+          findall(class, extensions) do
+            extends_class(extender, class)
+          end
+
           super(:composable_widget, :renderable)
           new(:composable_widget, widget)
           rendering_package(widget, :widget_rendering)

@@ -39,7 +39,9 @@ defmodule Examples.ALUsers do
 
     {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([key, value], [slot(^object, key, value)], slots)
+        findall([key, value], slots) do
+          slot(^object, key, value)
+        end
       end
 
     assert Map.get(slot_bindings, :"$slots") == [[:items, []]]

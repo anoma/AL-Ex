@@ -60,12 +60,16 @@ defmodule Examples.ALControlFlow do
 
     {:atomic, {cut_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, [pick(^chooser_cut, x)], xs)
+        findall(x, xs) do
+          pick(^chooser_cut, x)
+        end
       end
 
     {:atomic, {plain_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, [pick(^chooser_plain, x)], xs)
+        findall(x, xs) do
+          pick(^chooser_plain, x)
+        end
       end
 
     # the cut in the first clause prunes the second; without it, both are found
@@ -124,16 +128,12 @@ defmodule Examples.ALControlFlow do
         vm_set_super(:ite_test, :s1)
         vm_set_super(:ite_test, :s2)
 
-        findall(
-          r,
-          [
-            implies do
-              [super(:ite_test, x)] -> r = x
-              :else -> r = :none
-            end
-          ],
-          results
-        )
+        findall(r, results) do
+          implies do
+            [super(:ite_test, x)] -> r = x
+            :else -> r = :none
+          end
+        end
       end
 
     assert length(Map.get(bindings, :"$results")) == 1

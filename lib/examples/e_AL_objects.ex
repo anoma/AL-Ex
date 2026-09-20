@@ -107,7 +107,9 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(c, [class(:retract_test, c)], before_retract)
+        findall(c, before_retract) do
+          class(:retract_test, c)
+        end
       end
 
     assert Map.get(bindings, :"$before_retract") == [:foo]
@@ -119,7 +121,9 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(c, [class(:retract_test, c)], after_retract)
+        findall(c, after_retract) do
+          class(:retract_test, c)
+        end
       end
 
     assert Map.get(bindings2, :"$after_retract") == []
@@ -132,7 +136,9 @@ defmodule Examples.ALObjects do
 
     {:atomic, {bindings3, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(c, [class(:retract_test, c)], reclassified)
+        findall(c, reclassified) do
+          class(:retract_test, c)
+        end
       end
 
     assert Map.get(bindings3, :"$reclassified") == [:bar]
@@ -154,9 +160,23 @@ defmodule Examples.ALObjects do
         new(:direct_car, car)
         new(:direct_hydrant, hydrant)
 
-        findall(x, [class(x, :direct_vehicle), label(x), get(x, :color, :red)], direct)
-        findall(x, [isa(x, :direct_vehicle), label(x), get(x, :color, :red)], inherited)
-        findall(x, [isa(x, :direct_vehicle), get(x, :color, :red), label(x)], constrained_first)
+        findall(x, direct) do
+          class(x, :direct_vehicle)
+          label(x)
+          get(x, :color, :red)
+        end
+
+        findall(x, inherited) do
+          isa(x, :direct_vehicle)
+          label(x)
+          get(x, :color, :red)
+        end
+
+        findall(x, constrained_first) do
+          isa(x, :direct_vehicle)
+          get(x, :color, :red)
+          label(x)
+        end
 
         class(car, :direct_car)
         not [class(car, :direct_vehicle)]
@@ -310,7 +330,9 @@ defmodule Examples.ALObjects do
     # the two defmethods accreted clauses onto one id, not two separate methods
     {:atomic, {b3, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(id, [method(:multi, :pick, id)], ids)
+        findall(id, ids) do
+          method(:multi, :pick, id)
+        end
       end
 
     assert length(Enum.uniq(Map.get(b3, :"$ids"))) == 1
@@ -398,7 +420,10 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([o, r], [ping(o, r), label(o)], pairs)
+        findall([o, r], pairs) do
+          ping(o, r)
+          label(o)
+        end
       end
 
     pairs = Map.get(b2, :"$pairs")
@@ -435,7 +460,9 @@ defmodule Examples.ALObjects do
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(m, [send(:queryable, m, [:a])], ms)
+        findall(m, ms) do
+          send(:queryable, m, [:a])
+        end
       end
 
     ms = Map.get(b, :"$ms")
@@ -448,7 +475,9 @@ defmodule Examples.ALObjects do
     # a different arg shape selects a different method
     {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(m, [send(:queryable, m, [:b])], ms)
+        findall(m, ms) do
+          send(:queryable, m, [:b])
+        end
       end
 
     ms2 = Map.get(b2, :"$ms")
@@ -518,7 +547,10 @@ defmodule Examples.ALObjects do
     # consulting its does_not_understand
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(o, [probe(o, :hit), label(o)], os)
+        findall(o, os) do
+          probe(o, :hit)
+          label(o)
+        end
       end
 
     os = Map.get(b, :"$os")
@@ -638,10 +670,25 @@ defmodule Examples.ALObjects do
           defmethod(:domain_pong, [self, :q])
         end
 
-        findall(o, [method(o, :domain_ping, _), label(o)], pingers)
-        findall(o, [method(o, :domain_ping, _), method(o, :domain_pong, _), label(o)], both)
-        findall([o, id], [method(o, :domain_pong, id), label(o)], pong_ids)
-        findall(o, [method(o, :domain_missing, _)], none)
+        findall(o, pingers) do
+          method(o, :domain_ping, _)
+          label(o)
+        end
+
+        findall(o, both) do
+          method(o, :domain_ping, _)
+          method(o, :domain_pong, _)
+          label(o)
+        end
+
+        findall([o, id], pong_ids) do
+          method(o, :domain_pong, id)
+          label(o)
+        end
+
+        findall(o, none) do
+          method(o, :domain_missing, _)
+        end
       end
 
     assert Enum.sort(Map.get(bindings, :"$pingers")) == [:method_domain_both, :method_domain_ping]
@@ -666,11 +713,28 @@ defmodule Examples.ALObjects do
         method(:clause_domain_a, :clause_domain_sel, id_a)
         method(:clause_domain_b, :clause_domain_sel, id_b)
 
-        findall(m, [clause(m, [_, :shared], _), label(m)], shared_owners)
-        findall(m, [clause(m, [_, :only_a], _), label(m)], only_a_owners)
-        findall([m, s], [clause(m, s, [_, :only_a], _), label(m)], only_a_rows)
-        findall(m, [clause(m, [_, :clause_domain_nobody], _)], none)
-        findall(s, [clause(id_a, s, [_, :shared], _)], a_shared_seqs)
+        findall(m, shared_owners) do
+          clause(m, [_, :shared], _)
+          label(m)
+        end
+
+        findall(m, only_a_owners) do
+          clause(m, [_, :only_a], _)
+          label(m)
+        end
+
+        findall([m, s], only_a_rows) do
+          clause(m, s, [_, :only_a], _)
+          label(m)
+        end
+
+        findall(m, none) do
+          clause(m, [_, :clause_domain_nobody], _)
+        end
+
+        findall(s, a_shared_seqs) do
+          clause(id_a, s, [_, :shared], _)
+        end
       end
 
     id_a = Map.get(bindings, :"$id_a")
@@ -694,10 +758,21 @@ defmodule Examples.ALObjects do
 
         new(:slot_own_row_class, obj)
 
-        findall(legs, [get(obj, :legs, legs)], instance_legs)
-        findall(legs, [get(:slot_own_row_class, :legs, legs)], class_legs)
-        findall(v, [get(%{class: :slot_own_row_class}, :legs, v)], map_legs)
-        findall(v, [get(%{class: :slot_own_row_class, legs: 8}, :legs, v)], map_own_legs)
+        findall(legs, instance_legs) do
+          get(obj, :legs, legs)
+        end
+
+        findall(legs, class_legs) do
+          get(:slot_own_row_class, :legs, legs)
+        end
+
+        findall(v, map_legs) do
+          get(%{class: :slot_own_row_class}, :legs, v)
+        end
+
+        findall(v, map_own_legs) do
+          get(%{class: :slot_own_row_class, legs: 8}, :legs, v)
+        end
       end
 
     assert Map.get(bindings, :"$instance_legs") == []
@@ -716,7 +791,10 @@ defmodule Examples.ALObjects do
         get(obj, :legs, legs)
         set_slot(obj, :legs, 3)
         get(obj, :legs, after_set)
-        findall(v, [get(:slot_default_class, :legs, v)], class_legs)
+
+        findall(v, class_legs) do
+          get(:slot_default_class, :legs, v)
+        end
       end
 
     assert Map.get(bindings, :"$legs") == 4
@@ -818,7 +896,10 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_b, %{}, obj)
-        findall([k, v], [slot(obj, k, v)], slots)
+
+        findall([k, v], slots) do
+          slot(obj, k, v)
+        end
       end
 
     assert Map.get(bindings, :"$slots") == []
@@ -861,7 +942,10 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_bare, %{}, obj)
-        findall([k, v], [slot(obj, k, v)], slots)
+
+        findall([k, v], slots) do
+          slot(obj, k, v)
+        end
       end
 
     assert Map.get(bindings, :"$slots") == []
@@ -878,7 +962,10 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:durable_ivar_typed, %{}, obj)
-        findall([k, v], [slot(obj, k, v)], slots)
+
+        findall([k, v], slots) do
+          slot(obj, k, v)
+        end
       end
 
     assert Map.get(bindings, :"$slots") == []
@@ -1207,7 +1294,11 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         isa(o, :isa_durable_class_a)
-        findall(o, [isa_durable_probe(o, o), label(o)], os)
+
+        findall(o, os) do
+          isa_durable_probe(o, o)
+          label(o)
+        end
       end
 
     assert Map.get(bindings2, :"$os") == [:isa_durable_instance_a]

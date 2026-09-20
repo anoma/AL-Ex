@@ -43,7 +43,9 @@ defmodule Examples.ALClauses do
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(t, [tag(^c, t)], ts)
+        findall(t, ts) do
+          tag(^c, t)
+        end
       end
 
     assert Map.get(b, :"$ts") == [:first, :second]
@@ -76,7 +78,9 @@ defmodule Examples.ALClauses do
 
     {:atomic, {b, _constraints, _}} =
       run branch: tip.id do
-        findall(t, [tag(^c, t)], ts)
+        findall(t, ts) do
+          tag(^c, t)
+        end
       end
 
     assert Map.get(b, :"$ts") == [:first, :second]
@@ -119,7 +123,9 @@ defmodule Examples.ALClauses do
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(t, [tag(^c, t)], ts)
+        findall(t, ts) do
+          tag(^c, t)
+        end
       end
 
     assert Map.get(b, :"$ts") == [:second, :first]
@@ -175,7 +181,10 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         method(^c, :tag, id)
-        findall(s, [clause(id, s, h, body)], seqs)
+
+        findall(s, seqs) do
+          clause(id, s, h, body)
+        end
       end
 
     assert Map.get(b, :"$seqs") == [0, 1]
@@ -216,7 +225,9 @@ defmodule Examples.ALClauses do
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(t, [tag(^c, t)], ts)
+        findall(t, ts) do
+          tag(^c, t)
+        end
       end
 
     assert Map.get(b, :"$ts") == [:second, :first]
@@ -231,7 +242,9 @@ defmodule Examples.ALClauses do
   example clause_read_does_not_capture_query_vars() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(head, [clause(:defmethod, head, body)], heads)
+        findall(head, heads) do
+          clause(:defmethod, head, body)
+        end
       end
 
     assert Map.get(b, :"$heads") != []
@@ -282,7 +295,10 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         method(:list, :at, id)
-        findall(head, [clause(id, head, body)], heads)
+
+        findall(head, heads) do
+          clause(id, head, body)
+        end
       end
 
     Enum.map(Map.get(b, :"$heads"), &length/1)
@@ -292,7 +308,10 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         method(:list, :at, id)
-        findall([head, body], [clause(id, head, body)], clauses)
+
+        findall([head, body], clauses) do
+          clause(id, head, body)
+        end
       end
 
     [x, y, z] = Map.get(b, :"$clauses")

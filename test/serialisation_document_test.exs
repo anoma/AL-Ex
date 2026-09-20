@@ -76,7 +76,7 @@ defmodule ALDocumentTest do
       # a bracket ] in a comment
       b = ?]
       c = [1, [2, 3]]
-      forall([member(xs, x)]) do
+      forall(member(xs, x)) do
         pass
       end\
     """

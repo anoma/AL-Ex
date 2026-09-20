@@ -163,7 +163,9 @@ defmodule Examples.ALNumbers do
   example between_enumerates() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        findall([v], [between(:object, 2, 5, v)], values)
+        findall([v], values) do
+          between(:object, 2, 5, v)
+        end
       end
 
     assert AL.Var.subst(Map.get(bindings, :"$values"), bindings) == [[2], [3], [4], [5]]

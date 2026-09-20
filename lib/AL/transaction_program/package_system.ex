@@ -146,15 +146,20 @@ defmodule AL.TransactionProgram.PackageSystem do
         build_status(self, :open)
         class(owner, _metaclass)
         include_contribution(self, :originated_classes, owner)
-        findall(selector, [method(owner, selector, _method)], selectors)
 
-        forall([member(selectors, selector)]) do
+        findall(selector, selectors) do
+          method(owner, selector, _method)
+        end
+
+        forall(member(selectors, selector)) do
           include_method(self, owner, selector)
         end
 
-        findall(superclass, [super(owner, superclass)], superclasses)
+        findall(superclass, superclasses) do
+          super(owner, superclass)
+        end
 
-        forall([member(superclasses, superclass)]) do
+        forall(member(superclasses, superclass)) do
           include_superclass(self, owner, superclass)
         end
       end

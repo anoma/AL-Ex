@@ -242,13 +242,15 @@ defmodule AL.Lowering do
     end
   end
 
-  def ast_to_pattern({:forall, _, [condition, [do: body]]}),
-    do: %Goal.Forall{condition: ast_to_pattern(condition), body: clause_goals(body)}
+  def ast_to_pattern({:forall, _, args}) when is_list(args) do
+    {conditions, [[do: body]]} = Enum.split(args, -1)
+    %Goal.Forall{condition: Enum.map(conditions, &ast_to_pattern/1), body: clause_goals(body)}
+  end
 
-  def ast_to_pattern({:findall, _, [template, condition, result]}),
+  def ast_to_pattern({:findall, _, [template, result, [do: condition]]}),
     do: %Goal.Findall{
       template: ast_to_pattern(template),
-      condition: ast_to_pattern(condition),
+      condition: clause_goals(condition),
       result: ast_to_pattern(result)
     }
 

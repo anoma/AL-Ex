@@ -35,7 +35,9 @@ defmodule Examples.ALOutputBindings do
   example findall_wildcard_placeholders_stay_independent() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([1, :"$_", :"$_"], [1 == 1], result)
+        findall([1, :"$_", :"$_"], result) do
+          1 == 1
+        end
       end
 
     assert Map.get(bindings, :"$result") == [[1, :"$_", :"$_"]]
