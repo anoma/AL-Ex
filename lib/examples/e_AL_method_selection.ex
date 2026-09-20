@@ -110,7 +110,7 @@ defmodule Examples.ALMethodSelection do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         selection_describe(receiver, result)
-        unify(receiver, :selection_override_object)
+        receiver = :selection_override_object
       end
 
     assert bindings[:"$receiver"] == :selection_override_object

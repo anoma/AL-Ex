@@ -25,7 +25,7 @@ defmodule Examples.ALResidualConstraints do
         in_domain(left, [1, 2, 3])
         dif(left, 3)
         in_domain(right, [2, 3, 4])
-        unify(left, right)
+        left = right
       end
 
     representative = bindings[:"$left"]
@@ -61,7 +61,7 @@ defmodule Examples.ALResidualConstraints do
       run branch: Examples.Support.branch() do
         in_domain(value, [1, 2])
         dif(value, 2)
-        unify(value, 1)
+        value = 1
       end
 
     assert bindings[:"$value"] == 1
@@ -72,7 +72,7 @@ defmodule Examples.ALResidualConstraints do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         alternative(
-          [in_domain(value, [1, 2]), unify(value, 9)],
+          [in_domain(value, [1, 2]), value = 9],
           [in_domain(value, [3, 4])]
         )
       end
@@ -105,13 +105,13 @@ defmodule Examples.ALResidualConstraints do
   example copied_arithmetic_relations_reference_the_collected_variables() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([left, right], [left > 0, right > 0, eq(left + right, 10)], answers)
+        findall([left, right], [left > 0, right > 0, left + right = 10], answers)
       end
 
     [[left, right]] = bindings[:"$answers"]
     [relation] = constraints.relations
 
-    assert relation.op == :eq
+    assert relation.op == :=
     assert relation.value == 10
     assert relation.terms[left] == 1
     assert relation.terms[right] == 1

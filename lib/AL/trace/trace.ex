@@ -274,6 +274,12 @@ defmodule AL.Trace do
   defp tree_step(%AL.Goal.InDomain{} = goal, acc, store),
     do: attach_constraint_leaf(goal, acc, store)
 
+  defp tree_step(%AL.Goal.Eq{a: a, b: b} = goal, acc, store) do
+    if AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b),
+      do: attach_constraint_leaf(goal, acc, store),
+      else: acc
+  end
+
   # A raw goal from `:full_trace` mode (not one of the constraint types above),
   # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
   # `render/1`'s job.

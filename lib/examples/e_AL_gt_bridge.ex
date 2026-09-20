@@ -191,10 +191,10 @@ defmodule Examples.ALGtBridge do
     vm_set_class(:program_execution_receiver_a, :object)
     vm_set_class(:program_execution_receiver_b, :object)
     defmethod(:program_execution_receiver_a, :hello, [self, result]) do
-      unify(result, :original_a)
+      result = :original_a
     end
     defmethod(:program_execution_receiver_b, :hello, [self, result]) do
-      unify(result, :original_b)
+      result = :original_b
     end
     new(:program_execution, %{name: :program_execution_coder_fixture, version: 1, deps: []}, _)
     """
@@ -206,15 +206,15 @@ defmodule Examples.ALGtBridge do
       assert length(rows) == 2
       assert length(Enum.uniq_by(rows, fn [name, seq | _] -> {name, seq} end)) == 2
 
-      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "unify(result, :original_a)" end)
+      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "result = :original_a" end)
 
-      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "unify(result, :original_b)" end)
+      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "result = :original_b" end)
 
       assert {:atomic, _} =
                AL.eval_source(
                  """
                  defmethod(:program_execution_receiver_a, :hello, [self, result]) do
-                   unify(result, :later)
+                   result = :later
                  end
                  """,
                  branch

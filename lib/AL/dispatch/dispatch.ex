@@ -10,7 +10,7 @@ defmodule AL.Dispatch do
 
   alias AL.Goal
 
-  @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
+  @primitive_methods [:map_get, :map_put, :gensym, :fresh_id]
 
   # A variable receiver or selector makes the send a query. Only a fully
   # ground send is directed and uses `on_miss`. `:"$_"` is the wildcard.

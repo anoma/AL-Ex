@@ -65,7 +65,7 @@ defmodule Examples.ALFunctor do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         defmethod(:number, :triple, [self, result]) do
-          is(result, self * 3)
+          result = self * 3
         end
 
         functor(term, :triple, [7, out])

@@ -55,7 +55,7 @@ Class {
 :propagator >> :dependents, [self, acc, dependents] [
   implies do
     [get(acc, self, seen)] ->
-      unify(acc, dependents)
+      acc = dependents
 
     :else ->
       get(self, :output_cell, output_cell)

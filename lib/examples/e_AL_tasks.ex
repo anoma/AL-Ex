@@ -76,7 +76,7 @@ defmodule Examples.ALTasks do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        unify(w, :async_worker_2)
+        w = :async_worker_2
         send_async(w, :handle, [:async_obj_2])
       end
 

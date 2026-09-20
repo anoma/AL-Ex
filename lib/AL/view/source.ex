@@ -666,7 +666,8 @@ defmodule AL.Source do
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
   defp goal({:functor, term, name, args}), do: call(:functor, [term, name, args])
-  defp goal({:unify, a, b}), do: call(:unify, [a, b])
+  defp goal({:=, a, b}), do: {:=, [], [pat(a), pat(b)]}
+  defp goal({:unify, a, b}), do: goal({:=, a, b})
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
 
   defp goal({:transaction_source, tx, text, origin}),

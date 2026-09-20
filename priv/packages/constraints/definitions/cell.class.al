@@ -49,7 +49,7 @@ Class {
 :cell >> :dependents, [self, acc, dependents] [
   implies do
     [get(acc, self, seen)] ->
-      unify(acc, dependents)
+      acc = dependents
 
     :else ->
       get(self, :subscribers, subscribers)

@@ -74,7 +74,7 @@ defmodule Examples.ALInDomain do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
         in_domain(w, [:a, :b])
-        unify(w, :not_in_set)
+        w = :not_in_set
       end
 
     assert {:constraint_violated, {:domain, domain}} = reason.reason

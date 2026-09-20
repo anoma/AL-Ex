@@ -5,16 +5,12 @@ Class {
   #ivars : [:lo, :hi]
 }
 
-:interval_value >> :get, [self, k, v] [
-  vm_map_get(self, k, v)
-]
-
 :interval_value >> :init, [self, args, new] [
   get_slots(args, %{lo: lo, hi: hi})
 
   implies do
-    [lo > hi] -> unify(new, %{lo: :empty, class: :interval_value, hi: :empty})
-    :else -> unify(new, %{lo: lo, class: :interval_value, hi: hi})
+    [lo > hi] -> new = %{lo: :empty, class: :interval_value, hi: :empty}
+    :else -> new = %{lo: lo, class: :interval_value, hi: hi}
   end
 ]
 
@@ -28,14 +24,14 @@ Class {
 
 :interval_value >> :intersection, [self, _other, new] [
   get(self, :lo, :empty)
-  unify(new, %{lo: :empty, class: :interval_value, hi: :empty})
+  new = %{lo: :empty, class: :interval_value, hi: :empty}
 ]
 
 :interval_value >> :intersection, [self, other, new] [
   get(self, :lo, lo)
   not [lo == :empty]
   get(other, :lo, :empty)
-  unify(new, %{lo: :empty, class: :interval_value, hi: :empty})
+  new = %{lo: :empty, class: :interval_value, hi: :empty}
 ]
 
 :interval_value >> :intersection, [self, other, new] [

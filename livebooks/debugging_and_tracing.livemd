@@ -178,7 +178,7 @@ end
   run trace_mode: :derivation_trace do
     new(:redo_demo, %{}, obj)
     pick(obj, result)
-    unify(result, :second)
+    result = :second
   end
 
 roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
@@ -193,7 +193,7 @@ The first clause (`:first`) is attempted and then upon fail, redone into the sec
 run do
   defclass :probe_box, super: :object, ivars: [] do
     defmethod(:probe_reject, [self, v]) do
-      unify(v, 1)
+      v = 1
       v > 50
     end
 
@@ -201,12 +201,12 @@ run do
 
     defmethod(:probe_mid, [self, v]) do
       probe_leaf(self, w)
-      is(v, w + 1)
+      v = w + 1
     end
 
     defmethod(:probe_top, [self, v]) do
       probe_mid(self, w)
-      is(v, w + 1)
+      v = w + 1
     end
 
     defmethod(:probe_answer, [self, v]) do
@@ -241,7 +241,7 @@ Constraint goals (from [logic and constraints](./logic_and_constraints.livemd)) 
 run do
   defclass :triple_class, super: :object, ivars: [] do
     defmethod(:triple, [self, n, result]) do
-      eq(result, n * 3)
+      result = n * 3
     end
   end
 end

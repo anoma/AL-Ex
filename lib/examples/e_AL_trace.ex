@@ -104,7 +104,7 @@ defmodule Examples.ALTrace do
     {:aborted, reason} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         redo_probe(x, tag)
-        eq(tag, :not_a)
+        tag = :not_a
       end
 
     kinds =
@@ -310,7 +310,7 @@ defmodule Examples.ALTrace do
 
   # Redo-reset: `pick`'s two clauses both structurally match a durable
   # instance (unlike fibonacci's self-selecting heads) -- the first exits
-  # with :first, `unify(result, :second)` rejects it, backtracking redoes the
+  # with :first, `result = :second` rejects it, backtracking redoes the
   # SAME clause scope into the second clause, which exits with :second.
   # The tree shows exactly one `pick` node carrying the winning (second)
   # derived value, not the abandoned first one -- proof tree_step's redo
@@ -329,7 +329,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:redo_demo, %{}, obj)
         pick(obj, result)
-        unify(result, :second)
+        result = :second
       end
 
     assert Map.get(bindings, :"$result") == :second
@@ -350,11 +350,11 @@ defmodule Examples.ALTrace do
 
           defmethod(:chain, [self, n, v]) do
             n > 2
-            eq(n1, n - 1)
-            eq(n2, n - 2)
+            n1 = n - 1
+            n2 = n - 2
             chain(self, n1, v1)
             chain(self, n2, v2)
-            eq(v, v1 + v2)
+            v = v1 + v2
           end
         end
       end
@@ -412,7 +412,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         new(:pick_box, %{}, obj)
         pick(obj, chosen)
-        unify(chosen, :third)
+        chosen = :third
       end
 
     assert Map.get(bindings, :"$chosen") == :third
@@ -432,8 +432,8 @@ defmodule Examples.ALTrace do
 
           defmethod(:try, [self, v]) do
             probe(self, w)
-            unify(w, 99)
-            unify(v, :unreachable)
+            w = 99
+            v = :unreachable
           end
 
           defmethod(:try, [self, :committed])
@@ -460,7 +460,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         defclass :probe_box, super: :object, ivars: [] do
           defmethod(:probe_reject, [self, v]) do
-            unify(v, 1)
+            v = 1
             v > 50
           end
 
@@ -468,12 +468,12 @@ defmodule Examples.ALTrace do
 
           defmethod(:probe_mid, [self, v]) do
             probe_leaf(self, w)
-            is(v, w + 1)
+            v = w + 1
           end
 
           defmethod(:probe_top, [self, v]) do
             probe_mid(self, w)
-            is(v, w + 1)
+            v = w + 1
           end
 
           defmethod(:probe_answer, [self, v]) do
@@ -496,10 +496,10 @@ defmodule Examples.ALTrace do
     assert [top] = answer.children
     assert {_, :probe_top, _} = top.label
 
-    assert [mid] = top.children
+    assert [mid] = Enum.filter(top.children, &(&1.kind == :method))
     assert {_, :probe_mid, _} = mid.label
 
-    assert [leaf] = mid.children
+    assert [leaf] = Enum.filter(mid.children, &(&1.kind == :method))
     assert {_, :probe_leaf, _} = leaf.label
 
     refute Enum.any?(roots, &match?(%{label: {_, :probe_reject, _}}, &1))
@@ -538,25 +538,25 @@ defmodule Examples.ALTrace do
   example constraint_goals_are_retained_in_derivation_mode() do
     {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
-        unify(x, 5)
-        eq(y, x + 1)
+        x = 5
+        y = x + 1
         dif(x, z)
         all_dif([x, z, w])
         in_domain(w, [1, 2, 3])
       end
 
-    assert Enum.any?(state.domino.trace, &match?(%AL.Goal.Compare{}, &1))
+    assert Enum.any?(state.domino.trace, &match?(%AL.Goal.Eq{b: %AL.Goal.OApply{}}, &1))
     assert Enum.any?(state.domino.trace, &match?(%AL.Goal.Dif{}, &1))
     assert Enum.any?(state.domino.trace, &match?(%AL.Goal.AllDif{}, &1))
     assert Enum.any?(state.domino.trace, &match?(%AL.Goal.InDomain{}, &1))
-    refute Enum.any?(state.domino.trace, &match?(%AL.Goal.Unify{}, &1))
+    refute Enum.any?(state.domino.trace, &match?(%AL.Goal.Eq{b: 5}, &1))
   end
 
   example derivation_tree_includes_constraint_nodes_with_resolved_values() do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
-        unify(y, 5)
-        eq(x, y * 3)
+        y = 5
+        x = y * 3
       end
 
     assert Map.get(bindings, :"$x") == 15
@@ -573,7 +573,7 @@ defmodule Examples.ALTrace do
 
     [constraint_node] = roots
     assert constraint_node.kind == :constraint
-    assert %AL.Goal.Compare{op: :eq} = constraint_node.label
+    assert %AL.Goal.Eq{b: %AL.Goal.OApply{method_id: :*}} = constraint_node.label
     assert Map.get(constraint_node.derived, :"$x") == {:bound, 15}
   end
 
@@ -582,7 +582,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         defclass :triple_class, super: :object, ivars: [] do
           defmethod(:triple, [self, n, result]) do
-            eq(result, n * 3)
+            result = n * 3
           end
         end
       end

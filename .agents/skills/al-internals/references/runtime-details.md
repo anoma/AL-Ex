@@ -91,10 +91,10 @@ also starts/stops the Outbox per branch.
     `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, reason}`.
   - `interp/2` has one clause per goal, but for whole *families* of goals that
     clause is one line delegating to the module that owns that concern — `AL`
-    itself only keeps the goals with no better-named home: `Unify`/`Equal`/
+    itself only keeps the goals with no better-named home: `Eq`/`Equal`/
     `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Functor`/`CallTerm`/`Not`/`Call`/
     `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
-    primitive `OApply` cases (`is`, `map_get`, `map_put`, `fresh_id`,
+    primitive `OApply` cases (`map_get`, `map_put`, `fresh_id`,
     `current_tx`) and `OApply`'s own general clause (method dispatch — see
     below). `oapply` expands a method head into its body **bidirectionally**:
     freshen the clause's vars by scope, unify head with call args into the
@@ -313,7 +313,7 @@ constraint it's the proof of.
 1. **Lowering (`AL.Lowering.ast_to_pattern`).** `send(recv, sel, args)` and implicit
    `sel(recv, …)` (any atom head with ≥1 arg) become `{:send, recv, sel, args}`.
    Direct VM ops never become sends: arithmetic (`+ - * / **`) and
-   `@oapply_primitives` (`is`, `map_get`, `map_put`, `lookup`, `fresh_id`,
+   `@oapply_primitives` (`map_get`, `map_put`, `lookup`, `fresh_id`,
    `current_tx`) lower to `{:oapply, …}`; zero-arg `foo()` → `{:oapply, foo, []}`.
 2. **Pre-substitution.** `continue` substitutes the goal against bindings before
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
@@ -453,8 +453,8 @@ the `heap:`-capped `eval` path (`AL.shed/1`), which exists specifically to
 bound what crosses the process boundary. Example:
 `failed_run_exposes_the_final_state` in `e_AL_failures.ex`.
 
-A `unify(a, b)` failing because a `dif`/`isa` constraint rejected it looks
-identical to an ordinary structural mismatch — `Goal.Unify`'s interp clause
+A `a = b` failing because a `dif`/`isa` constraint rejected it looks
+identical to an ordinary structural mismatch — `Goal.Eq`'s interp clause
 calls `AL.Var.diagnose_unify_failure/5` on a `nil` result and, if it can
 explain it, records `{:constraint_violated, violation}` into
 `state.diagnostics`, so `reason.message` names the constraint directly.
@@ -489,7 +489,7 @@ diff/merge and valid-time queries are unbuilt.
 
 ## Known gaps
 
-- **Arithmetic bounds consistency for `< > <= >= eq`.** Both sides ground (via
+- **Arithmetic bounds consistency for `< > <= >= =`.** Both sides ground (via
   `interp_is/2`) is the original check; a side that derefs to a bare open var
   narrows an interval instead of failing (`AL.Var.add_compare/5`), living in
   the same `ConstraintSet` slot `dif`/`isa` do (`bounds :: {lo, hi}`) with its
@@ -499,7 +499,7 @@ diff/merge and valid-time queries are unbuilt.
   single value binds outright through the existing `bind/4` (so `dif`/`isa`
   still gets checked). A compound expression with an open var still buried
   inside after `interp_is` (e.g. `n - 1` with `n` open) has no interval to
-  narrow and hard-fails, same as `is/2` always has.
+  narrow and hard-fails.
 
   `vm_label/1` (`Goal.Label`) is the companion CLP(FD) primitive: enumerates a
   still-open var's propagated `{lo, hi}` by *splicing a `between/4` send*

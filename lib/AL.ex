@@ -832,6 +832,10 @@ defmodule AL do
   end
 
   defp constraint_goal?(%Goal.Compare{}), do: true
+
+  defp constraint_goal?(%Goal.Eq{a: a, b: b}),
+    do: AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b)
+
   defp constraint_goal?(%Goal.Dif{}), do: true
   defp constraint_goal?(%Goal.Isa{}), do: true
   defp constraint_goal?(%Goal.AllDif{}), do: true
@@ -1147,16 +1151,6 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
     do: put_bindings(state, unify(state, m2, Map.put(m1, k_pattern, v_pattern)), [m2])
 
-  def interp(%Goal.OApply{method_id: :is, args: [a, b]}, state) do
-    case interp_is(b, store(state)) do
-      :error ->
-        backtrack(state)
-
-      expr ->
-        put_bindings(state, unify(state, a, expr), [a])
-    end
-  end
-
   # cached: AL.ResolutionCache.fetch_ivar_specs, see AL.Dispatch. self must
   # be ground -- an open self would make scan_class's self_pattern a
   # wildcard (to_mnesia_pattern treats an open var as "match anything"),
@@ -1362,7 +1356,7 @@ defmodule AL do
               |> Enum.map(fn c -> {c, AL.Var.subst(c, store, rewrite)} end)
               |> Enum.reject(fn {c, value} -> value == c end)
               |> Enum.map(fn {c, value} ->
-                %Goal.Unify{
+                %Goal.Eq{
                   a: AL.Var.freshen(c, freshener, raw_vars),
                   b: AL.Var.freshen(value, freshener, raw_vars)
                 }
@@ -1452,7 +1446,7 @@ defmodule AL do
 
   # dif/isa violation vs plain mismatch: identical in the trace. diagnose_unify_failure/5
   # re-derives which constraint fired (nil if none) for format_failure.
-  def interp(%Goal.Unify{a: a, b: b}, state) do
+  def interp(%Goal.Eq{a: a, b: b}, state) do
     result = unify(state, a, b)
     state = record_constraint_violation(state, result, a, b)
     put_bindings(state, result, [a, b])
@@ -1516,11 +1510,11 @@ defmodule AL do
     end
   end
 
-  # `< > <= >= eq` rely on constraint intervals (see AL.Var.Bounds).
+  # `< > <= >= =` rely on constraint intervals (see AL.Var.Bounds).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     store = store(state)
 
-    case {interp_is(a, store), interp_is(b, store)} do
+    case {AL.Var.Bounds.eval(a, store), AL.Var.Bounds.eval(b, store)} do
       {x, y} when is_number(x) and is_number(y) ->
         if compare(op, x, y), do: state, else: backtrack(state)
 
@@ -2430,7 +2424,9 @@ defmodule AL do
   def fresh_scope(), do: System.unique_integer([:positive, :monotonic])
 
   defp visible_vars(%AL{active_choicepoint: choice}) do
-    frames = [{tl(choice.done), choice.goals} | Enum.map(choice.continuations, &{&1.done, &1.goals})]
+    frames = [
+      {tl(choice.done), choice.goals} | Enum.map(choice.continuations, &{&1.done, &1.goals})
+    ]
 
     Enum.reduce(frames, MapSet.new(), fn {done, goals}, acc ->
       AL.Var.find_vars({done, goals}, acc)
@@ -2716,72 +2712,11 @@ defmodule AL do
     end
   end
 
-  @doc """
-  I evaluate an arithmetic expression against `bindings`, returning a number or
-  `:error` if any operand is unbound or non-numeric (so `is/2` can fail the goal
-  cleanly instead of crashing the transaction). Division by zero is `:error`.
-  """
-  def interp_is(%Goal.OApply{method_id: op, args: args}, bindings),
-    do: interp_is({:oapply, op, args}, bindings)
-
-  def interp_is({:oapply, :/, [a, b]}, bindings) do
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) and y != 0 <- interp_is(b, bindings) do
-      div(x, y)
-    else
-      _ -> :error
-    end
-  end
-
-  def interp_is({:oapply, :rem, [a, b]}, bindings) do
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) and y != 0 <- interp_is(b, bindings) do
-      rem(x, y)
-    else
-      _ -> :error
-    end
-  end
-
-  def interp_is({:oapply, op, [a, b]}, bindings) when op in [:+, :-, :*, :**] do
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) <- interp_is(b, bindings) do
-      binop(op, x, y)
-    else
-      _ -> :error
-    end
-  end
-
-  def interp_is({:oapply, op, [a]}, bindings) when op in [:+, :-] do
-    case interp_is(a, bindings) do
-      x when is_number(x) -> binop(op, x)
-      _ -> :error
-    end
-  end
-
-  def interp_is(a, _bindings) when is_number(a), do: a
-
-  def interp_is(a, bindings) when is_atom(a) do
-    case AL.Var.deref(bindings, a) do
-      x when is_number(x) -> x
-      _ -> :error
-    end
-  end
-
-  def interp_is(_a, _bindings), do: :error
-
-  defp binop(:+, x, y), do: x + y
-  defp binop(:-, x, y), do: x - y
-  defp binop(:*, x, y), do: x * y
-  defp binop(:**, x, y), do: x ** y
-
-  defp binop(:+, x), do: +x
-  defp binop(:-, x), do: -x
-
   defp compare(:<, x, y), do: x < y
   defp compare(:>, x, y), do: x > y
   defp compare(:<=, x, y), do: x <= y
   defp compare(:>=, x, y), do: x >= y
-  defp compare(:eq, x, y), do: x == y
+  defp compare(:=, x, y), do: x == y
 
   # `super/2`'s two slots are the same domain (a superclass is still just a
   # class), so unlike `class/2` there's no object/class asymmetry -- both

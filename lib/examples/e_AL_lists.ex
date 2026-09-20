@@ -12,7 +12,7 @@ defmodule Examples.ALLists do
   example deep_cons_patterns_bind() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify([first, second | rest], [:a, :b, :c, :d])
+        [first, second | rest] = [:a, :b, :c, :d]
       end
 
     assert AL.Var.deref(bindings, :"$second") == :b
@@ -115,10 +115,10 @@ defmodule Examples.ALLists do
   example forall_binds_shared_open_elements() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(l, [a, b])
+        l = [a, b]
 
         forall([member(l, c)]) do
-          unify(c, 7)
+          c = 7
         end
       end
 
@@ -131,11 +131,11 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         forall([member([1, 2, 3], n)]) do
-          eq(double, n * 2)
+          double = n * 2
           double <= 6
         end
 
-        unify(done, true)
+        done = true
       end
 
     assert Map.get(bindings, :"$done") == true
@@ -163,9 +163,9 @@ defmodule Examples.ALLists do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         dedupe([x, y], result)
-        unify(result, [x, y])
-        unify(x, 1)
-        unify(y, 1)
+        result = [x, y]
+        x = 1
+        y = 1
       end
 
     :ok
@@ -205,10 +205,10 @@ defmodule Examples.ALLists do
   example all_dif_catches_a_later_bind_between_open_elements() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        unify(l, [1, x, y])
+        l = [1, x, y]
         all_dif(l)
-        unify(x, 2)
-        unify(y, 2)
+        x = 2
+        y = 2
       end
 
     :ok
@@ -217,7 +217,7 @@ defmodule Examples.ALLists do
   example label_range_grounds_open_elements_within_bounds() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(l, [1, x, 3])
+        l = [1, x, 3]
         all_dif(l)
         label_range(l, 1, 3)
       end
@@ -247,7 +247,7 @@ defmodule Examples.ALLists do
   example all_dif_leaves_slack_domains_unpruned() do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(d, [1, 2, 3, :a, :b, :c])
+        d = [1, 2, 3, :a, :b, :c]
         in_domain(x, d)
         in_domain(y, d)
         in_domain(z, d)

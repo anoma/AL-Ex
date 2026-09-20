@@ -161,7 +161,7 @@ defmodule Examples.ALGenerative do
 
         new(:lazy_dispatch_child, %{name: :lazy_dispatch_child_instance}, child)
         lazy_dispatch_inherited(receiver, result)
-        unify(receiver, child)
+        receiver = child
       end
 
     assert Map.fetch!(bindings, :"$receiver") == :lazy_dispatch_child_instance
@@ -181,7 +181,7 @@ defmodule Examples.ALGenerative do
 
         new(:lazy_override_child, %{name: :lazy_override_child_instance}, child)
         lazy_override_probe(receiver, result)
-        unify(receiver, child)
+        receiver = child
       end
 
     assert Map.fetch!(bindings, :"$receiver") == :lazy_override_child_instance
@@ -247,7 +247,7 @@ defmodule Examples.ALGenerative do
         defclass :label_common_child,
           super: [:label_left_parent, :label_right_parent, :value] do
           defmethod(:init, [_self, _args, new]) do
-            unify(new, %{class: :label_common_child})
+            new = %{class: :label_common_child}
           end
         end
 
@@ -290,13 +290,13 @@ defmodule Examples.ALGenerative do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         letter_word_stays_open(x)
-        unify(x, :not_a_letter_word)
+        x = :not_a_letter_word
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         letter_word_stays_open(x)
-        unify(x, :letter_word_real_instance)
+        x = :letter_word_real_instance
       end
 
     assert Map.get(bindings, :"$x") == :letter_word_real_instance
@@ -599,7 +599,7 @@ defmodule Examples.ALGenerative do
         defclass :square, super: :value, ivars: [:side] do
           defmethod(:init, [self, args, new]) do
             get(args, :side, side)
-            unify(new, %{class: :square, side: side})
+            new = %{class: :square, side: side}
           end
 
           defmethod(:get, [self, k, v]) do
@@ -609,13 +609,13 @@ defmodule Examples.ALGenerative do
           defmethod(:area, [%{class: :square, side: side}, result]) do
             implies do
               [ground(side)] ->
-                is(result, side * side)
+                result = side * side
 
               :else ->
                 ground(result)
                 between(self, 1, result, side)
-                is(check, side * side)
-                unify(check, result)
+                check = side * side
+                check = result
             end
           end
         end
@@ -654,7 +654,7 @@ defmodule Examples.ALGenerative do
 
         defmethod(:coins, :change, [self, amount, [c | rest], [c | combo]]) do
           amount >= c
-          is(remaining, amount - c)
+          remaining = amount - c
           change(self, remaining, [c | rest], combo)
         end
 
@@ -705,7 +705,7 @@ defmodule Examples.ALGenerative do
   example unconstrained_vars_have_no_constraints_entry() do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(x, 5)
+        x = 5
       end
 
     assert constraints == %{}

@@ -10,7 +10,6 @@ defmodule AL.Lowering do
   @arithmetic_ops [:+, :-, :*, :/, :**, :rem]
   @comparison_ops [:<, :>, :<=, :>=]
   @oapply_primitives %{
-    is: :is,
     vm_map_get: :map_get,
     vm_map_put: :map_put,
     vm_fresh_id: :fresh_id,
@@ -256,9 +255,6 @@ defmodule AL.Lowering do
   def ast_to_pattern({:not, _, [goals]}),
     do: %Goal.Not{condition: ast_to_pattern(goals)}
 
-  def ast_to_pattern({:unify, _, [a, b]}),
-    do: %Goal.Unify{a: ast_to_pattern(a), b: ast_to_pattern(b)}
-
   def ast_to_pattern({:==, _, [a, b]}),
     do: %Goal.Equal{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
@@ -277,21 +273,22 @@ defmodule AL.Lowering do
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
     do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
-  # #=/2 (CLP(FD) naming) — `#` starts a comment at the Elixir lexer level, so
-  # `eq/2` is the closest spellable surface form. Arithmetic equality as a
-  # constraint, not `is`'s immediate evaluation: sound with either side
-  # still open, narrowing/auto-binding through AL.Var.Bounds the same way
-  # `< > <= >=` do.
-  def ast_to_pattern({:eq, _, [a, b]}),
-    do: %Goal.Compare{op: :eq, a: ast_to_pattern(a), b: ast_to_pattern(b)}
+  # `=` is value equality: structural unification, and CLP(FD)'s `#=` wherever
+  # an arithmetic expression appears (AL.Var.unify -> AL.Var.Bounds.equal),
+  # sound with either side still open.
+  def ast_to_pattern({:=, _, [a, b]}),
+    do: %Goal.Eq{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   # `left or right` (CLP(FD) `#\/`) — Elixir's own `or`, reused directly
   # since `alternative` (not `or`) already owns the backtracking
   # choicepoint form. A real disjunctive constraint, not a choicepoint:
-  # both sides are ordinary comparison expressions (`eq`/`< > <= >=`),
+  # both sides are ordinary comparison expressions (`=`/`< > <= >=`),
   # lowered the same way they'd be on their own.
   def ast_to_pattern({:or, _, [left, right]}),
-    do: %Goal.Either{left: ast_to_pattern(left), right: ast_to_pattern(right)}
+    do: %Goal.Either{
+      left: constraint(ast_to_pattern(left)),
+      right: constraint(ast_to_pattern(right))
+    }
 
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: %Goal.Call{
@@ -453,6 +450,9 @@ defmodule AL.Lowering do
   def ast_to_pattern({a, b}), do: {ast_to_pattern(a), ast_to_pattern(b)}
 
   def ast_to_pattern(x), do: x
+
+  defp constraint(%Goal.Eq{a: a, b: b}), do: %Goal.Compare{op: :=, a: a, b: b}
+  defp constraint(goal), do: goal
 
   # Lower the `->`-clause `implies do … end` into nested `Goal.Implies` goals:
   # extra clauses nest as the else (else-if); a trailing `:else ->` is the final else,

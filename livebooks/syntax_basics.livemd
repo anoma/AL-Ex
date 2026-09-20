@@ -34,7 +34,7 @@ An AL program is a sequence of goals, run together as one transaction with `run 
 
 ```elixir
 run do
-  unify(x, 1)
+  x = 1
 end
 ```
 
@@ -44,8 +44,8 @@ A goal that fails aborts the whole transaction.
 
 ```elixir
 run do
-  unify(x, 1)
-  unify(x, 2)
+  x = 1
+  x = 2
 end
 ```
 
@@ -53,11 +53,11 @@ end
 
 ## WAM Arithmetic
 
-`is` evaluates an arithmetic expression and unifies the result against the first argument.
+`=` is value equality. On structures it unifies, binding whatever variables that takes. Wherever an arithmetic expression appears, at any depth, it means numeric equality: with ground operands it evaluates and binds; with open operands it posts a constraint that narrows as they become known.
 
 ```elixir
 run do
-  is(x, 2 + 3 * 4)
+  x = 2 + 3 * 4
 end
 ```
 
@@ -65,7 +65,7 @@ Comparisons are written directly.
 
 ```elixir
 run do
-  is(x, 10)
+  x = 10
   x > 5
   x < 20
 end
@@ -79,11 +79,11 @@ Lists look like Elixir's, including cons.
 
 ```elixir
 run do
-  unify([h | t], [1, 2, 3])
+  [h | t] = [1, 2, 3]
 end
 ```
 
-The same pattern shows up directly in method and clause heads later on, not just in `unify`.
+The same pattern shows up directly in method and clause heads later on, not just in `=`.
 
 ## Printing values
 
@@ -127,10 +127,10 @@ end
 
 ```elixir
 run do
-  is(x, 5)
+  x = 5
   implies do
-    [x > 3] -> unify(result, :big)
-    :else -> unify(result, :small)
+    [x > 3] -> result = :big
+    :else -> result = :small
   end
 end
 ```
@@ -139,7 +139,7 @@ end
 
 ```elixir
 run do
-  findall(x, [alternative([unify(x, :a)], [unify(x, :b)])], results)
+  findall(x, [alternative([x = :a], [x = :b])], results)
 end
 ```
 
@@ -147,7 +147,7 @@ end
 
 ```elixir
 run do
-  findall(x, [alternative([unify(x, :a), cut], [unify(x, :b)])], results)
+  findall(x, [alternative([x = :a, cut], [x = :b])], results)
 end
 ```
 
@@ -155,7 +155,7 @@ end
 
 ```elixir
 run do
-  unify(x, 1);
+  x = 1;
   pass
 end
 ```
@@ -184,6 +184,6 @@ AL has no first-class lambda syntax. `call(head, body, args)` is the closest thi
 
 ```elixir
 run do
-  call([a, b], [is(b, a * 2)], [5, result])
+  call([a, b], [b = a * 2], [5, result])
 end
 ```

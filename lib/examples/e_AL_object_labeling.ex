@@ -36,7 +36,7 @@ defmodule Examples.ALObjectLabeling do
 
         defclass :labeling_circle, super: [:labeling_shape, :value] do
           defmethod(:init, [_self, _args, new]) do
-            unify(new, %{class: :labeling_circle, radius: 1})
+            new = %{class: :labeling_circle, radius: 1}
           end
         end
       end
@@ -152,7 +152,7 @@ defmodule Examples.ALObjectLabeling do
           [
             class(object, :labeling_dog),
             label(object),
-            unify(marker, :after_label),
+            marker = :after_label,
             class(object, exact_class)
           ],
           answers
@@ -183,7 +183,7 @@ defmodule Examples.ALObjectLabeling do
       run branch: Examples.Support.branch() do
         findall(
           marker,
-          [class(object, exact_class), label(exact_class), unify(marker, :after_class_label)],
+          [class(object, exact_class), label(exact_class), marker = :after_class_label],
           markers
         )
       end
@@ -198,7 +198,7 @@ defmodule Examples.ALObjectLabeling do
       run branch: Examples.Support.branch() do
         findall(
           marker,
-          [super(subclass, superclass), label(subclass), unify(marker, :after_super_label)],
+          [super(subclass, superclass), label(subclass), marker = :after_super_label],
           markers
         )
       end
@@ -216,7 +216,7 @@ defmodule Examples.ALObjectLabeling do
           [
             slot(object, :labeling_unique_slot, :labeling_unique_value),
             label(object),
-            unify(marker, :after_slot_label)
+            marker = :after_slot_label
           ],
           answers
         )

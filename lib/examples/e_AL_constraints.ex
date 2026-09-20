@@ -25,7 +25,7 @@ defmodule Examples.ALConstraints do
         end
 
         defmethod(:constant_subscriber, :dependents, [self, acc, dependents]) do
-          unify(acc, dependents)
+          acc = dependents
         end
 
         new(:cell, %{name: :x}, x)
@@ -88,7 +88,7 @@ defmodule Examples.ALConstraints do
         end
 
         defmethod(:inc_subscriber, :dependents, [self, acc, dependents]) do
-          unify(acc, dependents)
+          acc = dependents
         end
 
         new(:cell, %{name: :y}, y)
@@ -97,7 +97,7 @@ defmodule Examples.ALConstraints do
         new(:propagator, %{input_cells: [:x], output_cell: y, name: :x_y}, propagator)
 
         defmethod(propagator, :constrain, [_self, [x_val], y_val]) do
-          is(y_val, 1 + x_val)
+          y_val = 1 + x_val
         end
       end
 
@@ -160,7 +160,7 @@ defmodule Examples.ALConstraints do
         end
 
         defmethod(:bidirectional_adder_subscriber, :dependents, [self, acc, dependents]) do
-          unify(acc, dependents)
+          acc = dependents
         end
 
         new(:cell, %{name: :a}, a)
@@ -174,15 +174,15 @@ defmodule Examples.ALConstraints do
         new(:propagator, %{input_cells: [b, c], output_cell: a, name: :bc_a}, propagator_bc)
 
         defmethod(propagator_ab, :constrain, [_self, [a_val, b_val], c_val]) do
-          is(c_val, a_val + b_val)
+          c_val = a_val + b_val
         end
 
         defmethod(propagator_ac, :constrain, [_self, [a_val, c_val], b_val]) do
-          is(b_val, c_val - a_val)
+          b_val = c_val - a_val
         end
 
         defmethod(propagator_bc, :constrain, [_self, [b_val, c_val], a_val]) do
-          is(a_val, c_val - b_val)
+          a_val = c_val - b_val
         end
 
         new(:mapset_value, %{elems: [3]}, three)
@@ -250,7 +250,7 @@ defmodule Examples.ALConstraints do
         end
 
         defmethod(:interval_subscriber, :dependents, [self, acc, dependents]) do
-          unify(acc, dependents)
+          acc = dependents
         end
 
         new(:cell, %{name: :ia}, ia)
@@ -267,9 +267,9 @@ defmodule Examples.ALConstraints do
           vm_map_get(i1, :hi, hi1)
           vm_map_get(i2, :lo, lo2)
           vm_map_get(i2, :hi, hi2)
-          is(lo, lo1 + lo2)
-          is(hi, hi1 + hi2)
-          unify(result, %{class: :interval_value, lo: lo, hi: hi})
+          lo = lo1 + lo2
+          hi = hi1 + hi2
+          result = %{class: :interval_value, lo: lo, hi: hi}
         end
 
         new(:interval_value, %{lo: 1, hi: 5}, interval_a)

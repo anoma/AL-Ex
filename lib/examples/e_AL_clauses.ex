@@ -265,7 +265,7 @@ defmodule Examples.ALClauses do
         vm_set_class(:cons_arg_test, :object)
 
         defmethod(:cons_arg_test, :wrap, [self, h, t, out]) do
-          unify(out, [h | t])
+          out = [h | t]
         end
       end
 

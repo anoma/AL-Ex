@@ -36,11 +36,18 @@ defmodule Examples.ALSource do
     source
   end
 
+  example legacy_unify_rows_read_as_eq() do
+    assert %AL.Goal.Eq{a: :"$a", b: 1} = AL.Goal.from_stored({:unify, :"$a", 1})
+    assert AL.Source.body_source([{:unify, :"$a", 1}]) == "a = 1"
+    assert round_trip([{:unify, :"$a", 1}]) == [{:=, :"$a", 1}]
+    :ok
+  end
+
   example tuple_patterns_with_variables_to_source() do
-    stored = [{:unify, {:"$package", :"$requirement"}, :"$pair"}]
+    stored = [{:=, {:"$package", :"$requirement"}, :"$pair"}]
     source = AL.Source.body_source(stored)
 
-    assert source == "unify({package, requirement}, pair)"
+    assert source == "{package, requirement} = pair"
     assert round_trip(stored) == stored
     source
   end
@@ -72,8 +79,8 @@ defmodule Examples.ALSource do
   example freshened_vars_recover_their_authored_name() do
     self_var = AL.Var.fresh(AL.Var.fresh(:"$self", "3"), "7")
 
-    source = AL.Source.body_source([{:unify, self_var, self_var}])
-    assert source == "unify(self, self)"
+    source = AL.Source.body_source([{:=, self_var, self_var}])
+    assert source == "self = self"
 
     source
   end
@@ -82,8 +89,8 @@ defmodule Examples.ALSource do
     self_a = AL.Var.fresh(:"$self", "1")
     self_b = AL.Var.fresh(:"$self", "2")
 
-    source = AL.Source.body_source([{:unify, self_a, self_b}])
-    assert source == "unify(self, self_2)"
+    source = AL.Source.body_source([{:=, self_a, self_b}])
+    assert source == "self = self_2"
 
     source
   end
@@ -200,7 +207,6 @@ defmodule Examples.ALSource do
       {:oapply, :cached_ivar_specs, [:"$class", :"$specs"]},
       {:oapply, :cached_find_ivar_spec, [:"$o", :"$key", :"$spec"]},
       {:oapply, :source_method_parts, [:"$a", :"$b", :"$c", :"$d"]},
-      {:oapply, :is, [:"$x", 1]},
       {:oapply, :rem, [:"$x", 2]},
       {:oapply, :+, [:"$x", 1]},
       {:get_class, :"$o", :"$c"},
@@ -215,7 +221,7 @@ defmodule Examples.ALSource do
       {:call_term, :"$x"},
       {:dif, :"$a", :"$b"},
       {:isa, :"$o", :thing},
-      {:unify, :"$a", :"$b"},
+      {:=, :"$a", :"$b"},
       {:in_domain, :"$x", [1, 2]},
       {:all_dif, [:"$a", :"$b"]},
       {:format, "~a", [:"$x"]},
@@ -225,7 +231,7 @@ defmodule Examples.ALSource do
       {:compare, :>, :"$x", 1},
       {:not, [{:get_class, :"$o", :thing}]},
       {:findall, :"$x", [{:get_class, :"$x", :thing}], :"$xs"},
-      {:forall, [{:get_class, :"$x", :thing}], [{:unify, :"$x", 1}]}
+      {:forall, [{:get_class, :"$x", :thing}], [{:=, :"$x", 1}]}
     ]
   end
 end

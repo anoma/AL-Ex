@@ -63,19 +63,19 @@ defmodule ALDocumentTest do
   end
 
   test "a body edited to a different length still parses" do
-    text = Document.render(class(methods: [method(body: "  unify(r, 1)")]))
-    edited = String.replace(text, "unify(r, 1)", "unify(r, 100)\n  pass")
+    text = Document.render(class(methods: [method(body: "  r = 1")]))
+    edited = String.replace(text, "r = 1", "r = 100\n  pass")
 
     assert {:ok, parsed} = Document.parse(edited)
-    assert [%Method{body: "  unify(r, 100)\n  pass"}] = parsed.methods
+    assert [%Method{body: "  r = 100\n  pass"}] = parsed.methods
   end
 
   test "brackets inside strings, comments, char literals and lists do not end the body" do
     body = """
-      unify(a, "close ]")
+      a = "close ]"
       # a bracket ] in a comment
-      unify(b, ?])
-      unify(c, [1, [2, 3]])
+      b = ?]
+      c = [1, [2, 3]]
       forall([member(xs, x)]) do
         pass
       end\

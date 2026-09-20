@@ -289,7 +289,7 @@ run do
 
   vm_slot_at(obj, :count, 1, t1)
   label(t1)
-  is(boundary, t1 + 1)
+  boundary = t1 + 1
   vm_slot_at(obj, :count, v_at_boundary, boundary)
 end
 ```
@@ -319,7 +319,7 @@ The interval during which the slot held `1` ends exactly when the interval durin
 
 ## Temporality: overlap across two objects
 
-Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `unify` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `unify` succeeds. If they never coincided, it fails.
+Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `=` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `=` succeeds. If they never coincided, it fails.
 
 ```elixir
 run do
@@ -348,11 +348,11 @@ end
 run do
   vm_slot_at(:sensor_a_1, :status, :on, ta)
   vm_slot_at(:sensor_b_1, :status, :on, tb)
-  unify(ta, tb)
+  ta = tb
 end
 ```
 
-Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `:on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `unify`.
+Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `:on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `=`.
 
 This is not the same as asking whether one sensor's whole `:on` period came entirely before or after the other's. `>=` and `<=` between two bound variables like these only ask whether some pairing of instants could satisfy the comparison, not whether every instant in one interval relates to every instant in the other that way. Proving that stronger kind of claim needs both endpoints of an interval available on their own, which is not something `vm_slot_at` exposes today. More on this below.
 

@@ -12,7 +12,7 @@ defmodule Examples.ALVar do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         var(x)
-        unify(x, 1)
+        x = 1
       end
 
     assert AL.Var.deref(bindings, :"$x") == 1
@@ -22,7 +22,7 @@ defmodule Examples.ALVar do
   example bound_is_not_var() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        unify(x, 1)
+        x = 1
         var(x)
       end
 

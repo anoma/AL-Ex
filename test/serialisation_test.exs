@@ -14,7 +14,7 @@ defmodule ALSerialisationTest do
     defclass #{inspect(class)}, super: :object do
       defmethod(:ping, [self, :pong]) do
         # retained exactly
-        unify(self, self)
+        self = self
       end
     end
     """
@@ -33,7 +33,7 @@ defmodule ALSerialisationTest do
       assert document.ivars == []
       assert [%Method{selector: :ping} = method] = document.methods
       assert method.declaration == ":ping, [self, :pong]"
-      assert method.body == "  # retained exactly\n  unify(self, self)"
+      assert method.body == "  # retained exactly\n  self = self"
     after
       AL.Branch.discard(branch)
       File.rm_rf!(root)
@@ -271,8 +271,8 @@ defmodule ALSerialisationTest do
       assert eventually(fn -> AL.Serialisation.quiescent?(branch) end)
 
       document = read_document(path)
-      body = "  # a comment inside the body\n\n  unify(self, self)"
-      canonical = "  # a comment inside the body\n  unify(self, self)"
+      body = "  # a comment inside the body\n\n  self = self"
+      canonical = "  # a comment inside the body\n  self = self"
 
       authored = %{
         document

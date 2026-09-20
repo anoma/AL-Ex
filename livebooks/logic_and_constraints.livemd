@@ -36,23 +36,23 @@ run do
 end
 ```
 
-## `eq`: a real constraint, not immediate evaluation
+## `=`: a real constraint
 
-`is` (from [syntax basics](./syntax_basics.livemd)) needs its right side already ground. `eq` doesn't care which side is open — it's a real constraint, checked at bind time like `dif`, not a one-shot evaluation.
+`=` doesn't care which side is open. It's a real constraint, checked at bind time like `dif`, not a one-shot evaluation.
 
 ```elixir
 run do
-  unify(n, 5)
-  eq(n1, n - 1)
+  n = 5
+  n1 = n - 1
 end
 ```
 
-The var can just as easily be buried inside the expression, on either side. No separate mode is needed, unlike `is`.
+The var can just as easily be buried inside the expression, on either side. No separate mode is needed.
 
 ```elixir
 run do
-  unify(x, 10)
-  eq(x, y + 3)
+  x = 10
+  x = y + 3
 end
 ```
 
@@ -62,17 +62,17 @@ end
 run do
   defclass :rectangle, super: :value, ivars: [:width, :height, :perimeter] do
     defmethod(:init, [self, args, new]) do
-      vm_map_get(args, :width, w)
-      vm_map_get(args, :height, h)
-      vm_map_get(args, :perimeter, p)
-      eq(p, 2 * w + 2 * h)
-      unify(new, %{class: :rectangle, width: w, height: h, perimeter: p})
+      get(args, :width, w)
+      get(args, :height, h)
+      get(args, :perimeter, p)
+      p = 2 * w + 2 * h
+      new = %{class: :rectangle, width: w, height: h, perimeter: p}
     end
 
     defmethod(:area, [self, result]) do
       get(self, :width, w)
       get(self, :height, h)
-      is(result, w * h)
+      result = w * h
     end
   end
 
@@ -83,7 +83,7 @@ end
 
 ## Comparisons narrow instead of failing
 
-`< > <= >=` don't need a ground operand the way `is` does. An open var just gets its interval narrowed instead.
+`< > <= >=` don't need a ground operand. An open var just gets its interval narrowed instead.
 
 ```elixir
 run do
@@ -107,7 +107,7 @@ Posting `x < y` alone narrows nothing observable, since both sides are still ope
 run do
   x < y
   y < 5
-  unify(x, 2)
+  x = 2
 end
 ```
 
@@ -115,7 +115,7 @@ end
 run do
   x < y
   y < 5
-  unify(x, 10)
+  x = 10
 end
 ```
 
@@ -147,8 +147,8 @@ run branch: Examples.Support.branch() do
     not [class(car, :direct_vehicle)]
     isa(car, :direct_vehicle)
     isa(candidate, ancestor)
-    unify(ancestor, :direct_vehicle)
-    unify(candidate, car)
+    ancestor = :direct_vehicle
+    candidate = car
 end
 ```
 
@@ -159,14 +159,14 @@ end
 ```elixir
 run do
   dif(x, 1)
-  unify(x, 2)
+  x = 2
 end
 ```
 
 ```elixir
 run do
   dif(x, 1)
-  unify(x, 1)
+  x = 1
 end
 ```
 
@@ -239,7 +239,7 @@ end
 ```elixir
 run do
   label(5)
-  unify(x, 5)
+  x = 5
 end
 ```
 
@@ -286,8 +286,8 @@ If AL cannot derive a finite domain, a relational row, a durable identity, or a 
 
 ```elixir
 run do
-  unify(a, 4)
-  eq(a, 5) or eq(b, 7)
+  a = 4
+  (a = 5) or (b = 7)
 end
 ```
 
@@ -295,7 +295,7 @@ If neither side can be decided yet, `either` just stays parked, undetermined, ra
 
 ```elixir
 run do
-  eq(a, 5) or eq(b, 6)
+  (a = 5) or (b = 6)
 end
 ```
 
@@ -303,12 +303,12 @@ Both `a` and `b` are still open there. `either` is reactive too: post it before 
 
 ```elixir
 run do
-  eq(a, 5) or eq(b, 7)
-  unify(a, 4)
+  (a = 5) or (b = 7)
+  a = 4
 end
 ```
 
-Putting `findall`, `eq`, `either`, and `label` together: every multiple of 3 or 5 below 20, with no duplicates. `15` is a multiple of both and would show up twice under a naive backtracking `alternative`. It doesn't here, because `either` resolves by elimination rather than by trying both branches.
+Putting `findall`, `=`, `either`, and `label` together: every multiple of 3 or 5 below 20, with no duplicates. `15` is a multiple of both and would show up twice under a naive backtracking `alternative`. It doesn't here, because `either` resolves by elimination rather than by trying both branches.
 
 ```elixir
 run do
@@ -317,7 +317,7 @@ run do
     [
       candidate < 20,
       candidate > 0,
-      eq(candidate, x * 5) or eq(candidate, y * 3),
+      (candidate = x * 5) or (candidate = y * 3),
       label(candidate)
     ],
     candidates

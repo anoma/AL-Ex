@@ -23,7 +23,7 @@ defmodule Examples.ALDefclass do
           categories: [:widget_behaviour] do
           defmethod(:init, [self, args, new]) do
             get(args, :label, l)
-            unify(new, %{class: :widget, label: l})
+            new = %{class: :widget, label: l}
           end
 
           defmethod(:label, [self, l]) do
@@ -159,7 +159,7 @@ defmodule Examples.ALDefclass do
         end
 
         new(:bodyless_thing, x)
-        unify(x, 42)
+        x = 42
       end
 
     assert Map.get(bindings, :"$x") == 42

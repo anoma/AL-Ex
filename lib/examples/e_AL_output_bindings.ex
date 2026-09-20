@@ -18,7 +18,7 @@ defmodule Examples.ALOutputBindings do
         vm_set_super(:next_sol_test, :alpha)
         vm_set_super(:next_sol_test, :beta)
         super(:next_sol_test, s)
-        unify(pair, [s, s])
+        pair = [s, s]
       end
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)

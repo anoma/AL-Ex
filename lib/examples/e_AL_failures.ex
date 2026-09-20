@@ -172,7 +172,7 @@ defmodule Examples.ALFailures do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
-        unify(x, 1)
+        x = 1
       end
 
     assert %AL{} = reason.state
@@ -186,7 +186,7 @@ defmodule Examples.ALFailures do
     {:aborted, dif_reason} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
-        unify(x, 1)
+        x = 1
       end
 
     assert match?({:constraint_violated, {:dif, _, _}}, dif_reason.reason)
@@ -195,7 +195,7 @@ defmodule Examples.ALFailures do
     {:aborted, isa_reason} =
       run branch: Examples.Support.branch() do
         isa(y, :number)
-        unify(y, :not_a_number)
+        y = :not_a_number
       end
 
     assert match?({:constraint_violated, {:isa, _, :number}}, isa_reason.reason)
@@ -205,7 +205,7 @@ defmodule Examples.ALFailures do
     # generic message — this isn't claiming a constraint caused it
     {:aborted, plain_reason} =
       run branch: Examples.Support.branch() do
-        unify(1, 2)
+        1 = 2
       end
 
     refute match?({:constraint_violated, _}, plain_reason.reason)

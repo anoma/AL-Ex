@@ -114,7 +114,7 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
     `:init` method's head is always the 3-arg `[self, args, new]` shape
     regardless of which `new` arity the caller used, since `new/2` just
     delegates to `new/3`.
-- **A map-shaped value class's `:init` must `unify` its output with a
+- **A map-shaped value class's `:init` must unify (`=`) its output with a
   freshly literal-constructed map, not `set_slot`/`vm_set_slots` the input
   scaffold** (`:interval`'s own `:init` in
   `priv/packages/interval/definitions/interval_value.class.al` is the reference
@@ -124,7 +124,7 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
   concrete value by the time `:init` runs; `set_slot`/`vm_set_slots` on it
   routes through durable `SetSlots` semantics and silently does nothing
   observable to the actual returned instance. Build the whole map and
-  `unify(new, %{class: ..., ...})` instead.
+  `new = %{class: ..., ...}` instead.
 - **A relation used by foundational/early bootstrap code must not depend on
   another class's method defined later in the same file.** `:object`'s
   `:import` used to walk its copied-methods list via

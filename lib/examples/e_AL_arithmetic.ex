@@ -1,7 +1,7 @@
 defmodule Examples.ALArithmetic do
   @moduledoc """
-  I provide arithmetic (`is/2`) examples for AL: evaluation of arithmetic
-  expressions, and graceful failure when an expression cannot be evaluated.
+  I provide arithmetic (`=`) examples for AL: evaluation of ground
+  arithmetic expressions, and graceful failure when an expression cannot be evaluated.
   """
 
   use ExExample
@@ -11,17 +11,17 @@ defmodule Examples.ALArithmetic do
   example arithmetic() do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
-        is(a, 123 + 5 - 3)
-        is(f, 10000 - 3)
-        is(a, 122 + 3)
-        is(1_000_122, 122 + 1_000_000)
-        is(b, a + 12)
-        is(c, b ** 2 + 1)
-        is(d, c / 3)
-        is(e, c * 3 + 2)
-        is(e, 5 - e + 2 * e - 5)
-        is(g, -7)
-        is(h, +7)
+        a = 123 + 5 - 3
+        f = 10000 - 3
+        a = 122 + 3
+        1_000_122 = 122 + 1_000_000
+        b = a + 12
+        c = b ** 2 + 1
+        d = c / 3
+        e = c * 3 + 2
+        e = 5 - e + 2 * e - 5
+        g = -7
+        h = +7
       end
 
     assert Map.get(bindings, :"$a") == 125
@@ -35,21 +35,21 @@ defmodule Examples.ALArithmetic do
     result
   end
 
-  example is_fails_gracefully_on_unbound() do
-    # `is/2` over an unbound operand fails the goal (backtracks) instead of
-    # crashing the transaction
-    {:aborted, _} =
+  example eq_over_an_open_operand_posts_a_constraint() do
+    {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        is(x, y + 1)
+        x = y + 1
+        y = 4
       end
 
+    assert Map.get(bindings, :"$x") == 5
     :ok
   end
 
-  example is_fails_on_division_by_zero() do
+  example eq_fails_on_division_by_zero() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        is(x, 1 / 0)
+        x = 1 / 0
       end
 
     :ok
@@ -58,8 +58,8 @@ defmodule Examples.ALArithmetic do
   example remainder() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        is(a, rem(7, 2))
-        is(b, rem(10, 5))
+        a = rem(7, 2)
+        b = rem(10, 5)
       end
 
     assert Map.get(bindings, :"$a") == 1
@@ -70,7 +70,7 @@ defmodule Examples.ALArithmetic do
   example rem_by_zero_fails_gracefully() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        is(x, rem(1, 0))
+        x = rem(1, 0)
       end
 
     :ok
@@ -79,7 +79,7 @@ defmodule Examples.ALArithmetic do
   example comparison_succeeds_when_true() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        is(x, 5)
+        x = 5
         x > 3
         x >= 5
         x < 10
@@ -110,10 +110,9 @@ defmodule Examples.ALArithmetic do
     :ok
   end
 
-  # Unlike `is/2`, an unbound operand no longer fails the goal outright — it
-  # narrows the var's interval instead (see e_AL_bounds.ex) and leaves it
-  # open rather than crashing the transaction. A non-numeric ground operand
-  # still has no interval to narrow, so it's still a hard failure.
+  # An unbound operand narrows the var's interval (see e_AL_bounds.ex) and
+  # leaves it open rather than crashing the transaction. A non-numeric ground
+  # operand has no interval to narrow, so it's still a hard failure.
   example comparison_narrows_rather_than_failing_on_unbound() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

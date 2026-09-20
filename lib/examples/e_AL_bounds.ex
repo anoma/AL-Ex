@@ -31,7 +31,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         x < 10
-        unify(x, 5)
+        x = 5
       end
 
     assert Map.get(bindings, :"$x") == 5
@@ -39,7 +39,7 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         x < 10
-        unify(x, 15)
+        x = 15
       end
 
     :ok
@@ -53,7 +53,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         x < 5 + 1
-        unify(x, 5)
+        x = 5
       end
 
     assert Map.get(bindings, :"$x") == 5
@@ -61,7 +61,7 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         x < 5 + 1
-        unify(x, 6)
+        x = 6
       end
 
     :ok
@@ -77,7 +77,7 @@ defmodule Examples.ALBounds do
       run branch: Examples.Support.branch() do
         x < y
         y < 5
-        unify(x, 2)
+        x = 2
       end
 
     assert Map.get(bindings, :"$x") == 2
@@ -86,7 +86,7 @@ defmodule Examples.ALBounds do
       run branch: Examples.Support.branch() do
         x < y
         y < 5
-        unify(x, 10)
+        x = 10
       end
 
     :ok
@@ -102,17 +102,17 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  # Both bounds collapsing to the same value grounds the var outright — no
-  # separate `unify` needed to observe it, `is/2` (which requires a ground
-  # operand) already proves `x` came out concrete.
+  # Both bounds collapsing to the same value grounds the var outright, no
+  # separate `unify` needed.
   example singleton_bounds_auto_bind() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         x <= 5
         x >= 5
-        is(z, x + 1)
+        z = x + 1
       end
 
+    assert Map.get(bindings, :"$x") == 5
     assert Map.get(bindings, :"$z") == 6
     :ok
   end
@@ -124,7 +124,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         label(5)
-        unify(x, 5)
+        x = 5
       end
 
     assert Map.get(bindings, :"$x") == 5
@@ -141,7 +141,7 @@ defmodule Examples.ALBounds do
   example label_is_a_noop_on_an_already_ground_non_numeric_term() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify(x, :already_ground_atom)
+        x = :already_ground_atom
         label(x)
       end
 
@@ -195,7 +195,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         x + 1 <= 5
-        unify(x, 4)
+        x = 4
       end
 
     assert Map.get(bindings, :"$x") == 4
@@ -203,7 +203,7 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         x + 1 <= 5
-        unify(x, 5)
+        x = 5
       end
 
     :ok
@@ -216,7 +216,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         2 * x <= 7
-        unify(x, 3)
+        x = 3
       end
 
     assert Map.get(bindings, :"$x") == 3
@@ -224,7 +224,7 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         2 * x <= 7
-        unify(x, 4)
+        x = 4
       end
 
     :ok
@@ -248,14 +248,27 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  # `eq/2` (CLP(FD) `#=`, spelled `eq` — `#` can't appear in Elixir source) —
-  # arithmetic equality as a constraint, not `is`'s immediate evaluation.
-  # Ground -> open binds the open side directly.
+  example equality_is_value_equality_at_any_depth() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        y = 4
+        %{total: t} = %{total: y + 1}
+        [a] = [x + 1]
+        x = 2
+      end
+
+    assert Map.get(bindings, :"$t") == 5
+    assert Map.get(bindings, :"$a") == 3
+    :ok
+  end
+
+  # `=` (CLP(FD) `#=`): arithmetic equality as a constraint. Ground -> open
+  # binds the open side directly.
   example eq_binds_an_open_var_from_a_ground_side() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify(n, 5)
-        eq(n1, n - 1)
+        n = 5
+        n1 = n - 1
       end
 
     assert Map.get(bindings, :"$n1") == 4
@@ -263,13 +276,12 @@ defmodule Examples.ALBounds do
   end
 
   # Same mechanism, other direction: the var is on the compound side, the
-  # ground value is what pins it — no separate mode needed, unlike `is`
-  # (which requires the right-hand side already ground).
+  # ground value is what pins it, no separate mode needed.
   example eq_inverts_through_a_compound_expression() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify(x, 10)
-        eq(x, y + 3)
+        x = 10
+        x = y + 3
       end
 
     assert Map.get(bindings, :"$y") == 7
@@ -279,9 +291,9 @@ defmodule Examples.ALBounds do
   example eq_fails_between_two_unequal_grounds() do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
-        unify(p, 4)
-        unify(q, 5)
-        eq(p, q)
+        p = 4
+        q = 5
+        p = q
       end
 
     :ok
@@ -293,7 +305,7 @@ defmodule Examples.ALBounds do
   example eq_narrows_transitively_like_a_compare_chain() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        eq(x, y)
+        x = y
         y <= 5
         y >= 5
       end
@@ -303,16 +315,16 @@ defmodule Examples.ALBounds do
   end
 
   # Real N-ary bounds consistency, not a single-variable-affine special case:
-  # `z`, `a`, and `b` are all simultaneously open when `eq` posts the
+  # `z`, `a`, and `b` are all simultaneously open when `=` posts the
   # propagator — each one narrows from the *other two's* current domain
   # (interval add/subtract), converging as `a`/`b` ground later. This is
   # exactly fibonacci's `x #= x1 + x2` shape with all three still open.
   example eq_narrows_an_n_ary_sum_of_simultaneously_open_vars() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        eq(z, a + b)
-        unify(a, 2)
-        unify(b, 3)
+        z = a + b
+        a = 2
+        b = 3
       end
 
     assert Map.get(bindings, :"$z") == 5
@@ -324,29 +336,29 @@ defmodule Examples.ALBounds do
       run branch: Examples.Support.branch() do
         x > 0
         y > 0
-        eq(x + y, 22)
-        eq(2 * x, 3 * h)
-        eq(4 * y, 5 * h)
+        x + y = 22
+        2 * x = 3 * h
+        4 * y = 5 * h
       end
 
     assert MapSet.new(constraints.relations) ==
              MapSet.new([
-               %{op: :eq, terms: %{"$x": 1, "$y": 1}, value: 22},
-               %{op: :eq, terms: %{"$h": 3, "$x": -2}, value: 0},
-               %{op: :eq, terms: %{"$h": 5, "$y": -4}, value: 0}
+               %{op: :=, terms: %{"$x": 1, "$y": 1}, value: 22},
+               %{op: :=, terms: %{"$h": 3, "$x": -2}, value: 0},
+               %{op: :=, terms: %{"$h": 5, "$y": -4}, value: 0}
              ])
   end
 
-  # Reactive binds, not just reactive `eq`/compare calls: `a`/`b` above get
-  # grounded via ordinary `unify`, not another `eq` — the fixpoint still has
+  # Reactive binds, not just reactive `=`/compare calls: `a`/`b` above get
+  # grounded via ordinary `unify`, not another `=` — the fixpoint still has
   # to fire from `AL.Var.bind` itself, or `z` would be left stale.
   example eq_narrows_transitively_through_plain_unify_not_just_eq() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        eq(z, a + b + c)
-        unify(a, 1)
-        unify(b, 2)
-        unify(c, 3)
+        z = a + b + c
+        a = 1
+        b = 2
+        c = 3
       end
 
     assert Map.get(bindings, :"$z") == 6
@@ -362,10 +374,10 @@ defmodule Examples.ALBounds do
         defmethod(:eq_first, :fib_eq_first, [_s, 2, 1])
 
         defmethod(:eq_first, :fib_eq_first, [s, x, v]) do
-          eq(a, x - 1)
-          eq(b, x - 2)
+          a = x - 1
+          b = x - 2
           x > 2
-          eq(v, v1 + v2)
+          v = v1 + v2
           fib_eq_first(s, a, v1)
           fib_eq_first(s, b, v2)
         end
@@ -387,12 +399,12 @@ defmodule Examples.ALBounds do
 
         defmethod(:regsm, :fib_mod, [s, x, a, b, q]) do
           x > 1
-          eq(a1 + b1, q * 7883 + a)
+          a1 + b1 = q * 7883 + a
           a < 7883
           a + 1 > 0
           q + 1 > 0
-          unify(b, a1)
-          is(x1, x - 1)
+          b = a1
+          x1 = x - 1
           fib_mod(s, x1, a1, b1, q1)
         end
 
@@ -407,7 +419,7 @@ defmodule Examples.ALBounds do
   example a_ground_woken_eq_still_refutes_the_moment_the_intervals_cross() do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
-        eq(z, a + c)
+        z = a + c
         a <= 2
         c <= 3
         z >= 10
@@ -430,7 +442,7 @@ defmodule Examples.ALBounds do
         x < y
         small_or_large(:entailed, y)
         x >= 50
-        unify(x, 99)
+        x = 99
       end
 
     assert Map.get(bindings, :"$y") == 100
@@ -440,7 +452,7 @@ defmodule Examples.ALBounds do
         x < y
         small_or_large(:entailed, y)
         x >= 50
-        unify(x, 150)
+        x = 150
       end
 
     :ok
@@ -453,8 +465,8 @@ defmodule Examples.ALBounds do
   example either_commits_to_the_surviving_side_when_the_other_is_refuted() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify(a, 4)
-        eq(a, 5) or eq(b, 7)
+        a = 4
+        (a = 5) or (b = 7)
       end
 
     assert Map.get(bindings, :"$b") == 7
@@ -464,9 +476,9 @@ defmodule Examples.ALBounds do
   example either_fails_when_both_sides_are_refuted() do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
-        unify(a, 4)
-        unify(b, 4)
-        eq(a, 5) or eq(b, 6)
+        a = 4
+        b = 4
+        (a = 5) or (b = 6)
       end
 
     :ok
@@ -478,7 +490,7 @@ defmodule Examples.ALBounds do
   example either_stays_undetermined_when_neither_side_is_decidable_yet() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        eq(a, 5) or eq(b, 6)
+        (a = 5) or (b = 6)
       end
 
     assert AL.Var.var?(Map.get(bindings, :"$a"))
@@ -487,13 +499,13 @@ defmodule Examples.ALBounds do
   end
 
   # Reactive: `either` is posted *before* `a` is ground, same declarative
-  # ordering `eq`/`< > <= >=` already allow -- refuting the left side
+  # ordering `=`/`< > <= >=` already allow -- refuting the left side
   # happens later, once `a` narrows, not at post time.
   example either_resolves_reactively_once_a_side_is_refuted_later() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        eq(a, 5) or eq(b, 7)
-        unify(a, 4)
+        (a = 5) or (b = 7)
+        a = 4
       end
 
     assert Map.get(bindings, :"$b") == 7
@@ -501,9 +513,9 @@ defmodule Examples.ALBounds do
   end
 
   # The euler_1 shape, stripped to its essence: "multiple of 3 or 5" as a
-  # direct disjunction of the two relational equations (no `is`/`rem`,
+  # direct disjunction of the two relational equations (no `rem`,
   # no boolean anywhere), label last -- `either` uses the exact same
-  # `add_compare` a plain `eq` would, integer-consistency check included,
+  # `add_compare` a plain `=` would, integer-consistency check included,
   # so a non-multiple refutes a side outright instead of leaving it
   # ambiguous. No `alternative`/choicepoint over which divisor at all, so
   # `label(candidate)` stays the only source of backtracking and every
@@ -518,7 +530,7 @@ defmodule Examples.ALBounds do
           [
             candidate < 20,
             candidate > 0,
-            eq(candidate, x * 5) or eq(candidate, y * 3),
+            (candidate = x * 5) or (candidate = y * 3),
             label(candidate)
           ],
           candidates

@@ -51,7 +51,7 @@ defmodule AL.Goal do
           | AL.Goal.Gensym.t()
           | AL.Goal.Format.t()
           | AL.Goal.Not.t()
-          | AL.Goal.Unify.t()
+          | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
@@ -286,7 +286,7 @@ defmodule AL.Goal do
     field(:condition, [AL.Goal.t()])
   end
 
-  typedstruct enforce: true, module: Unify do
+  typedstruct enforce: true, module: Eq do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
   end
@@ -317,7 +317,7 @@ defmodule AL.Goal do
   # boolean anywhere, surface or internal, just the two sides themselves.
   # Resolves by elimination once one side is provably infeasible; the other
   # then gets applied for real. `left`/`right` are themselves `Compare`
-  # goals (already-lowered `eq`/`< > <= >=` expressions).
+  # goals (already-lowered `=`/`< > <= >=` expressions).
   typedstruct enforce: true, module: Either do
     field(:left, Compare.t())
     field(:right, Compare.t())
@@ -497,7 +497,7 @@ defmodule AL.Goal do
     {Gensym, :gensym, [var: :term]},
     {Format, :format, [control: :term, args: :term]},
     {Not, :not, [condition: :goals]},
-    {Unify, :unify, [a: :term, b: :term]},
+    {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {Either, :either, [left: :term, right: :term]},
@@ -519,7 +519,9 @@ defmodule AL.Goal do
   ]
 
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
-  @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
+  @from_form @forms
+             |> Map.new(fn {mod, tag, fields} -> {tag, {mod, fields}} end)
+             |> Map.put(:unify, {Eq, [a: :term, b: :term]})
 
   @type stored() :: tuple() | atom()
 

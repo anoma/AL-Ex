@@ -3,7 +3,7 @@ defmodule Examples.ALBlackjack do
   `:blackjack package`'s `:card`: a `super: :value` class whose `suit`/
   `rank` are ivar specs (`domain: [...]`) -- validated when supplied, left
   open-but-domain-constrained when omitted (see `e_AL_ivar_specs.ex` for the
-  mechanism itself). `hand_total` sums a hand via `eq`; ace's dual value (1
+  mechanism itself). `hand_total` sums a hand via `=`; ace's dual value (1
   or 11) resolves itself through ordinary backtracking.
   """
 

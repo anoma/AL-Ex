@@ -134,7 +134,7 @@ class-membership predicate.
   checks, *after* construction goals actually run, whether `self` is still
   open — open routes to `SendAsValue`, ground routes to `SendQuery`. This
   has to be a goal-level check, not an eager Elixir-level branch: for the
-  generative leg, `new`/`Unify` haven't run yet at the point the requery
+  generative leg, `new`/`Eq` haven't run yet at the point the requery
   goals are spliced in, so `self` always still looks like a var to an eager
   check regardless of which leg is running. For the durable leg
   (`force_durable_candidates`/`structural_candidate`), unification is

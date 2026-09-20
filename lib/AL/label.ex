@@ -128,7 +128,7 @@ defmodule AL.Label do
     goals =
       AL.splice_goals(state, [
         relation_goal,
-        %Goal.Unify{a: class, b: candidate}
+        %Goal.Eq{a: class, b: candidate}
       ])
 
     %AL.Choicepoint{state.active_choicepoint | goals: goals}

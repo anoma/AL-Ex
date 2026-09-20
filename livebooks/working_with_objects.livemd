@@ -144,7 +144,7 @@ run do
     
     defmethod(:flick, [self]) do
       get(self, :count, c)
-      is(c1, c + 1)
+      c1 = c + 1
       set_slot(self, :count, c1)
       call_next_method(self)
     end
@@ -235,7 +235,7 @@ run do
   new(:category, %{name: :glowable, super: :object, ivars: []}, cat)
 
   defmethod(:glowable, :glow, [self, result]) do
-    unify(result, :shiny)
+    result = :shiny
   end
 
   defclass :lamp, super: :object, categories: [:glowable] do
@@ -270,7 +270,7 @@ Any class can override `:print_object` to describe its own instances better, the
 run do
   defmethod(:switch, :print_object, [self, description]) do
     get(self, :state, s)
-    unify(description, {:switch, s})
+    description = {:switch, s}
   end
 
   print_object(:switch_instance_1, description)

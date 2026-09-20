@@ -59,7 +59,7 @@ defmodule Examples.ALObjects do
           defmethod(:init, [self, _, self])
 
           defmethod(:poke, [self, x]) do
-            unify(x, :ok)
+            x = :ok
           end
 
           defmethod(:does_not_understand, [self, _m, _a])
@@ -162,8 +162,8 @@ defmodule Examples.ALObjects do
         not [class(car, :direct_vehicle)]
         isa(car, :direct_vehicle)
         isa(candidate, ancestor)
-        unify(ancestor, :direct_vehicle)
-        unify(candidate, car)
+        ancestor = :direct_vehicle
+        candidate = car
       end
 
     assert Map.get(bindings, :"$direct") == []
@@ -560,7 +560,7 @@ defmodule Examples.ALObjects do
 
         defmethod(:cnm_pet, :describe, [self, d]) do
           call_next_method(self, parent)
-          unify(d, [:i_am_pet, parent])
+          d = [:i_am_pet, parent]
         end
 
         vm_set_class(:cnm_rex, :cnm_pet)
@@ -1123,7 +1123,7 @@ defmodule Examples.ALObjects do
         new(:class_scope_probe, instance)
         probe(instance, :hit)
 
-        unify(worked, true)
+        worked = true
       end
 
     assert Map.get(bindings, :"$worked") == true
@@ -1193,13 +1193,13 @@ defmodule Examples.ALObjects do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         isa(x, :isa_durable_class_a)
-        unify(x, :isa_durable_instance_b)
+        x = :isa_durable_instance_b
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         isa(x, :isa_durable_class_a)
-        unify(x, :isa_durable_instance_a)
+        x = :isa_durable_instance_a
       end
 
     assert Map.get(bindings, :"$x") == :isa_durable_instance_a

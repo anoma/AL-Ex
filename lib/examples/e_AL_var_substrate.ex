@@ -31,6 +31,16 @@ defmodule Examples.ALVarSubstrate do
   # `x` appears twice in the left list (once ground-bound via position 2,
   # once still-open in position 3) -- both derefs to the one value regardless
   # of which side did the binding.
+  example goal_bodies_unify_as_data() do
+    plus = %AL.Goal.OApply{method_id: :+, args: [1, 2]}
+
+    bindings =
+      AL.Var.unify(%AL.Goal.Eq{a: :"$n", b: plus}, %AL.Goal.Eq{a: :"$n", b: :"$expr"})
+
+    assert bindings == %{"$expr": plus}
+    bindings
+  end
+
   example unification_two() do
     store = AL.Var.unify([:"$x", 3, :"$x"], [:"$x", :"$x", :"$y"])
     assert AL.Var.deref(store, :"$x") == 3

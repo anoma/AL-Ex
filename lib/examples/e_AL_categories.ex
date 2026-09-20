@@ -53,7 +53,7 @@ defmodule Examples.ALCategories do
         not [super(:import_b, :import_a)]
         not [super(:import_a, :shared_behaviour)]
 
-        unify(unrelated, true)
+        unrelated = true
       end
 
     assert Map.get(bindings, :"$unrelated") == true

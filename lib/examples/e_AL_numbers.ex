@@ -26,7 +26,7 @@ defmodule Examples.ALNumbers do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         defmethod(:number, :double, [self, result]) do
-          is(result, self * 2)
+          result = self * 2
         end
 
         double(21, out)
@@ -150,7 +150,7 @@ defmodule Examples.ALNumbers do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         stays_open(x)
-        unify(x, :not_a_number)
+        x = :not_a_number
       end
   end
 
@@ -181,13 +181,13 @@ defmodule Examples.ALNumbers do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         class(x, :number)
-        unify(x, :not_a_number)
+        x = :not_a_number
       end
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, :number)
-        unify(x, 7)
+        x = 7
       end
 
     assert Map.get(bindings2, :"$x") == 7

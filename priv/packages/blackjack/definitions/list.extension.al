@@ -9,5 +9,5 @@ Extension {
 :list >> :hand_total, [[card | rest], total] [
   card_value(card, v)
   hand_total(rest, rest_total)
-  eq(total, v + rest_total)
+  total = v + rest_total
 ]

@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 13, deps: [] do
+  defprogram :bootstrap, version: 14, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -50,7 +50,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:object, :between, [self, low, high, value]) do
       low < high
-      is(next, low + 1)
+      next = low + 1
       between(self, next, high, value)
     end
 
@@ -107,7 +107,7 @@ defmodule AL.TransactionProgram.Bootstrap do
           vm_cached_find_ivar_spec(self, key, spec)
 
           implies do
-            [unify(spec, :no_spec)] ->
+            [spec = :no_spec] ->
               fail
 
             :else ->
@@ -246,7 +246,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       implies do
         [class(name, existing)] ->
           implies do
-            [unify(redef, true)] -> retract_existing_facts(name)
+            [redef = true] -> retract_existing_facts(name)
             :else -> fail()
           end
 
@@ -272,12 +272,12 @@ defmodule AL.TransactionProgram.Bootstrap do
         [class(name, _)] ->
           findall(s, [super(name, s)], old_supers)
           slot(name, :ivars, old_ivars)
-          unify(was_redef, true)
+          was_redef = true
 
         :else ->
-          unify(old_supers, [])
-          unify(old_ivars, [])
-          unify(was_redef, false)
+          old_supers = []
+          old_ivars = []
+          was_redef = false
       end
 
       claim_name(self, name, redef)
@@ -287,7 +287,7 @@ defmodule AL.TransactionProgram.Bootstrap do
       vm_set_slot(name, :ivars, ivars)
 
       implies do
-        [unify(was_redef, true)] ->
+        [was_redef = true] ->
           findall(s, [super(name, s)], new_supers)
 
           class_redefined(
@@ -385,7 +385,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       implies do
         [vm_map_get(args, :redef, redef)] -> pass
-        :else -> unify(redef, false)
+        :else -> redef = false
       end
 
       implies do
@@ -524,11 +524,11 @@ defmodule AL.TransactionProgram.Bootstrap do
 
           implies do
             [not [vm_map_get(args, name, _)], member(opts, {:default, default})] ->
-              unify(value, default)
+              value = default
           end
 
         :else ->
-          unify(name, spec)
+          name = spec
       end
 
       get_optional(args, name, value)
@@ -758,9 +758,9 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       label(n)
 
-      is(n1, n - 1)
+      n1 = n - 1
       factorial(n1, factorial1)
-      is(factorial, factorial1 * n)
+      factorial = factorial1 * n
     end
 
     defmethod(:number, :fibonacci, [1, 1])
@@ -771,20 +771,20 @@ defmodule AL.TransactionProgram.Bootstrap do
       x >= 1
       n <= x + 1
 
-      eq(n1, n - 1)
-      eq(n2, n - 2)
+      n1 = n - 1
+      n2 = n - 2
 
       fibonacci(n1, x1)
       fibonacci(n2, x2)
 
-      eq(x, x1 + x2)
+      x = x1 + x2
     end
 
     defmethod(:number, :count_to, [n, n])
 
     defmethod(:number, :count_to, [n, target]) do
       n < target
-      is(n1, n + 1)
+      n1 = n + 1
       count_to(n1, target)
     end
 
@@ -797,7 +797,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:number, :count_to_oapply_loop, [n, target, id]) do
       n < target
-      is(n1, n + 1)
+      n1 = n + 1
       vm_oapply(id, [n1, target, id])
     end
 
@@ -836,7 +836,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :length_of_size, [[_h | t], n]) do
       n > 0
-      is(n1, n - 1)
+      n1 = n - 1
       length_of_size(t, n1)
     end
 
@@ -844,7 +844,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :length_count, [[_h | t], n]) do
       length_count(t, n1)
-      is(n, n1 + 1)
+      n = n1 + 1
     end
 
     defmethod(:list, :at, [xs, n, x]) do
@@ -854,7 +854,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :at, [[h | _t], n, n, h])
 
     defmethod(:list, :at, [[h | t], n, i, v]) do
-      is(i1, i + 1)
+      i1 = i + 1
       at(t, n, i1, v)
     end
 
@@ -982,7 +982,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :sum, [[h | t], n]) do
       sum(t, n1)
-      eq(n, n1 + h)
+      n = n1 + h
     end
 
     defmethod(:list, :label_range, [[], _lo, _hi])
@@ -1054,7 +1054,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :increment_degrees, [[s | ss], acc, degrees]) do
       vm_map_get(acc, s, old)
-      is(new, old + 1)
+      new = old + 1
       vm_map_put(acc, s, new, acc2)
       increment_degrees(ss, acc2, degrees)
     end
@@ -1063,13 +1063,13 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, [c | ready]]) do
       vm_map_get(degrees, c, degree)
-      unify(degree, 0)
+      degree = 0
       filter_zero_degree(cs, degrees, ready)
     end
 
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, ready]) do
       vm_map_get(degrees, c, degree)
-      not [unify(degree, 0)]
+      not [degree = 0]
       filter_zero_degree(cs, degrees, ready)
     end
 
@@ -1086,16 +1086,16 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, [s | ready]]) do
       vm_map_get(degrees, s, old)
-      is(new, old - 1)
-      unify(new, 0)
+      new = old - 1
+      new = 0
       vm_map_put(degrees, s, new, degrees2)
       decrement_ready(ss, degrees2, degrees_out, ready)
     end
 
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, ready]) do
       vm_map_get(degrees, s, old)
-      is(new, old - 1)
-      not [unify(new, 0)]
+      new = old - 1
+      not [new = 0]
       vm_map_put(degrees, s, new, degrees2)
       decrement_ready(ss, degrees2, degrees_out, ready)
     end

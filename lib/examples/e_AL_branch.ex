@@ -337,7 +337,7 @@ defmodule Examples.ALBranch do
       """
       defmethod(:gadget, :describe, [self, size]) do
         get(self, :size, size)
-        is(size, size)
+        size = size
       end
       """,
       """

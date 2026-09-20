@@ -78,8 +78,8 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         implies do
-          [class(:object, c)] -> unify(out, :then_ran)
-          :else -> unify(out, :else_ran)
+          [class(:object, c)] -> out = :then_ran
+          :else -> out = :else_ran
         end
       end
 
@@ -91,8 +91,8 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         implies do
-          [class(:nonexistent_xyz, c)] -> unify(out, :then_ran)
-          :else -> unify(out, :else_ran)
+          [class(:nonexistent_xyz, c)] -> out = :then_ran
+          :else -> out = :else_ran
         end
       end
 
@@ -106,9 +106,9 @@ defmodule Examples.ALControlFlow do
         vm_set_class(:branch_pick, :widget)
 
         implies do
-          [class(:branch_pick, :gadget)] -> unify(out, :first)
-          [class(:branch_pick, :widget)] -> unify(out, :second)
-          :else -> unify(out, :none)
+          [class(:branch_pick, :gadget)] -> out = :first
+          [class(:branch_pick, :widget)] -> out = :second
+          :else -> out = :none
         end
       end
 
@@ -128,8 +128,8 @@ defmodule Examples.ALControlFlow do
           r,
           [
             implies do
-              [super(:ite_test, x)] -> unify(r, x)
-              :else -> unify(r, :none)
+              [super(:ite_test, x)] -> r = x
+              :else -> r = :none
             end
           ],
           results
@@ -143,7 +143,7 @@ defmodule Examples.ALControlFlow do
   example call_lambda() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        call([x, result], [unify(result, x)], [:hello, out])
+        call([x, result], [result = x], [:hello, out])
       end
 
     assert Map.get(bindings, :"$out") == :hello
@@ -155,7 +155,7 @@ defmodule Examples.ALControlFlow do
   example pass_succeeds_without_changing_bindings() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(out, :hello)
+        out = :hello
         pass
       end
 
@@ -168,10 +168,10 @@ defmodule Examples.ALControlFlow do
       run branch: Examples.Support.branch() do
         implies do
           [class(:object, c)] -> pass
-          :else -> unify(out, :else_ran)
+          :else -> out = :else_ran
         end
 
-        unify(out, :then_ran_and_passed)
+        out = :then_ran_and_passed
       end
 
     assert Map.get(bindings, :"$out") == :then_ran_and_passed

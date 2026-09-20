@@ -115,7 +115,7 @@ defmodule AL.Var do
 
   def to_mnesia_pattern(x, acc), do: {x, acc}
 
-  @spec deref(store(), variable()) :: t()
+  @spec deref(store(), t()) :: t()
   def deref(store, k) do
     case Map.get(store, k) do
       nil ->
@@ -310,7 +310,7 @@ defmodule AL.Var do
     end
   end
 
-  # A var's own `props` (from an earlier `eq`/`< > <= >=`) don't only fire
+  # A var's own `props` (from an earlier `=`/`< > <= >=`) don't only fire
   # when another such call touches the same var again — an *ordinary* bind
   # (this one) re-triggers them too, so a var grounded via plain head
   # unification (a recursive clause's own base case, say) still wakes
@@ -815,10 +815,18 @@ defmodule AL.Var do
   defp occurs_in_list?(var, tail, store), do: occurs?(var, tail, store)
 
   @spec unify(t(), t(), store(), AL.Branch.t()) :: store() | nil
-  def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()) do
+  def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
+    do: unify(x, y, store, branch, :value)
+
+  # `:value` interprets arithmetic (`=` is value equality); `:opaque` is plain
+  # structural matching, used inside goal structs so a body stays data.
+  defp unify(x, y, store, branch, mode) do
     cond do
       x == :"$_" || y == :"$_" ->
         store
+
+      mode == :value && (AL.Var.Bounds.arithmetic?(x) || AL.Var.Bounds.arithmetic?(y)) ->
+        AL.Var.Bounds.equal(store, x, y, branch)
 
       var?(x) || var?(y) ->
         extend(store, x, y, branch)
@@ -827,22 +835,24 @@ defmodule AL.Var do
         [x | xs] = x
         [y | ys] = y
 
-        case unify(x, y, store, branch) do
+        case unify(x, y, store, branch, mode) do
           nil -> nil
-          new_store -> unify(xs, ys, new_store, branch)
+          new_store -> unify(xs, ys, new_store, branch, mode)
         end
 
       is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        unify(Tuple.to_list(x), Tuple.to_list(y), store, branch)
+        unify(Tuple.to_list(x), Tuple.to_list(y), store, branch, mode)
 
       is_map(x) && is_map(y) ->
         keys = Map.keys(x) |> MapSet.new() |> MapSet.intersection(MapSet.new(Map.keys(y)))
+        mode = if goal_struct?(x) or goal_struct?(y), do: :opaque, else: mode
 
         unify(
           Enum.map(keys, fn k -> Map.get(x, k) end),
           Enum.map(keys, fn k -> Map.get(y, k) end),
           store,
-          branch
+          branch,
+          mode
         )
 
       x == y ->
@@ -852,6 +862,11 @@ defmodule AL.Var do
         nil
     end
   end
+
+  defp goal_struct?(%{__struct__: module}),
+    do: String.starts_with?(Atom.to_string(module), "Elixir.AL.Goal.")
+
+  defp goal_struct?(_), do: false
 
   @spec subst(t(), store()) :: t()
   def subst(term, store), do: subst(term, store, & &1)

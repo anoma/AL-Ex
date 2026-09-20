@@ -265,7 +265,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         requirement_package(:package_resolver, requirement, package)
         active_build(package, build)
         active_dependency_builds(self, rest, remaining)
-        unify(dependencies, [{package, build} | remaining])
+        dependencies = [{package, build} | remaining]
       end
     end
 
