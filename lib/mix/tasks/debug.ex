@@ -7,7 +7,7 @@ defmodule Mix.Tasks.Debug do
   Run as `iex -S mix debug` — an ordinary `iex -S mix` session (so
   `.iex.exs` still loads: `run`, `defmethod`, the module aliases, and the
   `:al` OTP app itself, Mnesia included), plus two `IEx.configure/1` tweaks
-  aimed at inspecting a `%AL{}`/`.domino.trace` by hand instead of through a
+  aimed at inspecting a `%AL{}`/`.trace.events` by hand instead of through a
   formatter:
 
     - `limit: :infinity` — no truncation, so a long `trace` or a deeply

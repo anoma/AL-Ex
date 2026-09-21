@@ -78,8 +78,8 @@ mix run bench/sudoku.exs --hard
 mix run bench/regsm.exs entry 1000 7919
 ```
 
-Benchmarks run with `trace_mode: :no_trace` so they measure execution rather
-than construction of retained derivation histories.
+Benchmarks run with the default empty trace flag set so they measure execution
+rather than construction of retained derivation histories.
 
 Benchee defaults to two seconds of warmup and five seconds of measurement per
 scenario. Set `BENCH_WARMUP` and `BENCH_TIME` to non-negative numbers to adjust

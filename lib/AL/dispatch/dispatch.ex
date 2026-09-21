@@ -266,7 +266,7 @@ defmodule AL.Dispatch do
   # method must be ground to check tracepoints — a var selector has nothing
   # to look up yet.
   defp maybe_trace_dispatch(state, self, method, value_classes) do
-    if not AL.Var.var?(method) and MapSet.member?(state.domino.tracepoints, method) do
+    if not AL.Var.var?(method) and MapSet.member?(state.trace.runtime.tracepoints, method) do
       AL.Trace.dispatch(self, method, value_classes)
     end
   end

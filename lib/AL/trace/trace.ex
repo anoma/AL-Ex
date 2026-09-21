@@ -1,8 +1,106 @@
 defmodule AL.Trace do
   @moduledoc """
-  I am the tracing module. I provide tracepoint functionality and readable
-  rendering of AL terms.
+  I own an evaluation's composable trace flags and retained event stream, and
+  provide tracepoint functionality and readable rendering of AL terms.
+
+  Trace flags select independent detail levels:
+
+    * `:domino` retains method/clause ports and constraint evidence
+    * `:vm` retains every raw VM goal plus backtrack/flounder markers
+
+  The legacy `trace_mode` option is normalized onto these flags by
+  `flags_from_options!/1`.
   """
+
+  use TypedStruct
+
+  @type flag() :: :domino | :vm
+  @type event() :: AL.Trace.Event.t()
+
+  @allowed_flags MapSet.new([:domino, :vm])
+
+  @derive {Inspect, only: [:flags, :events]}
+  typedstruct enforce: true do
+    field(:flags, MapSet.t(flag()), default: MapSet.new())
+    field(:events, [event()], default: [])
+    field(:runtime, AL.Trace.Runtime.t(), default: %AL.Trace.Runtime{})
+  end
+
+  @spec flags_from_options!(keyword()) :: MapSet.t(flag())
+  def flags_from_options!(opts) do
+    case {Keyword.fetch(opts, :trace), Keyword.fetch(opts, :trace_mode)} do
+      {{:ok, _flags}, {:ok, _mode}} ->
+        raise ArgumentError, "trace and trace_mode cannot be used together"
+
+      {{:ok, flags}, :error} ->
+        normalize_flags!(flags)
+
+      {:error, {:ok, mode}} ->
+        legacy_flags!(mode)
+
+      {:error, :error} ->
+        MapSet.new()
+    end
+  end
+
+  @spec new(MapSet.t(flag())) :: t()
+  def new(flags) do
+    %__MODULE__{
+      flags: flags,
+      runtime: %AL.Trace.Runtime{tracepoints: tracepoints()}
+    }
+  end
+
+  @spec enabled?(t(), flag()) :: boolean()
+  def enabled?(%__MODULE__{flags: flags}, flag), do: MapSet.member?(flags, flag)
+
+  @spec retained?(t()) :: boolean()
+  def retained?(%__MODULE__{flags: flags}), do: MapSet.size(flags) > 0
+
+  @spec push(t(), AL.Trace.Event.kind(), term()) :: t()
+  def push(%__MODULE__{} = trace, kind, payload) do
+    if enabled?(trace, kind),
+      do: %__MODULE__{
+        trace
+        | events: [%AL.Trace.Event{kind: kind, payload: payload} | trace.events]
+      },
+      else: trace
+  end
+
+  @spec payload(event() | term()) :: term()
+  def payload(%AL.Trace.Event{payload: payload}), do: payload
+  def payload(other), do: other
+
+  @spec payloads([event() | term()]) :: [term()]
+  def payloads(events), do: Enum.map(events, &payload/1)
+
+  defp normalize_flags!(%MapSet{} = flags), do: validate_flags!(flags)
+  defp normalize_flags!(flags) when is_list(flags), do: flags |> MapSet.new() |> validate_flags!()
+
+  defp normalize_flags!(other) do
+    raise ArgumentError,
+          "trace must be a list or MapSet of trace flags, got: #{inspect(other)}"
+  end
+
+  defp validate_flags!(flags) do
+    unknown = MapSet.difference(flags, @allowed_flags)
+
+    if MapSet.size(unknown) == 0 do
+      flags
+    else
+      raise ArgumentError,
+            "unknown trace flags #{inspect(MapSet.to_list(unknown))}; expected flags from #{inspect(MapSet.to_list(@allowed_flags))}"
+    end
+  end
+
+  defp legacy_flags!(:no_trace), do: MapSet.new()
+  defp legacy_flags!(:derivation_trace), do: MapSet.new([:domino])
+  defp legacy_flags!(:full_trace), do: MapSet.new([:domino, :vm])
+
+  defp legacy_flags!(mode) do
+    raise ArgumentError,
+          "trace_mode must be :no_trace, :derivation_trace, or :full_trace, got: #{inspect(mode)}"
+  end
 
   @spec trace(atom()) :: :ok
   def trace(point) do
@@ -29,7 +127,7 @@ defmodule AL.Trace do
   # the chosen provider runs) -- the same Call/Exit/Redo/Fail ports at both
   # levels, just printed with a prefix so a traced line always says which
   # box it's reporting on. These render exactly the port tuples already
-  # appended to `state.domino.trace` (see `AL.begin_method_scope/5`,
+  # appended to `state.trace.events` (see `AL.begin_method_scope/5`,
   # `mark_exited/2`, `fail_scope/3` in `AL.ex`) -- no separate decision
   # logic, just formatting.
   @spec call(atom(), non_neg_integer(), term(), term(), [term()]) :: :ok
@@ -86,13 +184,15 @@ defmodule AL.Trace do
   # Call carries that -- Exit/Redo/Fail are just a scope id) so those can
   # still print something meaningful instead of a bare scope number.
   # `steps` is chronological (already `Enum.reverse`d, e.g. `reason.trace`
-  # from `format_failure/1`, or `state.domino.trace` on a success reversed
+  # from `format_failure/1`, or `state.trace.events` on a success reversed
   # by the caller).
   @spec render([term()]) :: :ok
   def render(steps) do
     Enum.reduce(steps, {0, %{}}, &render_step/2)
     :ok
   end
+
+  defp render_step(%AL.Trace.Event{payload: payload}, acc), do: render_step(payload, acc)
 
   defp render_step({:method_call, scope, self, method, args, constraints_in}, {depth, seen}) do
     call(:method, depth, self, method, args)
@@ -129,6 +229,12 @@ defmodule AL.Trace do
     {depth, seen}
   end
 
+  defp render_step({:constraint, goal, constraints_in, derived}, {depth, seen}) do
+    IO.puts([String.duplicate("  ", depth), "Constraint: ", inspect(pretty(goal))])
+    print_constraint_transition(depth, constraints_in, derived)
+    {depth, seen}
+  end
+
   defp render_step({tag, scope}, {depth, seen}) when tag in [:method_redo, :clause_redo] do
     level = if tag == :method_redo, do: :method, else: :clause
     {receiver, method} = Map.get(seen, scope, {nil, nil})
@@ -143,6 +249,18 @@ defmodule AL.Trace do
     {depth - 1, seen}
   end
 
+  defp render_step({:collection_begin, _scope, kind, _condition, _output}, {depth, seen}) do
+    IO.puts([String.duplicate("  ", depth), "Collection: ", Atom.to_string(kind)])
+    {depth, seen}
+  end
+
+  defp render_step({:collection_solution, _scope, _store}, {depth, seen}) do
+    IO.puts([String.duplicate("  ", depth), "Collection Solution"])
+    {depth, seen}
+  end
+
+  defp render_step({:collection_end, _scope}, acc), do: acc
+
   defp render_step(entry, {depth, seen}) do
     IO.puts([String.duplicate("  ", depth), inspect(entry)])
     {depth, seen}
@@ -154,241 +272,20 @@ defmodule AL.Trace do
     IO.puts([String.duplicate("  ", depth + 1), inspect(descriptions)])
   end
 
-  # Show the successful call in full. `store` resolves constraint leaves'
-  # `derived`; without it they carry nil. A node's `clause` is the seq of
-  # the clause that fired, read off the journal: nil on a constraint leaf
-  # and on a method box whose clause box is its own node below.
-  @spec derivation_tree([term()], AL.Var.store() | nil) :: [map()]
-  def derivation_tree(steps, store \\ nil) do
-    {_stack, nodes, _aliases, roots} =
-      Enum.reduce(steps, {[], %{}, %{}, []}, &tree_step(&1, &2, store))
-
-    roots
-    |> Enum.reverse()
-    |> Enum.reject(&Map.fetch!(nodes, &1).failed)
-    |> Enum.map(&materialize(&1, nodes))
-  end
+  @doc """
+  I build the successful derivation tree from a completed AL evaluation state.
+  I obtain its retained journal and final variable store directly.
+  """
+  @spec derivation_tree(AL.t()) :: [map()]
+  def derivation_tree(state), do: AL.Trace.Derivation.build(state)
 
   @doc """
   I collect every `method` call in a derivation tree (one or more roots, as
   returned by `derivation_tree/1`), resolving `self` and each arg through
-  that node's own `derived`
+  each successful answer's `derived`
   """
   @spec method_values(map() | [map()], atom()) :: [{term(), [term()]}]
-  def method_values(roots, method) do
-    roots
-    |> List.wrap()
-    |> Enum.flat_map(&method_nodes(&1, method))
-    |> Enum.map(fn %{label: {self, ^method, args}, derived: derived} ->
-      {resolve_derived(self, derived), Enum.map(args, &resolve_derived(&1, derived))}
-    end)
-    |> Enum.uniq()
-  end
-
-  defp method_nodes(%{label: {_, method, _}} = node, method),
-    do: [node | Enum.flat_map(node.children, &method_nodes(&1, method))]
-
-  defp method_nodes(node, method), do: Enum.flat_map(node.children, &method_nodes(&1, method))
-
-  defp resolve_derived(term, derived) do
-    case derived && Map.get(derived, term) do
-      {:bound, val} -> val
-      _ -> term
-    end
-  end
-
-  defp tree_step({:method_call, scope, self, method, args, constraints_in}, acc, _store) do
-    open_node(acc, scope, scope, %{
-      kind: :method,
-      label: {self, method, args},
-      constraints_in: constraints_in,
-      derived: nil,
-      clause: nil,
-      parent: nil,
-      child_scopes: [],
-      failed: false
-    })
-  end
-
-  defp tree_step(
-         {:clause_call, scope, method_id, call_args, constraints_in},
-         {stack, nodes, aliases, roots} = acc,
-         _store
-       ) do
-    collapse? =
-      case stack do
-        [top | _] -> match?(%{kind: :method, child_scopes: []}, Map.get(nodes, top))
-        [] -> false
-      end
-
-    if collapse? do
-      [top | _] = stack
-      {[top | stack], nodes, Map.put(aliases, scope, top), roots}
-    else
-      open_node(acc, scope, scope, clause_node(method_id, call_args, constraints_in))
-    end
-  end
-
-  defp tree_step({:clause_chosen, scope, clause}, {stack, nodes, aliases, roots}, _store) do
-    resolved = Map.get(aliases, scope, scope)
-    {stack, Map.update!(nodes, resolved, &%{&1 | clause: clause}), aliases, roots}
-  end
-
-  defp tree_step({tag, scope, derived}, {stack, nodes, aliases, roots}, _store)
-       when tag in [:method_exit, :clause_exit] do
-    resolved = Map.get(aliases, scope, scope)
-    nodes = Map.update!(nodes, resolved, &%{&1 | derived: derived})
-    {unwind(stack, resolved), nodes, aliases, roots}
-  end
-
-  defp tree_step({tag, scope}, {_stack, nodes, aliases, roots}, _store)
-       when tag in [:method_redo, :clause_redo] do
-    resolved = Map.get(aliases, scope, scope)
-    nodes = Map.update!(nodes, resolved, &%{&1 | child_scopes: []})
-    {ancestry(resolved, nodes), nodes, aliases, roots}
-  end
-
-  defp tree_step({tag, scope}, {stack, nodes, aliases, roots}, _store)
-       when tag in [:method_fail, :clause_fail] do
-    # A failed node is marked in place, not spliced out of its parent's
-    # `child_scopes`/`roots` -- under heavy backtracking a node can pick up
-    # many siblings, and removing one by value is O(siblings) each time.
-    # `materialize/2` (the only reader, and a rare one relative to how often
-    # a choicepoint fails) filters failed nodes out once instead.
-    resolved = Map.get(aliases, scope, scope)
-    nodes = Map.update!(nodes, resolved, &%{&1 | failed: true})
-
-    {unwind(stack, resolved), nodes, aliases, roots}
-  end
-
-  defp tree_step(%AL.Goal.Compare{} = goal, acc, store),
-    do: attach_constraint_leaf(goal, acc, store)
-
-  defp tree_step(%AL.Goal.Dif{} = goal, acc, store), do: attach_constraint_leaf(goal, acc, store)
-
-  defp tree_step(%AL.Goal.Isa{} = goal, acc, store), do: attach_constraint_leaf(goal, acc, store)
-
-  defp tree_step(%AL.Goal.AllDif{} = goal, acc, store),
-    do: attach_constraint_leaf(goal, acc, store)
-
-  defp tree_step(%AL.Goal.InDomain{} = goal, acc, store),
-    do: attach_constraint_leaf(goal, acc, store)
-
-  defp tree_step(%AL.Goal.Eq{a: a, b: b} = goal, acc, store) do
-    if AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b),
-      do: attach_constraint_leaf(goal, acc, store),
-      else: acc
-  end
-
-  # A raw goal from `:full_trace` mode (not one of the constraint types above),
-  # `:backtrack`, `:flounder` -- not part of the derivation tree at all, only
-  # `render/1`'s job.
-  defp tree_step(_other, acc, _store), do: acc
-
-  defp ancestry(scope, nodes) do
-    case Map.fetch!(nodes, scope).parent do
-      nil -> [scope]
-      parent -> [scope | ancestry(parent, nodes)]
-    end
-  end
-
-  defp unwind(stack, scope) do
-    if scope in stack do
-      stack |> Enum.drop_while(&(&1 != scope)) |> Enum.drop_while(&(&1 == scope))
-    else
-      stack
-    end
-  end
-
-  defp attach_constraint_leaf(goal, {stack, nodes, aliases, roots}, store) do
-    key = make_ref()
-
-    node = %{
-      kind: :constraint,
-      label: goal,
-      constraints_in: %{},
-      derived: constraint_derived(goal, store),
-      clause: nil,
-      parent: nil,
-      child_scopes: [],
-      failed: false
-    }
-
-    case stack do
-      [] ->
-        {stack, Map.put(nodes, key, node), aliases, [key | roots]}
-
-      [parent | _] ->
-        nodes =
-          nodes
-          |> Map.update!(parent, &%{&1 | child_scopes: [key | &1.child_scopes]})
-          |> Map.put(key, %{node | parent: parent})
-
-        {stack, nodes, aliases, roots}
-    end
-  end
-
-  defp constraint_derived(_goal, nil), do: nil
-
-  defp constraint_derived(goal, store),
-    do: goal |> AL.Var.find_vars() |> Map.new(fn v -> {v, AL.describe_var(v, store)} end)
-
-  # `push` is the resolved key to leave on `stack` for future children to
-  # parent under (always the node's own resolved key -- see tree_step's
-  # method_call/clause_call clauses for why this can differ from `scope`
-  # itself in the collapse case).
-  defp open_node({stack, nodes, aliases, roots}, scope, push, node) do
-    case stack do
-      [] ->
-        {[push | stack], Map.put(nodes, scope, node), aliases, [scope | roots]}
-
-      [parent | _] ->
-        nodes =
-          nodes
-          |> Map.update!(parent, &%{&1 | child_scopes: [scope | &1.child_scopes]})
-          |> Map.put(scope, %{node | parent: parent})
-
-        {[push | stack], nodes, aliases, roots}
-    end
-  end
-
-  defp clause_node(method_id, call_args, constraints_in) do
-    {self, args} =
-      case call_args do
-        [r | rest] -> {r, rest}
-        other -> {other, []}
-      end
-
-    %{
-      kind: :clause,
-      label: {self, method_id, args},
-      constraints_in: constraints_in,
-      derived: nil,
-      clause: nil,
-      parent: nil,
-      child_scopes: [],
-      failed: false
-    }
-  end
-
-  defp materialize(scope, nodes) do
-    node = Map.fetch!(nodes, scope)
-
-    children =
-      node.child_scopes
-      |> Enum.reverse()
-      |> Enum.reject(&Map.fetch!(nodes, &1).failed)
-      |> Enum.map(&materialize(&1, nodes))
-
-    %{
-      kind: node.kind,
-      label: node.label,
-      constraints_in: node.constraints_in,
-      derived: node.derived,
-      clause: node.clause,
-      children: children
-    }
-  end
+  def method_values(roots, method), do: AL.Trace.Derivation.method_values(roots, method)
 
   @spec render_tree([map()]) :: :ok
   def render_tree(roots) do
@@ -408,10 +305,34 @@ defmodule AL.Trace do
       prefix,
       connector,
       "[constraint] ",
-      inspect(pretty(node.label)),
+      inspect(pretty(node.label))
+    ])
+
+    transition_prefix = prefix <> if last?, do: "   ", else: "│  "
+    print_constraint_transition(transition_prefix, node.constraints_in, node.derived)
+
+    render_tree_children(node, prefix, last?)
+  end
+
+  defp render_tree_node(%{kind: :answer} = node, prefix, last?) do
+    connector = if last?, do: "└─ ", else: "├─ "
+    clause = if is_nil(node.clause), do: "", else: " clause #{node.clause}"
+
+    IO.puts([
+      prefix,
+      connector,
+      "[answer",
+      clause,
+      "]",
       tree_derived_suffix(node.derived)
     ])
 
+    render_tree_children(node, prefix, last?)
+  end
+
+  defp render_tree_node(%{kind: :collection, label: {kind, _condition}} = node, prefix, last?) do
+    connector = if last?, do: "└─ ", else: "├─ "
+    IO.puts([prefix, connector, "[", Atom.to_string(kind), "]"])
     render_tree_children(node, prefix, last?)
   end
 
@@ -428,8 +349,7 @@ defmodule AL.Trace do
       inspect(pretty(method)),
       "(",
       args |> Enum.map(&inspect(pretty(&1))) |> Enum.join(", "),
-      ")",
-      tree_derived_suffix(node.derived)
+      ")"
     ])
 
     render_tree_children(node, prefix, last?)
@@ -450,6 +370,19 @@ defmodule AL.Trace do
   defp tree_derived_suffix(nil), do: ""
   defp tree_derived_suffix(derived) when map_size(derived) == 0, do: ""
   defp tree_derived_suffix(derived), do: [" => ", inspect(pretty(derived))]
+
+  defp print_constraint_transition(_depth, constraints_in, derived)
+       when constraints_in == derived,
+       do: :ok
+
+  defp print_constraint_transition(depth, constraints_in, derived) when is_integer(depth) do
+    print_constraint_transition(String.duplicate("  ", depth + 1), constraints_in, derived)
+  end
+
+  defp print_constraint_transition(prefix, constraints_in, derived) do
+    IO.puts([prefix, "in:  ", inspect(pretty(constraints_in))])
+    IO.puts([prefix, "out: ", inspect(pretty(derived))])
+  end
 
   @spec dispatch(term(), term(), [atom()]) :: :ok
   def dispatch(self, method, providers) do

@@ -198,13 +198,15 @@ day-to-day operational habits (Mnesia store safety, reading a trace).
 
 ## Reading a trace
 
-- `run trace_mode: :full_trace do ... end` interleaves raw goals into a run's
-  own `state.domino.trace`; `AL.Trace.render/1` prints it readably.
-  `:derivation_trace` retains structured evidence for extraction and ZK
-  verification. The default `:no_trace` retains no execution history. `iex -S mix
+- `run trace: [:domino, :vm] do ... end` composes the trace
+  families needed by a run. Events are retained in `state.trace.events`, and
+  `AL.Trace.render/1` prints them readably. `:domino` retains structured
+  method/clause and constraint evidence; `:vm` retains every raw goal. Events
+  are tagged by kind. No flags retains no execution history. The old
+  `trace_mode:` values remain compatibility shorthands. `iex -S mix
   debug` configures `IEx.configure(inspect: [limit: :infinity, charlists:
   :as_lists])` so a long trace doesn't truncate mid-read. See al-internals'
-  "The domino tracing model" for what the trace actually contains and why.
+  "The tracing model" for what the trace actually contains and why.
 - On a *failed* run, `reason.state` carries the real final `%AL{}` — e.g.
   `AL.Var.isa_of(reason.state.active_choicepoint.store, var)` to see what was
   still parked on a var when the last goal failed, not just that it failed.

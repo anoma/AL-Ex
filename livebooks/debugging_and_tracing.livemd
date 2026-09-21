@@ -77,18 +77,19 @@ end
 
 ## The domino tracing model
 
-AL's trace is called "domino" internally and is built on the classic Prolog tracer model: a "Byrd box" for every call, with four ports — `Call`, `Exit`, `Redo`, `Fail`. Plain Prolog needs one box per predicate call. AL needs two, stacked: a **method** box (dispatch choosing which provider answers a selector), which wraps a **clause** box (which clause of the chosen method actually runs). Every send opens because AL has dispatch sitting on top of clause selection, whereas Prolog only has the latter.
+AL's call-tree trace family is called "Domino" and is built on the classic Prolog tracer model: a "Byrd box" for every call, with four ports — `Call`, `Exit`, `Redo`, `Fail`. Plain Prolog needs one box per predicate call. AL needs two, stacked: a **method** box (dispatch choosing which provider answers a selector), which wraps a **clause** box (which clause of the chosen method actually runs). Every send opens because AL has dispatch sitting on top of clause selection, whereas Prolog only has the latter.
 
-Retained traces are opt-in. Use `trace_mode: :derivation_trace` when you need the structured evidence stream; ordinary runs retain no trace.
+Retained traces are opt-in and composable. Use `trace: [:domino]` when you need the structured evidence stream; ordinary runs retain no trace.
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace_mode: :derivation_trace do
+  run trace: [:domino] do
     fibonacci(3, x)
   end
 
-state.domino.trace
+state.trace.events
 |> Enum.reverse()
+|> Enum.map(&AL.Trace.payload/1)
 |> Enum.map(fn
   entry when is_tuple(entry) -> elem(entry, 0)
   entry -> entry
@@ -124,7 +125,7 @@ end
 AL.notrace()
 ```
 
-`run` accepts three trace modes. The default, `trace_mode: :no_trace`, retains no execution history. `trace_mode: :derivation_trace` retains structured method/clause and constraint evidence for extraction and ZK verification. `trace_mode: :full_trace` also interleaves every raw goal into that same trace when you need to inspect everything AL executed.
+`run` accepts a set of trace flags. With no flags it retains no execution history. `:domino` retains structured method/clause and constraint evidence; `:vm` interleaves every raw goal into the same chronological event stream. The flags compose, so `trace: [:domino, :vm]` gives the former full trace. Every event is tagged as either `:domino` or `:vm`; when both flags are enabled, Domino owns constraint evidence so it is retained only once. A future query explainer can join this same system as another producer. The old `trace_mode:` values remain compatibility shorthands.
 
 Dispatch on an open receiver can have several candidate legs- a value/ephemeral leg and a durable leg, at minimum. Tracing shows which legs are being considered before a match is even found.
 
@@ -149,16 +150,17 @@ AL.notrace()
 
 ## The derivation tree: a cleaner picture than raw trace text
 
-`AL.Trace.derivation_tree/1` turns a run's trace into real nested nodes instead of indented text you have to read by eye. 
+`AL.Trace.derivation_tree/1` turns a completed run state into an operational derivation tree. Call nodes have successful answer children; answers carry the selected clause and what that call derived, and their children are the ordered nested calls and constraint evidence that produced the answer. Open variables nested inside a receiver or argument are included in a call's derivation. Unsuccessful attempts are pruned.
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace_mode: :derivation_trace do
+  run trace: [:domino] do
     fibonacci(3, x)
   end
 
-[root] = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+[root] = AL.Trace.derivation_tree(state)
+[answer] = root.children
 
-{root.kind, root.label, root.derived, length(root.children)}
+{root.kind, root.label, answer.clause, answer.derived, length(answer.children)}
 ```
 
 When a method has more than one clause that could structurally match, redo tries the next one in place. The tree keeps only the attempt that actually won, not a trail of every clause that was tried.
@@ -175,16 +177,17 @@ end
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace_mode: :derivation_trace do
+  run trace: [:domino] do
     new(:redo_demo, %{}, obj)
     pick(obj, result)
     result = :second
   end
 
-roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+roots = AL.Trace.derivation_tree(state)
 pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
 
-{pick_node.children, pick_node.derived}
+[answer] = pick_node.children
+{answer.clause, answer.children, answer.derived}
 ```
 
 The first clause (`:first`) is attempted and then upon fail, redone into the second clause. The derivation tree though, only shows the winner. It prunes the failed branches.
@@ -218,24 +221,27 @@ end
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace_mode: :derivation_trace do
+  run trace: [:domino] do
     new(:probe_box, %{}, obj)
     probe_answer(obj, r)
   end
 
-roots = state.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
+roots = AL.Trace.derivation_tree(state)
 answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
 
-[top] = answer.children
-[mid] = top.children
-[leaf] = mid.children
+[answer_result] = answer.children
+[top] = answer_result.children
+[top_result] = top.children
+[mid] = top_result.children
+[mid_result] = mid.children
+[leaf] = mid_result.children
 
 {top.label, mid.label, leaf.label, Enum.any?(roots, &match?(%{label: {_, :probe_reject, _}}, &1))}
 ```
 
-## Constraints show up in the tree too, nested under their own scope, with resolved values
+## Constraints show up in the tree too, nested under their own scope
 
-Constraint goals (from [logic and constraints](./logic_and_constraints.livemd)) get their own node kind nested under whichever method scope posted them. Passing the run's final store into `derivation_tree/2` resolves that node to the value it settled on.
+Constraint goals (from [logic and constraints](./logic_and_constraints.livemd)) remain explicit derivation steps inside the successful answer that posted them. Each constraint node carries the variable descriptions immediately before and immediately after that constraint ran. A later method or collection answer cannot be mistaken for something the earlier constraint derived.
 
 ```elixir
 run do
@@ -249,18 +255,16 @@ end
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace_mode: :derivation_trace do
+  run trace: [:domino] do
     new(:triple_class, %{}, obj)
     triple(obj, 4, r)
   end
 
-roots =
-  state.domino.trace
-  |> Enum.reverse()
-  |> AL.Trace.derivation_tree(state.active_choicepoint.store)
+roots = AL.Trace.derivation_tree(state)
 
 root = Enum.find(roots, &match?(%{label: {_, :triple, _}}, &1))
-[constraint_node] = Enum.filter(root.children, &(&1.kind == :constraint))
+[answer] = root.children
+[constraint_node] = Enum.filter(answer.children, &(&1.kind == :constraint))
 
-{constraint_node.kind, constraint_node.derived}
+{constraint_node.kind, constraint_node.constraints_in, constraint_node.derived}
 ```

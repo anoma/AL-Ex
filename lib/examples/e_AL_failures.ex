@@ -117,7 +117,7 @@ defmodule Examples.ALFailures do
     assert reason.message =~ "not in the domain"
     refute reason.message =~ "does not understand"
     assert reason.trace == []
-    assert reason.state.domino.trace == []
+    assert reason.state.trace.events == []
     :ok
   end
 
@@ -162,7 +162,7 @@ defmodule Examples.ALFailures do
     assert reason.message =~ "does not understand"
     assert reason.message =~ "greett"
     assert reason.trace == []
-    assert reason.state.domino.scopes == %{}
+    assert reason.state.trace.runtime.scopes == %{}
     :ok
   end
 
