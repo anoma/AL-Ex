@@ -6,7 +6,7 @@ defmodule AL.MixProject do
   def project do
     [
       app: :al,
-      version: "0.4.1",
+      version: "0.4.2",
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
