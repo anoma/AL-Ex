@@ -156,7 +156,7 @@ also starts/stops the Outbox per branch.
   lib/AL/choicepoint.ex)** — the two struct defs `AL` builds its state from;
   split out since they're pure data, no logic.
 - **`AL.Interp.Store` (lib/AL/interp/store.ex)** — the object-mutation goals:
-  `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/`SetSlots` and their five
+  `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/`SetSlot` and their five
   `Retract*` counterparts. Every one writes both the durable command log
   (`AL.Command`) and the in-memory projection (`AL.Object`) through one shared
   `write/3` helper. A goal whose `object` is already a live map (an ephemeral
@@ -434,8 +434,9 @@ constraint steps. A method answer's derivation spans that method Call/Exit,
 while a constraint node's derivation spans only that constraint's execution.
 Redo rewinds later siblings and invalidates ancestor answers, so unsuccessful
 attempts do not leak into the surviving tree.
-`AL.Trace.render/1` prints either shape
-(reconstructs depth by walking Call/Exit as it goes), through the same
+`AL.Trace.render/1` prints a chronological event journal and reconstructs depth
+by walking Call/Exit as it goes. `AL.Trace.render_tree/1` prints the successful
+call/answer tree returned by `derivation_tree/1`. The event renderer uses the same
 formatters the live `AL.trace(:selector)` printer uses (`AL.Trace.call/5`,
 `exit/4`, `redo/4`, `fail/4` — all `(level, depth, receiver, method[, args])`,
 `level` is `:method` or `:clause`). `iex -S mix debug` sets

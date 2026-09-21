@@ -1,12 +1,12 @@
 # AL
 
-AL is a bitemporal operating system which performs constraint resolution through a metaobject protocol. 
+AL is a bitemporal operating system which performs constraint resolution over a metaobject protocol. 
 
 ## Features
 
-- **Inside-Out Architecture** Every change is logged to disk. Restart and continue where you left off.
 - **Relational Objects** Objects support multiple inheritance and constraint-resolving method dispatch. Partially known objects are refined through ordinary message sends.
 - **CLP(FD)** Bounds consistency, `dif`, and global constraints like `all_dif` (Régin's algorithm). Pluggable constraint systems.
+- **Inside-Out Architecture** Every change is logged to disk. Restart and continue where you left off.
 - **ACID Effects** OS-level operations are performed 'at the edge' of ACID transactions and their results cascade into subsequent transactions.
 - **Git-like branching** Fork system state from historical states, work in isolation, discard or retain work.
 - **Bitemporal Querying** Query independently over transaction time and valid time.

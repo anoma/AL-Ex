@@ -1,214 +1,88 @@
 ---
 name: al-practices
-description: Conventions and day-to-day workflow for writing AL programs, packages, and examples against the existing language in this repo — defclass/DSL syntax gotchas, the example-driven testing workflow, code style, Mnesia store safety (forks vs mix al.reset), and how to read a debug trace. Use when writing or debugging AL surface-syntax code (defmethod/defclass/run blocks, packages, examples). For modifying AL's own interpreter/VM, use al-internals instead.
+description: Design, write, refactor, and debug relational-object AL programs, packages, bootstrap methods, and examples. Use for defclass, defmethod, run blocks, collection protocols, value objects, anonymous methods, AL surface syntax, and example-driven verification. Use al-internals as well when changing the interpreter or durable runtime.
 ---
 
 # AL practices
 
-AL is an object-oriented Prolog running in this repo — see the `al-internals`
-skill for how the interpreter itself works. This skill is about writing and
-testing AL *programs* against it: surface syntax, testing workflow, and
-day-to-day operational habits (Mnesia store safety, reading a trace).
+AL is an object-oriented logic language. A good AL method states a relation and
+lets unification, constraints, clause choice, backtracking, and object dispatch
+do the work. Do not translate an imperative Elixir algorithm line by line.
 
-## Testing workflow
+For any nontrivial AL method, class, collection protocol, or refactor, read
+[references/relational-object-programming.md](references/relational-object-programming.md).
+For tests, Mnesia isolation, tracing, bootstrap reloads, or async examples, read
+[references/workflow.md](references/workflow.md).
 
-- For an isolated run that cannot touch the checkout's normal Mnesia store,
-  use `../al-internals/scripts/test.sh <test paths or line numbers>`. It selects
-  a fresh local store and removes it afterward.
-- **Examples are the tests.** They live in `lib/examples/e_AL_*.ex` as ExExample
-  `example` blocks, wired into `test/al_test.exs` via
-  `use ExExample.ExUnit, for: Examples.X`. Run with `mix test`. Examples are
-  memoised nodes — one can call another to reuse its result.
-- **Examples before implementation, then sweep for edges.** Write the `example`
-  first — it should be red before any implementation — then implement to green.
-  Assert *observable behaviour* (what a `send`/query returns) over internal
-  storage. **After** it works, add examples for the corners the implementation
-  surfaced (boundary args, empty results, backtracking, cut/DNU/fork interaction,
-  idempotence/replay).
-- **Every bug fix ships with a test** — the *simplest* `example` that's red on the
-  old code, green on the new. This is how AL pins its subtle semantics
-  (unification, cut/marks, bidirectionality); a fix without a regression example is
-  incomplete.
-- Keep example files **topic-scoped**: `e_AL_arithmetic.ex`, `e_AL_lists.ex`,
-  `e_AL_tasks.ex` (async), `e_AL_branch.ex` (forks), `e_AL_clauses.ex` (clause
-  ordering), etc. When a feature outgrows `Examples.AL`'s general surface, give it
-  its own file and wire a `…Test` module in `al_test.exs`.
-- Test capabilities, not sugar: e.g. async tests build their receiver from
-  bootstrap primitives (`defmethod`) rather than a convenience package.
+## Design checklist
 
-## Asynchronous work
+Before writing a method, identify:
 
-- Treat `lib/examples/e_AL_peer.ex` as the reference shape: the host edge owns
-  the operating-system resource, admits each completion as a fresh AL
-  transaction, and lets AL object methods update durable state and cause the
-  next effects.
-- Do not poll AL state or sleep for guessed durations. A wait observes a causal
-  event emitted after the relevant transaction commits, then reads the durable
-  result. A timeout may bound that event wait, but must not drive repeated state
-  reads.
-- Keep orchestration in AL. Elixir edges translate host events into AL sends and
-  perform host effects; they do not own application state machines, protocols,
-  continuations, or test choreography.
-- Examples notify their test process from the AL method that handles the event.
-  A locally completed send effect proves only that the local write completed;
-  it does not prove that the receiving AL transaction committed.
-- If AL cannot express an asynchronous application cleanly, improve the AL
-  capability or the edge contract instead of adding an Elixir polling helper.
+1. The relation represented by its head.
+2. The useful input/output modes it should preserve.
+3. Which alternatives are separate clauses.
+4. Which facts are constraints that may remain attached to open variables.
+5. Whether behavior belongs in dispatch on a class instead of a conditional.
+6. Whether the result is durable state or a new immutable value.
 
-## DSL gotchas
+Prefer the smallest set of goals that states those facts. Treat clause order,
+cut, `implies`, labeling, and side effects as semantic commitments, not routine
+control-flow tools.
 
-- **`do…end` bodies vs `[…]` goal lists.** A method/`run` body is a `do…end`
-  block (goals newline- *or* comma-separated). `forall` takes its condition
-  goals as call arguments and its body as a `do…end` block, like `for`:
-  `forall(cond1, cond2) do body_goals end`. `findall(template, result) do
-  cond_goals end` likewise. `not` and `call` still take **list literals** —
-  goals must be **comma-separated**, else a confusing `syntax error before:
-  <goal>` (Elixir list syntax, not a parser bug).
-- **`implies` uses a `cond`-style `->` block** (the only form):
-  ```elixir
-  implies do
-    [cond_goals] -> then_goals
-    [more_goals] -> body      # extra clauses read as `else if`, nesting in the else
-    :else -> else_goals       # optional; omitting it splices an *empty* goal list
-  end
-  ```
-  **Omitting `:else` is a vacuous success, not a failure** — `continue/1`
-  treats a choicepoint with `goals == []` as a solved goal (nothing left to
-  run), same as any other emptied-out goal list. If every `->` condition
-  fails and there's no explicit `:else`, the whole `implies` still
-  *succeeds*, leaving whatever vars the `then` branches would have bound
-  untouched — surprising the first time, since "no branch matched" reads
-  like it should fail. Write `:else -> fail` explicitly whenever "nothing
-  matched" is meant to be a failure (bootstrap.ex's
-  `factorial_search`/`fibonacci_search` are the reference example — this bit
-  the first version of both, and `fibonacci`'s arithmetic-bounds derivation
-  in al-internals' "Known gaps" deliberately *relies* on the vacuous-success
-  behaviour once it was understood). Lowers to nested `{:implies, cond, then,
-  else}`; branch bodies are `do`-block clauses, so it side-steps the comma
-  gotcha. A `->` clause can't have an empty body — for an empty then-branch
-  put the shared trailing goals inside each branch.
-- **`defclass name, metaclass: :class (default), super: (required), ivars: [] (default), categories: [] (default) do ... end`**
-  bundles `new(metaclass, %{name:, super:, ivars:}, _)` + one `import` per
-  category + one `defmethod` per method into a single `:defclass` OApply
-  (bootstrap.ex). Methods inside use the 2-arg `defmethod(name, head) do body
-  end` shorthand (no class prefix), always with an explicit `do...end` even
-  when empty — the bodyless 3-arg `defmethod(class, name, head)` fallback
-  does not apply inside `defclass`.
-  - **Gotcha: two methods-list entries can't share a selector.** `:defclass`'s
-    own oapply retracts *all* existing `(name, method_name)` ids before each
-    `defmethod` call in the list — so a class with two same-selector entries
-    (any arity) has the second retract wipe out the first's fresh clause.
-    Multi-clause/multi-arity selectors (recursive methods, arity-based
-    overloads) must stay outside the block as plain top-level
-    `defmethod(class, name, head) do ... end` calls; single-clause methods
-    for the same class can still live inside `defclass` alongside them.
-  - **`metaclass: :category`** declares a category (`e_AL_categories.ex`) the
-    same way — `defclass :name, metaclass: :category, super: :object do
-    defmethod(...) end`. `super`/`ivars` end up as harmless unused keys in
-    the category instance's construction args.
-  - **`categories: [...]`** on an ordinary class bundles the `import` calls
-    that would otherwise follow `new(:class, ...)` by hand — no need to
-    declare the class first and `import` separately.
-  - `new(class, output)` — 2-arg shorthand for `:class`'s 3-arg `new`, empty
-    args (`bootstrap.ex`, coexists with the 3-arg form by arity alone). An
-    `:init` method's head is always the 3-arg `[self, args, new]` shape
-    regardless of which `new` arity the caller used, since `new/2` just
-    delegates to `new/3`.
-- **A map-shaped value class's `:init` must unify (`=`) its output with a
-  freshly literal-constructed map, not `set_slot`/`vm_set_slots` the input
-  scaffold** (`:interval`'s own `:init` in
-  `priv/packages/interval/definitions/interval_value.class.al` is the reference
-  pattern). Durable objects can `set_slot` because `self` is a
-  stable atom id and slots live in a separate keyed table — growing them is
-  just another row. A map-shaped `self` *is* the map itself, already a
-  concrete value by the time `:init` runs; `set_slot`/`vm_set_slots` on it
-  routes through durable `SetSlots` semantics and silently does nothing
-  observable to the actual returned instance. Build the whole map and
-  `new = %{class: ..., ...}` instead.
-- **A relation used by foundational/early bootstrap code must not depend on
-  another class's method defined later in the same file.** `:object`'s
-  `:import` used to walk its copied-methods list via
-  `forall(member(pairs, [name, id]))` — `member` isn't a VM primitive, it's
-  `:list`'s own method, defined ~200 lines later in `bootstrap.ex`. Any
-  `import(..., category)` call earlier than that point had the `member` send
-  silently DNU-fail inside `findall`/`forall`, indistinguishable from `pairs`
-  genuinely being empty. General lesson, applies to any package you write:
-  a silent-failure send (DNU inside a `findall`/`forall`/`not`) reads
-  identically to "no results," so a missing-provider bug at one of those
-  call sites won't show up as an error — it shows up as an empty answer that
-  looks legitimate until something expects a non-empty one.
+## Core surface rules
 
-## Code style
+- AL has no tuple literals. Use lists for positional relational data, maps for
+  named value data, and value classes when behavior belongs with that data.
+- Multiple `defmethod` entries with the same selector are valid inside one
+  `defclass`. They form ordered clauses of one method. Use this for base cases,
+  recursive cases, and relational alternatives.
+- Use `defclass` for ordinary class, value-class, metaclass, and category
+  declarations. Reserve raw `new(:class, ...)` construction for implementation
+  or tests of the class protocol itself.
+- Inside `defclass`, methods use `defmethod(selector, head) do ... end`. Keep an
+  explicit `do ... end`, including for an empty body. Top-level definitions use
+  `defmethod(class, selector, head)`.
+- Method and `run` bodies are sequences of goals. `forall` and `findall` take a
+  `do ... end` goal body. `not` and low-level `call` take a list of goals.
+- `implies` is committed if/then/else: it keeps the first successful condition
+  and discards its remaining alternatives. If no condition matches and no
+  `:else` is present, it succeeds vacuously. Use explicit `:else -> fail` when
+  failure is intended.
+- Use `cut` only when the relation intentionally commits to choices made in the
+  current call scope.
 
-- Module docs are first-person ("I am …", "I provide …").
-- **No comments, period.** Not "terse comments," not "only non-obvious why" — zero.
-  Names and types carry meaning; a comment is never the fix for code that needs
-  explaining. Keep docstrings terse when a moduledoc is genuinely required, but
-  default to none. This applies repo-wide (interpreter code, tests/examples,
-  bug fixes alike), not just AL surface syntax.
+## Objects and executable values
 
-## Mnesia store safety
+- Normal calls dispatch a selector through the receiver. When the selector is a
+  value, use `send(receiver, selector, args)`.
+- Method objects and `:anonymous_method` values implement `run(args)`. Execute
+  them with `run(method, args)`.
+- An `:anonymous_method` is a classed value object with `args`, `head`, and
+  `body`. `add_arg` returns an updated value; it does not mutate the original.
+  The loaded arguments and provided arguments are concatenated, unified with
+  the head, and then the body runs.
+- When a protocol accepts either a selector or an anonymous method, keep them as
+  clauses of the same arity. Use `send` for the selector clause and constrain
+  the executable-value clause with `isa(method, :anonymous_method)` before
+  calling `run`.
+- `call(head, body, args)` is the low-level relation used to apply stored clause
+  data. It is not the public representation of an anonymous callable.
 
-- Mnesia artifacts (`.mnesiastore/`, root `MnesiaCore.*`) are gitignored — never
-  commit them.
-- Mnesia store is a **shared, gitignored file** (`.mnesiastore/` by default,
-  one directory per node) — `rm -rf`ing it is a genuinely destructive,
-  process-wide operation, not a branch-scoped one, and will pull the store
-  out from under *any other node currently running against it* (verified:
-  two independent `mix run` processes sharing a store, each only touching
-  its own fork, don't conflict at all — the wipe itself is the only thing
-  that's actually unsafe). **Default to a throwaway fork**
-  (`AL.Branch.fork()` … `checkout` … `discard`) instead of touching `:main`
-  directly, whenever more than one person/process might be using the same
-  checkout — see the README's "Working with multiple people" section for
-  the concrete workflow, `mix al.reset` for the rare genuine-full-reset case.
-- **Getting a changed definition picked up, three ways, cheapest-safe first:**
-  1. **A fork with a fresh install, no wipe at all**: transaction program installation is
-     idempotent by recorded name and version, so editing an already-installed program's
-     source (e.g. `bootstrap.ex`) has no effect on an *existing* branch until
-     it's reinstalled — and `defmethod` *accretes* a clause rather than
-     replacing, so even an explicit reinstall on the same branch needs an
-     `uninstall` first, which can fail outright for a foundational program
-     with dependents (`AL.TransactionProgram.uninstall(:bootstrap)` refuses if anything
-     else installed depends on it — true of `:bootstrap` itself). Sidestep
-     all of that by forking from **before anything's installed** instead of
-     an existing branch: `AL.Branch.fork(0, AL.Branch.main())` (a fork only
-     copies whatever's already in its source's log — `at: 0` means "copy
-     nothing," a genuinely empty branch). `AL.Branch.fork_fresh()` performs
-     that fork and installs every configured transaction program and portable
-     package bundle from current source. Verified `:main`'s own state is
-     untouched before/after.
-  2. **`mix al.reset`** (`--yes` to skip the confirmation prompt) when a
-     fork genuinely isn't enough — coordinate first if anyone else might
-     have a node up, since this wipes the *whole* store, every branch on it.
-  3. A **VM-level change to the goal encoding** (tuple shape/arity, a new
-     sentinel like `:next`, a reordered field) makes a full wipe (2)
-     *necessary* rather than just convenient, even for (1) — old-shape goals
-     already in *any* branch's log, empty forks included, can no longer
-     replay (`interp/2` crashes with a `function_clause` on an
-     `interp({:set_oapply, …})`-style goal of the wrong arity).
-- **The store directory itself is configurable**, three ways checked in
-  order, for when full filesystem-level separation between nodes is wanted
-  (not needed for normal fork-based collaboration, but there for CI or
-  wanting zero shared state on principle): `config :al, mnesia_dir: "..."`
-  (persistent, e.g. a personal gitignored `config/dev.exs`) → the
-  `AL_MNESIA_DIR` env var (`AL_MNESIA_DIR=/tmp/foo mix test`, no config file
-  needed) → `.mnesiastore/` in the cwd, the default. Single source of truth:
-  `AL.Command.mnesia_dir/0`, which `setup/0` and `mix al.reset` both read.
+## State and values
 
-## Reading a trace
+- A durable object has an identity and projected slots. Read it with `get`; write
+  it with `set_slot` or `set_slots` so its class protocol validates the write.
+- A map-shaped value object is immutable. Read it with `get`; produce an updated
+  value with `put`. Read only the slots required to compute that update.
+- A value class's `init` constructs its result by unifying with a complete map.
+  Do not use durable slot mutation on a map scaffold.
+- Prefer `get`, `put`, `set_slot`, and `set_slots` in program code. Use
+  `vm_map_get`, `vm_map_put`, or `vm_set_slot` only at the implementation or
+  structural-reconciliation boundary.
 
-- `run trace: [:domino, :vm] do ... end` composes the trace
-  families needed by a run. Events are retained in `state.trace.events`, and
-  `AL.Trace.render/1` prints them readably. `:domino` retains structured
-  method/clause and constraint evidence; `:vm` retains every raw goal. Events
-  are tagged by kind. No flags retains no execution history. The old
-  `trace_mode:` values remain compatibility shorthands. `iex -S mix
-  debug` configures `IEx.configure(inspect: [limit: :infinity, charlists:
-  :as_lists])` so a long trace doesn't truncate mid-read. See al-internals'
-  "The tracing model" for what the trace actually contains and why.
-- On a *failed* run, `reason.state` carries the real final `%AL{}` — e.g.
-  `AL.Var.isa_of(reason.state.active_choicepoint.store, var)` to see what was
-  still parked on a var when the last goal failed, not just that it failed.
-  Full mechanism (constraint-violation diagnosis, what's stripped on the
-  `heap:`-capped path) in al-internals.
+## Verification
+
+Examples are executable specifications. Add or update the smallest example that
+observes the intended relation, run it with the isolated helper, then run the
+full suite when bootstrap or shared protocols changed. Assert answers and
+constraints rather than private tables or implementation steps.

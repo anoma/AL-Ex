@@ -1,10 +1,10 @@
 ---
 name: al-practices
-description: Conventions and day-to-day workflow for writing AL programs, packages, and examples against the existing language in this repo. Use for defmethod, defclass, run blocks, packages, examples, surface syntax, Mnesia store safety, and debug traces.
+description: Design, write, refactor, and debug relational-object AL programs, packages, bootstrap methods, and examples. Use for defclass, defmethod, run blocks, collection protocols, value objects, anonymous methods, AL surface syntax, and example-driven verification.
 ---
 
 # AL practices
 
-The canonical instructions for this skill are maintained in
-`.agents/skills/al-practices/SKILL.md`. Read and follow that file before writing
-or debugging AL surface-syntax code.
+The canonical instructions are in `.agents/skills/al-practices/SKILL.md`.
+Read that file and whichever linked reference it routes to before designing,
+writing, refactoring, or debugging AL surface code.
