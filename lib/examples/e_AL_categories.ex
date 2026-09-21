@@ -53,7 +53,7 @@ defmodule Examples.ALCategories do
         not [super(:import_b, :import_a)]
         not [super(:import_a, :shared_behaviour)]
 
-        unify(unrelated, true)
+        unrelated = true
       end
 
     assert Map.get(bindings, :"$unrelated") == true
@@ -89,7 +89,10 @@ defmodule Examples.ALCategories do
 
         new(:countable, instance)
 
-        findall(s, [count(s, 0), label(s)], candidates)
+        findall(s, candidates) do
+          count(s, 0)
+          label(s)
+        end
       end
 
     candidates = Map.get(b1, :"$candidates")

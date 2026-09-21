@@ -1,8 +1,8 @@
 defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
-  reverse, sort, dedupe, map, fold, flatten, same_length, at, all_dif,
-  label_range) and mapping a lambda over a list.
+  reverse, sort, min_by, dedupe, map, fold, flatten, same_length, at, all_dif,
+  label_range) and mapping an anonymous method over a list.
   """
 
   use ExExample
@@ -12,7 +12,7 @@ defmodule Examples.ALLists do
   example deep_cons_patterns_bind() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify([first, second | rest], [:a, :b, :c, :d])
+        [first, second | rest] = [:a, :b, :c, :d]
       end
 
     assert AL.Var.deref(bindings, :"$second") == :b
@@ -28,7 +28,6 @@ defmodule Examples.ALLists do
         tl([:w, :x, :y, :z], tail)
         concat([:a, :b, :c], [:d, :e, :f], sum)
         reverse([:b, :c, :d, :e, :f], reversed)
-        map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
         fold_left([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_left)
         fold_right([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_right)
         flatten([[:a, :b], [:c, :d, :e]], flattened)
@@ -37,7 +36,6 @@ defmodule Examples.ALLists do
 
     assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
     assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
-    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
     assert Map.get(bindings, :"$folded_left") == [:starter, :a, :b, :c, :d]
     assert Map.get(bindings, :"$folded_right") == [:starter, :d, :c, :b, :a]
     assert Map.get(bindings, :"$flattened") == [:a, :b, :c, :d, :e]
@@ -51,7 +49,9 @@ defmodule Examples.ALLists do
   example at_is_bidirectional() do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
-        findall([i, x], [at([1, 2, 3], i, x)], elems)
+        findall([i, x], elems) do
+          at([1, 2, 3], i, x)
+        end
       end
 
     assert Map.get(bindings, :"$elems") == [[0, 1], [1, 2], [2, 3]]
@@ -66,6 +66,80 @@ defmodule Examples.ALLists do
       end
 
     assert Map.get(bindings, :"$sorted") == [1, 1, 2, 3, 4, 5, 6, 9]
+    :ok
+  end
+
+  example min_by_picks_the_element_with_the_least_value() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        min_by([[3, 5], [4, 5], [6, 3], [4, 7]], :hd, min)
+      end
+
+    assert Map.get(bindings, :"$min") == [3, 5]
+    :ok
+  end
+
+  example min_by_yields_every_tied_minimum() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        findall(m, mins) do
+          min_by([[2, :a], [1, :b], [1, :c]], :hd, m)
+        end
+      end
+
+    assert Map.get(bindings, :"$mins") == [[1, :b], [1, :c]]
+    :ok
+  end
+
+  example min_by_constrains_an_open_element() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        x >= 0
+        x <= 10
+
+        findall([x, m], pairs) do
+          min_by([[3, 5], [4, 5], [6, 3], [x, 7]], :hd, m)
+          label(x)
+        end
+      end
+
+    pairs = Map.get(bindings, :"$pairs")
+    assert length(pairs) == 12
+    assert [3, [3, 5]] in pairs
+    assert [3, [3, 7]] in pairs
+    assert [0, [0, 7]] in pairs
+    assert [10, [3, 5]] in pairs
+    refute [5, [5, 7]] in pairs
+    :ok
+  end
+
+  example forall_binds_shared_open_elements() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        l = [a, b]
+
+        forall(member(l, c)) do
+          c = 7
+        end
+      end
+
+    assert Map.get(bindings, :"$a") == 7
+    assert Map.get(bindings, :"$b") == 7
+    :ok
+  end
+
+  example forall_keeps_body_locals_per_solution() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        forall(member([1, 2, 3], n)) do
+          double = n * 2
+          double <= 6
+        end
+
+        done = true
+      end
+
+    assert Map.get(bindings, :"$done") == true
     :ok
   end
 
@@ -90,18 +164,34 @@ defmodule Examples.ALLists do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         dedupe([x, y], result)
-        unify(result, [x, y])
-        unify(x, 1)
-        unify(y, 1)
+        result = [x, y]
+        x = 1
+        y = 1
       end
 
     :ok
   end
 
-  example call_lambda_map() do
+  example map_with_method_selector_sends_to_each_element() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        map([:a, :b, :c], [x, %{id: x}], [], out)
+        map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
+      end
+
+    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
+    :ok
+  end
+
+  example map_with_anonymous_method_runs_each_element() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        new(
+          :anonymous_method,
+          %{args: [], head: [x, result], body: [result = %{id: x}]},
+          mapper
+        )
+
+        map([:a, :b, :c], mapper, out)
       end
 
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
@@ -132,24 +222,19 @@ defmodule Examples.ALLists do
   example all_dif_catches_a_later_bind_between_open_elements() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        unify(l, [1, x, y])
+        l = [1, x, y]
         all_dif(l)
-        unify(x, 2)
-        unify(y, 2)
+        x = 2
+        y = 2
       end
 
     :ok
   end
 
-  # Recurses via clause-head matching (`[h|t]`), not `forall`/`member` — a
-  # still-open shared element gets bound through ordinary unification this
-  # way, threading back to the caller's own var (see bootstrap.ex's own
-  # comment on `label_range`: `forall`'s collect-then-freshen splice would
-  # mint an independent copy instead).
   example label_range_grounds_open_elements_within_bounds() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(l, [1, x, 3])
+        l = [1, x, 3]
         all_dif(l)
         label_range(l, 1, 3)
       end
@@ -179,7 +264,7 @@ defmodule Examples.ALLists do
   example all_dif_leaves_slack_domains_unpruned() do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(d, [1, 2, 3, :a, :b, :c])
+        d = [1, 2, 3, :a, :b, :c]
         in_domain(x, d)
         in_domain(y, d)
         in_domain(z, d)

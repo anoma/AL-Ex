@@ -177,7 +177,7 @@ defmodule Examples.ALBranch do
         defmethod(:fork_worker, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
           get(:fork_worker_subscriber, :pid, p)
-          functor(message, :handled, [object])
+          message = %{event: :handled, object: object}
           send_elixir(p, message)
         end
       end
@@ -188,7 +188,7 @@ defmodule Examples.ALBranch do
       end
 
     receive do
-      {:handled, :fork_obj} -> :ok
+      %{event: :handled, object: :fork_obj} -> :ok
     after
       1000 -> flunk("timed out waiting for :fork_obj to be handled")
     end
@@ -337,7 +337,7 @@ defmodule Examples.ALBranch do
       """
       defmethod(:gadget, :describe, [self, size]) do
         get(self, :size, size)
-        is(size, size)
+        size = size
       end
       """,
       """

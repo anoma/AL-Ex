@@ -13,7 +13,7 @@ defmodule Examples.ALObjectLabeling do
 
         defclass :labeling_dog,
           super: :labeling_animal,
-          ivars: [labeling_unique_slot: []] do
+          ivars: [:labeling_unique_slot] do
         end
 
         defclass :labeling_cat, super: :labeling_animal do
@@ -36,7 +36,7 @@ defmodule Examples.ALObjectLabeling do
 
         defclass :labeling_circle, super: [:labeling_shape, :value] do
           defmethod(:init, [_self, _args, new]) do
-            unify(new, %{class: :labeling_circle, radius: 1})
+            new = %{class: :labeling_circle, radius: 1}
           end
         end
       end
@@ -49,7 +49,10 @@ defmodule Examples.ALObjectLabeling do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(object, [class(object, :labeling_animal), label(object)], objects)
+        findall(object, objects) do
+          class(object, :labeling_animal)
+          label(object)
+        end
       end
 
     assert bindings[:"$objects"] == [:labeling_animal_object]
@@ -60,7 +63,10 @@ defmodule Examples.ALObjectLabeling do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(object, [isa(object, :labeling_animal), label(object)], objects)
+        findall(object, objects) do
+          isa(object, :labeling_animal)
+          label(object)
+        end
       end
 
     assert MapSet.new(bindings[:"$objects"]) ==
@@ -92,7 +98,10 @@ defmodule Examples.ALObjectLabeling do
       run branch: Examples.Support.branch() do
         isa(object, :labeling_animal)
         dif(object, :labeling_animal_object)
-        findall(object, [label(object)], objects)
+
+        findall(object, objects) do
+          label(object)
+        end
       end
 
     refute :labeling_animal_object in bindings[:"$objects"]
@@ -147,16 +156,12 @@ defmodule Examples.ALObjectLabeling do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [object, marker, exact_class],
-          [
-            class(object, :labeling_dog),
-            label(object),
-            unify(marker, :after_label),
-            class(object, exact_class)
-          ],
-          answers
-        )
+        findall([object, marker, exact_class], answers) do
+          class(object, :labeling_dog)
+          label(object)
+          marker = :after_label
+          class(object, exact_class)
+        end
       end
 
     assert bindings[:"$answers"] == [
@@ -181,11 +186,11 @@ defmodule Examples.ALObjectLabeling do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          marker,
-          [class(object, exact_class), label(exact_class), unify(marker, :after_class_label)],
-          markers
-        )
+        findall(marker, markers) do
+          class(object, exact_class)
+          label(exact_class)
+          marker = :after_class_label
+        end
       end
 
     assert Enum.uniq(bindings[:"$markers"]) == [:after_class_label]
@@ -196,11 +201,11 @@ defmodule Examples.ALObjectLabeling do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          marker,
-          [super(subclass, superclass), label(subclass), unify(marker, :after_super_label)],
-          markers
-        )
+        findall(marker, markers) do
+          super(subclass, superclass)
+          label(subclass)
+          marker = :after_super_label
+        end
       end
 
     assert Enum.uniq(bindings[:"$markers"]) == [:after_super_label]
@@ -211,15 +216,11 @@ defmodule Examples.ALObjectLabeling do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [object, marker],
-          [
-            slot(object, :labeling_unique_slot, :labeling_unique_value),
-            label(object),
-            unify(marker, :after_slot_label)
-          ],
-          answers
-        )
+        findall([object, marker], answers) do
+          slot(object, :labeling_unique_slot, :labeling_unique_value)
+          label(object)
+          marker = :after_slot_label
+        end
       end
 
     assert bindings[:"$answers"] == [[:labeling_dog_object, :after_slot_label]]

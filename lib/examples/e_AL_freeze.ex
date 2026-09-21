@@ -12,8 +12,8 @@ defmodule Examples.ALFreeze do
   example bound_runs_at_once() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        unify(x, 3)
-        freeze(x, [is(y, x + 1)])
+        x = 3
+        freeze(x, [y = x + 1])
       end
 
     assert AL.Var.deref(bindings, :"$y") == 4
@@ -23,8 +23,8 @@ defmodule Examples.ALFreeze do
   example binding_wakes_in_place() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        freeze(x, [is(y, x + 1)])
-        unify(x, 3)
+        freeze(x, [y = x + 1])
+        x = 3
       end
 
     assert AL.Var.deref(bindings, :"$y") == 4
@@ -38,7 +38,7 @@ defmodule Examples.ALFreeze do
 
         defmethod(:frozen, :five, [_self, 5])
 
-        freeze(v, [is(w, v + 1)])
+        freeze(v, [w = v + 1])
         five(:frozen, v)
       end
 
@@ -49,7 +49,7 @@ defmodule Examples.ALFreeze do
   example floundering_fails() do
     {:aborted, _reason} =
       run branch: Examples.Support.branch() do
-        freeze(x, [is(y, x + 1)])
+        freeze(x, [y = x + 1])
       end
 
     :ok
@@ -62,9 +62,9 @@ defmodule Examples.ALFreeze do
              (fn ->
                 {:atomic, {b, _constraints, _}} =
                   run branch: Examples.Support.branch() do
-                    freeze(a, [is(b, a * 2)])
-                    freeze(b, [is(a, b / 2)])
-                    unify(a, 21)
+                    freeze(a, [b = a * 2])
+                    freeze(b, [a = b / 2])
+                    a = 21
                   end
 
                 {AL.Var.deref(b, :"$a"), AL.Var.deref(b, :"$b")}
@@ -74,9 +74,9 @@ defmodule Examples.ALFreeze do
              (fn ->
                 {:atomic, {b, _constraints, _}} =
                   run branch: Examples.Support.branch() do
-                    freeze(a, [is(b, a * 2)])
-                    freeze(b, [is(a, b / 2)])
-                    unify(b, 42)
+                    freeze(a, [b = a * 2])
+                    freeze(b, [a = b / 2])
+                    b = 42
                   end
 
                 {AL.Var.deref(b, :"$a"), AL.Var.deref(b, :"$b")}
@@ -89,9 +89,9 @@ defmodule Examples.ALFreeze do
   example aliased_variable_still_wakes() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        freeze(x, [unify(fired, :yes)])
-        unify(x, y)
-        unify(y, 5)
+        freeze(x, [fired = :yes])
+        x = y
+        y = 5
       end
 
     assert AL.Var.deref(bindings, :"$fired") == :yes

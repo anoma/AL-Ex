@@ -180,169 +180,183 @@ defmodule AL.Tooling do
 
   defp reference_run(target, branch) do
     AL.run branch: branch.id do
-      findall(class, [class(^target, class)], target_classes)
-      findall(object, [isa(object, ^target), label(object)], instances)
-      findall(superclass, [super(^target, superclass)], supers)
-      findall(subclass, [super(subclass, ^target)], subclasses)
+      findall(class, target_classes) do
+        class(^target, class)
+      end
 
-      findall(
-        [owner, selector, method_id],
-        [method(owner, selector, method_id), label(owner)],
-        method_bindings
-      )
+      findall(object, instances) do
+        isa(object, ^target)
+        label(object)
+      end
 
-      findall(
-        [method_id, sequence, head, body],
-        [clause(method_id, sequence, head, body), label(method_id)],
-        clauses
-      )
+      findall(superclass, supers) do
+        super(^target, superclass)
+      end
+
+      findall(subclass, subclasses) do
+        super(subclass, ^target)
+      end
+
+      findall([owner, selector, method_id], method_bindings) do
+        method(owner, selector, method_id)
+        label(owner)
+      end
+
+      findall([method_id, sequence, head, body], clauses) do
+        clause(method_id, sequence, head, body)
+        label(method_id)
+      end
     end
     |> al_run_result()
   end
 
   defp failure_run(tx, branch) do
     AL.run branch: branch.id do
-      findall(
-        [transaction, status, reasons, sources],
-        [
-          class(transaction, :transaction),
-          label(transaction),
-          get(transaction, :tx, ^tx),
-          get(transaction, :status, status),
-          findall(reason, [get(transaction, :reason, reason)], reasons),
-          findall(source, [listing(transaction, source)], sources)
-        ],
-        failures
-      )
+      findall([transaction, status, reasons, sources], failures) do
+        class(transaction, :transaction)
+        label(transaction)
+        get(transaction, :tx, ^tx)
+        get(transaction, :status, status)
+
+        findall(reason, reasons) do
+          get(transaction, :reason, reason)
+        end
+
+        findall(source, sources) do
+          listing(transaction, source)
+        end
+      end
     end
     |> al_run_result()
   end
 
   defp object_run(object, branch) do
     AL.run branch: branch.id do
-      findall(class, [class(^object, class)], object_classes)
-      findall(superclass, [super(^object, superclass)], object_supers)
-      findall([selector, method_id], [method(^object, selector, method_id)], object_methods)
+      findall(class, object_classes) do
+        class(^object, class)
+      end
 
-      findall(
-        [sequence, head, body],
-        [clause(^object, sequence, head, body)],
-        object_clauses
-      )
+      findall(superclass, object_supers) do
+        super(^object, superclass)
+      end
 
-      findall([key, value], [slot(^object, key, value)], object_aos_slots)
-      findall([key, value], [slot(^object, key, value, :soa)], object_soa_slots)
+      findall([selector, method_id], object_methods) do
+        method(^object, selector, method_id)
+      end
+
+      findall([sequence, head, body], object_clauses) do
+        clause(^object, sequence, head, body)
+      end
+
+      findall([key, value], object_aos_slots) do
+        slot(^object, key, value)
+      end
+
+      findall([key, value], object_soa_slots) do
+        slot(^object, key, value, :soa)
+      end
     end
     |> al_run_result()
   end
 
   defp method_run(owner, selector, branch) do
     AL.run branch: branch.id do
-      findall(
-        [method_id, clauses, sources],
-        [
-          method(^owner, ^selector, method_id),
-          findall(
-            [sequence, head, body],
-            [clause(method_id, sequence, head, body)],
-            clauses
-          ),
-          findall(
-            [sequence, text, provenance],
-            [vm_method_source(method_id, sequence, text, provenance)],
-            sources
-          )
-        ],
-        inspected_methods
-      )
+      findall([method_id, clauses, sources], inspected_methods) do
+        method(^owner, ^selector, method_id)
+
+        findall([sequence, head, body], clauses) do
+          clause(method_id, sequence, head, body)
+        end
+
+        findall([sequence, text, provenance], sources) do
+          vm_method_source(method_id, sequence, text, provenance)
+        end
+      end
     end
     |> al_run_result()
   end
 
   defp transaction_run(tx, branch) do
     AL.run branch: branch.id do
-      findall(
-        [transaction, status, reasons, slots],
-        [
-          class(transaction, :transaction),
-          label(transaction),
-          get(transaction, :tx, ^tx),
-          get(transaction, :status, status),
-          findall(reason, [get(transaction, :reason, reason)], reasons),
-          findall([key, value], [slot(transaction, key, value)], slots)
-        ],
-        inspected_transactions
-      )
+      findall([transaction, status, reasons, slots], inspected_transactions) do
+        class(transaction, :transaction)
+        label(transaction)
+        get(transaction, :tx, ^tx)
+        get(transaction, :status, status)
 
-      findall(
-        [text, origin],
-        [vm_transaction_source(^tx, text, origin)],
-        transaction_sources
-      )
+        findall(reason, reasons) do
+          get(transaction, :reason, reason)
+        end
 
-      findall(
-        [time, operation],
-        [vm_command(^tx, time, operation)],
-        transaction_commands
-      )
+        findall([key, value], slots) do
+          slot(transaction, key, value)
+        end
+      end
+
+      findall([text, origin], transaction_sources) do
+        vm_transaction_source(^tx, text, origin)
+      end
+
+      findall([time, operation], transaction_commands) do
+        vm_command(^tx, time, operation)
+      end
     end
     |> al_run_result()
   end
 
   defp packages_run(branch) do
     AL.run branch: branch.id do
-      findall(
-        [package, active_builds, builds, providers],
-        [
-          class(package, :package),
-          label(package),
-          findall(active_build, [active_build(package, active_build)], active_builds),
-          findall(build, [class(build, package), label(build)], builds),
-          findall(
-            provider,
-            [
-              class(provider, :package_provider),
-              label(provider),
-              provides(provider, package)
-            ],
-            providers
-          )
-        ],
-        packages
-      )
+      findall([package, active_builds, builds, providers], packages) do
+        class(package, :package)
+        label(package)
+
+        findall(active_build, active_builds) do
+          active_build(package, active_build)
+        end
+
+        findall(build, builds) do
+          class(build, package)
+          label(build)
+        end
+
+        findall(provider, providers) do
+          class(provider, :package_provider)
+          label(provider)
+          provides(provider, package)
+        end
+      end
     end
     |> al_run_result()
   end
 
   defp package_run(name, branch) do
     AL.run branch: branch.id do
-      findall(
-        [active_builds, builds, providers],
-        [
-          class(^name, :package),
-          findall(active_build, [active_build(^name, active_build)], active_builds),
-          findall(
-            [build, slots],
-            [
-              class(build, ^name),
-              label(build),
-              findall([key, value], [slot(build, key, value)], slots)
-            ],
-            builds
-          ),
-          findall(
-            [provider, slots],
-            [
-              class(provider, :package_provider),
-              label(provider),
-              provides(provider, ^name),
-              findall([key, value], [slot(provider, key, value)], slots)
-            ],
-            providers
-          )
-        ],
-        inspected_packages
-      )
+      findall([active_builds, builds, providers], inspected_packages) do
+        class(^name, :package)
+
+        findall(active_build, active_builds) do
+          active_build(^name, active_build)
+        end
+
+        findall([build, slots], builds) do
+          class(build, ^name)
+          label(build)
+
+          findall([key, value], slots) do
+            slot(build, key, value)
+          end
+        end
+
+        findall([provider, slots], providers) do
+          class(provider, :package_provider)
+          label(provider)
+          provides(provider, ^name)
+
+          findall([key, value], slots) do
+            slot(provider, key, value)
+          end
+        end
+      end
     end
     |> al_run_result()
   end
@@ -351,19 +365,14 @@ defmodule AL.Tooling do
     AL.run branch: branch.id do
       inheritance_chain(^receiver, lookup_scopes)
 
-      findall(
-        [scope, method_id, clauses],
-        [
-          member(lookup_scopes, scope),
-          method(scope, ^selector, method_id),
-          findall(
-            [sequence, head, body],
-            [clause(method_id, sequence, head, body)],
-            clauses
-          )
-        ],
-        lookup_providers
-      )
+      findall([scope, method_id, clauses], lookup_providers) do
+        member(lookup_scopes, scope)
+        method(scope, ^selector, method_id)
+
+        findall([sequence, head, body], clauses) do
+          clause(method_id, sequence, head, body)
+        end
+      end
     end
     |> al_run_result()
   end

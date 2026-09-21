@@ -169,16 +169,16 @@ defmodule AL.Serialisation.Sync do
     scope = scope(owner, selector)
 
     """
-    findall(id_#{scope}, [method(#{literal(owner)}, #{literal(selector)}, id_#{scope})], ids_#{scope})
+    findall(id_#{scope}, ids_#{scope}) do
+      method(#{literal(owner)}, #{literal(selector)}, id_#{scope})
+    end
 
-    forall([member(ids_#{scope}, id_#{scope})]) do
-      findall(
-        [head_#{scope}, body_#{scope}],
-        [clause(id_#{scope}, head_#{scope}, body_#{scope})],
-        clauses_#{scope}
-      )
+    forall(member(ids_#{scope}, id_#{scope})) do
+      findall([head_#{scope}, body_#{scope}], clauses_#{scope}) do
+        clause(id_#{scope}, head_#{scope}, body_#{scope})
+      end
 
-      forall([member(clauses_#{scope}, [head_#{scope}, body_#{scope}])]) do
+      forall(member(clauses_#{scope}, [head_#{scope}, body_#{scope}])) do
         vm_retract_oapply(id_#{scope}, head_#{scope})
       end
     end\
@@ -192,7 +192,7 @@ defmodule AL.Serialisation.Sync do
       """
 
 
-      forall([member(ids_#{scope}, id_#{scope})]) do
+      forall(member(ids_#{scope}, id_#{scope})) do
         vm_retract_method(#{literal(owner)}, #{literal(selector)}, id_#{scope})
       end\
       """

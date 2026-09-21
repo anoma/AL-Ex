@@ -3,7 +3,7 @@ defmodule Examples.ALBlackjack do
   `:blackjack package`'s `:card`: a `super: :value` class whose `suit`/
   `rank` are ivar specs (`domain: [...]`) -- validated when supplied, left
   open-but-domain-constrained when omitted (see `e_AL_ivar_specs.ex` for the
-  mechanism itself). `hand_total` sums a hand via `eq`; ace's dual value (1
+  mechanism itself). `hand_total` sums a hand via `=`; ace's dual value (1
   or 11) resolves itself through ordinary backtracking.
   """
 
@@ -35,7 +35,11 @@ defmodule Examples.ALBlackjack do
         new(:card, %{suit: :hearts, rank: :ace}, ace)
         new(:card, %{suit: :clubs}, c3)
         get(c3, :rank, r3)
-        findall(r3, [label(r3), hand_total([king, ace, c3], 21)], completions)
+
+        findall(r3, completions) do
+          label(r3)
+          hand_total([king, ace, c3], 21)
+        end
       end
 
     assert Enum.sort(Map.get(bindings, :"$completions")) == [10, :jack, :king, :queen]
@@ -73,11 +77,10 @@ defmodule Examples.ALBlackjack do
   example repeated_symbolic_slot_reads_share_their_value() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [card, rank, value],
-          [card_value(card, value), get(card, :rank, rank)],
-          triples
-        )
+        findall([card, rank, value], triples) do
+          card_value(card, value)
+          get(card, :rank, rank)
+        end
       end
 
     triples = Map.fetch!(bindings, :"$triples")
@@ -119,11 +122,11 @@ defmodule Examples.ALBlackjack do
   example labeling_a_symbolic_slot_value_uses_the_value_witness_domain() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [rank, value],
-          [card_value(card, value), get(card, :rank, rank), label(rank)],
-          pairs
-        )
+        findall([rank, value], pairs) do
+          card_value(card, value)
+          get(card, :rank, rank)
+          label(rank)
+        end
       end
 
     expected =

@@ -2,7 +2,7 @@ Class {
   #name : :process,
   #superclass : [:object],
   #metaclass : :class,
-  #ivars : [pid: []]
+  #ivars : [:pid]
 }
 
 :process >> :allocate, [self, args, new_obj] [

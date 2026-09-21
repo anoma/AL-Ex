@@ -24,7 +24,7 @@ defmodule AL do
     field(:choicepoint_stack, [stack_entry()], default: [])
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
     field(:transaction_object, AL.Var.t() | nil, default: nil)
-    field(:domino, AL.Domino.t(), default: %AL.Domino{})
+    field(:trace, AL.Trace.t(), default: %AL.Trace{})
     field(:program, [AL.Goal.t()], enforce: true, default: [])
     field(:call_cursors, %{optional(scope()) => cursor()}, default: %{})
     field(:pending_cursor, cursor() | nil, default: nil)
@@ -64,17 +64,17 @@ defmodule AL do
   I run an AL transaction against a live branch.
   Options:
   - `branch: s` runs against branch s
+  - `trace: flags` retains the requested composable trace families. Supported
+    flags are `:domino` and `:vm`; the default `[]` retains nothing
   - `trace_mode: :no_trace` retains no execution trace (the default)
   - `trace_mode: :derivation_trace` retains calls and constraints for extraction
     and verification
   - `trace_mode: :full_trace` also retains every raw VM goal
+
+  `trace_mode` is a compatibility alias and cannot be combined with `trace`.
   """
   defmacro run(opts \\ [], do: program) do
-    trace_mode =
-      case Keyword.fetch(opts, :trace_mode) do
-        {:ok, mode} -> mode
-        :error -> :no_trace
-      end
+    trace_opts = Keyword.take(opts, [:trace, :trace_mode])
 
     branch_ast =
       if Keyword.has_key?(opts, :branch) do
@@ -93,7 +93,7 @@ defmodule AL do
             unquote(Macro.escape(origin)),
             nil,
             unquote(branch_ast),
-            trace_mode: unquote(trace_mode)
+            unquote(trace_opts)
           )
         end
 
@@ -106,10 +106,7 @@ defmodule AL do
 
         escaped = Macro.escape(goals, unquote: true)
 
-        quote do:
-                AL.eval(unquote(escaped), nil, unquote(branch_ast),
-                  trace_mode: unquote(trace_mode)
-                )
+        quote do: AL.eval(unquote(escaped), nil, unquote(branch_ast), unquote(trace_opts))
     end
   end
 
@@ -217,25 +214,10 @@ defmodule AL do
     end
   end
 
-  defp trace_mode!(opts) do
-    mode =
-      case Keyword.fetch(opts, :trace_mode) do
-        {:ok, mode} -> mode
-        :error -> :no_trace
-      end
-
-    if mode in [:no_trace, :derivation_trace, :full_trace] do
-      mode
-    else
-      raise ArgumentError,
-            "trace_mode must be :no_trace, :derivation_trace, or :full_trace, got: #{inspect(mode)}"
-    end
-  end
-
   defp eval_transaction(program, initial_store, branch, opts, source) do
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
-    trace_mode = trace_mode!(opts)
+    trace_flags = AL.Trace.flags_from_options!(opts)
 
     result =
       :mnesia.transaction(fn ->
@@ -260,7 +242,7 @@ defmodule AL do
             tx_id: tx_id,
             transaction_object: transaction_object,
             branch: branch,
-            domino: %AL.Domino{trace_mode: trace_mode, tracepoints: AL.Trace.tracepoints()},
+            trace: AL.Trace.new(trace_flags),
             program: program,
             source_refs: source_refs,
             source_anchors: %{}
@@ -645,44 +627,49 @@ defmodule AL do
   defp call_positions(self, args) when is_list(args), do: [self | args]
   defp call_positions(self, args), do: [self, args]
 
-  # Only the positions still open at `store`-time are worth describing at
-  # all -- a ground term is already fully legible sitting in the Call's own
-  # `self`/`args`, no separate entry needed. Returns the *terms* (not their
-  # descriptions) that qualify, so the caller can remember exactly which
-  # ones to re-describe later, at Exit, against a different store.
   defp open_positions(terms, store) do
-    Enum.filter(terms, fn t -> AL.Var.var?(AL.Var.deref(store, t)) end)
+    terms
+    |> AL.Var.find_vars()
+    |> Enum.filter(fn var -> AL.Var.var?(AL.Var.deref(store, var)) end)
   end
 
   defp describe_positions(vars, store), do: Map.new(vars, fn v -> {v, describe_var(v, store)} end)
 
-  # Small helpers so every domino trace call site reads/writes
-  # `state.domino.*` through one line instead of a nested struct update --
-  # see AL.Domino's moduledoc for why these 5 fields live together.
-  defp push_trace(%AL{domino: %AL.Domino{trace_mode: :no_trace}} = state, _event), do: state
+  # Domino is one producer in the generic trace stream. Its private scope
+  # bookkeeping stays in `state.trace.runtime`; retained events and composable
+  # flags belong to `state.trace` itself.
+  defp push_trace(state, event), do: push_trace(state, :domino, event)
 
-  defp push_trace(state, event),
-    do: %AL{state | domino: %AL.Domino{state.domino | trace: [event | state.domino.trace]}}
+  defp push_trace(state, kind, event),
+    do: %AL{state | trace: AL.Trace.push(state.trace, kind, event)}
+
+  defp domino_enabled?(state), do: AL.Trace.enabled?(state.trace, :domino)
 
   defp trace_scopes?(state),
     do:
-      state.domino.trace_mode != :no_trace or
-        MapSet.size(state.domino.tracepoints) > 0
+      domino_enabled?(state) or
+        MapSet.size(state.trace.runtime.tracepoints) > 0
 
-  defp put_scope(state, scope, info),
-    do: %AL{
-      state
-      | domino: %AL.Domino{state.domino | scopes: Map.put(state.domino.scopes, scope, info)}
+  defp put_scope(state, scope, info) do
+    runtime = %AL.Trace.Runtime{
+      state.trace.runtime
+      | scopes: Map.put(state.trace.runtime.scopes, scope, info)
     }
 
-  defp delete_scope(state, scope),
-    do: %AL{
-      state
-      | domino: %AL.Domino{state.domino | scopes: Map.delete(state.domino.scopes, scope)}
+    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
+  end
+
+  defp delete_scope(state, scope) do
+    runtime = %AL.Trace.Runtime{
+      state.trace.runtime
+      | scopes: Map.delete(state.trace.runtime.scopes, scope)
     }
+
+    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
+  end
 
   defp unmark_exited(state, scope) do
-    case Map.get(state.domino.scopes, scope) do
+    case Map.get(state.trace.runtime.scopes, scope) do
       %{exited: true, parent: parent} = info ->
         state |> put_scope(scope, %{info | exited: false}) |> unmark_exited(parent)
 
@@ -692,7 +679,7 @@ defmodule AL do
   end
 
   defp caller_scope_pointer(state) do
-    if state.domino.trace_mode == :no_trace do
+    if not domino_enabled?(state) do
       case state.active_choicepoint.failure_context do
         [{scope, parent, :method, _call} | _]
         when scope == state.active_choicepoint.scope_pointer ->
@@ -702,79 +689,78 @@ defmodule AL do
           state.active_choicepoint.scope_pointer
       end
     else
-      case Map.get(state.domino.scopes, state.active_choicepoint.scope_pointer) do
+      case Map.get(state.trace.runtime.scopes, state.active_choicepoint.scope_pointer) do
         %{kind: :method, parent: parent} when parent != nil -> parent
         _ -> state.active_choicepoint.scope_pointer
       end
     end
   end
 
-  defp caller_failure_context(%AL{domino: %AL.Domino{trace_mode: :no_trace}} = state) do
-    case state.active_choicepoint.failure_context do
-      [{scope, _parent, :method, _call} | rest]
-      when scope == state.active_choicepoint.scope_pointer ->
-        rest
+  defp caller_failure_context(state) do
+    if domino_enabled?(state) do
+      []
+    else
+      case state.active_choicepoint.failure_context do
+        [{scope, _parent, :method, _call} | rest]
+        when scope == state.active_choicepoint.scope_pointer ->
+          rest
 
-      context ->
-        context
+        context ->
+          context
+      end
     end
   end
 
-  defp caller_failure_context(_state), do: []
-
-  defp enter_failure_scope(
-         %AL{domino: %AL.Domino{trace_mode: :no_trace}} = state,
-         scope,
-         parent,
-         kind,
-         call
-       ) do
-    %AL{
+  defp enter_failure_scope(state, scope, parent, kind, call) do
+    if domino_enabled?(state) do
       state
-      | active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | failure_context: [
-              {scope, parent, kind, call} | state.active_choicepoint.failure_context
-            ]
-        }
-    }
-  end
-
-  defp enter_failure_scope(state, _scope, _parent, _kind, _call), do: state
-
-  defp leave_failed_scope(
-         %AL{domino: %AL.Domino{trace_mode: :no_trace}} = state,
-         scope
-       ) do
-    {discarded, matching_and_rest} =
-      Enum.split_while(state.active_choicepoint.failure_context, fn
-        {^scope, _parent, _kind, _call} -> false
-        _frame -> true
-      end)
-
-    case matching_and_rest do
-      [{^scope, parent, _kind, call} | rest] ->
-        state = record_failure_candidate(state, {:call, failure_call(discarded) || call})
-
-        choicepoint = %AL.Choicepoint{
-          state.active_choicepoint
-          | failure_context: rest
-        }
-
-        {%AL{state | active_choicepoint: choicepoint}, parent}
-
-      [] ->
-        {state, nil}
+    else
+      %AL{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            state.active_choicepoint
+            | failure_context: [
+                {scope, parent, kind, call} | state.active_choicepoint.failure_context
+              ]
+          }
+      }
     end
   end
 
-  defp leave_failed_scope(state, _scope), do: {state, nil}
+  defp leave_failed_scope(state, scope) do
+    if domino_enabled?(state) do
+      {state, nil}
+    else
+      {discarded, matching_and_rest} =
+        Enum.split_while(state.active_choicepoint.failure_context, fn
+          {^scope, _parent, _kind, _call} -> false
+          _frame -> true
+        end)
+
+      case matching_and_rest do
+        [{^scope, parent, _kind, call} | rest] ->
+          state = record_failure_candidate(state, {:call, failure_call(discarded) || call})
+
+          choicepoint = %AL.Choicepoint{
+            state.active_choicepoint
+            | failure_context: rest
+          }
+
+          {%AL{state | active_choicepoint: choicepoint}, parent}
+
+        [] ->
+          {state, nil}
+      end
+    end
+  end
 
   defp failure_call([{_scope, _parent, _kind, call} | _]), do: call
   defp failure_call([]), do: nil
 
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
+    state = clear_pending_constraint(state)
+
     case state.choicepoint_stack do
       [] ->
         %AL{
@@ -795,11 +781,12 @@ defmodule AL do
         backtrack(%AL{state | choicepoint_stack: rest_choices})
 
       [choice | rest_choices] ->
-        redo? = match?(%{exited: true}, Map.get(state.domino.scopes, choice.scope_pointer))
+        redo? =
+          match?(%{exited: true}, Map.get(state.trace.runtime.scopes, choice.scope_pointer))
 
         state =
           if redo? do
-            %{kind: level} = Map.get(state.domino.scopes, choice.scope_pointer)
+            %{kind: level} = Map.get(state.trace.runtime.scopes, choice.scope_pointer)
             tag = if level == :method, do: :method_redo, else: :clause_redo
             state = trace_port_event(state, choice.scope_pointer, :redo)
             push_trace(state, {tag, choice.scope_pointer})
@@ -824,24 +811,67 @@ defmodule AL do
     do: push_trace(state, {:clause_chosen, scope, clause})
 
   defp log_trace_entry(state, entry) do
-    case state.domino.trace_mode do
-      :no_trace -> state
-      :full_trace -> push_trace(state, entry)
-      :derivation_trace -> if constraint_goal?(entry), do: push_trace(state, entry), else: state
+    cond do
+      constraint_goal?(entry) ->
+        if domino_enabled?(state),
+          do: begin_constraint_trace(state, entry),
+          else: push_trace(state, :vm, entry)
+
+      true ->
+        push_trace(state, :vm, entry)
     end
   end
 
   defp constraint_goal?(%Goal.Compare{}), do: true
+
+  defp constraint_goal?(%Goal.Eq{a: a, b: b}),
+    do: AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b)
+
   defp constraint_goal?(%Goal.Dif{}), do: true
   defp constraint_goal?(%Goal.Isa{}), do: true
   defp constraint_goal?(%Goal.AllDif{}), do: true
   defp constraint_goal?(%Goal.InDomain{}), do: true
   defp constraint_goal?(_), do: false
 
+  defp begin_constraint_trace(state, goal) do
+    vars = AL.Var.find_vars(goal)
+
+    pending_constraint = %{
+      goal: goal,
+      vars: vars,
+      constraints_in: describe_positions(vars, store(state))
+    }
+
+    runtime = %AL.Trace.Runtime{state.trace.runtime | pending_constraint: pending_constraint}
+    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
+  end
+
+  defp finish_constraint_trace(
+         %AL{trace: %AL.Trace{runtime: %AL.Trace.Runtime{pending_constraint: nil}}} = state
+       ),
+       do: state
+
+  defp finish_constraint_trace(state) do
+    %{goal: goal, vars: vars, constraints_in: constraints_in} =
+      state.trace.runtime.pending_constraint
+
+    derived = describe_positions(vars, store(state))
+    runtime = %AL.Trace.Runtime{state.trace.runtime | pending_constraint: nil}
+    state = %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
+    push_trace(state, :domino, {:constraint, goal, constraints_in, derived})
+  end
+
+  defp clear_pending_constraint(state) do
+    runtime = %AL.Trace.Runtime{state.trace.runtime | pending_constraint: nil}
+    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
+  end
+
   @spec continue(t()) :: t() | nil
   def continue(nil), do: nil
 
   def continue(state) do
+    state = finish_constraint_trace(state)
+
     cond do
       state.reductions > @max_reductions ->
         %AL{
@@ -935,34 +965,33 @@ defmodule AL do
     record_failure_candidate(state, {:diagnostic, diagnostic})
   end
 
-  # No-trace runs have no retained scope tree to recover a failing lineage
+  # Runs without Domino retention have no retained scope tree to recover a failing lineage
   # from. Keep one compact candidate instead: progress through the outermost
   # goal list wins, then a diagnostic beats a generic call at that same goal.
   # This prevents final backtracking into an earlier successful goal from
   # replacing the useful error that was reached farther through the program.
-  defp record_failure_candidate(
-         %AL{domino: %AL.Domino{trace_mode: :no_trace}} = state,
-         candidate
-       ) do
-    diagnostic_priority = if match?({:diagnostic, _}, candidate), do: 1, else: 0
-    score = {failure_progress(state), diagnostic_priority, state.reductions}
+  defp record_failure_candidate(state, candidate) do
+    if domino_enabled?(state) do
+      state
+    else
+      diagnostic_priority = if match?({:diagnostic, _}, candidate), do: 1, else: 0
+      score = {failure_progress(state), diagnostic_priority, state.reductions}
 
-    failure_candidate =
-      case state.failure_candidate do
-        nil ->
-          {score, candidate}
+      failure_candidate =
+        case state.failure_candidate do
+          nil ->
+            {score, candidate}
 
-        {old_score, _old_candidate} when score > old_score ->
-          {score, candidate}
+          {old_score, _old_candidate} when score > old_score ->
+            {score, candidate}
 
-        existing ->
-          existing
-      end
+          existing ->
+            existing
+        end
 
-    %AL{state | failure_candidate: failure_candidate}
+      %AL{state | failure_candidate: failure_candidate}
+    end
   end
-
-  defp record_failure_candidate(state, _candidate), do: state
 
   defp failure_progress(state) do
     case List.last(state.active_choicepoint.continuations) do
@@ -1147,16 +1176,6 @@ defmodule AL do
   def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
     do: put_bindings(state, unify(state, m2, Map.put(m1, k_pattern, v_pattern)), [m2])
 
-  def interp(%Goal.OApply{method_id: :is, args: [a, b]}, state) do
-    case interp_is(b, store(state)) do
-      :error ->
-        backtrack(state)
-
-      expr ->
-        put_bindings(state, unify(state, a, expr), [a])
-    end
-  end
-
   # cached: AL.ResolutionCache.fetch_ivar_specs, see AL.Dispatch. self must
   # be ground -- an open self would make scan_class's self_pattern a
   # wildcard (to_mnesia_pattern treats an open var as "match anything"),
@@ -1324,21 +1343,55 @@ defmodule AL do
 
   def interp(%Goal.Forall{condition: condition, body: body}, state) do
     case collect_all_solutions(
+           :forall,
            condition,
+           nil,
            state.active_choicepoint.store,
            state.tx_id,
            state.branch,
            state.active_choicepoint.source_scopes,
-           state.domino.trace_mode
+           state.trace.flags
          ) do
-      {:ok, solutions} ->
+      {:ok, solutions, trace_events} ->
+        state = merge_trace_events(state, trace_events)
+
+        {raw_condition, raw_body} =
+          case state.active_choicepoint.done do
+            [%Goal.Forall{condition: c, body: b} | _] -> {c, b}
+            _ -> {condition, body}
+          end
+
+        raw_vars = AL.Var.find_vars({raw_condition, raw_body}) |> MapSet.delete(:"$_")
+        body_vars = AL.Var.find_vars(body)
+        connectable = raw_condition |> AL.Var.find_vars() |> MapSet.intersection(body_vars)
+        outer = MapSet.difference(visible_vars(state), raw_vars)
+
         body_goals =
           Enum.flat_map(solutions, fn store ->
             freshener = Integer.to_string(fresh_scope())
 
-            Enum.map(body, fn goal ->
-              goal |> AL.Var.subst(store) |> AL.Var.freshen(freshener)
-            end)
+            representatives =
+              Enum.reduce(outer, %{}, fn v, acc ->
+                case AL.Var.deref(store, v) do
+                  ^v -> acc
+                  root -> if AL.Var.var?(root), do: Map.put_new(acc, root, v), else: acc
+                end
+              end)
+
+            rewrite = &Map.get(representatives, &1, &1)
+
+            connects =
+              connectable
+              |> Enum.map(fn c -> {c, AL.Var.subst(c, store, rewrite)} end)
+              |> Enum.reject(fn {c, value} -> value == c end)
+              |> Enum.map(fn {c, value} ->
+                %Goal.Eq{
+                  a: AL.Var.freshen(c, freshener, raw_vars),
+                  b: AL.Var.freshen(value, freshener, raw_vars)
+                }
+              end)
+
+            connects ++ AL.Var.freshen(body, freshener, raw_vars)
           end)
 
         spliced = splice_goals(state, body_goals)
@@ -1348,21 +1401,25 @@ defmodule AL do
           | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}
         }
 
-      :resource_limit_exceeded ->
-        resource_limit_abort(state)
+      {:resource_limit_exceeded, trace_events} ->
+        state |> merge_trace_events(trace_events) |> resource_limit_abort()
     end
   end
 
   def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
     case collect_all_solutions(
+           :findall,
            condition,
+           result,
            state.active_choicepoint.store,
            state.tx_id,
            state.branch,
            state.active_choicepoint.source_scopes,
-           state.domino.trace_mode
+           state.trace.flags
          ) do
-      {:ok, solutions} ->
+      {:ok, solutions, trace_events} ->
+        state = merge_trace_events(state, trace_events)
+
         {collected, copied_constraints} =
           Enum.map_reduce(solutions, %{}, fn solution_store, constraint_store ->
             {copied, constraints} =
@@ -1375,8 +1432,8 @@ defmodule AL do
         new_store = AL.Var.unify(result, collected, augmented_store, state.branch)
         put_bindings(state, new_store, [result])
 
-      :resource_limit_exceeded ->
-        resource_limit_abort(state)
+      {:resource_limit_exceeded, trace_events} ->
+        state |> merge_trace_events(trace_events) |> resource_limit_abort()
     end
   end
 
@@ -1422,7 +1479,7 @@ defmodule AL do
 
   # dif/isa violation vs plain mismatch: identical in the trace. diagnose_unify_failure/5
   # re-derives which constraint fired (nil if none) for format_failure.
-  def interp(%Goal.Unify{a: a, b: b}, state) do
+  def interp(%Goal.Eq{a: a, b: b}, state) do
     result = unify(state, a, b)
     state = record_constraint_violation(state, result, a, b)
     put_bindings(state, result, [a, b])
@@ -1486,11 +1543,11 @@ defmodule AL do
     end
   end
 
-  # `< > <= >= eq` rely on constraint intervals (see AL.Var.Bounds).
+  # `< > <= >= =` rely on constraint intervals (see AL.Var.Bounds).
   def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
     store = store(state)
 
-    case {interp_is(a, store), interp_is(b, store)} do
+    case {AL.Var.Bounds.eval(a, store), AL.Var.Bounds.eval(b, store)} do
       {x, y} when is_number(x) and is_number(y) ->
         if compare(op, x, y), do: state, else: backtrack(state)
 
@@ -1577,44 +1634,6 @@ defmodule AL do
     end
   end
 
-  # De/Re-construct a term into/from a list 
-  def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    if not AL.Var.var?(term) do
-      {term_name, term_args} = decompose_term(term)
-      put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
-    else
-      if ground?(name) and is_list(args) do
-        put_bindings(state, unify(state, term, compose_term(name, args)), [term])
-      else
-        backtrack(state)
-      end
-    end
-  end
-
-  # Prolog call/1. term's shape must be resolved; first arg = receiver, functor
-  # = selector — call_term({foo, self, x}) re-dispatches as send(self, :foo, [x]).
-  def interp(%Goal.CallTerm{term: term}, state) do
-    if not AL.Var.var?(term) do
-      case decompose_term(term) do
-        {name, [self | rest]} ->
-          choice = state.active_choicepoint
-
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{
-                choice
-                | goals: splice_goals(state, [%Goal.Send{object: self, method: name, args: rest}])
-              }
-          }
-
-        {_name, []} ->
-          backtrack(state)
-      end
-    else
-      backtrack(state)
-    end
-  end
-
   # Ground's dual on leaves: succeeds only on an unbound variable.
   def interp(%Goal.IsVar{term: term}, state) do
     if AL.Var.var?(term) do
@@ -1626,16 +1645,23 @@ defmodule AL do
 
   def interp(%Goal.Not{condition: condition}, state) do
     case collect_all_solutions(
+           :not,
            condition,
+           nil,
            state.active_choicepoint.store,
            state.tx_id,
            state.branch,
            state.active_choicepoint.source_scopes,
-           state.domino.trace_mode
+           state.trace.flags
          ) do
-      {:ok, []} -> state
-      {:ok, _} -> backtrack(state)
-      :resource_limit_exceeded -> resource_limit_abort(state)
+      {:ok, [], trace_events} ->
+        merge_trace_events(state, trace_events)
+
+      {:ok, _, trace_events} ->
+        state |> merge_trace_events(trace_events) |> backtrack()
+
+      {:resource_limit_exceeded, trace_events} ->
+        state |> merge_trace_events(trace_events) |> resource_limit_abort()
     end
   end
 
@@ -1877,12 +1903,6 @@ defmodule AL do
   defp format_decimal(term) when is_integer(term), do: Integer.to_string(term)
   defp format_decimal(term), do: inspect(term)
 
-  defp compose_term(name, []), do: name
-  defp compose_term(name, args), do: List.to_tuple([name | args])
-
-  defp decompose_term(t) when is_tuple(t), do: {elem(t, 0), t |> Tuple.to_list() |> tl()}
-  defp decompose_term(atomic), do: {atomic, []}
-
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
 
   defp schedule_future_transaction(state, status, effect, head, goals) do
@@ -1985,7 +2005,18 @@ defmodule AL do
     AL.Var.subst(term, rename)
   end
 
-  defp collect_all_solutions(condition, store, tx_id, branch, source_scopes, trace_mode) do
+  defp collect_all_solutions(
+         kind,
+         condition,
+         output,
+         store,
+         tx_id,
+         branch,
+         source_scopes,
+         trace_flags
+       ) do
+    collection_scope = fresh_scope()
+
     initial = %AL{
       active_choicepoint: %AL.Choicepoint{
         goals: condition,
@@ -1998,32 +2029,72 @@ defmodule AL do
       choicepoint_stack: [],
       tx_id: tx_id,
       branch: branch,
-      domino: %AL.Domino{trace_mode: trace_mode, tracepoints: AL.Trace.tracepoints()},
+      trace: AL.Trace.new(trace_flags),
       program: condition
     }
 
-    do_collect(continue(initial), [])
+    do_collect(continue(initial), [], collection_scope, kind, condition, output)
   end
 
   # store == nil: exhausted, or this sub-search's own reduction budget ran
   # out (e.g. open-ended findall/not) — resource_limited?/1 distinguishes,
   # reading the freshest diagnostic.
-  defp do_collect(state, acc) do
+  defp do_collect(state, acc, collection_scope, kind, condition, output) do
     cond do
       state.active_choicepoint.store != nil ->
+        state =
+          push_trace(
+            state,
+            :domino,
+            {:collection_solution, collection_scope, state.active_choicepoint.store}
+          )
+
         new_acc = [state.active_choicepoint.store | acc]
 
         case state.choicepoint_stack do
-          [] -> {:ok, Enum.reverse(new_acc)}
-          _ -> do_collect(backtrack(state), new_acc)
+          [] ->
+            {:ok, Enum.reverse(new_acc),
+             finalized_collection_trace_events(state, collection_scope, kind, condition, output)}
+
+          _ ->
+            do_collect(backtrack(state), new_acc, collection_scope, kind, condition, output)
         end
 
       resource_limited?(state) ->
-        :resource_limit_exceeded
+        {:resource_limit_exceeded,
+         finalized_collection_trace_events(state, collection_scope, kind, condition, output)}
 
       true ->
-        {:ok, Enum.reverse(acc)}
+        {:ok, Enum.reverse(acc),
+         finalized_collection_trace_events(state, collection_scope, kind, condition, output)}
     end
+  end
+
+  defp finalized_trace_events(state), do: finalize_trace(state).trace.events
+
+  defp finalized_collection_trace_events(state, collection_scope, kind, condition, output) do
+    events = finalized_trace_events(state)
+
+    if domino_enabled?(state) do
+      end_event = %AL.Trace.Event{
+        kind: :domino,
+        payload: {:collection_end, collection_scope}
+      }
+
+      begin_event = %AL.Trace.Event{
+        kind: :domino,
+        payload: {:collection_begin, collection_scope, kind, condition, output}
+      }
+
+      [end_event | events] ++ [begin_event]
+    else
+      events
+    end
+  end
+
+  defp merge_trace_events(state, events) do
+    trace = %AL.Trace{state.trace | events: events ++ state.trace.events}
+    %AL{state | trace: trace}
   end
 
   defp resource_limited?(state),
@@ -2038,25 +2109,24 @@ defmodule AL do
     }
   end
 
-  # Failure reason: unhandled DNU wins, else last goal reached. A derivation
-  # trace carries the domino call-tree; `:full_trace` also has raw goals and
-  # `:backtrack`/
-  # `:flounder` interleaved into the same list, so `failed_on` names the
+  # Failure reason: unhandled DNU wins, else last goal reached. `:domino`
+  # carries the call tree; `:vm` also has raw goals and `:backtrack`/`:flounder`
+  # interleaved into the same list, so `failed_on` names the
   # exact goal when that's available and the coarser last domino event
   # (which method/clause failed, not which sub-goal) otherwise. Full state
   # rides along (stripped for heap-capped eval, see shed/1).
   #
-  # Resource-limit clause: trace can be huge in full-trace mode (one
+  # Resource-limit clause: a VM trace can be huge (one
   # entry per reduction). Only builds the last 20 steps shown; drops
   # choicepoint_stack (not inspectable at that scale anyway).
   defp format_failure(%AL{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state) do
     raw_tail =
-      if state.domino.trace_mode == :no_trace,
-        do: [],
-        else: last_raw_steps(state.domino.trace, 20)
+      if AL.Trace.retained?(state.trace),
+        do: last_raw_steps(state.trace.events, 20),
+        else: []
 
     steps = Enum.map(raw_tail, &AL.Trace.pretty/1)
-    failed_on = List.last(steps) || current_failure(state)
+    failed_on = steps |> List.last() |> AL.Trace.payload() || current_failure(state)
 
     %{
       message:
@@ -2067,14 +2137,21 @@ defmodule AL do
       trace: steps,
       state: %AL{
         state
-        | domino: %AL.Domino{state.domino | trace: raw_tail},
+        | trace: %AL.Trace{state.trace | events: raw_tail},
           choicepoint_stack: []
       }
     }
   end
 
-  defp format_failure(%AL{domino: %AL.Domino{trace_mode: :no_trace}} = state) do
-    failed_on = current_failure(state)
+  defp format_failure(state) do
+    if domino_enabled?(state),
+      do: format_domino_failure(state),
+      else: format_compact_failure(state)
+  end
+
+  defp format_compact_failure(state) do
+    steps = state.trace.events |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
+    failed_on = steps |> List.last() |> AL.Trace.payload() || current_failure(state)
 
     {message, reason} =
       case state.failure_candidate do
@@ -2092,15 +2169,15 @@ defmodule AL do
       message: message,
       reason: reason,
       failed_on: failed_on,
-      trace: [],
+      trace: steps,
       state: state
     }
   end
 
-  defp format_failure(state) do
-    steps = state.domino.trace |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
-    failed_on = List.last(steps)
-    ancestry = failing_lineage(state.domino.trace)
+  defp format_domino_failure(state) do
+    steps = state.trace.events |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
+    failed_on = steps |> List.last() |> AL.Trace.payload()
+    ancestry = failing_lineage(state.trace.events)
 
     relevant_diagnostics =
       state.diagnostics
@@ -2204,12 +2281,19 @@ defmodule AL do
      {:native_error, method_id, {module, function}, exception_message}}
   end
 
+  defp failure_cause([{:label_unconstrained, v} | _], _ancestry, _failed_on, _state) do
+    pretty = AL.Trace.pretty(v)
+
+    {"label(#{inspect(pretty)}) has nothing to enumerate: no finite bounds, domain, or class.",
+     {:label_unconstrained, pretty}}
+  end
+
   defp failure_cause([{:unify_failed, a, b} | _], _ancestry, _failed_on, _state) do
     {"#{inspect(a)} and #{inspect(b)} can't be the same.", {:unify_failed, a, b}}
   end
 
   defp failure_cause([], ancestry, failed_on, state) do
-    state.domino.trace
+    state.trace.events
     |> root_cause_call(ancestry)
     |> failure_from_call(failed_on)
   end
@@ -2262,6 +2346,7 @@ defmodule AL do
     chronological =
       raw_trace
       |> Enum.reverse()
+      |> AL.Trace.payloads()
       |> Enum.filter(&MapSet.member?(ancestry, event_scope(&1)))
 
     case Enum.find(chronological, &fail_event?/1) do
@@ -2277,7 +2362,7 @@ defmodule AL do
   defp call_event_for?({:clause_call, scope, _method_id, _call_args, _}, scope), do: true
   defp call_event_for?(_, _), do: false
 
-  # Every domino_event() tuple carries its own scope as the 2nd element,
+  # Every Domino payload tuple carries its own scope as the 2nd element,
   # regardless of arity -- raw goals (full trace) and control markers
   # (:backtrack) aren't domino events and have no scope of their own.
   defp event_scope({_tag, scope}), do: scope
@@ -2287,11 +2372,11 @@ defmodule AL do
   defp event_scope({_tag, scope, _, _, _, _}), do: scope
   defp event_scope(_), do: nil
 
-  # `domino.scopes` deliberately deletes a scope's bookkeeping the moment
+  # `trace.runtime.scopes` deliberately deletes a scope's bookkeeping the moment
   # it fails, to keep a long backtracking search's live state bounded (see
-  # `fail_scope/3`), and `AL.Trace.derivation_tree/2` does the same thing
+  # `fail_scope/3`), and `AL.Trace.derivation_tree/1` does the same thing
   # for the same reason (it's built to show the *successful* path) -- so
-  # neither can answer "what actually failed." `domino.trace` itself is
+  # neither can answer "what actually failed." The retained event journal is
   # never pruned, so the lineage gets reconstructed from it directly: AL
   # tries alternatives in call order, so at any given parent scope, the
   # child that was opened *last* is the one that was never superseded by
@@ -2299,7 +2384,7 @@ defmodule AL do
   # to a leaf lands on the actual final call that failed, using nothing
   # but data already in the trace, no interpreter-level marking needed.
   defp failing_lineage(raw_trace) do
-    chronological = Enum.reverse(raw_trace)
+    chronological = raw_trace |> Enum.reverse() |> AL.Trace.payloads()
 
     {_stack, parents, opens} =
       Enum.reduce(chronological, {[], %{}, []}, fn
@@ -2356,7 +2441,7 @@ defmodule AL do
   defp last_raw_steps(trace, count) do
     trace
     |> Enum.take(count * 5)
-    |> Enum.reject(&(&1 == :backtrack))
+    |> Enum.reject(&(AL.Trace.payload(&1) == :backtrack))
     |> Enum.take(count)
     |> Enum.reverse()
   end
@@ -2391,6 +2476,23 @@ defmodule AL do
   defp pretty_violation({:domain, domain}), do: {:domain, MapSet.to_list(domain)}
 
   def fresh_scope(), do: System.unique_integer([:positive, :monotonic])
+
+  defp visible_vars(%AL{active_choicepoint: choice}) do
+    frames = [
+      {tl(choice.done), choice.goals} | Enum.map(choice.continuations, &{&1.done, &1.goals})
+    ]
+
+    Enum.reduce(frames, MapSet.new(), fn {done, goals}, acc ->
+      AL.Var.find_vars({done, goals}, acc)
+    end)
+  end
+
+  defp observable_name(state, v) do
+    case state.active_choicepoint.done do
+      [%Goal.Label{term: written} | _] -> written
+      _ -> v
+    end
+  end
 
   defp record_cursor(cursors, _scope, nil), do: cursors
   defp record_cursor(cursors, scope, cursor), do: Map.put(cursors, scope, cursor)
@@ -2509,28 +2611,27 @@ defmodule AL do
 
   defp trace_port_call(state, level, scope, receiver, method, args) do
     traced? =
-      MapSet.member?(state.domino.tracepoints, method) or
-        MapSet.member?(state.domino.tracepoints, receiver)
+      MapSet.member?(state.trace.runtime.tracepoints, method) or
+        MapSet.member?(state.trace.runtime.tracepoints, receiver)
 
     if traced? do
       depth = length(state.active_choicepoint.continuations)
       AL.Trace.call(level, depth, receiver, method, args)
 
-      %AL{
-        state
-        | domino: %AL.Domino{
-            state.domino
-            | traced_calls:
-                Map.put(state.domino.traced_calls, scope, {level, depth, receiver, method})
-          }
+      runtime = %AL.Trace.Runtime{
+        state.trace.runtime
+        | traced_calls:
+            Map.put(state.trace.runtime.traced_calls, scope, {level, depth, receiver, method})
       }
+
+      %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
     else
       state
     end
   end
 
   defp trace_port_event(state, scope, kind) do
-    case Map.get(state.domino.traced_calls, scope) do
+    case Map.get(state.trace.runtime.traced_calls, scope) do
       nil ->
         state
 
@@ -2542,13 +2643,12 @@ defmodule AL do
         end
 
         if kind == :fail do
-          %AL{
-            state
-            | domino: %AL.Domino{
-                state.domino
-                | traced_calls: Map.delete(state.domino.traced_calls, scope)
-              }
+          runtime = %AL.Trace.Runtime{
+            state.trace.runtime
+            | traced_calls: Map.delete(state.trace.runtime.traced_calls, scope)
           }
+
+          %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
         else
           state
         end
@@ -2556,7 +2656,7 @@ defmodule AL do
   end
 
   defp mark_exited(state, scope) do
-    case Map.get(state.domino.scopes, scope) do
+    case Map.get(state.trace.runtime.scopes, scope) do
       nil ->
         state
 
@@ -2579,47 +2679,51 @@ defmodule AL do
     end
   end
 
-  defp finalize_trace(%AL{domino: %AL.Domino{trace_mode: :no_trace}} = state) do
-    %AL{
-      state
-      | domino: %AL.Domino{
-          state.domino
-          | trace: [],
-            scopes: %{},
-            traced_calls: %{}
-        }
-    }
-  end
-
   defp finalize_trace(state) do
-    {trace, _patched} =
-      Enum.map_reduce(state.domino.trace, MapSet.new(), fn
-        {tag, scope, _old} = event, patched when tag in [:method_exit, :clause_exit] ->
-          key = {tag, scope}
+    events =
+      if domino_enabled?(state) do
+        {events, _patched} =
+          Enum.map_reduce(state.trace.events, MapSet.new(), fn
+            %AL.Trace.Event{kind: :domino, payload: {tag, scope, _old}} = event, patched
+            when tag in [:method_exit, :clause_exit] ->
+              key = {tag, scope}
 
-          if MapSet.member?(patched, key) do
-            {event, patched}
-          else
-            case Map.get(state.domino.scopes, scope) do
-              %{derived: derived} when not is_nil(derived) ->
-                {{tag, scope, derived}, MapSet.put(patched, key)}
+              if MapSet.member?(patched, key) do
+                {event, patched}
+              else
+                case Map.get(state.trace.runtime.scopes, scope) do
+                  %{derived: derived} when not is_nil(derived) ->
+                    {%AL.Trace.Event{event | payload: {tag, scope, derived}},
+                     MapSet.put(patched, key)}
 
-              _ ->
-                {event, MapSet.put(patched, key)}
-            end
-          end
+                  _ ->
+                    {event, MapSet.put(patched, key)}
+                end
+              end
 
-        other, patched ->
-          {other, patched}
-      end)
+            other, patched ->
+              {other, patched}
+          end)
 
-    %AL{state | domino: %AL.Domino{state.domino | trace: trace}}
+        events
+      else
+        state.trace.events
+      end
+
+    runtime =
+      if domino_enabled?(state),
+        do: state.trace.runtime,
+        else: %AL.Trace.Runtime{state.trace.runtime | scopes: %{}, traced_calls: %{}}
+
+    trace = %AL.Trace{state.trace | events: events, runtime: runtime}
+
+    %AL{state | trace: trace}
   end
 
   defp propagate_exit(state, scope) do
-    case Map.get(state.domino.scopes, scope) do
+    case Map.get(state.trace.runtime.scopes, scope) do
       %{parent: parent} when parent != nil ->
-        case Map.get(state.domino.scopes, parent) do
+        case Map.get(state.trace.runtime.scopes, parent) do
           %{kind: :method} -> mark_exited(state, parent)
           _ -> state
         end
@@ -2633,7 +2737,7 @@ defmodule AL do
   # f}` in backtrack/1, and a ground send's on_miss (wrapped by
   # begin_method_scope/5) when no provider matches at all. Deletes the
   # scope's bookkeeping entirely -- a long backtracking search would
-  # otherwise grow `domino.scopes` without limit. Restores
+  # otherwise grow `trace.runtime.scopes` without limit. Restores
   # active_choicepoint's scope_pointer to the failed scope's own parent when
   # it's still the current one (true for the ground on_miss case, where
   # nothing has retagged it since begin_method_scope set it; a no-op for the
@@ -2643,7 +2747,7 @@ defmodule AL do
   # been deleted, breaking mark_exited/2's upward walk.
   defp fail_scope(state, scope, tag) do
     traced_parent =
-      case Map.get(state.domino.scopes, scope) do
+      case Map.get(state.trace.runtime.scopes, scope) do
         nil -> nil
         info -> info.parent
       end
@@ -2664,72 +2768,11 @@ defmodule AL do
     end
   end
 
-  @doc """
-  I evaluate an arithmetic expression against `bindings`, returning a number or
-  `:error` if any operand is unbound or non-numeric (so `is/2` can fail the goal
-  cleanly instead of crashing the transaction). Division by zero is `:error`.
-  """
-  def interp_is(%Goal.OApply{method_id: op, args: args}, bindings),
-    do: interp_is({:oapply, op, args}, bindings)
-
-  def interp_is({:oapply, :/, [a, b]}, bindings) do
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) and y != 0 <- interp_is(b, bindings) do
-      div(x, y)
-    else
-      _ -> :error
-    end
-  end
-
-  def interp_is({:oapply, :rem, [a, b]}, bindings) do
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) and y != 0 <- interp_is(b, bindings) do
-      rem(x, y)
-    else
-      _ -> :error
-    end
-  end
-
-  def interp_is({:oapply, op, [a, b]}, bindings) when op in [:+, :-, :*, :**] do
-    with x when is_number(x) <- interp_is(a, bindings),
-         y when is_number(y) <- interp_is(b, bindings) do
-      binop(op, x, y)
-    else
-      _ -> :error
-    end
-  end
-
-  def interp_is({:oapply, op, [a]}, bindings) when op in [:+, :-] do
-    case interp_is(a, bindings) do
-      x when is_number(x) -> binop(op, x)
-      _ -> :error
-    end
-  end
-
-  def interp_is(a, _bindings) when is_number(a), do: a
-
-  def interp_is(a, bindings) when is_atom(a) do
-    case AL.Var.deref(bindings, a) do
-      x when is_number(x) -> x
-      _ -> :error
-    end
-  end
-
-  def interp_is(_a, _bindings), do: :error
-
-  defp binop(:+, x, y), do: x + y
-  defp binop(:-, x, y), do: x - y
-  defp binop(:*, x, y), do: x * y
-  defp binop(:**, x, y), do: x ** y
-
-  defp binop(:+, x), do: +x
-  defp binop(:-, x), do: -x
-
   defp compare(:<, x, y), do: x < y
   defp compare(:>, x, y), do: x > y
   defp compare(:<=, x, y), do: x <= y
   defp compare(:>=, x, y), do: x >= y
-  defp compare(:eq, x, y), do: x == y
+  defp compare(:=, x, y), do: x == y
 
   # `super/2`'s two slots are the same domain (a superclass is still just a
   # class), so unlike `class/2` there's no object/class asymmetry -- both
@@ -2908,7 +2951,7 @@ defmodule AL do
   defp label_from_isa_domain(v, store, state) do
     case MapSet.to_list(AL.Var.isa_of(store, v)) do
       [] ->
-        backtrack(state)
+        backtrack(record_diagnostic(state, {:label_unconstrained, observable_name(state, v)}))
 
       known_isa ->
         choicepoints =
@@ -2970,10 +3013,8 @@ defmodule AL do
   end
 end
 
-unless Protocol.consolidated?(Inspect) do
-  defimpl Inspect, for: AL do
-    def inspect(%AL{}, _opts) do
-      "#AL<>"
-    end
+defimpl Inspect, for: AL do
+  def inspect(%AL{}, _opts) do
+    "#AL<>"
   end
 end

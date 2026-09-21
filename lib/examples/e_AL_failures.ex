@@ -102,7 +102,9 @@ defmodule Examples.ALFailures do
   example set_slot_domain_violation_survives_backtracking_search() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :failure_domain_probe, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+        defclass :failure_domain_probe,
+          super: :object,
+          ivars: [%{name: :state, domain: ["on", "off"]}] do
         end
 
         new(:failure_domain_probe, %{name: :failure_domain_instance, state: "on"}, _)
@@ -117,7 +119,37 @@ defmodule Examples.ALFailures do
     assert reason.message =~ "not in the domain"
     refute reason.message =~ "does not understand"
     assert reason.trace == []
-    assert reason.state.domino.trace == []
+    assert reason.state.trace.events == []
+    :ok
+  end
+
+  example label_of_an_unconstrained_var_is_blamed_over_the_search_that_ran_out() do
+    {:aborted, reason} =
+      run branch: Examples.Support.branch(), trace_mode: :no_trace do
+        member([1, 2, 3], m)
+        label(x)
+      end
+
+    assert reason.reason == {:label_unconstrained, :"$x"}
+    assert reason.message =~ "nothing to enumerate"
+    refute reason.message =~ "member"
+
+    {:aborted, traced} =
+      run branch: Examples.Support.branch() do
+        member([1, 2, 3], m)
+        label(x)
+      end
+
+    assert traced.reason == {:label_unconstrained, :"$x"}
+
+    {:aborted, aliased} =
+      run branch: Examples.Support.branch() do
+        hd([x, 7], v)
+        label(x)
+      end
+
+    assert aliased.reason == {:label_unconstrained, :"$x"}
+    assert aliased.message =~ "label(:\"$x\")"
     :ok
   end
 
@@ -132,7 +164,7 @@ defmodule Examples.ALFailures do
     assert reason.message =~ "does not understand"
     assert reason.message =~ "greett"
     assert reason.trace == []
-    assert reason.state.domino.scopes == %{}
+    assert reason.state.trace.runtime.scopes == %{}
     :ok
   end
 
@@ -142,7 +174,7 @@ defmodule Examples.ALFailures do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
-        unify(x, 1)
+        x = 1
       end
 
     assert %AL{} = reason.state
@@ -156,7 +188,7 @@ defmodule Examples.ALFailures do
     {:aborted, dif_reason} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
-        unify(x, 1)
+        x = 1
       end
 
     assert match?({:constraint_violated, {:dif, _, _}}, dif_reason.reason)
@@ -165,7 +197,7 @@ defmodule Examples.ALFailures do
     {:aborted, isa_reason} =
       run branch: Examples.Support.branch() do
         isa(y, :number)
-        unify(y, :not_a_number)
+        y = :not_a_number
       end
 
     assert match?({:constraint_violated, {:isa, _, :number}}, isa_reason.reason)
@@ -175,7 +207,7 @@ defmodule Examples.ALFailures do
     # generic message — this isn't claiming a constraint caused it
     {:aborted, plain_reason} =
       run branch: Examples.Support.branch() do
-        unify(1, 2)
+        1 = 2
       end
 
     refute match?({:constraint_violated, _}, plain_reason.reason)

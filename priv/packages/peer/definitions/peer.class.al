@@ -3,13 +3,13 @@ Class {
   #superclass : [:object],
   #metaclass : :class,
   #ivars : [
-    name: [],
-    host: [default: "127.0.0.1"],
-    port: [default: 0],
-    listener: [default: :none],
-    connections: [default: []],
-    messages: [default: []],
-    status: [default: :idle]
+    :name,
+    %{name: :host, default: "127.0.0.1"},
+    %{name: :port, default: 0},
+    %{name: :listener, default: :none},
+    %{name: :connections, default: []},
+    %{name: :messages, default: []},
+    %{name: :status, default: :idle}
   ]
 }
 
@@ -37,7 +37,7 @@ Class {
 
   defmethod(listener, :accept_failed, [socket, reason]) do
     get(socket, :owner, peer)
-    set_slot(peer, :status, {:error, reason})
+    set_slot(peer, :status, %{status: :error, reason: reason})
   end
 ]
 
@@ -61,7 +61,7 @@ Class {
 
   defmethod(socket, :connection_failed, [socket, reason]) do
     call_next_method(socket, reason)
-    set_slot(connection, :state, {:error, reason})
+    set_slot(connection, :state, %{status: :error, reason: reason})
   end
 ]
 
@@ -135,7 +135,7 @@ Class {
   close(listener, _)
   get(self, :connections, connections)
 
-  forall([member(connections, socket)]) do
+  forall(member(connections, socket)) do
     close(socket, _)
   end
 

@@ -45,7 +45,7 @@ defmodule Examples.ALInterval do
         not [elem(i, 0)]
         not [elem(i, 5)]
 
-        unify(checked, true)
+        checked = true
       end
 
     assert Map.get(bindings, :"$checked") == true
@@ -58,7 +58,7 @@ defmodule Examples.ALInterval do
         new(:interval_value, %{lo: 5, hi: 4}, empty)
         not [elem(empty, 0)]
         not [elem(empty, 5)]
-        unify(checked, true)
+        checked = true
       end
 
     assert Map.get(bindings, :"$checked") == true

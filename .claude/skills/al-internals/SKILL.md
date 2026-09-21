@@ -8,4 +8,5 @@ description: Modify or debug AL's interpreter, goals, dispatch, durable command 
 The canonical instructions for this skill are maintained in
 `.agents/skills/al-internals/SKILL.md`. Read and follow that file before doing
 AL internals work. Resolve its linked references and test script relative to
-`.agents/skills/al-internals/`.
+`.agents/skills/al-internals/`. When the implementation is written in AL, also
+follow `.agents/skills/al-practices/SKILL.md`.

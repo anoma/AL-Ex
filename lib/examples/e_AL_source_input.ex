@@ -20,7 +20,7 @@ defmodule Examples.ALSourceInput do
       "# leading comment\r\n" <>
         "defmethod(:source_parse_class, :unicode, [self]) do\r\n" <>
         "  # comment inside the method\r\n" <>
-        "  unify(self, \"é\")\r\n" <>
+        "  self = \"é\"\r\n" <>
         "end\r\n\r\n" <>
         "defclass :source_parse_nested, super: :object do\r\n" <>
         "  defmethod(:ping, [self, :pong])\r\n" <>
@@ -49,7 +49,7 @@ defmodule Examples.ALSourceInput do
     assert method_source ==
              "defmethod(:source_parse_class, :unicode, [self]) do\r\n" <>
                "  # comment inside the method\r\n" <>
-               "  unify(self, \"é\")\r\n" <>
+               "  self = \"é\"\r\n" <>
                "end"
 
     assert class_source ==
@@ -86,12 +86,12 @@ defmodule Examples.ALSourceInput do
 
   example final_definition_ranges_exclude_trailing_comments() do
     source =
-      "unify(\"é\", :ok); " <>
+      "\"é\" = :ok; " <>
         "defmethod :source_parse_class, :final_form, [self] # not owned by the method"
 
     {:ok, result} = Parser.parse(source)
     assert [method] = result.captures
-    assert method.range.start == %{line: 1, column: 18}
+    assert method.range.start == %{line: 1, column: 12}
 
     assert {:ok, "defmethod :source_parse_class, :final_form, [self]"} =
              Parser.slice(source, method.range)
@@ -108,12 +108,24 @@ defmodule Examples.ALSourceInput do
     assert {:error, %Parser.Error{phase: :lowering}} =
              Parser.parse("""
              defclass :broken_source_class, super: :object do
-               unify(a, b)
+               a = b
              end
              """)
 
     assert {:error, %Parser.Error{phase: :lowering}} = Parser.parse("42")
     assert {:error, %Parser.Error{phase: :lowering}} = AL.eval_source("42")
+
+    assert {:error,
+            %Parser.Error{
+              phase: :lowering,
+              message: "AL does not support Elixir tuple literals"
+            }} = Parser.parse("pair = {:ok, 1}")
+
+    assert {:error,
+            %Parser.Error{
+              phase: :lowering,
+              message: "AL does not support Elixir tuple literals"
+            }} = Parser.parse("triple = {:point, 1, 2}")
 
     {:ok, call_named_defmethod} = Parser.parse("defmethod(:receiver, :selector)")
     assert call_named_defmethod.captures == []
@@ -175,7 +187,7 @@ defmodule Examples.ALSourceInput do
 
   example source_input_preserves_heap_limited_evaluation() do
     source = """
-    unify(result, :ok)
+    result = :ok
     """
 
     assert {:atomic, {bindings, _constraints, nil}} =
@@ -197,7 +209,7 @@ defmodule Examples.ALSourceInput do
       end
 
       defmethod(#{inspect(class)}, :outside, [self]) do
-        unify(self, self)
+        self = self
       end
       """
 
@@ -316,7 +328,7 @@ defmodule Examples.ALSourceInput do
 
       assert outside_text ==
                "defmethod(#{inspect(class)}, :outside, [self]) do\n" <>
-                 "  unify(self, self)\n" <>
+                 "  self = self\n" <>
                  "end"
 
       :ok
@@ -547,7 +559,7 @@ defmodule Examples.ALSourceInput do
     assert :ok ==
              AL.Goal.validate_storable(%AL.Goal.SourceScope{
                capture_id: AL.Var.var("trusted_capture"),
-               goals: [%AL.Goal.Unify{a: :ok, b: :ok}]
+               goals: [%AL.Goal.Eq{a: :ok, b: :ok}]
              })
 
     branch = Examples.Support.isolated_branch()
@@ -785,7 +797,7 @@ defmodule Examples.ALSourceInput do
       source = """
       defclass #{inspect(class)}, super: :object do
         defmethod(:describe, [self, :small]) do
-          unify(self, self)
+          self = self
         end
 
         defmethod(:describe, [self, :big])
@@ -797,7 +809,7 @@ defmodule Examples.ALSourceInput do
       output = capture_io(fn -> AL.Source.print_method(class, :describe, branch) end)
 
       assert output ==
-               "defmethod(:describe, [self, :small]) do\n    unify(self, self)\n  end\n\n" <>
+               "defmethod(:describe, [self, :small]) do\n    self = self\n  end\n\n" <>
                  "defmethod(:describe, [self, :big])\n\n"
 
       :ok

@@ -43,7 +43,7 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          is(x, 2 + 2)
+          x = 2 + 2
           vm_format("x is ~d~%", [x])
         end
       end)
@@ -82,7 +82,7 @@ defmodule Examples.ALFormat do
         run branch: Examples.Support.branch() do
           defclass :format_o_print_object_class, super: :object do
             defmethod(:print_object, [self, text]) do
-              unify(text, "a shiny thing")
+              text = "a shiny thing"
             end
           end
 
@@ -117,7 +117,7 @@ defmodule Examples.ALFormat do
         run branch: Examples.Support.branch() do
           defclass :format_o_multi_class, super: :object do
             defmethod(:print_object, [self, text]) do
-              unify(text, "widget")
+              text = "widget"
             end
           end
 

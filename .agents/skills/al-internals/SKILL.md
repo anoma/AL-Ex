@@ -10,6 +10,11 @@ append-only Mnesia command log. Runtime objects and retained source are
 projections of that history. Preserve that separation whenever changing the
 VM or its tools.
 
+When the implementation being changed is itself written in AL—especially
+`bootstrap.ex` or `package_system.ex`—also read `al-practices` and its
+relational-object programming reference. Do not replace a relational protocol
+with Elixir-style branching merely because it lives in the bootstrap program.
+
 ## Start here
 
 1. Read [references/architecture-map.md](references/architecture-map.md) when
@@ -30,6 +35,16 @@ generative/durable/domain dispatch convergence specifically, read
 [references/dispatch-domain-unification.md](references/dispatch-domain-unification.md).
 
 ## Invariants
+
+- Keep the language/VM boundary explicit. Ordinary modeled behavior belongs in
+  AL methods and public protocols; a `vm_*` operation belongs at the bottom of
+  that protocol, in exact structural reconciliation, or in a deliberate
+  primitive test.
+- Preserve relational modes. Interpreter fast paths may optimize a relation but
+  must not silently turn an open or bidirectional call into a grounded-only one.
+- AL surface terms do not include Elixir tuples. Internal goal encodings,
+  Mnesia rows, and private Elixir return values may use tuples, but they must not
+  leak into the surface language.
 
 - `AL.Command` is durable authority. `AL.Object`, `AL.SourceStore`, caches, and
   serialised files are derived and must remain rebuildable.
@@ -89,8 +104,10 @@ generative/durable/domain dispatch convergence specifically, read
 - Add or change a goal: update the struct/type, lowering, interpreter handler,
   stored representation if applicable, command log operation, projection, and
   replay path as one semantic change.
-- Change a durable record shape: inspect replay compatibility before running on
-  an existing store. Old commands may require migration or a deliberate reset.
+- Change the current runtime coherently. Do not add image, replay, command-log,
+  stored-state, or old goal-shape compatibility unless the user explicitly asks
+  for it. Use a fresh isolated store for verification when old data cannot be
+  read by the new runtime.
 - Change dispatch: test bound and unbound receivers, durable and generative
   legs, inheritance ordering, backtracking, cut, DNU, and cache invalidation as
   applicable.

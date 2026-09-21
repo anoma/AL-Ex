@@ -56,7 +56,7 @@ A `run do ... end` block is one transaction. Every write inside it, no matter ho
 ```elixir
 {:atomic, {bindings, _}} =
   run do
-    defclass :tx_demo, super: :object, ivars: [greeting: []] do
+    defclass :tx_demo, super: :object, ivars: [:greeting] do
       defmethod(:hello, [self, :hi])
     end
 
@@ -109,7 +109,7 @@ Since the log is the real source of truth, the durable object tables (`class`, `
 ```elixir
 {:atomic, {bindings, _}} =
   run do
-    defclass :hydration_demo, super: :object, ivars: [greeting: []] do
+    defclass :hydration_demo, super: :object, ivars: [:greeting] do
       defmethod(:hello, [self, :hi])
     end
 
@@ -263,7 +263,7 @@ Slots keep their own history. `slot_history/3` reads it back from oldest first.
 
 ```elixir
 run do
-  defclass :history_probe, super: :object, ivars: [count: []] do
+  defclass :history_probe, super: :object, ivars: [:count] do
   end
 
   new(:history_probe, obj)
@@ -280,7 +280,7 @@ end
 
 ```elixir
 run do
-  defclass :boundary_probe, super: :object, ivars: [count: []] do
+  defclass :boundary_probe, super: :object, ivars: [:count] do
   end
 
   new(:boundary_probe, obj)
@@ -289,7 +289,7 @@ run do
 
   vm_slot_at(obj, :count, 1, t1)
   label(t1)
-  is(boundary, t1 + 1)
+  boundary = t1 + 1
   vm_slot_at(obj, :count, v_at_boundary, boundary)
 end
 ```
@@ -302,7 +302,7 @@ A `vm_slot_at` call with an open time variable does not just filter, it posts a 
 
 ```elixir
 run do
-  defclass :upper_bound_probe, super: :object, ivars: [count: []] do
+  defclass :upper_bound_probe, super: :object, ivars: [:count] do
   end
 
   new(:upper_bound_probe, obj)
@@ -319,14 +319,14 @@ The interval during which the slot held `1` ends exactly when the interval durin
 
 ## Temporality: overlap across two objects
 
-Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `unify` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `unify` succeeds. If they never coincided, it fails.
+Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `=` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `=` succeeds. If they never coincided, it fails.
 
 ```elixir
 run do
-  defclass :sensor_a, super: :object, ivars: [status: []] do
+  defclass :sensor_a, super: :object, ivars: [:status] do
   end
 
-  defclass :sensor_b, super: :object, ivars: [status: []] do
+  defclass :sensor_b, super: :object, ivars: [:status] do
   end
 
   new(:sensor_a, %{name: :sensor_a_1, status: :off}, _)
@@ -348,11 +348,11 @@ end
 run do
   vm_slot_at(:sensor_a_1, :status, :on, ta)
   vm_slot_at(:sensor_b_1, :status, :on, tb)
-  unify(ta, tb)
+  ta = tb
 end
 ```
 
-Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `:on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `unify`.
+Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `:on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `=`.
 
 This is not the same as asking whether one sensor's whole `:on` period came entirely before or after the other's. `>=` and `<=` between two bound variables like these only ask whether some pairing of instants could satisfy the comparison, not whether every instant in one interval relates to every instant in the other that way. Proving that stronger kind of claim needs both endpoints of an interval available on their own, which is not something `vm_slot_at` exposes today. More on this below.
 

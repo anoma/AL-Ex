@@ -138,7 +138,7 @@ author = AL.Branch.head()
     defclass :greeting,
       super: :object,
       redef: true,
-      ivars: [words: []] do
+      ivars: [:words] do
       defmethod(:words, [self, words]) do
         get(self, :words, words)
       end

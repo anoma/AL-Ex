@@ -660,13 +660,12 @@ defmodule AL.Source do
   defp goal({:gensym, v}), do: call(:gensym, [v])
   defp goal({:ground, t}), do: call(:ground, [t])
   defp goal({:var, x}), do: call(:var, [x])
-  defp goal({:call_term, t}), do: call(:call_term, [t])
   defp goal({:dif, a, b}), do: call(:dif, [a, b])
   defp goal({:isa, object, class}), do: call(:isa, [object, class])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
-  defp goal({:functor, term, name, args}), do: call(:functor, [term, name, args])
-  defp goal({:unify, a, b}), do: call(:unify, [a, b])
+  defp goal({:=, a, b}), do: {:=, [], [pat(a), pat(b)]}
+  defp goal({:unify, a, b}), do: goal({:=, a, b})
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
 
   defp goal({:transaction_source, tx, text, origin}),
@@ -679,7 +678,7 @@ defmodule AL.Source do
   defp goal({:set_slot, o, k, v}), do: call(:vm_set_slot, [o, k, v])
   defp goal({:get_slot, o, k, v, :auto}), do: call(:slot, [o, k, v])
   defp goal({:get_slot, o, k, v, store}), do: call(:slot, [o, k, v, store])
-  defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), Enum.map(cond, &goal/1), pat(r)]}
+  defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), pat(r), [do: goals(cond)]]}
   defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
   defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])
   defp goal({:retract_slot, o, k}), do: call(:vm_retract_slot, [o, k])
@@ -701,6 +700,9 @@ defmodule AL.Source do
   defp goal({:oapply, :await_effect, [effect, head, goals]}),
     do: {:await, [], [pat(effect), pat(head), [do: goals(goals)]]}
 
+  defp goal({:oapply, :defmethod, [object, name, head, body]}) when is_list(body),
+    do: {:defmethod, [], [pat(object), pat(name), pat(head), [do: goals(body)]]}
+
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
   defp goal({:get_oapply, o, :"$_", h, b}), do: call(:clause, [o, h, b])
@@ -719,7 +721,7 @@ defmodule AL.Source do
   defp goal({:oapply, fun, args}), do: call(:vm_oapply, [fun, args])
 
   defp goal({:forall, cond, body}),
-    do: {:forall, [], [Enum.map(cond, &goal/1), [do: goals(body)]]}
+    do: {:forall, [], Enum.map(cond, &goal/1) ++ [[do: goals(body)]]}
 
   defp goal({:or, left, right}),
     do: {:alternative, [], [Enum.map(left, &goal/1), Enum.map(right, &goal/1)]}

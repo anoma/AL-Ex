@@ -8,7 +8,7 @@ defmodule Examples.ALSudoku do
   `:value` instance (`%{class: :sudoku_puzzle, rows: ...}`), not a durable object —
   a puzzle is scratch, and being a map means it already carries its own
   printable/reified form, nothing separate to build for that. Sudoku
-  doesn't need `eq/2`'s arithmetic propagation at all (no sums or products
+  doesn't need `=`'s arithmetic propagation at all (no sums or products
   between cells), just distinctness + a bounded domain + search.
   """
 

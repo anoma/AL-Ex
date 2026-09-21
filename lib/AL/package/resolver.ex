@@ -47,10 +47,11 @@ defmodule AL.Package.Resolver do
 
   defp resolve_providers(catalog, requested, branch) do
     provider_ids = Enum.map(catalog.providers, & &1.id)
+    al_requested = Enum.map(requested, &al_requirement/1)
 
     result =
       AL.run branch: branch.id do
-        resolve(:package_resolver, ^provider_ids, ^requested, solution)
+        resolve(:package_resolver, ^provider_ids, ^al_requested, solution)
       end
 
     case result do
@@ -106,9 +107,10 @@ defmodule AL.Package.Resolver do
 
     if length(dependencies) == length(expected) and
          Enum.all?(Enum.zip(expected, dependencies), fn
-           {expected_requirement, {requirement, package, provider_id}}
+           {expected_requirement,
+            %{requirement: requirement, package: package, provider: provider_id}}
            when is_atom(package) and is_atom(provider_id) ->
-             requirement == expected_requirement and
+             requirement == al_requirement(expected_requirement) and
                package == requirement_name(expected_requirement) and
                Map.get(selected, package) == provider_id
 
@@ -124,7 +126,11 @@ defmodule AL.Package.Resolver do
       Enum.reduce(selections, {%{}, []}, fn {provider, dependency_selections},
                                             {by_name, builds} ->
         dependencies =
-          Enum.map(dependency_selections, fn {_requirement, name, _provider} ->
+          Enum.map(dependency_selections, fn %{
+                                               requirement: _requirement,
+                                               package: name,
+                                               provider: _provider
+                                             } ->
             {name, Map.fetch!(by_name, name)}
           end)
 
@@ -140,4 +146,7 @@ defmodule AL.Package.Resolver do
 
     if map_size(by_name) == length(builds), do: {:ok, builds}, else: {:error, :invalid_build_plan}
   end
+
+  defp al_requirement(name) when is_atom(name), do: name
+  defp al_requirement({name, requirement}), do: %{package: name, requirement: requirement}
 end

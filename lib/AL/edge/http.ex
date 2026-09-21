@@ -49,7 +49,7 @@ defmodule AL.Edge.HTTP do
 
   defp request_headers(headers) do
     Enum.reduce_while(headers, {:ok, []}, fn
-      {name, value}, {:ok, result} when is_binary(name) and is_binary(value) ->
+      %{name: name, value: value}, {:ok, result} when is_binary(name) and is_binary(value) ->
         {:cont, {:ok, [{String.to_charlist(name), String.to_charlist(value)} | result]}}
 
       header, _result ->
@@ -71,6 +71,8 @@ defmodule AL.Edge.HTTP do
   end
 
   defp response_headers(headers) do
-    Enum.map(headers, fn {name, value} -> {to_string(name), to_string(value)} end)
+    Enum.map(headers, fn {name, value} ->
+      %{name: to_string(name), value: to_string(value)}
+    end)
   end
 end

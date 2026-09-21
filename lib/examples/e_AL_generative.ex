@@ -161,7 +161,7 @@ defmodule Examples.ALGenerative do
 
         new(:lazy_dispatch_child, %{name: :lazy_dispatch_child_instance}, child)
         lazy_dispatch_inherited(receiver, result)
-        unify(receiver, child)
+        receiver = child
       end
 
     assert Map.fetch!(bindings, :"$receiver") == :lazy_dispatch_child_instance
@@ -181,7 +181,7 @@ defmodule Examples.ALGenerative do
 
         new(:lazy_override_child, %{name: :lazy_override_child_instance}, child)
         lazy_override_probe(receiver, result)
-        unify(receiver, child)
+        receiver = child
       end
 
     assert Map.fetch!(bindings, :"$receiver") == :lazy_override_child_instance
@@ -220,11 +220,10 @@ defmodule Examples.ALGenerative do
           _
         )
 
-        findall(
-          [receiver, result],
-          [dispatch_partition_probe(receiver, result), label(receiver)],
-          answers
-        )
+        findall([receiver, result], answers) do
+          dispatch_partition_probe(receiver, result)
+          label(receiver)
+        end
       end
 
     assert MapSet.new(Map.fetch!(bindings, :"$answers")) ==
@@ -247,7 +246,7 @@ defmodule Examples.ALGenerative do
         defclass :label_common_child,
           super: [:label_left_parent, :label_right_parent, :value] do
           defmethod(:init, [_self, _args, new]) do
-            unify(new, %{class: :label_common_child})
+            new = %{class: :label_common_child}
           end
         end
 
@@ -290,13 +289,13 @@ defmodule Examples.ALGenerative do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         letter_word_stays_open(x)
-        unify(x, :not_a_letter_word)
+        x = :not_a_letter_word
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         letter_word_stays_open(x)
-        unify(x, :letter_word_real_instance)
+        x = :letter_word_real_instance
       end
 
     assert Map.get(bindings, :"$x") == :letter_word_real_instance
@@ -416,7 +415,9 @@ defmodule Examples.ALGenerative do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, [isa(x, :ghost_right)], xs)
+        findall(x, xs) do
+          isa(x, :ghost_right)
+        end
       end
 
     assert length(Map.get(bindings, :"$xs")) == 1
@@ -469,7 +470,7 @@ defmodule Examples.ALGenerative do
   example labeling_uses_transitive_value_inheritance() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :inherited_value_parent, super: :value, ivars: [payload: []] do
+        defclass :inherited_value_parent, super: :value, ivars: [:payload] do
         end
 
         defclass :inherited_value_child, super: :inherited_value_parent do
@@ -599,7 +600,7 @@ defmodule Examples.ALGenerative do
         defclass :square, super: :value, ivars: [:side] do
           defmethod(:init, [self, args, new]) do
             get(args, :side, side)
-            unify(new, %{class: :square, side: side})
+            new = %{class: :square, side: side}
           end
 
           defmethod(:get, [self, k, v]) do
@@ -609,13 +610,13 @@ defmodule Examples.ALGenerative do
           defmethod(:area, [%{class: :square, side: side}, result]) do
             implies do
               [ground(side)] ->
-                is(result, side * side)
+                result = side * side
 
               :else ->
                 ground(result)
                 between(self, 1, result, side)
-                is(check, side * side)
-                unify(check, result)
+                check = side * side
+                check = result
             end
           end
         end
@@ -654,7 +655,7 @@ defmodule Examples.ALGenerative do
 
         defmethod(:coins, :change, [self, amount, [c | rest], [c | combo]]) do
           amount >= c
-          is(remaining, amount - c)
+          remaining = amount - c
           change(self, remaining, [c | rest], combo)
         end
 
@@ -667,7 +668,10 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         new(:coins, coins)
-        findall(combo, [change(coins, 30, [25, 10, 5, 1], combo)], all)
+
+        findall(combo, all) do
+          change(coins, 30, [25, 10, 5, 1], combo)
+        end
       end
 
     combos = Map.get(bindings, :"$all")
@@ -705,7 +709,7 @@ defmodule Examples.ALGenerative do
   example unconstrained_vars_have_no_constraints_entry() do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        unify(x, 5)
+        x = 5
       end
 
     assert constraints == %{}
@@ -717,7 +721,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         defclass :labeled_vehicle,
           super: :object,
-          ivars: [color: []],
+          ivars: [:color],
           redef: true do
         end
 
@@ -743,13 +747,15 @@ defmodule Examples.ALGenerative do
           defmethod(:dispatch_kind, [_self, :car])
         end
 
-        findall(kind, [class(receiver, :dispatch_vehicle), dispatch_kind(receiver, kind)], exact)
+        findall(kind, exact) do
+          class(receiver, :dispatch_vehicle)
+          dispatch_kind(receiver, kind)
+        end
 
-        findall(
-          kind,
-          [isa(receiver, :dispatch_vehicle), dispatch_kind(receiver, kind)],
-          inherited
-        )
+        findall(kind, inherited) do
+          isa(receiver, :dispatch_vehicle)
+          dispatch_kind(receiver, kind)
+        end
       end
 
     assert Map.get(bindings, :"$exact") == [:vehicle]

@@ -14,7 +14,7 @@ defmodule Examples.ALPeer do
         defclass :observed_peer, super: :peer, redef: true do
           defmethod(:receive, [self, socket, message]) do
             call_next_method(self, socket, message)
-            functor(event, :peer_message, [self, socket, message])
+            event = %{event: :peer_message, peer: self, socket: socket, message: message}
             send_elixir(^pid, event)
           end
         end
@@ -33,7 +33,8 @@ defmodule Examples.ALPeer do
         end
       end
 
-    assert_receive {:peer_message, :peer_bob, socket, ^message}, 1_000
+    assert_receive %{event: :peer_message, peer: :peer_bob, socket: socket, message: ^message},
+                   1_000
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do

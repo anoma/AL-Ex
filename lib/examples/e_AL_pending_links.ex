@@ -10,7 +10,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         defclass :pending_value,
           super: :value,
-          ivars: [tag: [domain: [:only]]] do
+          ivars: [%{name: :tag, domain: [:only]}] do
         end
 
         defclass :pending_unique_parent, super: :object do
@@ -28,7 +28,7 @@ defmodule Examples.ALPendingLinks do
         defclass :pending_shared_child_b, super: :pending_shared_parent do
         end
 
-        defclass :pending_record, super: :object, ivars: [pending_tag: []] do
+        defclass :pending_record, super: :object, ivars: [:pending_tag] do
         end
 
         new(
@@ -59,7 +59,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(object, exact_class)
-        unify(exact_class, :pending_value)
+        exact_class = :pending_value
         label(object)
       end
 
@@ -74,7 +74,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         class(object, exact_class)
         label(exact_class)
-        unify(exact_class, :pending_value)
+        exact_class = :pending_value
       end
 
     object = bindings[:"$object"]
@@ -90,7 +90,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         class(object, exact_class)
         label(exact_class)
-        unify(exact_class, :pending_value)
+        exact_class = :pending_value
         label(object)
       end
 
@@ -103,7 +103,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(subclass, superclass)
-        unify(subclass, :pending_unique_child)
+        subclass = :pending_unique_child
       end
 
     assert bindings[:"$superclass"] == :pending_unique_parent
@@ -115,7 +115,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         super(subclass, superclass)
-        unify(superclass, :pending_unique_parent)
+        superclass = :pending_unique_parent
       end
 
     assert bindings[:"$subclass"] == :pending_unique_child
@@ -127,7 +127,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         super(subclass, superclass)
-        unify(superclass, :pending_shared_parent)
+        superclass = :pending_shared_parent
       end
 
     subclass = bindings[:"$subclass"]
@@ -141,15 +141,11 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          subclass,
-          [
-            super(subclass, superclass),
-            unify(superclass, :pending_shared_parent),
-            label(subclass)
-          ],
-          subclasses
-        )
+        findall(subclass, subclasses) do
+          super(subclass, superclass)
+          superclass = :pending_shared_parent
+          label(subclass)
+        end
       end
 
     assert MapSet.new(bindings[:"$subclasses"]) ==
@@ -161,7 +157,10 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(superclass, [super(subclass, superclass), label(superclass)], superclasses)
+        findall(superclass, superclasses) do
+          super(subclass, superclass)
+          label(superclass)
+        end
       end
 
     assert Enum.count(bindings[:"$superclasses"], &(&1 == :pending_shared_parent)) == 1
@@ -173,7 +172,7 @@ defmodule Examples.ALPendingLinks do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         super(subclass, superclass)
-        unify(subclass, :not_a_registered_class)
+        subclass = :not_a_registered_class
         label(superclass)
       end
 
@@ -186,7 +185,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         slot(object, :pending_tag, value)
-        unify(object, :pending_unique_record)
+        object = :pending_unique_record
       end
 
     assert bindings[:"$value"] == :unique_value
@@ -198,7 +197,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         slot(object, :pending_tag, value)
-        unify(value, :unique_value)
+        value = :unique_value
       end
 
     assert bindings[:"$object"] == :pending_unique_record
@@ -210,7 +209,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         slot(object, :pending_tag, value)
-        unify(value, :shared_value)
+        value = :shared_value
       end
 
     object = bindings[:"$object"]
@@ -224,15 +223,11 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          object,
-          [
-            slot(object, :pending_tag, value),
-            unify(value, :shared_value),
-            label(object)
-          ],
-          objects
-        )
+        findall(object, objects) do
+          slot(object, :pending_tag, value)
+          value = :shared_value
+          label(object)
+        end
       end
 
     assert MapSet.new(bindings[:"$objects"]) ==
@@ -244,7 +239,10 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(value, [slot(object, :pending_tag, value), label(value)], values)
+        findall(value, values) do
+          slot(object, :pending_tag, value)
+          label(value)
+        end
       end
 
     assert Enum.count(bindings[:"$values"], &(&1 == :shared_value)) == 1

@@ -86,15 +86,15 @@ also starts/stops the Outbox per branch.
   - `run do … end` → `AL.Lowering.ast_to_pattern` lowers surface syntax to
     `goal()` tuples → `eval/3` runs them in `:mnesia.transaction`. `run branch: b
     do … end` targets fork `b`; bare `run` uses `AL.Branch.head()`.
-  - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, domino, …}`.
+  - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, trace, …}`.
     `continue/1` drives goals, `backtrack/1` pops the stack. Success →
     `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, reason}`.
   - `interp/2` has one clause per goal, but for whole *families* of goals that
     clause is one line delegating to the module that owns that concern — `AL`
-    itself only keeps the goals with no better-named home: `Unify`/`Equal`/
-    `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Functor`/`CallTerm`/`Not`/`Call`/
+    itself only keeps the goals with no better-named home: `Eq`/`Equal`/
+    `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Not`/`Call`/
     `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
-    primitive `OApply` cases (`is`, `map_get`, `map_put`, `fresh_id`,
+    primitive `OApply` cases (`map_get`, `map_put`, `fresh_id`,
     `current_tx`) and `OApply`'s own general clause (method dispatch — see
     below). `oapply` expands a method head into its body **bidirectionally**:
     freshen the clause's vars by scope, unify head with call args into the
@@ -156,7 +156,7 @@ also starts/stops the Outbox per branch.
   lib/AL/choicepoint.ex)** — the two struct defs `AL` builds its state from;
   split out since they're pure data, no logic.
 - **`AL.Interp.Store` (lib/AL/interp/store.ex)** — the object-mutation goals:
-  `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/`SetSlots` and their five
+  `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/`SetSlot` and their five
   `Retract*` counterparts. Every one writes both the durable command log
   (`AL.Command`) and the in-memory projection (`AL.Object`) through one shared
   `write/3` helper. A goal whose `object` is already a live map (an ephemeral
@@ -225,9 +225,9 @@ also starts/stops the Outbox per branch.
   dispatches those commands. **One outbox per branch** runs under a
   DynamicSupervisor, so fork async stays on the fork. `Branch.fork`/`discard`
   start/stop it.
-- **`AL.Trace`/`AL.Domino` (lib/AL/trace/)** — introspection. See "The domino
-  tracing model" below for `AL.Domino` and `AL.Trace`'s live tracepoint
-  printer.
+- **`AL.Trace`/`AL.Trace.Domino` (lib/AL/trace/)** — introspection. See "The
+  tracing model" below for retained trace families, Domino call-tree evidence,
+  and `AL.Trace`'s live tracepoint printer.
 - **`AL.Source` (lib/AL/view/source.ex)** — decompiles a stored goal pattern
   back into readable AL surface syntax; a Views concern, not interpreter
   introspection, since it reads back out of the projection rather than
@@ -313,7 +313,7 @@ constraint it's the proof of.
 1. **Lowering (`AL.Lowering.ast_to_pattern`).** `send(recv, sel, args)` and implicit
    `sel(recv, …)` (any atom head with ≥1 arg) become `{:send, recv, sel, args}`.
    Direct VM ops never become sends: arithmetic (`+ - * / **`) and
-   `@oapply_primitives` (`is`, `map_get`, `map_put`, `lookup`, `fresh_id`,
+   `@oapply_primitives` (`map_get`, `map_put`, `lookup`, `fresh_id`,
    `current_tx`) lower to `{:oapply, …}`; zero-arg `foo()` → `{:oapply, foo, []}`.
 2. **Pre-substitution.** `continue` substitutes the goal against bindings before
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
@@ -390,33 +390,53 @@ created with `record_name:` the base relation, so record tags and scan patterns
 are identical across stores. Almost every `AL.Object`/`AL.Command` function
 takes a trailing `branch \\ :main`.
 
-## The domino tracing model (`AL.Domino`, `lib/AL/trace/`)
+## The tracing model (`AL.Trace`, `lib/AL/trace/`)
 
-`state.domino.trace` is a structured call-tree log controlled by
-`trace_mode`. `:no_trace` is the default and retains no execution history,
-`:derivation_trace` produces structured evidence for extraction and ZK
-verification, and `:full_trace` also interleaves every VM goal. The traced
-modes record 4 ports — Call/Exit/Redo/
-Fail — at 2 levels, **method** (dispatch picking a provider, can itself
+Retained tracing is controlled by the composable `trace:` flag set and stored
+under `state.trace`. No flags is the default and retains no execution history.
+`:domino` records the structured call tree plus constraint evidence, and `:vm`
+interleaves every VM goal. Constraint events are classified entries, not a
+separate producer or flag. A future query explainer can add a new producer
+without another top-level state field. The old `trace_mode:` values remain
+compatibility shorthands: `:no_trace` is `[]`, `:derivation_trace` is
+`[:domino]`, and `:full_trace` is `[:domino, :vm]`. Domino traces record 4 ports
+— Call/Exit/Redo/Fail — at 2 levels, **method** (dispatch picking a provider, can itself
 backtrack over candidate classes) wrapping **clause** (which clause of the
 chosen method runs). Same Byrd-box framing classic Prolog tracers use, doubled
 because AL has dispatch on top of clause selection where Prolog only has the
-latter. Call/Exit carry a map of whatever was still open at that moment,
-resolved against *that scope's own* store, not the run's final one — a var can
-be merely narrowed by one call and only pinned down later by something
-unrelated, so the final store would misattribute it; Redo/Fail stay bare.
+latter. Call/Exit carry a map of every variable still open at that moment,
+including variables nested inside a receiver or argument, resolved against
+*that scope's own* store, not the run's final one — a var can be merely narrowed
+by one call and only pinned down later by something unrelated, so the final
+store would misattribute it; Redo/Fail stay bare. Constraint events likewise
+retain their immediate input and output descriptions. A collection answer owns
+the final solution description; it is never substituted into its earlier
+constraint nodes.
 `AL.begin_method_scope/5` opens a method box; `mark_exited/2` closes a clause
 box natively (from `continue/1`'s continuation-pop) and propagates the exit
 into its enclosing method box, since dispatch has no continuation of its own
-to pop the way a clause call does. `state.domino.scopes` (one map, keyed by
+to pop the way a clause call does. `state.trace.runtime.scopes` (one map, keyed by
 scope: `%{parent, kind, open_vars, exited}`) is the bookkeeping that makes
 this possible — set at Call, read at Exit/Redo/Fail, deleted at Fail.
 
-Raw goals plus `:backtrack`/`:flounder` only join the same list when a run
-uses `trace_mode: :full_trace` — interleaved in chronological
+Every retained entry is an `%AL.Trace.Event{kind, payload}` tagged as either
+`:domino` or `:vm`. Raw goals plus `:backtrack`/`:flounder` join
+`state.trace.events` when a run enables `:vm` — interleaved in chronological
 order, so a raw goal sits right next to the Call that's its context, no
-cross-referencing needed. `AL.Trace.render/1` prints either shape
-(reconstructs depth by walking Call/Exit as it goes), through the same
+cross-referencing needed. `state.trace.runtime` holds ephemeral scope,
+tracepoint, and live-printer state; the trace's custom inspector omits it.
+`AL.Trace.derivation_tree/1` accepts the completed `%AL{}` state, reads both
+the retained journal and final variable store itself, and restores execution
+order internally before constructing the successful derivation. Its materialized
+tree alternates call nodes with successful answer nodes: a call owns its answers;
+each answer owns its clause, derived bindings, and ordered nested method or
+constraint steps. A method answer's derivation spans that method Call/Exit,
+while a constraint node's derivation spans only that constraint's execution.
+Redo rewinds later siblings and invalidates ancestor answers, so unsuccessful
+attempts do not leak into the surviving tree.
+`AL.Trace.render/1` prints a chronological event journal and reconstructs depth
+by walking Call/Exit as it goes. `AL.Trace.render_tree/1` prints the successful
+call/answer tree returned by `derivation_tree/1`. The event renderer uses the same
 formatters the live `AL.trace(:selector)` printer uses (`AL.Trace.call/5`,
 `exit/4`, `redo/4`, `fail/4` — all `(level, depth, receiver, method[, args])`,
 `level` is `:method` or `:clause`). `iex -S mix debug` sets
@@ -425,6 +445,17 @@ reading a long trace by hand — invoking a custom Mix task this way skips the
 normal app-start Mix does for you, so the task itself calls
 `Mix.Task.run("app.start")` first (`lib/mix/tasks/debug.ex`). Examples in
 `e_AL_trace.ex`.
+
+`findall`, `forall`, and `not` evaluate their conditions in isolated `%AL{}`
+states so bindings and choicepoints cannot leak. Their finalized retained events
+are prepended back into the outer reverse-chronological event stream, so tracing
+still shows the work performed inside those meta-goals. Domino collection
+markers retain each successful inner solution store before exhaustive search
+resumes. `derivation_tree/1` merges those successful paths by their retained
+call and answer identities. The collector is one call-like node with one answer;
+the calls inside its condition own the actual alternatives. This keeps common
+prefix constraints once and places downstream enumeration beneath the answer
+whose constraints it consumes.
 
 `AL.Trace.dispatch/3` (live-printer only, fired from `AL.Dispatch.dispatch/5`'s
 var-receiver branch) covers what the domino ports don't: *which candidate
@@ -453,8 +484,8 @@ the `heap:`-capped `eval` path (`AL.shed/1`), which exists specifically to
 bound what crosses the process boundary. Example:
 `failed_run_exposes_the_final_state` in `e_AL_failures.ex`.
 
-A `unify(a, b)` failing because a `dif`/`isa` constraint rejected it looks
-identical to an ordinary structural mismatch — `Goal.Unify`'s interp clause
+A `a = b` failing because a `dif`/`isa` constraint rejected it looks
+identical to an ordinary structural mismatch — `Goal.Eq`'s interp clause
 calls `AL.Var.diagnose_unify_failure/5` on a `nil` result and, if it can
 explain it, records `{:constraint_violated, violation}` into
 `state.diagnostics`, so `reason.message` names the constraint directly.
@@ -489,7 +520,7 @@ diff/merge and valid-time queries are unbuilt.
 
 ## Known gaps
 
-- **Arithmetic bounds consistency for `< > <= >= eq`.** Both sides ground (via
+- **Arithmetic bounds consistency for `< > <= >= =`.** Both sides ground (via
   `interp_is/2`) is the original check; a side that derefs to a bare open var
   narrows an interval instead of failing (`AL.Var.add_compare/5`), living in
   the same `ConstraintSet` slot `dif`/`isa` do (`bounds :: {lo, hi}`) with its
@@ -499,7 +530,7 @@ diff/merge and valid-time queries are unbuilt.
   single value binds outright through the existing `bind/4` (so `dif`/`isa`
   still gets checked). A compound expression with an open var still buried
   inside after `interp_is` (e.g. `n - 1` with `n` open) has no interval to
-  narrow and hard-fails, same as `is/2` always has.
+  narrow and hard-fails.
 
   `vm_label/1` (`Goal.Label`) is the companion CLP(FD) primitive: enumerates a
   still-open var's propagated `{lo, hi}` by *splicing a `between/4` send*
@@ -531,17 +562,16 @@ diff/merge and valid-time queries are unbuilt.
   `in_domain`-only symbol). Examples in `e_AL_in_domain.ex`.
 
 - **Ivar specs** — `defclass`'s `ivars:` can carry a per-ivar `domain:`/`type:`
-  spec (`ivars: [suit: [domain: [:hearts, ...]]]`, mixable with bare-name
+  spec (`ivars: [%{name: :suit, domain: [:hearts, ...]}]`, mixable with bare-name
   ivars), and `:value`'s default `:init` wires checking + generation from it
   automatically. `domain:` posts `in_domain`; `type:` attaches `isa` so
   `vm_label`'s class-`:domain`-method fallback can generate a value. Zero VM
   changes — `ivars` was already opaque class metadata. New helper methods
   live on `:object`, not `:map` (a classed map dispatches via its own
   `:class` field, never through `:map`). `ivars: []` (every pre-existing
-  value class) keeps the old default-`:init` behavior untouched. Decomposing
-  a `{name, opts}` ivar entry uses `functor`, not a bare-var fallback
-  clause — see [[feedback-prolog-clause-selection-not-elixir]] for why that
-  distinction matters. Explicitly deferred: numeric-range generation, durable
+  value class) keeps the old default-`:init` behavior untouched. Rich ivar
+  entries are maps and bare entries are atoms. Explicitly deferred:
+  numeric-range generation, durable
   (`:object`-super) classes. Demo in `lib/AL/transaction_program/blackjack.ex`'s `:card`.
 
 - **Dispatch legs converged to one domain-constraint mechanism** —
@@ -565,12 +595,9 @@ diff/merge and valid-time queries are unbuilt.
   `isa` constraint could in principle narrow the scan itself. Not built; lower
   priority than correctness, which is already there.
 
-- **Tuple literal parsing gap.** `AL.Lowering.ast_to_pattern` has no case for
-  reconstructing a literal 3+-element tuple from Elixir's `{:{}, meta, list}`
-  quoted form — writing `{:foo, 1, 2}` directly in AL surface syntax silently
-  misparses as `send(:foo, :"{}", [1, 2])` instead of a tuple literal.
-  (2-tuples are unaffected.) Workaround: build 3+-tuples via `functor`
-  instead of writing them as literals. Not fixed.
+- **No tuple surface syntax.** AL deliberately rejects Elixir tuple literals.
+  Use lists, maps, or value objects for AL data. Internal VM encodings may still
+  use tuples because they are not AL values written by a program.
 
 - **Atom-identity leak.** `fresh_id`/`gensym` mint atoms (`:"#N"`); the BEAM
   never garbage-collects atoms, and replay re-mints the same ones on top of

@@ -27,7 +27,7 @@ defmodule Examples.ALDif do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
-        unify(x, 2)
+        x = 2
       end
 
     assert Map.get(bindings, :"$x") == 2
@@ -37,7 +37,7 @@ defmodule Examples.ALDif do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
-        unify(x, 1)
+        x = 1
       end
 
     :ok
@@ -65,21 +65,21 @@ defmodule Examples.ALDif do
       run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
-        unify(x, 2)
+        x = 2
       end
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
-        unify(x, 1)
+        x = 1
       end
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(x, 1)
         dif(x, 2)
-        unify(x, 3)
+        x = 3
       end
 
     assert Map.get(bindings, :"$x") == 3
@@ -104,7 +104,11 @@ defmodule Examples.ALDif do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         dif(o, :dif_dispatch_ping_a)
-        findall(o, [ping(o, :pong), label(o)], os)
+
+        findall(o, os) do
+          ping(o, :pong)
+          label(o)
+        end
       end
 
     os = Map.get(bindings, :"$os")

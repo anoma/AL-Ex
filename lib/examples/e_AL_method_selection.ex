@@ -67,11 +67,10 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [receiver, result],
-          [selection_describe(receiver, result), label(receiver)],
-          answers
-        )
+        findall([receiver, result], answers) do
+          selection_describe(receiver, result)
+          label(receiver)
+        end
       end
 
     assert MapSet.new(bindings[:"$answers"]) ==
@@ -87,17 +86,15 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          result,
-          [class(exact, :selection_parent), selection_describe(exact, result)],
-          exact_results
-        )
+        findall(result, exact_results) do
+          class(exact, :selection_parent)
+          selection_describe(exact, result)
+        end
 
-        findall(
-          result,
-          [isa(inherited, :selection_parent), selection_describe(inherited, result)],
-          isa_results
-        )
+        findall(result, isa_results) do
+          isa(inherited, :selection_parent)
+          selection_describe(inherited, result)
+        end
       end
 
     assert bindings[:"$exact_results"] == [:parent]
@@ -110,7 +107,7 @@ defmodule Examples.ALMethodSelection do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         selection_describe(receiver, result)
-        unify(receiver, :selection_override_object)
+        receiver = :selection_override_object
       end
 
     assert bindings[:"$receiver"] == :selection_override_object
@@ -135,15 +132,11 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          receiver,
-          [
-            selection_describe(receiver, :parent),
-            selection_describe(receiver, :override),
-            label(receiver)
-          ],
-          receivers
-        )
+        findall(receiver, receivers) do
+          selection_describe(receiver, :parent)
+          selection_describe(receiver, :override)
+          label(receiver)
+        end
       end
 
     assert bindings[:"$receivers"] == []
@@ -158,18 +151,18 @@ defmodule Examples.ALMethodSelection do
       end
 
     assert match?(
-             {:does_not_understand, :selection_override_object, :selection_route, 2,
-              _suggestions},
+             {:goal_failed, {:method_call, :selection_override_object, :selection_route, _}},
              reason.reason
            )
 
+    refute reason.message =~ "does not understand"
+
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          receiver,
-          [selection_route(receiver, :ordinary, :parent), label(receiver)],
-          receivers
-        )
+        findall(receiver, receivers) do
+          selection_route(receiver, :ordinary, :parent)
+          label(receiver)
+        end
       end
 
     assert MapSet.new(bindings[:"$receivers"]) ==
@@ -181,11 +174,10 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [receiver, result],
-          [selection_identify(receiver, result), label(receiver)],
-          answers
-        )
+        findall([receiver, result], answers) do
+          selection_identify(receiver, result)
+          label(receiver)
+        end
       end
 
     assert MapSet.new(bindings[:"$answers"]) ==

@@ -30,7 +30,7 @@ Class {
 ]
 
 :cell >> :notify, [self, domain] [
-  forall([get(self, :subscribers, subscribers), member(subscribers, subscriber)]) do
+  forall(get(self, :subscribers, subscribers), member(subscribers, subscriber)) do
     send_async(subscriber, :cell_updated, [self, domain])
   end
 
@@ -49,7 +49,7 @@ Class {
 :cell >> :dependents, [self, acc, dependents] [
   implies do
     [get(acc, self, seen)] ->
-      unify(acc, dependents)
+      acc = dependents
 
     :else ->
       get(self, :subscribers, subscribers)

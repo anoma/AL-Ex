@@ -65,11 +65,9 @@ defmodule Examples.ALTransactions do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(
-          [time, operation],
-          [vm_command(^written.tx_id, time, operation)],
-          commands
-        )
+        findall([time, operation], commands) do
+          vm_command(^written.tx_id, time, operation)
+        end
       end
 
     assert [[time, {:set_class, {^object, :object}}]] =

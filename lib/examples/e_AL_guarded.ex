@@ -10,7 +10,7 @@ defmodule Examples.ALGuarded do
 
   example bindings_return_under_the_cap() do
     branch = AL.Branch.fork()
-    goal = AL.ast_to_pattern(quote do: unify(x, 42))
+    goal = AL.ast_to_pattern(quote do: x = 42)
 
     {:atomic, {bindings, _constraints, nil}} = AL.eval([goal], nil, branch, heap: 2_000_000)
 

@@ -26,7 +26,7 @@ defmodule Examples.ALNumbers do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         defmethod(:number, :double, [self, result]) do
-          is(result, self * 2)
+          result = self * 2
         end
 
         double(21, out)
@@ -150,7 +150,7 @@ defmodule Examples.ALNumbers do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         stays_open(x)
-        unify(x, :not_a_number)
+        x = :not_a_number
       end
   end
 
@@ -163,7 +163,9 @@ defmodule Examples.ALNumbers do
   example between_enumerates() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        findall([v], [between(:object, 2, 5, v)], values)
+        findall([v], values) do
+          between(:object, 2, 5, v)
+        end
       end
 
     assert AL.Var.subst(Map.get(bindings, :"$values"), bindings) == [[2], [3], [4], [5]]
@@ -181,13 +183,13 @@ defmodule Examples.ALNumbers do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         class(x, :number)
-        unify(x, :not_a_number)
+        x = :not_a_number
       end
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         class(x, :number)
-        unify(x, 7)
+        x = 7
       end
 
     assert Map.get(bindings2, :"$x") == 7

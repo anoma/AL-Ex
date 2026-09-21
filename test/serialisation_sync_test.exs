@@ -93,12 +93,12 @@ defmodule ALSyncTest do
 
   test "a class metadata edit produces an explicit AL transaction body" do
     old = document()
-    edited = %{old | supers: [:value], ivars: [rank: []], comment: "A thing."}
+    edited = %{old | supers: [:value], ivars: [:rank], comment: "A thing."}
 
     assert {:ok, [{source, nil}]} = Sync.plan(snapshot(%{example: old}), [edited])
     assert source =~ "vm_retract_super(:example, :object)"
     assert source =~ "vm_set_super(:example, :value)"
-    assert source =~ "vm_set_slot(:example, :ivars, [rank: []])"
+    assert source =~ "vm_set_slot(:example, :ivars, [:rank])"
     assert source =~ "vm_set_slot(:example, :comment, \"A thing.\")"
     assert source =~ "class_redefined(:example,"
   end

@@ -35,7 +35,7 @@ defmodule Examples.ALMapset do
         elem(s, 7)
         not [elem(s, 9)]
 
-        unify(checked, true)
+        checked = true
       end
 
     assert Map.get(bindings, :"$checked") == true
@@ -47,7 +47,7 @@ defmodule Examples.ALMapset do
       run branch: Examples.Support.branch() do
         new(:mapset_value, %{elems: []}, empty)
         not [elem(empty, 4)]
-        unify(checked, true)
+        checked = true
       end
 
     assert Map.get(bindings, :"$checked") == true

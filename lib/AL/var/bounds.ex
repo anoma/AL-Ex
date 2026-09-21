@@ -1,7 +1,7 @@
 defmodule AL.Var.Bounds do
   @moduledoc """
-  Narrows a still-open var's `{lo, hi}` interval from `< > <= >= eq`
-  (`eq` = CLP(FD) `#=`, spelled `eq/2` at the surface — `#` can't appear in
+  Narrows a still-open var's `{lo, hi}` interval from `< > <= >= =`
+  (`=` is CLP(FD) `#=`, spelled `=` at the surface since `#` can't appear in
   Elixir source), via a worklist fixpoint over propagators on
   `AL.Var.ConstraintSet` (same slot `dif`/`isa` use). A side reduces to
   `Σ(coeff·var) + const` — real N-ary bounds consistency (each variable's
@@ -79,7 +79,7 @@ defmodule AL.Var.Bounds do
             reverse = reverse_affine_propagator(prop)
 
             if equality_pair?(prop, reverse, prop_set) do
-              relation = summarize_affine_propagator(store, prop, :eq, display)
+              relation = summarize_affine_propagator(store, prop, :=, display)
               {[relation | relations], seen |> MapSet.put(prop) |> MapSet.put(reverse)}
             else
               relation = summarize_affine_propagator(store, prop, affine_op(prop), display)
@@ -186,9 +186,9 @@ defmodule AL.Var.Bounds do
 
   defp summarize_non_affine_propagator(_store, _prop, _display), do: []
 
-  defp summarize_comparison(store, {:eq, a, b}, display) do
+  defp summarize_comparison(store, {:=, a, b}, display) do
     with {:ok, left} <- affine(store, a), {:ok, right} <- affine(store, b) do
-      summarize_linear_relation(store, left, right, :eq, display)
+      summarize_linear_relation(store, left, right, :=, display)
     else
       :error -> nil
     end
@@ -234,7 +234,7 @@ defmodule AL.Var.Bounds do
     %{op: op, terms: terms, value: value}
   end
 
-  defp normalize_relation_sign(terms, value, :eq) do
+  defp normalize_relation_sign(terms, value, :=) do
     case Enum.sort(terms) do
       [{_variable, coefficient} | _] when coefficient < 0 ->
         {Map.new(terms, fn {variable, coefficient} -> {variable, -coefficient} end), -value}
@@ -246,6 +246,102 @@ defmodule AL.Var.Bounds do
 
   defp normalize_relation_sign(terms, value, _op), do: {terms, value}
 
+  @arithmetic_ops [:+, :-, :*, :/, :**, :rem]
+
+  @spec arithmetic?(term()) :: boolean()
+  def arithmetic?(%AL.Goal.OApply{method_id: op}), do: op in @arithmetic_ops
+  def arithmetic?(_), do: false
+
+  @doc """
+  `a = b` where at least one side is an arithmetic expression: value equality.
+  Both sides evaluable compares; one side evaluable and the other an open var
+  binds it; anything else posts the equality as a constraint.
+  """
+  @spec equal(AL.Var.store(), term(), term(), AL.Branch.t()) :: AL.Var.store() | nil
+  def equal(store, a, b, branch) do
+    case {eval(a, store), eval(b, store)} do
+      {x, y} when is_number(x) and is_number(y) ->
+        if x == y, do: store, else: nil
+
+      {x, :error} when is_number(x) ->
+        bind_or_post(store, b, x, a, b, branch)
+
+      {:error, y} when is_number(y) ->
+        bind_or_post(store, a, y, a, b, branch)
+
+      _ ->
+        add_compare(store, :=, a, b, branch)
+    end
+  end
+
+  defp bind_or_post(store, side, value, a, b, branch) do
+    resolved = AL.Var.deref(store, side)
+
+    if AL.Var.var?(resolved),
+      do: AL.Var.bind(store, resolved, value, branch),
+      else: add_compare(store, :=, a, b, branch)
+  end
+
+  @doc """
+  Evaluate an arithmetic expression against `store`, returning a number or
+  `:error` if any operand is unbound or non-numeric. Division by zero is `:error`.
+  """
+  def eval(%AL.Goal.OApply{method_id: op, args: args}, store),
+    do: eval({:oapply, op, args}, store)
+
+  def eval({:oapply, :/, [a, b]}, store) do
+    with x when is_number(x) <- eval(a, store),
+         y when is_number(y) and y != 0 <- eval(b, store) do
+      div(x, y)
+    else
+      _ -> :error
+    end
+  end
+
+  def eval({:oapply, :rem, [a, b]}, store) do
+    with x when is_number(x) <- eval(a, store),
+         y when is_number(y) and y != 0 <- eval(b, store) do
+      rem(x, y)
+    else
+      _ -> :error
+    end
+  end
+
+  def eval({:oapply, op, [a, b]}, store) when op in [:+, :-, :*, :**] do
+    with x when is_number(x) <- eval(a, store),
+         y when is_number(y) <- eval(b, store) do
+      binop(op, x, y)
+    else
+      _ -> :error
+    end
+  end
+
+  def eval({:oapply, op, [a]}, store) when op in [:+, :-] do
+    case eval(a, store) do
+      x when is_number(x) -> binop(op, x)
+      _ -> :error
+    end
+  end
+
+  def eval(a, _store) when is_number(a), do: a
+
+  def eval(a, store) when is_atom(a) do
+    case AL.Var.deref(store, a) do
+      x when is_number(x) -> x
+      _ -> :error
+    end
+  end
+
+  def eval(_a, _store), do: :error
+
+  defp binop(:+, x, y), do: x + y
+  defp binop(:-, x, y), do: x - y
+  defp binop(:*, x, y), do: x * y
+  defp binop(:**, x, y), do: x ** y
+
+  defp binop(:+, x), do: +x
+  defp binop(:-, x), do: -x
+
   # Each side -> affine form -> propagator on every var it mentions -> a
   # worklist fixpoint (narrowing one var re-queues the narrow-woken
   # propagators parked on it, grounding it re-queues all of them, so a chain
@@ -254,7 +350,7 @@ defmodule AL.Var.Bounds do
   # non-affine side — same backtrack either way at the call site.
   @spec add_compare(AL.Var.store(), atom(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           AL.Var.store() | nil
-  def add_compare(store, :eq, a, b, branch) do
+  def add_compare(store, :=, a, b, branch) do
     with {:ok, a_aff} <- affine(store, a), {:ok, b_aff} <- affine(store, b) do
       # `a = b` as two simultaneous `<=` propagators (a<=b and b<=a), on the
       # same worklist fixpoint `< > <= >=` already use — narrowing one side
@@ -357,7 +453,7 @@ defmodule AL.Var.Bounds do
 
   # `def`, not `defp` — `AL.Var.bind/4` also runs the fixpoint directly, over
   # whatever propagators are already parked on a var at the moment an
-  # *ordinary* unify grounds it (not just when a fresh `eq`/compare call
+  # *ordinary* unify grounds it (not just when a fresh `=`/compare call
   # touches it) — otherwise a var bound via plain head unification (e.g. a
   # recursive clause's own base case) would leave stale propagators
   # unchecked until something else happened to touch it later.
@@ -461,7 +557,7 @@ defmodule AL.Var.Bounds do
   # `either({op1, a1, b1}, {op2, a2, b2})` — CLP(FD) `#\/`: the constraint
   # that *at least one* side holds, kept and propagated directly (no
   # reified boolean, no separate `#/\`-composition layer) — parked on
-  # every var either side mentions, same `props`/worklist mechanism `eq`/
+  # every var either side mentions, same `props`/worklist mechanism `=`/
   # `< > <= >=` already use, so it's re-checked whenever any of them
   # narrow (label included, since a bind re-triggers `props` the same way
   # any other propagator does). Only ever resolves by *elimination*: once
@@ -515,7 +611,7 @@ defmodule AL.Var.Bounds do
   end
 
   # Speculative: run each side's real narrowing (the exact same
-  # `add_compare` a plain, unreified `eq`/`< > <= >=` call would run,
+  # `add_compare` a plain, unreified `=`/`< > <= >=` call would run,
   # integer-consistency check included) on a probe copy with *this same*
   # `{:either, left, right}` propagator stripped from every var it's parked
   # on first -- otherwise a bind inside the speculative narrowing (e.g. one
@@ -551,7 +647,7 @@ defmodule AL.Var.Bounds do
       {_, _} ->
         # Both sides currently have a witness -- can't eliminate either one
         # yet. If the side each expression shares (`a1`/`a2`, e.g.
-        # `candidate` in `eq(candidate, x*5) or eq(candidate, y*3)`) is
+        # `candidate` in `(candidate = x*5) or (candidate = y*3)`) is
         # already ground, it can never narrow further in this branch, so
         # re-checking later will always reach this exact "both survive"
         # answer again -- discharge for good (`probe`, propagator already

@@ -26,7 +26,7 @@ defmodule Examples.ALUsers do
       run branch: Examples.Support.branch() do
         defclass :owned_ivar_probe,
           super: :owned,
-          ivars: [items: [type: :list, default: []]] do
+          ivars: [%{name: :items, type: :list, default: []}] do
         end
       end
 
@@ -39,7 +39,9 @@ defmodule Examples.ALUsers do
 
     {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([key, value], [slot(^object, key, value)], slots)
+        findall([key, value], slots) do
+          slot(^object, key, value)
+        end
       end
 
     assert Map.get(slot_bindings, :"$slots") == [[:items, []]]

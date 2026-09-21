@@ -82,7 +82,7 @@ defmodule ALSourceProjectionTest do
     source = """
     defmethod(:object, :commented_example, [self, x]) do
       # leading note
-      unify(x, 1)
+      x = 1
       # trailing note
     end
     """

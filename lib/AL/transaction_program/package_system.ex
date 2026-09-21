@@ -146,15 +146,20 @@ defmodule AL.TransactionProgram.PackageSystem do
         build_status(self, :open)
         class(owner, _metaclass)
         include_contribution(self, :originated_classes, owner)
-        findall(selector, [method(owner, selector, _method)], selectors)
 
-        forall([member(selectors, selector)]) do
+        findall(selector, selectors) do
+          method(owner, selector, _method)
+        end
+
+        forall(member(selectors, selector)) do
           include_method(self, owner, selector)
         end
 
-        findall(superclass, [super(owner, superclass)], superclasses)
+        findall(superclass, superclasses) do
+          super(owner, superclass)
+        end
 
-        forall([member(superclasses, superclass)]) do
+        forall(member(superclasses, superclass)) do
           include_superclass(self, owner, superclass)
         end
       end
@@ -254,7 +259,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         self,
         provider,
         dependencies,
-        {self, requirement}
+        %{package: self, requirement: requirement}
       ]) do
         accepts_requirement(self, provider, dependencies, requirement)
       end
@@ -265,7 +270,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         requirement_package(:package_resolver, requirement, package)
         active_build(package, build)
         active_dependency_builds(self, rest, remaining)
-        unify(dependencies, [{package, build} | remaining])
+        dependencies = [%{package: package, build: build} | remaining]
       end
     end
 
@@ -276,7 +281,7 @@ defmodule AL.TransactionProgram.PackageSystem do
 
       defmethod(:requirement_package, [
         _self,
-        {package, _requirement},
+        %{package: package, requirement: _requirement},
         package
       ])
 
@@ -365,7 +370,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         self,
         [requirement | rest],
         selected,
-        [{requirement, package, provider} | dependencies]
+        [%{requirement: requirement, package: package, provider: provider} | dependencies]
       ]) do
         requirement_package(self, requirement, package)
         member(selected, [package, provider, _dependency_dependencies])

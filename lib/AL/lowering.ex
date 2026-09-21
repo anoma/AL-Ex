@@ -10,7 +10,6 @@ defmodule AL.Lowering do
   @arithmetic_ops [:+, :-, :*, :/, :**, :rem]
   @comparison_ops [:<, :>, :<=, :>=]
   @oapply_primitives %{
-    is: :is,
     vm_map_get: :map_get,
     vm_map_put: :map_put,
     vm_fresh_id: :fresh_id,
@@ -41,8 +40,8 @@ defmodule AL.Lowering do
   def ast_to_pattern({:%{}, _, kvs}),
     do: Map.new(kvs, fn {k, v} -> {ast_to_pattern(k), ast_to_pattern(v)} end)
 
-  def ast_to_pattern({:{}, _, elements}),
-    do: elements |> Enum.map(&ast_to_pattern/1) |> List.to_tuple()
+  def ast_to_pattern({:{}, _, _elements}),
+    do: raise(ArgumentError, "AL does not support Elixir tuple literals")
 
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
@@ -216,15 +215,6 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:label, _, [term]}), do: %Goal.Label{term: ast_to_pattern(term)}
 
-  def ast_to_pattern({:functor, _, [term, name, args]}),
-    do: %Goal.Functor{
-      term: ast_to_pattern(term),
-      name: ast_to_pattern(name),
-      args: ast_to_pattern(args)
-    }
-
-  def ast_to_pattern({:call_term, _, [term]}), do: %Goal.CallTerm{term: ast_to_pattern(term)}
-
   def ast_to_pattern({:var, _, [term]}), do: %Goal.IsVar{term: ast_to_pattern(term)}
 
   def ast_to_pattern({:freeze, _, [var, goals]}),
@@ -243,21 +233,20 @@ defmodule AL.Lowering do
     end
   end
 
-  def ast_to_pattern({:forall, _, [condition, [do: body]]}),
-    do: %Goal.Forall{condition: ast_to_pattern(condition), body: clause_goals(body)}
+  def ast_to_pattern({:forall, _, args}) when is_list(args) do
+    {conditions, [[do: body]]} = Enum.split(args, -1)
+    %Goal.Forall{condition: Enum.map(conditions, &ast_to_pattern/1), body: clause_goals(body)}
+  end
 
-  def ast_to_pattern({:findall, _, [template, condition, result]}),
+  def ast_to_pattern({:findall, _, [template, result, [do: condition]]}),
     do: %Goal.Findall{
       template: ast_to_pattern(template),
-      condition: ast_to_pattern(condition),
+      condition: clause_goals(condition),
       result: ast_to_pattern(result)
     }
 
   def ast_to_pattern({:not, _, [goals]}),
     do: %Goal.Not{condition: ast_to_pattern(goals)}
-
-  def ast_to_pattern({:unify, _, [a, b]}),
-    do: %Goal.Unify{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
   def ast_to_pattern({:==, _, [a, b]}),
     do: %Goal.Equal{a: ast_to_pattern(a), b: ast_to_pattern(b)}
@@ -277,21 +266,17 @@ defmodule AL.Lowering do
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
     do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
-  # #=/2 (CLP(FD) naming) — `#` starts a comment at the Elixir lexer level, so
-  # `eq/2` is the closest spellable surface form. Arithmetic equality as a
-  # constraint, not `is`'s immediate evaluation: sound with either side
-  # still open, narrowing/auto-binding through AL.Var.Bounds the same way
-  # `< > <= >=` do.
-  def ast_to_pattern({:eq, _, [a, b]}),
-    do: %Goal.Compare{op: :eq, a: ast_to_pattern(a), b: ast_to_pattern(b)}
+  # `=` is value equality: structural unification, and CLP(FD)'s `#=` wherever
+  # an arithmetic expression appears (AL.Var.unify -> AL.Var.Bounds.equal),
+  # sound with either side still open.
+  def ast_to_pattern({:=, _, [a, b]}),
+    do: %Goal.Eq{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
-  # `left or right` (CLP(FD) `#\/`) — Elixir's own `or`, reused directly
-  # since `alternative` (not `or`) already owns the backtracking
-  # choicepoint form. A real disjunctive constraint, not a choicepoint:
-  # both sides are ordinary comparison expressions (`eq`/`< > <= >=`),
-  # lowered the same way they'd be on their own.
   def ast_to_pattern({:or, _, [left, right]}),
-    do: %Goal.Either{left: ast_to_pattern(left), right: ast_to_pattern(right)}
+    do: %Goal.Either{
+      left: constraint(ast_to_pattern(left)),
+      right: constraint(ast_to_pattern(right))
+    }
 
   def ast_to_pattern({:call, _, [head, body, args]}),
     do: %Goal.Call{
@@ -450,9 +435,13 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
 
-  def ast_to_pattern({a, b}), do: {ast_to_pattern(a), ast_to_pattern(b)}
+  def ast_to_pattern({_a, _b}),
+    do: raise(ArgumentError, "AL does not support Elixir tuple literals")
 
   def ast_to_pattern(x), do: x
+
+  defp constraint(%Goal.Eq{a: a, b: b}), do: %Goal.Compare{op: :=, a: a, b: b}
+  defp constraint(goal), do: goal
 
   # Lower the `->`-clause `implies do … end` into nested `Goal.Implies` goals:
   # extra clauses nest as the else (else-if); a trailing `:else ->` is the final else,

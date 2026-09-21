@@ -100,14 +100,14 @@ defmodule ALMCPProtocolTest do
                 }
               }} =
                call("evaluateSource", %{
-                 "source" => "unify(result, :ok)",
+                 "source" => "result = :ok",
                  "branch" => to_string(branch.id)
                })
 
       assert branch_id == to_string(branch.id)
       assert is_integer(command_tx)
 
-      assert {:atomic, [{:source_text, ^command_tx, "unify(result, :ok)", _origin}]} =
+      assert {:atomic, [{:source_text, ^command_tx, "result = :ok", _origin}]} =
                :mnesia.transaction(fn ->
                  [AL.SourceStore.text(command_tx, branch)]
                end)
@@ -120,14 +120,13 @@ defmodule ALMCPProtocolTest do
     branch = AL.Branch.fork(:tip, baseline)
 
     source = """
-    unify(atom_value, :ok)
-    unify(binary_value, "ok")
-    unify(integer_value, 9007199254740993)
-    unify(float_value, 1.5)
-    unify(tuple_value, {:ok, 1})
-    unify(map_value, %{:key => "value"})
-    unify(proper_list, [1, :two])
-    unify(improper_list, [1 | :tail])
+    atom_value = :ok
+    binary_value = "ok"
+    integer_value = 9007199254740993
+    float_value = 1.5
+    map_value = %{:key => "value"}
+    proper_list = [1, :two]
+    improper_list = [1 | :tail]
     in_domain(choice, [1, 2])
     """
 
@@ -168,14 +167,6 @@ defmodule ALMCPProtocolTest do
       assert binding_value(bindings, "float_value") == %{
                "type" => "float",
                "value" => "1.5"
-             }
-
-      assert binding_value(bindings, "tuple_value") == %{
-               "type" => "tuple",
-               "items" => [
-                 %{"type" => "atom", "name" => "ok"},
-                 %{"type" => "integer", "value" => "1"}
-               ]
              }
 
       assert binding_value(bindings, "map_value") == %{
@@ -282,8 +273,8 @@ defmodule ALMCPProtocolTest do
       defmethod(:answer, [_self, 42])
 
       defmethod(:tail_reference, [self, head, out]) do
-        unify(self, self)
-        unify(out, [head | :answer])
+        self = self
+        out = [head | :answer]
       end
     end
     vm_set_class(:mcp_instance, :mcp_inspected)

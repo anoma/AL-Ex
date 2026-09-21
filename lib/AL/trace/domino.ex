@@ -1,54 +1,15 @@
-defmodule AL.Domino do
+defmodule AL.Trace.Domino do
   @moduledoc """
-  I hold everything the domino tracing model needs, grouped in one place
-  because it's all set/read by the same handful of AL.ex functions
-  (begin_method_scope/mark_exited/fail_scope/backtrack's redo branch,
-  trace_port_call/trace_port_event) and nothing else in the interpreter
-  touches it. Pure data + types here -- the logic that reads/writes me
-  stays in AL.ex, just addressed through `state.domino.*` now instead of
-  flat top-level fields.
-
-  trace_mode: controls retained execution history. `:no_trace` keeps none,
-    `:derivation_trace` keeps calls and constraints, and `:full_trace` also
-    interleaves every raw VM goal.
-  trace: the retained event log selected by `trace_mode`.
-  tracepoints: snapshot (taken at eval start) of AL.Trace's live watch-set,
-    for the `AL.trace(:foo)` printer -- not the trace log itself.
-  traced_calls: live-printer bookkeeping, scope -> {level, depth, receiver,
-    method}, so a later Exit/Redo/Fail print knows whether its own Call
-    was actually traced and what it looked like.
-  scopes: everything a scope's own Exit/Redo/Fail needs that isn't
-    reconstructible from the trace list alone -- its parent (for
-    method_exit propagation), its kind (:method vs :clause, for tagging),
-    which positions were open at Call time (for describing what got
-    derived), and whether it's already exited once (for Redo detection).
-    One consolidated map -- these used to be four separate top-level
-    AL.t() fields, all keyed by the exact same scope id.
+  I define the retained event vocabulary for Domino's two stacked Byrd boxes.
+  Runtime bookkeeping lives in `AL.Trace.Runtime`; retained events are tagged
+  `AL.Trace.Event` values in the shared chronological journal.
   """
-  use TypedStruct
 
   @type scope() :: AL.scope()
-  @type trace_mode() :: :no_trace | :derivation_trace | :full_trace
-
-  # A var's constraint summary: `%{isa: [...], dif: [...], bounds: {lo,hi},
-  # domain: [...]}`, whichever apply, `%{}` if genuinely unconstrained --
-  # same shape `AL`'s `format_output_vars/2` returns as residual constraints.
   @type constraint_summary() :: %{optional(atom()) => term()}
   @type var_description() :: {:bound, term()} | {:open, constraint_summary()}
 
-  # The domino tracing model's 8 port tuples (2 stacked Byrd boxes sharing
-  # an edge: method dispatch wraps clause selection). Call's last field
-  # describes whatever was still open walking in (against the caller's
-  # store, before this call's own goals ran); Exit's describes the same
-  # positions walking out (against this scope's own store at the moment it
-  # finished) -- a still-open var there isn't a failure to look up, it
-  # means this call only narrowed it rather than fully deciding it. Redo/
-  # Fail stay bare: nothing new is known at either of those points.
-  # Chosen isn't a port: it names the clause (`seq`, the method's own clause
-  # numbering) a scope is running, once at its Call and again each time
-  # backtracking hands it the next one. The last Chosen before a scope's Exit
-  # is the clause that fired.
-  @type domino_event() ::
+  @type event() ::
           {:method_call, scope(), term(), term(), [term()],
            %{optional(term()) => var_description()}}
           | {:method_exit, scope(), %{optional(term()) => var_description()}}
@@ -57,24 +18,9 @@ defmodule AL.Domino do
           | {:clause_exit, scope(), %{optional(term()) => var_description()}}
           | {:clause_redo | :clause_fail, scope()}
           | {:clause_chosen, scope(), non_neg_integer()}
-
-  # A raw goal or `:backtrack`/`:flounder` control marker only joins
-  # `trace` when a run opts in -- see moduledoc.
-  @type trace_event() :: domino_event() | AL.Goal.t() | :backtrack | :flounder
-
-  @type scope_info() :: %{
-          parent: scope() | nil,
-          kind: :method | :clause,
-          open_vars: [term()],
-          exited: boolean(),
-          derived: %{optional(term()) => var_description()} | nil
-        }
-
-  typedstruct enforce: true do
-    field(:trace, [trace_event()], default: [])
-    field(:trace_mode, trace_mode(), default: :no_trace)
-    field(:tracepoints, MapSet.t(), default: MapSet.new())
-    field(:traced_calls, %{optional(scope()) => tuple()}, default: %{})
-    field(:scopes, %{optional(scope()) => scope_info()}, default: %{})
-  end
+          | {:constraint, AL.Goal.t(), %{optional(term()) => var_description()},
+             %{optional(term()) => var_description()}}
+          | {:collection_begin, scope(), :findall | :forall | :not, [AL.Goal.t()], term() | nil}
+          | {:collection_solution, scope(), AL.Var.store()}
+          | {:collection_end, scope()}
 end

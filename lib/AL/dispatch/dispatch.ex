@@ -10,7 +10,7 @@ defmodule AL.Dispatch do
 
   alias AL.Goal
 
-  @primitive_methods [:is, :map_get, :map_put, :gensym, :fresh_id]
+  @primitive_methods [:map_get, :map_put, :gensym, :fresh_id]
 
   # A variable receiver or selector makes the send a query. Only a fully
   # ground send is directed and uses `on_miss`. `:"$_"` is the wildcard.
@@ -70,23 +70,25 @@ defmodule AL.Dispatch do
 
   @spec instance_of?(term(), atom(), AL.Branch.t()) :: boolean()
   def instance_of?(term, class, branch) do
-    term
-    |> direct_classes(branch)
-    |> Enum.any?(fn direct_class ->
-      class in AL.Dispatch.MethodOrder.cached_super_chain([direct_class], branch, :dfs)
-    end)
+    Enum.any?(structural_classes(term), &class_in_chain?(&1, class, branch)) or
+      Enum.any?(discovered_classes(term, branch), &class_in_chain?(&1, class, branch))
   end
 
   @spec direct_classes(term(), AL.Branch.t()) :: [atom()]
   def direct_classes(term, branch) do
-    structural =
-      cond do
-        is_map(term) -> [Map.get(term, :class, :map)]
-        is_list(term) -> [:list]
-        is_number(term) -> [:number]
-        true -> []
-      end
+    Enum.uniq(structural_classes(term) ++ discovered_classes(term, branch))
+  end
 
+  defp structural_classes(term) do
+    cond do
+      is_map(term) -> [Map.get(term, :class, :map)]
+      is_list(term) -> [:list]
+      is_number(term) -> [:number]
+      true -> []
+    end
+  end
+
+  defp discovered_classes(term, branch) do
     durable =
       if is_atom(term) do
         for {:class, ^term, _seq, class} <- AL.Object.scan_class(term, :"$direct_class", branch),
@@ -100,8 +102,11 @@ defmodule AL.Dispatch do
       |> generative_descendants()
       |> Enum.filter(&value_member?(term, &1, branch))
 
-    Enum.uniq(structural ++ durable ++ values)
+    durable ++ values
   end
+
+  defp class_in_chain?(direct_class, class, branch),
+    do: class in AL.Dispatch.MethodOrder.cached_super_chain([direct_class], branch, :dfs)
 
   @spec direct_class?(term(), atom(), AL.Branch.t()) :: boolean()
   def direct_class?(term, class, branch), do: class in direct_classes(term, branch)
@@ -266,7 +271,7 @@ defmodule AL.Dispatch do
   # method must be ground to check tracepoints — a var selector has nothing
   # to look up yet.
   defp maybe_trace_dispatch(state, self, method, value_classes) do
-    if not AL.Var.var?(method) and MapSet.member?(state.domino.tracepoints, method) do
+    if not AL.Var.var?(method) and MapSet.member?(state.trace.runtime.tracepoints, method) do
       AL.Trace.dispatch(self, method, value_classes)
     end
   end
@@ -298,11 +303,7 @@ defmodule AL.Dispatch do
     end
   end
 
-  # An ivar is either a bare name or a {name, spec_opts} pair (ivar specs,
-  # e.g. `suit: [domain: [...]]]`) -- always resolve to the bare name before
-  # using it as a map key, or a spec'd ivar would key fresh_args by the whole
-  # tuple instead of its name.
-  defp ivar_name({name, _opts}), do: name
+  defp ivar_name(%{name: name}), do: name
   defp ivar_name(name), do: name
 
   # elixir port of bootstrap.ex's collect_ivar_specs/find_ivar_spec, for
@@ -338,7 +339,7 @@ defmodule AL.Dispatch do
   @spec ivar_storage(AL.Var.t(), term(), AL.Branch.t()) :: :aos | :soa
   def ivar_storage(self, key, branch) do
     case find_ivar_spec(self, key, branch) do
-      {_name, opts} when is_list(opts) -> Keyword.get(opts, :storage, :aos)
+      %{storage: storage} -> storage
       _ -> :aos
     end
   end
@@ -551,12 +552,19 @@ defmodule AL.Dispatch do
   def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)
 
   def dnu(self, method, args, state) do
-    state =
-      if default_dnu?(self, state.branch),
-        do: record_dnu(state, self, method, args),
-        else: state
+    if default_dnu?(self, state.branch) do
+      state =
+        if providers(self, method, state.branch) == [],
+          do: record_dnu(state, self, method, args),
+          else: state
 
-    AL.interp(%Goal.Send{object: self, method: :does_not_understand, args: [method, args]}, state)
+      AL.backtrack(state)
+    else
+      AL.interp(
+        %Goal.Send{object: self, method: :does_not_understand, args: [method, args]},
+        state
+      )
+    end
   end
 
   # True when receiver has no does_not_understand of its own — only then is

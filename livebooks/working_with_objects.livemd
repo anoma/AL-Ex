@@ -39,7 +39,7 @@ run do
   defclass :switch,
     super: :object,
     redef: true,
-    ivars: [state: [domain: ["on", "off"], default: "off"]] do
+    ivars: [%{name: :state, domain: ["on", "off"], default: "off"}] do
 
     defmethod(:flick, [self]) do
       get(self, :state, "on")
@@ -140,11 +140,11 @@ run do
   defclass :counted_switch,
     redef: true,
     super: :switch,
-    ivars: [count: [type: :number, default: 0]] do
+    ivars: [%{name: :count, type: :number, default: 0}] do
     
     defmethod(:flick, [self]) do
       get(self, :count, c)
-      is(c1, c + 1)
+      c1 = c + 1
       set_slot(self, :count, c1)
       call_next_method(self)
     end
@@ -169,7 +169,7 @@ run do
   defclass :colour_cycle_switch,
     redef: true,
     super: :switch,
-    ivars: [colour: [domain: ["red", "green", "blue"]]] do
+    ivars: [%{name: :colour, domain: ["red", "green", "blue"]}] do
 
     defmethod(:flick, [self]) do
       get(self, :state, "off")
@@ -202,7 +202,9 @@ Regardless this is sufficient for demonstrating how AL manages diamond inheritan
 
 ```elixir
 run do
-  findall([obj, id], [vm_method(obj, :flick, id)], objids)
+  findall([obj, id], objids) do
+    method(obj, :flick, id)
+  end
 end
 ```
 
@@ -235,7 +237,7 @@ run do
   new(:category, %{name: :glowable, super: :object, ivars: []}, cat)
 
   defmethod(:glowable, :glow, [self, result]) do
-    unify(result, :shiny)
+    result = :shiny
   end
 
   defclass :lamp, super: :object, categories: [:glowable] do
@@ -270,7 +272,7 @@ Any class can override `:print_object` to describe its own instances better, the
 run do
   defmethod(:switch, :print_object, [self, description]) do
     get(self, :state, s)
-    unify(description, {:switch, s})
+    description = {:switch, s}
   end
 
   print_object(:switch_instance_1, description)
@@ -311,11 +313,11 @@ We'll discuss the most interesting facets of ephemerals in [logic and constraint
 
 ## Advanced: raw method dispatch
 
-Everything so far has gone through ordinary dispatch: a send looks up which method answers a selector on a class, following its supers if it has to. `vm_oapply` skips inheritance chaining. You give it a method's own internal id directly, found with `vm_method`, and it runs that exact method body, bypassing class/selector lookup entirely.
+Everything so far has gone through ordinary dispatch: a send looks up which method answers a selector on a class, following its supers if it has to. `vm_oapply` skips inheritance chaining. You give it a method's own internal id directly, found with `method`, and it runs that exact method body, bypassing class/selector lookup entirely.
 
 ```elixir
 run do
-  vm_method(:number, :factorial, id)
+  method(:number, :factorial, id)
   vm_oapply(id, [5, result])
 end
 ```

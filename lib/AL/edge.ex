@@ -147,7 +147,7 @@ defmodule AL.Edge do
     with :ok <- validate_outcome(outcome),
          :ok <- validate_notifications(notifications) do
       goals =
-        [%Goal.Send{object: effect_id, method: :complete, args: [outcome]}] ++
+        [%Goal.Send{object: effect_id, method: :complete, args: [al_outcome(outcome)]}] ++
           Enum.map(notifications, fn {receiver, selector, arguments} ->
             %Goal.Send{object: receiver, method: selector, args: arguments}
           end)
@@ -190,7 +190,7 @@ defmodule AL.Edge do
   defp await_result(effect, branch) do
     case :mnesia.transaction(fn -> AL.Object.read_slots(effect, branch) end) do
       {:atomic, [{:slots, ^effect, %{status: :completed, outcome: outcome}}]} ->
-        {:ok, outcome}
+        {:ok, host_outcome(outcome)}
 
       {:atomic, [{:slots, ^effect, %{status: :pending}}]} ->
         :pending
@@ -212,6 +212,13 @@ defmodule AL.Edge do
   defp branch!(value) do
     raise ArgumentError, "effect branch must be an atom or AL.Branch, got: #{inspect(value)}"
   end
+
+  defp al_outcome({:ok, value}), do: %{status: :ok, value: value}
+  defp al_outcome({:error, reason}), do: %{status: :error, reason: reason}
+
+  defp host_outcome(%{status: :ok, value: value}), do: {:ok, value}
+  defp host_outcome(%{status: :error, reason: reason}), do: {:error, reason}
+  defp host_outcome(outcome), do: {:error, {:invalid_effect_outcome, outcome}}
 
   defp normalize_result(:pending), do: :pending
 
