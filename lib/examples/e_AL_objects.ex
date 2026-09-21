@@ -151,10 +151,10 @@ defmodule Examples.ALObjects do
         defclass :direct_vehicle, super: :object do
         end
 
-        defclass :direct_car, super: :direct_vehicle, ivars: [color: [default: :red]] do
+        defclass :direct_car, super: :direct_vehicle, ivars: [%{name: :color, default: :red}] do
         end
 
-        defclass :direct_hydrant, super: :object, ivars: [color: [default: :red]] do
+        defclass :direct_hydrant, super: :object, ivars: [%{name: :color, default: :red}] do
         end
 
         new(:direct_car, car)
@@ -784,7 +784,7 @@ defmodule Examples.ALObjects do
   example default_ivar_copies_into_the_instance() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :slot_default_class, super: :object, ivars: [legs: [default: 4]] do
+        defclass :slot_default_class, super: :object, ivars: [%{name: :legs, default: 4}] do
         end
 
         new(:slot_default_class, obj)
@@ -831,7 +831,9 @@ defmodule Examples.ALObjects do
   example set_slot_enforces_domain_on_every_write() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :set_slot_domain_class, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+        defclass :set_slot_domain_class,
+          super: :object,
+          ivars: [%{name: :state, domain: ["on", "off"]}] do
         end
 
         new(:set_slot_domain_class, %{name: :set_slot_domain_instance, state: "on"}, _)
@@ -857,6 +859,54 @@ defmodule Examples.ALObjects do
     :ok
   end
 
+  example raw_objects_have_open_slots() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        vm_set_class(:open_slot_object, :object)
+        set_slot(:open_slot_object, :anything, 42)
+        get(:open_slot_object, :anything, value)
+      end
+
+    assert Map.get(bindings, :"$value") == 42
+    :ok
+  end
+
+  example declared_classes_reject_undeclared_slots() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        defclass :closed_slot_class, super: :object, ivars: [:declared] do
+        end
+
+        new(:closed_slot_class, %{name: :closed_slot_instance, declared: 1}, _)
+      end
+
+    {:aborted, _} =
+      run branch: Examples.Support.branch() do
+        set_slot(:closed_slot_instance, :undeclared, 2)
+      end
+
+    :ok
+  end
+
+  example custom_metaclasses_inherit_open_slots() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defclass :open_slot_metaclass, super: :class do
+        end
+
+        defclass :open_slot_class,
+          metaclass: :open_slot_metaclass,
+          super: :object do
+        end
+
+        set_slot(:open_slot_class, :annotation, :available)
+        get(:open_slot_class, :annotation, annotation)
+      end
+
+    assert Map.get(bindings, :"$annotation") == :available
+    :ok
+  end
+
   # `:object`'s `:init` now fills in ivars the same way `:value`'s already
   # does (`:blackjack package`'s `:card`), reusing the exact same
   # `apply_ivar_spec` -- an explicit `args` value is validated against the
@@ -866,7 +916,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         defclass :durable_ivar_a,
           super: :object,
-          ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
+          ivars: [%{name: :suit, domain: [:hearts, :diamonds, :clubs, :spades]}] do
         end
       end
 
@@ -889,7 +939,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         defclass :durable_ivar_b,
           super: :object,
-          ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
+          ivars: [%{name: :suit, domain: [:hearts, :diamonds, :clubs, :spades]}] do
         end
       end
 
@@ -914,7 +964,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         defclass :durable_ivar_c,
           super: :object,
-          ivars: [suit: [domain: [:hearts, :diamonds, :clubs, :spades]]] do
+          ivars: [%{name: :suit, domain: [:hearts, :diamonds, :clubs, :spades]}] do
         end
       end
 
@@ -955,7 +1005,9 @@ defmodule Examples.ALObjects do
   example durable_construction_leaves_unspecified_typed_ivars_unset() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :durable_ivar_typed, super: :object, ivars: [count: [type: :number]] do
+        defclass :durable_ivar_typed,
+          super: :object,
+          ivars: [%{name: :count, type: :number}] do
         end
       end
 
@@ -977,7 +1029,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         defclass :durable_ivar_defaulted,
           super: :object,
-          ivars: [count: [type: :number, default: 0]] do
+          ivars: [%{name: :count, type: :number, default: 0}] do
         end
       end
 
@@ -1002,7 +1054,9 @@ defmodule Examples.ALObjects do
   example value_construction_allows_open_var_default() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :value_ivar_open_default, super: :value, ivars: [tag: [default: placeholder]] do
+        defclass :value_ivar_open_default,
+          super: :value,
+          ivars: [%{name: :tag, default: placeholder}] do
         end
 
         new(:value_ivar_open_default, %{}, obj)
@@ -1025,12 +1079,12 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         defclass :durable_ivar_parent,
           super: :object,
-          ivars: [suit: [domain: [:hearts, :diamonds], default: :hearts]] do
+          ivars: [%{name: :suit, domain: [:hearts, :diamonds], default: :hearts}] do
         end
 
         defclass :durable_ivar_child,
           super: :durable_ivar_parent,
-          ivars: [count: [type: :number, default: 0]] do
+          ivars: [%{name: :count, type: :number, default: 0}] do
         end
       end
 
@@ -1071,12 +1125,12 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         defclass :value_ivar_parent,
           super: :value,
-          ivars: [suit: [domain: [:hearts, :diamonds], default: :hearts]] do
+          ivars: [%{name: :suit, domain: [:hearts, :diamonds], default: :hearts}] do
         end
 
         defclass :value_ivar_child,
           super: :value_ivar_parent,
-          ivars: [count: [type: :number, default: 0]] do
+          ivars: [%{name: :count, type: :number, default: 0}] do
         end
 
         new(:value_ivar_child, %{}, obj)

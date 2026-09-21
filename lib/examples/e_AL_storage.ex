@@ -13,7 +13,7 @@ defmodule Examples.ALStorage do
   example durable_identities_are_atoms() do
     result =
       run branch: Examples.Support.branch() do
-        vm_set_class({:not, :an_identity}, :object)
+        vm_set_class([:not, :an_identity], :object)
       end
 
     assert {:aborted, reason} = result
@@ -28,7 +28,7 @@ defmodule Examples.ALStorage do
       run branch: Examples.Support.branch() do
         defclass :storage_probe,
           super: :object,
-          ivars: [:regulators, {:concentration, [storage: :soa]}] do
+          ivars: [:regulators, %{name: :concentration, storage: :soa}] do
         end
       end
 
@@ -61,7 +61,7 @@ defmodule Examples.ALStorage do
       run branch: Examples.Support.branch() do
         defclass :storage_probe_construction,
           super: :object,
-          ivars: [:regulators, {:concentration, [storage: :soa]}] do
+          ivars: [:regulators, %{name: :concentration, storage: :soa}] do
         end
       end
 
@@ -93,7 +93,7 @@ defmodule Examples.ALStorage do
       run branch: Examples.Support.branch() do
         defclass :storage_probe_independence,
           super: :object,
-          ivars: [:regulators, {:concentration, [storage: :soa]}] do
+          ivars: [:regulators, %{name: :concentration, storage: :soa}] do
         end
       end
 

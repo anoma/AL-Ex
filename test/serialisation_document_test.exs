@@ -13,7 +13,7 @@ defmodule ALDocumentTest do
           owner: :card,
           metaclass: :class,
           supers: [:value, :named],
-          ivars: [rank: [], suit: [default: :clubs]],
+          ivars: [:rank, %{name: :suit, default: :clubs}],
           comment: nil,
           methods: []
         ],
@@ -129,7 +129,7 @@ defmodule ALDocumentTest do
     document =
       class(
         owner: :"a}class",
-        ivars: [config: [default: %{closing: "}"}]]
+        ivars: [%{name: :config, default: %{closing: "}"}}]
       )
 
     assert {:ok, ^document} = Document.parse(Document.render(document))

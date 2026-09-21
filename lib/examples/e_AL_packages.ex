@@ -641,7 +641,7 @@ defmodule Examples.ALPackages do
       preferred = Path.join(preferred_root, "application")
       fallback = Path.join(fallback_root, "application")
       dependency = Path.join(fallback_root, "dependency")
-      opaque = %{protocol: {:compatible_with, [2, 0]}}
+      opaque = %{protocol: %{name: :compatible_with, args: [2, 0]}}
 
       write_bundle(preferred, :opaque_application, [{:opaque_dependency, opaque}])
       write_bundle(fallback, :opaque_application, [{:opaque_dependency, :any}])

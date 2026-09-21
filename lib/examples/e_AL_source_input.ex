@@ -115,6 +115,18 @@ defmodule Examples.ALSourceInput do
     assert {:error, %Parser.Error{phase: :lowering}} = Parser.parse("42")
     assert {:error, %Parser.Error{phase: :lowering}} = AL.eval_source("42")
 
+    assert {:error,
+            %Parser.Error{
+              phase: :lowering,
+              message: "AL does not support Elixir tuple literals"
+            }} = Parser.parse("pair = {:ok, 1}")
+
+    assert {:error,
+            %Parser.Error{
+              phase: :lowering,
+              message: "AL does not support Elixir tuple literals"
+            }} = Parser.parse("triple = {:point, 1, 2}")
+
     {:ok, call_named_defmethod} = Parser.parse("defmethod(:receiver, :selector)")
     assert call_named_defmethod.captures == []
     assert [%AL.Goal.Send{method: :defmethod}] = call_named_defmethod.program

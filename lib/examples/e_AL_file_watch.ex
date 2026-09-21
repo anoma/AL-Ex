@@ -18,18 +18,18 @@ defmodule Examples.ALFileWatch do
             redef: true do
             defmethod(:watching, [self]) do
               call_next_method(self)
-              send_elixir(^pid, {:file_watch_status, self, :watching})
+              send_elixir(^pid, %{event: :file_watch_status, watcher: self, status: :watching})
             end
 
             defmethod(:receive, [self, event]) do
-              get(event, :contents, {:ok, contents})
+              get(event, :contents, %{status: :ok, value: contents})
               call_next_method(self, event)
-              send_elixir(^pid, {:file_changed, self, contents})
+              send_elixir(^pid, %{event: :file_changed, watcher: self, contents: contents})
             end
 
             defmethod(:stopped, [self]) do
               call_next_method(self)
-              send_elixir(^pid, {:file_watch_status, self, :stopped})
+              send_elixir(^pid, %{event: :file_watch_status, watcher: self, status: :stopped})
             end
           end
 
@@ -44,7 +44,7 @@ defmodule Examples.ALFileWatch do
 
       watcher = bindings[:"$watcher"]
       start_effect = bindings[:"$start_effect"]
-      assert_receive {:file_watch_status, ^watcher, :watching}, 2_000
+      assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :watching}, 2_000
 
       {:atomic, _} =
         run branch: Examples.Support.branch() do
@@ -54,14 +54,14 @@ defmodule Examples.ALFileWatch do
           get(^watcher, :path, ^path)
           get(^watcher, :contents, :none)
           class(^start_effect, :effect)
-          get(^start_effect, :outcome, {:ok, :watching})
+          get(^start_effect, :outcome, %{status: :ok, value: :watching})
         end
 
       File.write!(path, "first")
-      assert_receive {:file_changed, ^watcher, "first"}, 2_000
+      assert_receive %{event: :file_changed, watcher: ^watcher, contents: "first"}, 2_000
 
       File.write!(path, "second")
-      assert_receive {:file_changed, ^watcher, "second"}, 2_000
+      assert_receive %{event: :file_changed, watcher: ^watcher, contents: "second"}, 2_000
 
       {:atomic, {stop_bindings, _constraints, _state}} =
         run branch: Examples.Support.branch() do
@@ -69,16 +69,16 @@ defmodule Examples.ALFileWatch do
         end
 
       stop_effect = stop_bindings[:"$stop_effect"]
-      assert_receive {:file_watch_status, ^watcher, :stopped}, 2_000
+      assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :stopped}, 2_000
 
       {:atomic, _} =
         run branch: Examples.Support.branch() do
           class(^stop_effect, :effect)
-          get(^stop_effect, :outcome, {:ok, :stopped})
+          get(^stop_effect, :outcome, %{status: :ok, value: :stopped})
         end
 
       File.write!(path, "third")
-      refute_receive {:file_changed, ^watcher, "third"}, 150
+      refute_receive %{event: :file_changed, watcher: ^watcher, contents: "third"}, 150
 
       {:atomic, _} =
         run branch: Examples.Support.branch() do

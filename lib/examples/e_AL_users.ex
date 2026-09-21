@@ -26,7 +26,7 @@ defmodule Examples.ALUsers do
       run branch: Examples.Support.branch() do
         defclass :owned_ivar_probe,
           super: :owned,
-          ivars: [items: [type: :list, default: []]] do
+          ivars: [%{name: :items, type: :list, default: []}] do
         end
       end
 

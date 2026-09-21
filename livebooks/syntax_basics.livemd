@@ -166,15 +166,7 @@ run do
 end
 ```
 
-## Inspecting and building terms
-
-`functor` is Prolog's `functor/3`. Given a ground tuple, it splits off the first element as a name and the rest as args. Given a name and args instead, it builds the tuple.
-
-```elixir
-run do
-  functor({:point, 1, 2}, name, args)
-end
-```
+## Inspecting terms
 
 `var` succeeds if its argument is still open. `ground` succeeds if a term has no open variables left in it anywhere.
 
@@ -184,12 +176,18 @@ run do
 end
 ```
 
-## The closest thing to a lambda
+## Anonymous methods
 
-AL has no first-class lambda syntax. `call(head, body, args)` is the closest thing: it unifies `args` against `head`, then runs `body`, with no class or selector needed.
+An `anonymous_method` is an ephemeral value with a head and body. `add_arg` returns a new value with one argument loaded, and `run` supplies the remaining arguments.
 
 ```elixir
 run do
-  call([a, b], [b = a * 2], [5, result])
+  new(
+    :anonymous_method,
+    %{args: [], head: [a, b, result], body: [result = [a, b]]},
+    method
+  )
+  add_arg(method, :first, partial)
+  run(partial, [:second, result])
 end
 ```

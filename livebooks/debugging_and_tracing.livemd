@@ -52,7 +52,9 @@ AL's reporter can also report domain violations.
 
 ```elixir
 run do
-  defclass :failure_domain_probe, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+  defclass :failure_domain_probe,
+    super: :object,
+    ivars: [%{name: :state, domain: ["on", "off"]}] do
   end
 
   new(:failure_domain_probe, %{name: :failure_domain_instance, state: "on"}, _)

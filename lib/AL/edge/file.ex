@@ -91,7 +91,7 @@ defmodule AL.Edge.File do
           value = %{
             path: entry.path,
             events: List.wrap(events),
-            contents: File.read(entry.path)
+            contents: file_outcome(File.read(entry.path))
           }
 
           AL.Edge.receive(entry.receiver, value, entry.branch)
@@ -177,4 +177,7 @@ defmodule AL.Edge.File do
 
   defp normalize_path(path) when is_binary(path), do: Path.expand(path)
   defp normalize_path(path) when is_list(path), do: path |> List.to_string() |> Path.expand()
+
+  defp file_outcome({:ok, value}), do: %{status: :ok, value: value}
+  defp file_outcome({:error, reason}), do: %{status: :error, reason: reason}
 end

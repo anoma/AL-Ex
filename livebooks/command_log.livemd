@@ -56,7 +56,7 @@ A `run do ... end` block is one transaction. Every write inside it, no matter ho
 ```elixir
 {:atomic, {bindings, _}} =
   run do
-    defclass :tx_demo, super: :object, ivars: [greeting: []] do
+    defclass :tx_demo, super: :object, ivars: [:greeting] do
       defmethod(:hello, [self, :hi])
     end
 
@@ -109,7 +109,7 @@ Since the log is the real source of truth, the durable object tables (`class`, `
 ```elixir
 {:atomic, {bindings, _}} =
   run do
-    defclass :hydration_demo, super: :object, ivars: [greeting: []] do
+    defclass :hydration_demo, super: :object, ivars: [:greeting] do
       defmethod(:hello, [self, :hi])
     end
 
@@ -263,7 +263,7 @@ Slots keep their own history. `slot_history/3` reads it back from oldest first.
 
 ```elixir
 run do
-  defclass :history_probe, super: :object, ivars: [count: []] do
+  defclass :history_probe, super: :object, ivars: [:count] do
   end
 
   new(:history_probe, obj)
@@ -280,7 +280,7 @@ end
 
 ```elixir
 run do
-  defclass :boundary_probe, super: :object, ivars: [count: []] do
+  defclass :boundary_probe, super: :object, ivars: [:count] do
   end
 
   new(:boundary_probe, obj)
@@ -302,7 +302,7 @@ A `vm_slot_at` call with an open time variable does not just filter, it posts a 
 
 ```elixir
 run do
-  defclass :upper_bound_probe, super: :object, ivars: [count: []] do
+  defclass :upper_bound_probe, super: :object, ivars: [:count] do
   end
 
   new(:upper_bound_probe, obj)
@@ -323,10 +323,10 @@ Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, 
 
 ```elixir
 run do
-  defclass :sensor_a, super: :object, ivars: [status: []] do
+  defclass :sensor_a, super: :object, ivars: [:status] do
   end
 
-  defclass :sensor_b, super: :object, ivars: [status: []] do
+  defclass :sensor_b, super: :object, ivars: [:status] do
   end
 
   new(:sensor_a, %{name: :sensor_a_1, status: :off}, _)

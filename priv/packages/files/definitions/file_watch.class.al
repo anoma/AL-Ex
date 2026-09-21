@@ -3,9 +3,9 @@ Class {
   #superclass : [:object],
   #metaclass : :class,
   #ivars : [
-    path: [],
-    status: [default: :idle],
-    contents: [default: :none]
+    :path,
+    %{name: :status, default: :idle},
+    %{name: :contents, default: :none}
   ]
 }
 
@@ -26,10 +26,10 @@ Class {
 ]
 
 :file_watch >> :watch_failed, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]
 
-:file_watch >> :receive, [self, %{contents: {:ok, contents}}] [
+:file_watch >> :receive, [self, %{contents: %{status: :ok, value: contents}}] [
   set_slot(self, :contents, contents)
 ]
 
@@ -45,9 +45,9 @@ Class {
 ]
 
 :file_watch >> :stopped, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]
 
 :file_watch >> :stop_failed, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]

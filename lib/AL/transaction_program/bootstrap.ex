@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 14, deps: [] do
+  defprogram :bootstrap, version: 19, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -90,48 +90,67 @@ defmodule AL.TransactionProgram.Bootstrap do
       slot(self, key, value)
     end
 
-    # escape hatches skip ivar-spec validation (class/category/behaviour,
-    # or no :ivars slot at all). storage routed by vm_set_slot's interp
-    # handler, not here.
+    defmethod(:object, :ivar_name, [_self, spec, name]) do
+      get(spec, :name, name)
+    end
+
+    defmethod(:object, :ivar_name, [_self, spec, spec]) do
+      not [get(spec, :name, _)]
+    end
+
+    defmethod(:object, :validate_ivar_domain, [_self, spec, value]) do
+      get(spec, :domain, domain)
+      in_domain(value, domain)
+    end
+
+    defmethod(:object, :validate_ivar_domain, [_self, spec, _value]) do
+      not [get(spec, :domain, _)]
+    end
+
+    defmethod(:object, :validate_ivar_type, [_self, spec, value]) do
+      get(spec, :type, type)
+      isa(value, type)
+    end
+
+    defmethod(:object, :validate_ivar_type, [_self, spec, _value]) do
+      not [get(spec, :type, _)]
+    end
+
+    defmethod(:object, :validate_ivar_spec, [self, spec, name, value]) do
+      ivar_name(self, spec, name)
+      validate_ivar_domain(self, spec, value)
+      validate_ivar_type(self, spec, value)
+    end
+
+    defmethod(:object, :validate_slot, [self, _key, _value]) do
+      class(self, :object)
+    end
+
+    defmethod(:object, :validate_slot, [self, key, value]) do
+      not [class(self, :object)]
+      vm_cached_find_ivar_spec(self, key, spec)
+      not [spec = :no_spec]
+      validate_ivar_spec(self, spec, key, value)
+    end
+
+    defmethod(:class, :validate_slot, [_self, _key, _value])
+    defmethod(:category, :validate_slot, [_self, _key, _value])
+    defmethod(:behaviour, :validate_slot, [_self, _key, _value])
+
     defmethod(:object, :set_slot, [self, key, value]) do
-      class(self, class_name)
-
-      implies do
-        [member([:class, :category, :behaviour], class_name)] ->
-          pass
-
-        [reachable_classes([class_name], [], class_supers), member(class_supers, :class)] ->
-          pass
-
-        [not [slot(class_name, :ivars, _)]] ->
-          pass
-
-        :else ->
-          vm_cached_find_ivar_spec(self, key, spec)
-
-          implies do
-            [spec = :no_spec] ->
-              fail
-
-            :else ->
-              apply_ivar_spec(self, %{key => value}, spec, key, value)
-          end
-      end
-
-      cut
-
+      validate_slot(self, key, value)
       vm_set_slot(self, key, value)
     end
 
     defmethod(:object, :set_slots, [self, slots]) do
-      forall(vm_map_get(slots, key, value)) do
+      forall(get(slots, key, value)) do
         set_slot(self, key, value)
       end
     end
 
     defmethod(:object, :get_slots, [self, requested]) do
       findall(key, keys) do
-        vm_map_get(requested, key, _)
+        get(requested, key, _)
       end
 
       slots(self, keys, requested)
@@ -189,36 +208,14 @@ defmodule AL.TransactionProgram.Bootstrap do
       put(self, key, default, updated)
     end
 
-    # On :object, not :map -- a *classed* map (e.g. a constructed value
-    # instance, `%{class: :card, ...}`) dispatches via its own :class field
-    # as the method_scopes seed (:card -> :value -> :object here), which
-    # never passes through :map at all (:map and :value are siblings under
-    # :object, not ancestor/descendant). :object is the one place reachable
-    # from every map shape -- a "raw" args map with no :class field (seed
-    # defaults to :map, whose own super is :object) and any classed instance
-    # alike.
-
-    # Presence-optional get: bind `value` if `key` exists, leave it open
-    # otherwise (no failure) -- the one primitive an ivar spec's optional
-    # field needs, independent of whether it also carries a domain/type.
     defmethod(:object, :get_optional, [self, key, value]) do
-      vm_map_get(self, key, value)
+      get(self, key, value)
     end
 
     defmethod(:object, :get_optional, [self, key, _value]) do
-      not [vm_map_get(self, key, _)]
+      not [get(self, key, _)]
     end
 
-    # redef: true wipes class/super/slots/methods so a reclaimed name comes
-    # back genuinely fresh, not accumulating state across redefs.
-    #
-    # aos keys: slot unbound-key enumeration.
-    # soa keys: no unbound-key scan, so check declared ivar names
-    # (vm_cached_ivar_specs, self's old class) against slot/4 :soa.
-    #
-    # methods: all of them, not just names the new defclass body
-    # redeclares (that check happens separately, below) -- else a dropped
-    # name survives as a zombie.
     defmethod(:object, :retract_existing_facts, [self]) do
       findall(c, existing_classes) do
         class(self, c)
@@ -308,7 +305,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
       vm_set_class(name, meta)
       set_supers(name, super)
-      vm_set_slot(name, :ivars, ivars)
+      set_slot(name, :ivars, ivars)
 
       implies do
         [was_redef = true] ->
@@ -330,20 +327,20 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :ivar_names, [[], []])
 
     defmethod(:list, :ivar_names, [[spec | rest], [name | names]]) do
-      functor(spec, name, _)
+      ivar_name(:object, spec, name)
       ivar_names(rest, names)
     end
 
     defmethod(:class, :class_redefined, [self, old_spec, new_spec]) do
-      vm_map_get(old_spec, :ivars, old_ivars)
-      vm_map_get(new_spec, :ivars, new_ivars)
+      get(old_spec, :ivars, old_ivars)
+      get(new_spec, :ivars, new_ivars)
 
       ivar_names(old_ivars, old_names)
       ivar_names(new_ivars, new_names)
 
       findall(spec, added_specs) do
         member(new_ivars, spec)
-        functor(spec, name, _)
+        ivar_name(:object, spec, name)
         not [member(old_names, name)]
       end
 
@@ -389,13 +386,13 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :backfill_ivar, [self, spec]) do
-      functor(spec, name, [opts])
-      member(opts, {:default, default})
+      get(spec, :name, name)
+      get(spec, :default, default)
       set_slot(self, name, default)
     end
 
     defmethod(:object, :backfill_ivar, [_self, spec]) do
-      not [functor(spec, _name, [opts]), member(opts, {:default, _default})]
+      not [get(spec, :default, _default)]
     end
 
     defmethod(:object, :set_supers, [name, super]) do
@@ -419,12 +416,12 @@ defmodule AL.TransactionProgram.Bootstrap do
       class(self, meta)
 
       implies do
-        [vm_map_get(args, :redef, redef)] -> pass
+        [get(args, :redef, redef)] -> pass
         :else -> redef = false
       end
 
       implies do
-        [vm_map_get(args, :name, name)] -> claim_name(self, name, redef)
+        [get(args, :name, name)] -> claim_name(self, name, redef)
         :else -> gensym(name)
       end
 
@@ -533,6 +530,10 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:value, :allocate, [self, _, self])
 
+    defmethod(:value, :put, [self, key, value, updated]) do
+      vm_map_put(self, key, value, updated)
+    end
+
     defmethod(:value, :init, [self, args, output]) do
       vm_map_get(self, :class, class)
       reachable_classes([class], [], chain)
@@ -550,23 +551,11 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:object, :apply_ivar_spec, [self, args, spec, name, value]) do
+      validate_ivar_spec(self, spec, name, value)
+
       implies do
-        [functor(spec, name, [opts])] ->
-          implies do
-            [member(opts, {:domain, domain})] -> in_domain(value, domain)
-          end
-
-          implies do
-            [member(opts, {:type, type})] -> isa(value, type)
-          end
-
-          implies do
-            [not [vm_map_get(args, name, _)], member(opts, {:default, default})] ->
-              value = default
-          end
-
-        :else ->
-          name = spec
+        [not [get(args, name, _)], get(spec, :default, default)] ->
+          value = default
       end
 
       get_optional(args, name, value)
@@ -713,10 +702,7 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:future_transaction, :init, [self, args, self]) do
       get_slots(args, %{effect: effect, head: head, goals: goals, status: status})
-      vm_set_slot(self, :effect, effect)
-      vm_set_slot(self, :head, head)
-      vm_set_slot(self, :goals, goals)
-      vm_set_slot(self, :status, status)
+      set_slots(self, %{effect: effect, head: head, goals: goals, status: status})
     end
 
     defmethod(:future_transaction, :run, [self]) do
@@ -758,9 +744,9 @@ defmodule AL.TransactionProgram.Bootstrap do
     )
 
     defmethod(:effect, :init, [self, args, self]) do
-      vm_map_get(args, :provider, provider)
-      vm_map_get(args, :operation, operation)
-      vm_map_get(args, :arguments, arguments)
+      get(args, :provider, provider)
+      get(args, :operation, operation)
+      get(args, :arguments, arguments)
       vm_transaction_object(requested_by)
 
       set_slots(self, %{
@@ -793,9 +779,9 @@ defmodule AL.TransactionProgram.Bootstrap do
     end
 
     defmethod(:program_execution, :init, [self, args, self]) do
-      vm_map_get(args, :name, name)
-      vm_map_get(args, :version, version)
-      vm_map_get(args, :deps, deps)
+      get(args, :name, name)
+      get(args, :version, version)
+      get(args, :deps, deps)
       vm_current_tx(tx)
       vm_transaction_object(transaction)
       set_slots(self, %{name: name, version: version, deps: deps, tx: transaction})
@@ -959,16 +945,15 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :map, [[], _func, []])
 
-    defmethod(:list, :map, [[], _head, _body, []])
-
     defmethod(:list, :map, [[fh | ft], func, [sh | st]]) do
       send(fh, func, [sh])
       map(ft, func, st)
     end
 
-    defmethod(:list, :map, [[fh | ft], head, body, [sh | st]]) do
-      call(head, body, [fh, sh])
-      map(ft, head, body, st)
+    defmethod(:list, :map, [[fh | ft], func, [sh | st]]) do
+      isa(func, :anonymous_method)
+      run(func, [fh, sh])
+      map(ft, func, st)
     end
 
     defmethod(:list, :fold_left, [[], _func, acc, acc])
@@ -1047,6 +1032,16 @@ defmodule AL.TransactionProgram.Bootstrap do
       end
     end
 
+    defmethod(:list, :max_by, [xs, func, max]) do
+      member(xs, max)
+      send(max, func, [v])
+
+      forall(member(xs, other)) do
+        send(other, func, [w])
+        v >= w
+      end
+    end
+
     defmethod(:list, :sum, [[], 0])
 
     defmethod(:list, :sum, [[h | t], n]) do
@@ -1114,7 +1109,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :base_degrees, [[], degrees, degrees])
 
     defmethod(:list, :base_degrees, [[c | cs], acc, degrees]) do
-      vm_map_put(acc, c, 0, acc2)
+      put(acc, c, 0, acc2)
       base_degrees(cs, acc2, degrees)
     end
 
@@ -1132,7 +1127,7 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :increment_degrees, [[], degrees, degrees])
 
     defmethod(:list, :increment_degrees, [[s | ss], acc, degrees]) do
-      vm_map_get(acc, s, old)
+      get(acc, s, old)
       new = old + 1
       vm_map_put(acc, s, new, acc2)
       increment_degrees(ss, acc2, degrees)
@@ -1141,13 +1136,13 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :filter_zero_degree, [[], _degrees, []])
 
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, [c | ready]]) do
-      vm_map_get(degrees, c, degree)
+      get(degrees, c, degree)
       degree = 0
       filter_zero_degree(cs, degrees, ready)
     end
 
     defmethod(:list, :filter_zero_degree, [[c | cs], degrees, ready]) do
-      vm_map_get(degrees, c, degree)
+      get(degrees, c, degree)
       not [degree = 0]
       filter_zero_degree(cs, degrees, ready)
     end
@@ -1167,19 +1162,39 @@ defmodule AL.TransactionProgram.Bootstrap do
     defmethod(:list, :decrement_ready, [[], degrees, degrees, []])
 
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, [s | ready]]) do
-      vm_map_get(degrees, s, old)
+      get(degrees, s, old)
       new = old - 1
       new = 0
-      vm_map_put(degrees, s, new, degrees2)
+      put(degrees, s, new, degrees2)
       decrement_ready(ss, degrees2, degrees_out, ready)
     end
 
     defmethod(:list, :decrement_ready, [[s | ss], degrees, degrees_out, ready]) do
-      vm_map_get(degrees, s, old)
+      get(degrees, s, old)
       new = old - 1
       not [new = 0]
-      vm_map_put(degrees, s, new, degrees2)
+      put(degrees, s, new, degrees2)
       decrement_ready(ss, degrees2, degrees_out, ready)
+    end
+
+    defmethod(:behaviour, :run, [self, provided_args]) do
+      vm_oapply(self, provided_args)
+    end
+
+    defclass :anonymous_method,
+      super: [:behaviour, :value],
+      ivars: [:args, :head, :body] do
+      defmethod(:add_arg, [self, arg, updated]) do
+        get(self, :args, args)
+        concat(args, [arg], updated_args)
+        put(self, :args, updated_args, updated)
+      end
+
+      defmethod(:run, [self, provided_args]) do
+        get_slots(self, %{args: args, head: head, body: body})
+        concat(args, provided_args, all_args)
+        call(head, body, all_args)
+      end
     end
   end
 end

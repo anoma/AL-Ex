@@ -3,7 +3,7 @@ Class {
   #superclass : [:object],
   #metaclass : :class,
   #ivars : [
-    socket: [],
-    state: [default: :connecting]
+    :socket,
+    %{name: :state, default: :connecting}
   ]
 }

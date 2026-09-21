@@ -55,7 +55,11 @@ Define an ordinary object method that emits a file effect and arranges what AL s
     defclass :file_reader,
       super: :object,
       redef: true,
-      ivars: [path: [], contents: [default: :none], error: [default: :none]] do
+      ivars: [
+        :path,
+        %{name: :contents, default: :none},
+        %{name: :error, default: :none}
+      ] do
       defmethod(:init, [self, args, self]) do
         get(args, :path, _)
         call_next_method(self, args, self)
@@ -70,17 +74,17 @@ Define an ordinary object method that emits a file effect and arranges what AL s
         end
       end
 
-      defmethod(:read_finished, [self, observer, {:ok, contents}]) do
+      defmethod(:read_finished, [self, observer, %{status: :ok, value: contents}]) do
         set_slot(self, :contents, contents)
         get(observer, :pid, pid)
-        functor(message, :file_read, [self, contents])
+        message = %{event: :file_read, reader: self, contents: contents}
         send_elixir(pid, message)
       end
 
-      defmethod(:read_finished, [self, observer, {:error, reason}]) do
+      defmethod(:read_finished, [self, observer, %{status: :error, reason: reason}]) do
         set_slot(self, :error, reason)
         get(observer, :pid, pid)
-        functor(message, :file_read_failed, [self, reason])
+        message = %{event: :file_read_failed, reader: self, reason: reason}
         send_elixir(pid, message)
       end
     end
@@ -115,7 +119,7 @@ after
 end
 ```
 
-`emit_effect(provider, operation, arguments, effect)` returns the effect object. `await(effect, [outcome]) do ... end` registers AL goals to run as a fresh transaction after completion and binds `outcome` to either `{:ok, value}` or `{:error, reason}`.
+`emit_effect(provider, operation, arguments, effect)` returns the effect object. `await(effect, [outcome]) do ... end` registers AL goals to run as a fresh transaction after completion and binds `outcome` to either `%{status: :ok, value: value}` or `%{status: :error, reason: reason}`.
 
 It does not suspend the transaction containing it. If that transaction aborts, neither the effect nor its future transaction exists.
 

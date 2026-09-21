@@ -39,7 +39,7 @@ run do
   defclass :switch,
     super: :object,
     redef: true,
-    ivars: [state: [domain: ["on", "off"], default: "off"]] do
+    ivars: [%{name: :state, domain: ["on", "off"], default: "off"}] do
 
     defmethod(:flick, [self]) do
       get(self, :state, "on")
@@ -140,7 +140,7 @@ run do
   defclass :counted_switch,
     redef: true,
     super: :switch,
-    ivars: [count: [type: :number, default: 0]] do
+    ivars: [%{name: :count, type: :number, default: 0}] do
     
     defmethod(:flick, [self]) do
       get(self, :count, c)
@@ -169,7 +169,7 @@ run do
   defclass :colour_cycle_switch,
     redef: true,
     super: :switch,
-    ivars: [colour: [domain: ["red", "green", "blue"]]] do
+    ivars: [%{name: :colour, domain: ["red", "green", "blue"]}] do
 
     defmethod(:flick, [self]) do
       get(self, :state, "off")

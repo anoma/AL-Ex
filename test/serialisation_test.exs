@@ -189,7 +189,7 @@ defmodule ALSerialisationTest do
       path = AL.Serialisation.definition_path(root, branch, class)
       assert eventually(fn -> File.exists?(path) end)
       document = read_document(path)
-      write_document(path, %{document | supers: [:value], ivars: [rank: []]})
+      write_document(path, %{document | supers: [:value], ivars: [:rank]})
 
       assert eventually(fn -> live_supers(class, branch) == [:value] end)
       assert eventually(fn -> class_ivar_names(class, branch) == [:rank] end)
@@ -235,7 +235,7 @@ defmodule ALSerialisationTest do
       owner: class,
       metaclass: :class,
       supers: [:object],
-      ivars: [name: []],
+      ivars: [:name],
       comment: nil,
       methods: []
     }

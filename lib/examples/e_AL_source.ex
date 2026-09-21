@@ -43,11 +43,11 @@ defmodule Examples.ALSource do
     :ok
   end
 
-  example tuple_patterns_with_variables_to_source() do
-    stored = [{:=, {:"$package", :"$requirement"}, :"$pair"}]
+  example map_patterns_with_variables_to_source() do
+    stored = [{:=, %{package: :"$package", requirement: :"$requirement"}, :"$pair"}]
     source = AL.Source.body_source(stored)
 
-    assert source == "{package, requirement} = pair"
+    assert source == "%{requirement: requirement, package: package} = pair"
     assert round_trip(stored) == stored
     source
   end
@@ -215,10 +215,8 @@ defmodule Examples.ALSource do
       {:slot_at, :"$o", :key, :"$v", 3},
       {:ground, :"$x"},
       {:var, :"$x"},
-      {:functor, :"$t", :"$n", :"$args"},
       {:gensym, :"$x"},
       {:label, :"$x"},
-      {:call_term, :"$x"},
       {:dif, :"$a", :"$b"},
       {:isa, :"$o", :thing},
       {:=, :"$a", :"$b"},

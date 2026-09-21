@@ -2,7 +2,7 @@ Class {
   #name : :card,
   #superclass : [:value],
   #metaclass : :class,
-  #ivars : [suit: [domain: [:spades, :diamonds, :hearts, :clubs]], rank: [domain: [2, 3, 4, 5, 6, 7, 8, 9, 10, :jack, :queen, :king, :ace]]]
+  #ivars : [%{name: :suit, domain: [:spades, :diamonds, :hearts, :clubs]}, %{name: :rank, domain: [2, 3, 4, 5, 6, 7, 8, 9, 10, :jack, :queen, :king, :ace]}]
 }
 
 :card >> :rank_value, [self, :jack, 10] [

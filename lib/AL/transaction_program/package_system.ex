@@ -259,7 +259,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         self,
         provider,
         dependencies,
-        {self, requirement}
+        %{package: self, requirement: requirement}
       ]) do
         accepts_requirement(self, provider, dependencies, requirement)
       end
@@ -270,7 +270,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         requirement_package(:package_resolver, requirement, package)
         active_build(package, build)
         active_dependency_builds(self, rest, remaining)
-        dependencies = [{package, build} | remaining]
+        dependencies = [%{package: package, build: build} | remaining]
       end
     end
 
@@ -281,7 +281,7 @@ defmodule AL.TransactionProgram.PackageSystem do
 
       defmethod(:requirement_package, [
         _self,
-        {package, _requirement},
+        %{package: package, requirement: _requirement},
         package
       ])
 
@@ -370,7 +370,7 @@ defmodule AL.TransactionProgram.PackageSystem do
         self,
         [requirement | rest],
         selected,
-        [{requirement, package, provider} | dependencies]
+        [%{requirement: requirement, package: package, provider: provider} | dependencies]
       ]) do
         requirement_package(self, requirement, package)
         member(selected, [package, provider, _dependency_dependencies])

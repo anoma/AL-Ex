@@ -24,15 +24,20 @@ defmodule Examples.ALHTTP do
 
           await(response, [outcome]) do
             get(:http_get_observer, :pid, observer)
-            functor(event, :http_result, [response, outcome])
+            event = %{event: :http_result, response: response, outcome: outcome}
             send_elixir(observer, event)
           end
         end
 
-      assert_receive {:http_result, response, {:ok, result}}, 1_000
+      assert_receive %{
+                       event: :http_result,
+                       response: response,
+                       outcome: %{status: :ok, value: result}
+                     },
+                     1_000
 
       assert result.status_code == 200
-      assert {"x-al-example", "yes"} in result.headers
+      assert %{name: "x-al-example", value: "yes"} in result.headers
       assert result.body == "hello"
 
       context = %{effect_id: response, branch: %AL.Branch{id: :examples}}
@@ -64,7 +69,7 @@ defmodule Examples.ALHTTP do
               name: :http_post_request,
               method: :post,
               url: ^url,
-              headers: [{"content-type", "text/plain"}],
+              headers: [%{name: "content-type", value: "text/plain"}],
               body: "payload",
               timeout: 1000
             },
@@ -75,12 +80,12 @@ defmodule Examples.ALHTTP do
 
           await(response, [outcome]) do
             get(:http_post_observer, :pid, observer)
-            functor(event, :http_post_result, [outcome])
+            event = %{event: :http_post_result, outcome: outcome}
             send_elixir(observer, event)
           end
         end
 
-      assert_receive {:http_post_result, {:ok, result}}, 1_000
+      assert_receive %{event: :http_post_result, outcome: %{status: :ok, value: result}}, 1_000
 
       assert result.status_code == 201
       assert result.body == "saved"
@@ -108,12 +113,12 @@ defmodule Examples.ALHTTP do
 
         await(response, [outcome]) do
           get(:http_failure_observer, :pid, observer)
-          functor(event, :http_failure, [outcome])
+          event = %{event: :http_failure, outcome: outcome}
           send_elixir(observer, event)
         end
       end
 
-    assert_receive {:http_failure, {:error, error}}, 1_000
+    assert_receive %{event: :http_failure, outcome: %{status: :error, reason: error}}, 1_000
     refute error == :none
   end
 

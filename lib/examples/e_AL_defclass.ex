@@ -229,7 +229,9 @@ defmodule Examples.ALDefclass do
   example new_redef_true_resets_instance_slots() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :redef_probe_c, super: :object, ivars: [count: [type: :number, default: 0]] do
+        defclass :redef_probe_c,
+          super: :object,
+          ivars: [%{name: :count, type: :number, default: 0}] do
         end
       end
 
@@ -261,7 +263,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         defclass :redef_probe_soa,
           super: :object,
-          ivars: [{:count, [type: :number, default: 0, storage: :soa]}] do
+          ivars: [%{name: :count, type: :number, default: 0, storage: :soa}] do
         end
       end
 
@@ -400,7 +402,7 @@ defmodule Examples.ALDefclass do
         defclass :redef_backfill_probe,
           super: :object,
           redef: true,
-          ivars: [count: [type: :number, default: 0]] do
+          ivars: [%{name: :count, type: :number, default: 0}] do
         end
 
         get(obj, :count, count)
@@ -421,7 +423,7 @@ defmodule Examples.ALDefclass do
 
         new(:redef_backfill_probe2, obj)
 
-        defclass :redef_backfill_probe2, super: :object, redef: true, ivars: [nickname: []] do
+        defclass :redef_backfill_probe2, super: :object, redef: true, ivars: [:nickname] do
         end
 
         not [get(obj, :nickname, _)]
@@ -439,7 +441,7 @@ defmodule Examples.ALDefclass do
   example redef_invalidates_removed_ivars_on_existing_instances() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :redef_shrink_probe, super: :object, redef: true, ivars: [legs: []] do
+        defclass :redef_shrink_probe, super: :object, redef: true, ivars: [:legs] do
         end
 
         new(:redef_shrink_probe, %{legs: 4}, obj)

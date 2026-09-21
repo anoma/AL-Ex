@@ -177,7 +177,10 @@ defmodule ALPackageImportTest do
         class(:dependency_value, :class)
         active_build(:application_package, ^application_build)
         active_build(:dependency, ^dependency_build)
-        dependency_builds(^application_build, [{:dependency, ^dependency_build}])
+
+        dependency_builds(^application_build, [
+          %{package: :dependency, build: ^dependency_build}
+        ])
       end
 
     assert {:atomic, _} = result

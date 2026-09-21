@@ -124,7 +124,6 @@ defmodule ALMCPProtocolTest do
     binary_value = "ok"
     integer_value = 9007199254740993
     float_value = 1.5
-    tuple_value = {:ok, 1}
     map_value = %{:key => "value"}
     proper_list = [1, :two]
     improper_list = [1 | :tail]
@@ -168,14 +167,6 @@ defmodule ALMCPProtocolTest do
       assert binding_value(bindings, "float_value") == %{
                "type" => "float",
                "value" => "1.5"
-             }
-
-      assert binding_value(bindings, "tuple_value") == %{
-               "type" => "tuple",
-               "items" => [
-                 %{"type" => "atom", "name" => "ok"},
-                 %{"type" => "integer", "value" => "1"}
-               ]
              }
 
       assert binding_value(bindings, "map_value") == %{

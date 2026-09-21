@@ -130,10 +130,14 @@ run branch: Examples.Support.branch() do
     defclass :direct_vehicle, super: :object do
     end
 
-    defclass :direct_car, super: :direct_vehicle, ivars: [color: [default: :red]] do
+    defclass :direct_car,
+      super: :direct_vehicle,
+      ivars: [%{name: :color, default: :red}] do
     end
 
-    defclass :direct_hydrant, super: :object, ivars: [color: [default: :red]] do
+    defclass :direct_hydrant,
+      super: :object,
+      ivars: [%{name: :color, default: :red}] do
     end
 
     new(:direct_car, car)

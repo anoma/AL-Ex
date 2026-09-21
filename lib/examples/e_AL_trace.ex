@@ -439,7 +439,7 @@ defmodule Examples.ALTrace do
       AL.eval(
         [%AL.Goal.Pass{}],
         nil,
-        Examples.Support.branch(),
+        %AL.Branch{id: Examples.Support.branch()},
         trace: [:vm],
         trace_mode: :full_trace
       )

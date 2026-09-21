@@ -3,13 +3,13 @@ Class {
   #superclass : [:object],
   #metaclass : :class,
   #ivars : [
-    host: [],
-    port: [],
-    packet: [default: :raw],
-    owner: [default: :none],
-    listener: [default: :none],
-    inbox: [default: []],
-    status: [default: :disconnected]
+    :host,
+    :port,
+    %{name: :packet, default: :raw},
+    %{name: :owner, default: :none},
+    %{name: :listener, default: :none},
+    %{name: :inbox, default: []},
+    %{name: :status, default: :disconnected}
   ]
 }
 
@@ -38,19 +38,19 @@ Class {
   end
 ]
 
-:tcp_socket >> :connect_completed, [self, {:ok, :connected}] [
+:tcp_socket >> :connect_completed, [self, %{status: :ok, value: :connected}] [
   connected(self)
 ]
 
-:tcp_socket >> :connect_completed, [self, {:error, reason}] [
+:tcp_socket >> :connect_completed, [self, %{status: :error, reason: reason}] [
   connection_failed(self, reason)
 ]
 
-:tcp_socket >> :listen_completed, [self, {:ok, port}] [
+:tcp_socket >> :listen_completed, [self, %{status: :ok, value: port}] [
   listening(self, port)
 ]
 
-:tcp_socket >> :listen_completed, [self, {:error, reason}] [
+:tcp_socket >> :listen_completed, [self, %{status: :error, reason: reason}] [
   listen_failed(self, reason)
 ]
 
@@ -61,7 +61,7 @@ Class {
 
 :tcp_socket >> :connection_failed, [self, reason] [
   get(self, :status, :connecting)
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]
 
 :tcp_socket >> :listening, [self, port] [
@@ -70,7 +70,7 @@ Class {
 ]
 
 :tcp_socket >> :listen_failed, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]
 
 :tcp_socket >> :send_bytes, [self, data, effect] [
@@ -82,10 +82,10 @@ Class {
   end
 ]
 
-:tcp_socket >> :send_completed, [_self, {:ok, _bytes}] [
+:tcp_socket >> :send_completed, [_self, %{status: :ok, value: _bytes}] [
 ]
 
-:tcp_socket >> :send_completed, [self, {:error, reason}] [
+:tcp_socket >> :send_completed, [self, %{status: :error, reason: reason}] [
   connection_lost(self, reason)
 ]
 
@@ -114,19 +114,19 @@ Class {
   end
 ]
 
-:tcp_socket >> :close_completed, [self, {:ok, :closed}] [
+:tcp_socket >> :close_completed, [self, %{status: :ok, value: :closed}] [
   connection_lost(self, :closed)
 ]
 
-:tcp_socket >> :close_completed, [self, {:error, reason}] [
+:tcp_socket >> :close_completed, [self, %{status: :error, reason: reason}] [
   connection_lost(self, reason)
 ]
 
-:tcp_socket >> :close_listener_completed, [self, {:ok, :stopped}] [
+:tcp_socket >> :close_listener_completed, [self, %{status: :ok, value: :stopped}] [
   stopped(self)
 ]
 
-:tcp_socket >> :close_listener_completed, [self, {:error, reason}] [
+:tcp_socket >> :close_listener_completed, [self, %{status: :error, reason: reason}] [
   stop_failed(self, reason)
 ]
 
@@ -160,7 +160,7 @@ Class {
 ]
 
 :tcp_socket >> :connection_lost, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]
 
 :tcp_socket >> :stopped, [self] [
@@ -168,9 +168,9 @@ Class {
 ]
 
 :tcp_socket >> :stop_failed, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]
 
 :tcp_socket >> :listener_lost, [self, reason] [
-  set_slot(self, :status, {:error, reason})
+  set_slot(self, :status, %{status: :error, reason: reason})
 ]

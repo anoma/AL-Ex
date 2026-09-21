@@ -227,7 +227,7 @@ defmodule Examples.ALEffects do
       end
 
     assert completed[:"$status"] == :completed
-    assert completed[:"$outcome"] == {:ok, :changed}
+    assert completed[:"$outcome"] == %{status: :ok, value: :changed}
   end
 
   example provider_exception_is_recorded_as_the_effect_outcome() do

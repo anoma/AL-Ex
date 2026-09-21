@@ -50,10 +50,6 @@ defmodule ALNumbersTest do
   use ExExample.ExUnit, for: Examples.ALNumbers
 end
 
-defmodule ALFunctorTest do
-  use ExExample.ExUnit, for: Examples.ALFunctor
-end
-
 defmodule ALNativeTest do
   use ExExample.ExUnit, for: Examples.ALNative
 end
@@ -184,6 +180,10 @@ end
 
 defmodule ALControlFlowTest do
   use ExExample.ExUnit, for: Examples.ALControlFlow
+end
+
+defmodule ALAnonymousMethodsTest do
+  use ExExample.ExUnit, for: Examples.ALAnonymousMethods
 end
 
 defmodule ALTransactionsTest do

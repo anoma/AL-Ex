@@ -92,7 +92,7 @@ also starts/stops the Outbox per branch.
   - `interp/2` has one clause per goal, but for whole *families* of goals that
     clause is one line delegating to the module that owns that concern — `AL`
     itself only keeps the goals with no better-named home: `Eq`/`Equal`/
-    `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Functor`/`CallTerm`/`Not`/`Call`/
+    `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Not`/`Call`/
     `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
     primitive `OApply` cases (`map_get`, `map_put`, `fresh_id`,
     `current_tx`) and `OApply`'s own general clause (method dispatch — see
@@ -561,17 +561,16 @@ diff/merge and valid-time queries are unbuilt.
   `in_domain`-only symbol). Examples in `e_AL_in_domain.ex`.
 
 - **Ivar specs** — `defclass`'s `ivars:` can carry a per-ivar `domain:`/`type:`
-  spec (`ivars: [suit: [domain: [:hearts, ...]]]`, mixable with bare-name
+  spec (`ivars: [%{name: :suit, domain: [:hearts, ...]}]`, mixable with bare-name
   ivars), and `:value`'s default `:init` wires checking + generation from it
   automatically. `domain:` posts `in_domain`; `type:` attaches `isa` so
   `vm_label`'s class-`:domain`-method fallback can generate a value. Zero VM
   changes — `ivars` was already opaque class metadata. New helper methods
   live on `:object`, not `:map` (a classed map dispatches via its own
   `:class` field, never through `:map`). `ivars: []` (every pre-existing
-  value class) keeps the old default-`:init` behavior untouched. Decomposing
-  a `{name, opts}` ivar entry uses `functor`, not a bare-var fallback
-  clause — see [[feedback-prolog-clause-selection-not-elixir]] for why that
-  distinction matters. Explicitly deferred: numeric-range generation, durable
+  value class) keeps the old default-`:init` behavior untouched. Rich ivar
+  entries are maps and bare entries are atoms. Explicitly deferred:
+  numeric-range generation, durable
   (`:object`-super) classes. Demo in `lib/AL/transaction_program/blackjack.ex`'s `:card`.
 
 - **Dispatch legs converged to one domain-constraint mechanism** —
@@ -595,12 +594,9 @@ diff/merge and valid-time queries are unbuilt.
   `isa` constraint could in principle narrow the scan itself. Not built; lower
   priority than correctness, which is already there.
 
-- **Tuple literal parsing gap.** `AL.Lowering.ast_to_pattern` has no case for
-  reconstructing a literal 3+-element tuple from Elixir's `{:{}, meta, list}`
-  quoted form — writing `{:foo, 1, 2}` directly in AL surface syntax silently
-  misparses as `send(:foo, :"{}", [1, 2])` instead of a tuple literal.
-  (2-tuples are unaffected.) Workaround: build 3+-tuples via `functor`
-  instead of writing them as literals. Not fixed.
+- **No tuple surface syntax.** AL deliberately rejects Elixir tuple literals.
+  Use lists, maps, or value objects for AL data. Internal VM encodings may still
+  use tuples because they are not AL values written by a program.
 
 - **Atom-identity leak.** `fresh_id`/`gensym` mint atoms (`:"#N"`); the BEAM
   never garbage-collects atoms, and replay re-mints the same ones on top of

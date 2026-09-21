@@ -13,7 +13,7 @@ defmodule Examples.ALObjectLabeling do
 
         defclass :labeling_dog,
           super: :labeling_animal,
-          ivars: [labeling_unique_slot: []] do
+          ivars: [:labeling_unique_slot] do
         end
 
         defclass :labeling_cat, super: :labeling_animal do

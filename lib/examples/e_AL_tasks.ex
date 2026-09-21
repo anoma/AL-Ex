@@ -21,7 +21,7 @@ defmodule Examples.ALTasks do
         defmethod(^name, :handle, [self, object]) do
           vm_set_slot(object, :processed, true)
           get(^subscriber, :pid, p)
-          functor(message, :handled, [object])
+          message = %{event: :handled, object: object}
           send_elixir(p, message)
         end
       end
@@ -31,7 +31,7 @@ defmodule Examples.ALTasks do
 
   defp await_handled(object) do
     receive do
-      {:handled, ^object} -> :ok
+      %{event: :handled, object: ^object} -> :ok
     after
       1000 -> flunk("timed out waiting for #{inspect(object)} to be handled")
     end
@@ -95,12 +95,12 @@ defmodule Examples.ALTasks do
         spawn do
           set_slot(:spawn_target, :value, :done)
           get(:spawn_observer, :pid, observer)
-          functor(message, :spawned, [:spawn_target])
+          message = %{event: :spawned, object: :spawn_target}
           send_elixir(observer, message)
         end
       end
 
-    assert_receive {:spawned, :spawn_target}, 1_000
+    assert_receive %{event: :spawned, object: :spawn_target}, 1_000
 
     {:atomic, spawning_commands} =
       :mnesia.transaction(fn ->
@@ -132,24 +132,24 @@ defmodule Examples.ALTasks do
         new(:process, %{name: :await_observer, pid: ^pid}, _)
         vm_set_class(:await_target, :object)
         vm_set_class(:await_effect, :effect)
-        vm_set_slot(:await_effect, :status, :pending)
+        set_slot(:await_effect, :status, :pending)
 
         await(:await_effect, [outcome]) do
           set_slot(:await_target, :outcome, outcome)
           get(:await_observer, :pid, observer)
-          functor(message, :continued, [outcome])
+          message = %{event: :continued, outcome: outcome}
           send_elixir(observer, message)
         end
       end
 
-    refute_receive {:continued, _outcome}, 25
+    refute_receive %{event: :continued}, 25
 
     {:atomic, {_bindings, _constraints, completion_state}} =
       run branch: Examples.Support.branch() do
-        complete(:await_effect, {:ok, :connected})
+        complete(:await_effect, %{status: :ok, value: :connected})
       end
 
-    assert_receive {:continued, {:ok, :connected}}, 1_000
+    assert_receive %{event: :continued, outcome: %{status: :ok, value: :connected}}, 1_000
 
     {:atomic, completion_commands} =
       :mnesia.transaction(fn ->
@@ -170,8 +170,8 @@ defmodule Examples.ALTasks do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         get(:await_effect, :status, :completed)
-        get(:await_effect, :outcome, {:ok, :connected})
-        get(:await_target, :outcome, {:ok, :connected})
+        get(:await_effect, :outcome, %{status: :ok, value: :connected})
+        get(:await_target, :outcome, %{status: :ok, value: :connected})
       end
   end
 end

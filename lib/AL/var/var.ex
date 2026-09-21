@@ -105,7 +105,9 @@ defmodule AL.Var do
 
   def to_mnesia_pattern(m, acc) when is_map(m) do
     {kvs, acc2} =
-      Enum.map_reduce(m, acc, fn {k, v}, a ->
+      m
+      |> Map.to_list()
+      |> Enum.map_reduce(acc, fn {k, v}, a ->
         {v2, a2} = to_mnesia_pattern(v, a)
         {{k, v2}, a2}
       end)

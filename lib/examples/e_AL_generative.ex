@@ -470,7 +470,7 @@ defmodule Examples.ALGenerative do
   example labeling_uses_transitive_value_inheritance() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :inherited_value_parent, super: :value, ivars: [payload: []] do
+        defclass :inherited_value_parent, super: :value, ivars: [:payload] do
         end
 
         defclass :inherited_value_child, super: :inherited_value_parent do
@@ -721,7 +721,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         defclass :labeled_vehicle,
           super: :object,
-          ivars: [color: []],
+          ivars: [:color],
           redef: true do
         end
 

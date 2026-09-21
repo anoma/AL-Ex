@@ -10,7 +10,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         defclass :pending_value,
           super: :value,
-          ivars: [tag: [domain: [:only]]] do
+          ivars: [%{name: :tag, domain: [:only]}] do
         end
 
         defclass :pending_unique_parent, super: :object do
@@ -28,7 +28,7 @@ defmodule Examples.ALPendingLinks do
         defclass :pending_shared_child_b, super: :pending_shared_parent do
         end
 
-        defclass :pending_record, super: :object, ivars: [pending_tag: []] do
+        defclass :pending_record, super: :object, ivars: [:pending_tag] do
         end
 
         new(

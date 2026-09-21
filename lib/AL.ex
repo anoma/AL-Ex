@@ -1634,44 +1634,6 @@ defmodule AL do
     end
   end
 
-  # De/Re-construct a term into/from a list 
-  def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    if not AL.Var.var?(term) do
-      {term_name, term_args} = decompose_term(term)
-      put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
-    else
-      if ground?(name) and is_list(args) do
-        put_bindings(state, unify(state, term, compose_term(name, args)), [term])
-      else
-        backtrack(state)
-      end
-    end
-  end
-
-  # Prolog call/1. term's shape must be resolved; first arg = receiver, functor
-  # = selector — call_term({foo, self, x}) re-dispatches as send(self, :foo, [x]).
-  def interp(%Goal.CallTerm{term: term}, state) do
-    if not AL.Var.var?(term) do
-      case decompose_term(term) do
-        {name, [self | rest]} ->
-          choice = state.active_choicepoint
-
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{
-                choice
-                | goals: splice_goals(state, [%Goal.Send{object: self, method: name, args: rest}])
-              }
-          }
-
-        {_name, []} ->
-          backtrack(state)
-      end
-    else
-      backtrack(state)
-    end
-  end
-
   # Ground's dual on leaves: succeeds only on an unbound variable.
   def interp(%Goal.IsVar{term: term}, state) do
     if AL.Var.var?(term) do
@@ -1940,12 +1902,6 @@ defmodule AL do
 
   defp format_decimal(term) when is_integer(term), do: Integer.to_string(term)
   defp format_decimal(term), do: inspect(term)
-
-  defp compose_term(name, []), do: name
-  defp compose_term(name, args), do: List.to_tuple([name | args])
-
-  defp decompose_term(t) when is_tuple(t), do: {elem(t, 0), t |> Tuple.to_list() |> tl()}
-  defp decompose_term(atomic), do: {atomic, []}
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
 

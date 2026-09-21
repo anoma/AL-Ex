@@ -20,7 +20,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:constant_subscriber, :cell_updated, [self, cell, domain]) do
           slot(self, :pid, p)
-          functor(message, :cell_updated, [cell, domain])
+          message = %{event: :cell_updated, cell: cell, domain: domain}
           send_elixir(p, message)
         end
 
@@ -54,7 +54,7 @@ defmodule Examples.ALConstraints do
 
         {:aborted, _} ->
           receive do
-            {:cell_updated, :x, d} -> d
+            %{event: :cell_updated, cell: :x, domain: d} -> d
           after
             1000 -> flunk("timed out waiting for :x to update")
           end
@@ -83,7 +83,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:inc_subscriber, :cell_updated, [self, cell, domain]) do
           slot(self, :pid, p)
-          functor(message, :cell_updated, [cell, domain])
+          message = %{event: :cell_updated, cell: cell, domain: domain}
           send_elixir(p, message)
         end
 
@@ -113,7 +113,7 @@ defmodule Examples.ALConstraints do
 
         {:aborted, _} ->
           receive do
-            {:cell_updated, :y, d} -> d
+            %{event: :cell_updated, cell: :y, domain: d} -> d
           after
             1000 -> flunk("timed out waiting for :y to update")
           end
@@ -155,7 +155,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:bidirectional_adder_subscriber, :cell_updated, [self, cell, domain]) do
           slot(self, :pid, p)
-          functor(message, :cell_updated, [cell, domain])
+          message = %{event: :cell_updated, cell: cell, domain: domain}
           send_elixir(p, message)
         end
 
@@ -203,7 +203,7 @@ defmodule Examples.ALConstraints do
 
         {:aborted, _} ->
           receive do
-            {:cell_updated, :a, d} -> d
+            %{event: :cell_updated, cell: :a, domain: d} -> d
           after
             1000 -> flunk("timed out waiting for :a to update")
           end
@@ -245,7 +245,7 @@ defmodule Examples.ALConstraints do
 
         defmethod(:interval_subscriber, :cell_updated, [self, cell, domain]) do
           slot(self, :pid, p)
-          functor(message, :cell_updated, [cell, domain])
+          message = %{event: :cell_updated, cell: cell, domain: domain}
           send_elixir(p, message)
         end
 
@@ -291,7 +291,7 @@ defmodule Examples.ALConstraints do
 
         {:aborted, _} ->
           receive do
-            {:cell_updated, :ic, d} -> d
+            %{event: :cell_updated, cell: :ic, domain: d} -> d
           after
             1000 -> flunk("timed out waiting for :ic to update")
           end

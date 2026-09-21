@@ -124,7 +124,7 @@ defmodule Examples.ALResidualConstraints do
       run branch: Examples.Support.branch() do
         defclass :constraint_record,
           super: :value,
-          ivars: [kind: [domain: [:a, :b]]],
+          ivars: [%{name: :kind, domain: [:a, :b]}],
           redef: true do
           defmethod(:constraint_probe, [_self, :ok])
         end

@@ -489,12 +489,20 @@ defmodule AL.Interp.Relations do
     end
   end
 
-  defp slot_spec_goals({name, opts}, key, value) when name == key and is_list(opts) do
-    Enum.flat_map(opts, fn
-      {:domain, domain} when is_list(domain) -> [%Goal.InDomain{var: value, values: domain}]
-      {:type, type} -> [%Goal.Isa{object: value, class: type}]
-      _ -> []
-    end)
+  defp slot_spec_goals(%{name: name} = spec, key, value) when name == key do
+    domain_goals =
+      case spec do
+        %{domain: domain} when is_list(domain) -> [%Goal.InDomain{var: value, values: domain}]
+        _ -> []
+      end
+
+    type_goals =
+      case spec do
+        %{type: type} -> [%Goal.Isa{object: value, class: type}]
+        _ -> []
+      end
+
+    domain_goals ++ type_goals
   end
 
   defp slot_spec_goals(_spec, _key, _value), do: []

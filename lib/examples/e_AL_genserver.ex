@@ -24,7 +24,7 @@ defmodule Examples.ALGenserver do
 
         defmethod(^object_id, :increment, [self, amount]) do
           get(self, :pid, p)
-          functor(message, :increment, [amount])
+          message = %{event: :increment, amount: amount}
           send_elixir(p, message)
         end
       end
@@ -33,7 +33,7 @@ defmodule Examples.ALGenserver do
     end
 
     @impl true
-    def handle_info({:increment, amount}, state) do
+    def handle_info(%{event: :increment, amount: amount}, state) do
       state = %{state | count: state.count + amount}
       send(state.observer, {:count_changed, self(), state.count})
       {:noreply, state}

@@ -63,8 +63,6 @@ defmodule AL.Goal do
           | AL.Goal.Label.t()
           | AL.Goal.IsVar.t()
           | AL.Goal.Freeze.t()
-          | AL.Goal.Functor.t()
-          | AL.Goal.CallTerm.t()
           | AL.Goal.Call.t()
           | AL.Goal.Send.t()
           | AL.Goal.SendQuery.t()
@@ -347,22 +345,6 @@ defmodule AL.Goal do
     field(:term, AL.Var.t())
   end
 
-  # Prolog's `functor/3` crossed with `=..`: `term` ground decomposes into
-  # `name` (a tuple's first element, or the term itself if atomic) and `args`
-  # (the tuple's remaining elements, or `[]` if atomic); `name`/`args` ground
-  # with `term` unbound constructs the reverse.
-  typedstruct enforce: true, module: Functor do
-    field(:term, AL.Var.t())
-    field(:name, AL.Var.t())
-    field(:args, AL.Var.t())
-  end
-
-  # Prolog's `call/1`: re-dispatch a ground compound term as a `send`, treating
-  # its first arg as the receiver and its functor as the selector.
-  typedstruct enforce: true, module: CallTerm do
-    field(:term, AL.Var.t())
-  end
-
   typedstruct enforce: true, module: IsVar do
     field(:term, AL.Var.t())
   end
@@ -508,10 +490,8 @@ defmodule AL.Goal do
     {Isa, :isa, [object: :term, class: :term]},
     {InDomain, :in_domain, [var: :term, values: :term]},
     {Label, :label, [term: :term]},
-    {Functor, :functor, [term: :term, name: :term, args: :term]},
     {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
-    {CallTerm, :call_term, [term: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
     {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
     {CallNextMethod, :call_next_method, [self: :term, args: :term]},

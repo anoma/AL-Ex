@@ -2,7 +2,7 @@ defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
   reverse, sort, min_by, dedupe, map, fold, flatten, same_length, at, all_dif,
-  label_range) and mapping a lambda over a list.
+  label_range) and mapping an anonymous method over a list.
   """
 
   use ExExample
@@ -28,7 +28,6 @@ defmodule Examples.ALLists do
         tl([:w, :x, :y, :z], tail)
         concat([:a, :b, :c], [:d, :e, :f], sum)
         reverse([:b, :c, :d, :e, :f], reversed)
-        map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
         fold_left([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_left)
         fold_right([[:a], [:b], [:c], [:d]], :concat, [:starter], folded_right)
         flatten([[:a, :b], [:c, :d, :e]], flattened)
@@ -37,7 +36,6 @@ defmodule Examples.ALLists do
 
     assert Map.get(bindings, :"$sum") == [:a, :b, :c, :d, :e, :f]
     assert Map.get(bindings, :"$reversed") == [:f, :e, :d, :c, :b]
-    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
     assert Map.get(bindings, :"$folded_left") == [:starter, :a, :b, :c, :d]
     assert Map.get(bindings, :"$folded_right") == [:starter, :d, :c, :b, :a]
     assert Map.get(bindings, :"$flattened") == [:a, :b, :c, :d, :e]
@@ -174,10 +172,26 @@ defmodule Examples.ALLists do
     :ok
   end
 
-  example call_lambda_map() do
+  example map_with_method_selector_sends_to_each_element() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        map([:a, :b, :c], [x, %{id: x}], [], out)
+        map([[:a, :b], [:c, :d, :e]], :reverse, mapped)
+      end
+
+    assert Map.get(bindings, :"$mapped") == [[:b, :a], [:e, :d, :c]]
+    :ok
+  end
+
+  example map_with_anonymous_method_runs_each_element() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        new(
+          :anonymous_method,
+          %{args: [], head: [x, result], body: [result = %{id: x}]},
+          mapper
+        )
+
+        map([:a, :b, :c], mapper, out)
       end
 
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]

@@ -569,7 +569,7 @@ defmodule AL.Package do
            ContentAddress.digest({:package_build, 1, provider.source_digest, dependency_inputs}),
          slots = %{
            version: document.version,
-           requirements: document.deps,
+           requirements: al_requirements(document.deps),
            digest: build_digest,
            provider: provider_id,
            status: :complete
@@ -871,8 +871,8 @@ defmodule AL.Package do
 
   defp realise_channel(channel, branch) do
     slots = %{
-      channel_name: channel.name,
-      location: channel.location,
+      channel_name: al_channel_term(channel.name),
+      location: al_channel_term(channel.location),
       revision: channel.revision
     }
 
@@ -904,6 +904,8 @@ defmodule AL.Package do
   end
 
   defp channel_instances(name, branch) do
+    name = al_channel_term(name)
+
     AL.Object.scan_class(AL.Var.var("channel_instance"), :channel, branch)
     |> Enum.flat_map(fn {:class, id, _seq, :channel} ->
       case AL.Object.read_slots(id, branch) do
@@ -983,7 +985,7 @@ defmodule AL.Package do
       channel_revision: provider.channel.revision,
       provides: provider.document.name,
       version: provider.document.version,
-      requirements: provider.document.deps,
+      requirements: al_requirements(provider.document.deps),
       source_digest: provider.source_digest,
       source: provider_source(provider)
     }
@@ -1100,8 +1102,8 @@ defmodule AL.Package do
     %{
       package: provider.document.name,
       version: provider.document.version,
-      requirements: provider.document.deps,
-      dependency_builds: dependencies,
+      requirements: al_requirements(provider.document.deps),
+      dependency_builds: al_dependency_builds(dependencies),
       digest: build.digest,
       provider: provider.id,
       status: :complete
@@ -1488,6 +1490,8 @@ defmodule AL.Package do
 
   defp configured_channels_registered_in_transaction?(specs, branch) do
     Enum.all?(specs, fn {name, location} ->
+      location = al_channel_term(location)
+
       case channel_instances(name, branch) do
         [%{slots: %{location: ^location}}] -> true
         _ -> false
@@ -1563,14 +1567,14 @@ defmodule AL.Package do
 
   defp package_provider_slots(provider, branch) do
     case AL.Object.read_slots(provider, branch) do
-      [{:slots, ^provider, slots}] -> {:ok, slots}
+      [{:slots, ^provider, slots}] -> {:ok, host_package_slots(slots)}
       _ -> {:error, {:package_provider_not_found, provider}}
     end
   end
 
   defp build_slots(build, branch) do
     case AL.Object.read_slots(build, branch) do
-      [{:slots, ^build, slots}] -> {:ok, slots}
+      [{:slots, ^build, slots}] -> {:ok, host_package_slots(slots)}
       _ -> {:error, {:package_build_not_found, build}}
     end
   end
@@ -1579,6 +1583,37 @@ defmodule AL.Package do
     if package_system_available?(branch),
       do: :ok,
       else: {:error, :package_system_not_installed}
+  end
+
+  defp al_requirements(requirements), do: Enum.map(requirements, &al_requirement/1)
+  defp al_requirement(name) when is_atom(name), do: name
+  defp al_requirement({name, requirement}), do: %{package: name, requirement: requirement}
+
+  defp al_dependency_builds(dependencies) do
+    Enum.map(dependencies, fn {package, build} -> %{package: package, build: build} end)
+  end
+
+  defp al_channel_term({tag, value}), do: %{tag: tag, value: value}
+  defp al_channel_term(term), do: term
+
+  defp host_package_slots(slots) do
+    slots
+    |> Map.update(
+      :requirements,
+      [],
+      &Enum.map(&1, fn
+        %{package: package, requirement: requirement} -> {package, requirement}
+        requirement -> requirement
+      end)
+    )
+    |> Map.update(
+      :dependency_builds,
+      [],
+      &Enum.map(&1, fn
+        %{package: package, build: build} -> {package, build}
+        dependency -> dependency
+      end)
+    )
   end
 
   defp package_system_available?(branch),

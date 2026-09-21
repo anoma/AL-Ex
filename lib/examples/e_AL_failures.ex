@@ -102,7 +102,9 @@ defmodule Examples.ALFailures do
   example set_slot_domain_violation_survives_backtracking_search() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :failure_domain_probe, super: :object, ivars: [state: [domain: ["on", "off"]]] do
+        defclass :failure_domain_probe,
+          super: :object,
+          ivars: [%{name: :state, domain: ["on", "off"]}] do
         end
 
         new(:failure_domain_probe, %{name: :failure_domain_instance, state: "on"}, _)

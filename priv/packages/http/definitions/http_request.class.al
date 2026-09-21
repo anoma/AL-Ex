@@ -2,13 +2,7 @@ Class {
   #name : :http_request,
   #superclass : [:object],
   #metaclass : :class,
-  #ivars : [
-    method: [],
-    url: [],
-    headers: [],
-    body: [],
-    timeout: []
-  ]
+  #ivars : [:method, :url, :headers, :body, :timeout]
 }
 
 :http_request >> :init, [self, args, self] [

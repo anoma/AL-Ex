@@ -40,8 +40,8 @@ defmodule AL.Lowering do
   def ast_to_pattern({:%{}, _, kvs}),
     do: Map.new(kvs, fn {k, v} -> {ast_to_pattern(k), ast_to_pattern(v)} end)
 
-  def ast_to_pattern({:{}, _, elements}),
-    do: elements |> Enum.map(&ast_to_pattern/1) |> List.to_tuple()
+  def ast_to_pattern({:{}, _, _elements}),
+    do: raise(ArgumentError, "AL does not support Elixir tuple literals")
 
   def ast_to_pattern({:^, _, [expr]}), do: {:unquote, [], [expr]}
 
@@ -215,15 +215,6 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({:label, _, [term]}), do: %Goal.Label{term: ast_to_pattern(term)}
 
-  def ast_to_pattern({:functor, _, [term, name, args]}),
-    do: %Goal.Functor{
-      term: ast_to_pattern(term),
-      name: ast_to_pattern(name),
-      args: ast_to_pattern(args)
-    }
-
-  def ast_to_pattern({:call_term, _, [term]}), do: %Goal.CallTerm{term: ast_to_pattern(term)}
-
   def ast_to_pattern({:var, _, [term]}), do: %Goal.IsVar{term: ast_to_pattern(term)}
 
   def ast_to_pattern({:freeze, _, [var, goals]}),
@@ -281,11 +272,6 @@ defmodule AL.Lowering do
   def ast_to_pattern({:=, _, [a, b]}),
     do: %Goal.Eq{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
-  # `left or right` (CLP(FD) `#\/`) — Elixir's own `or`, reused directly
-  # since `alternative` (not `or`) already owns the backtracking
-  # choicepoint form. A real disjunctive constraint, not a choicepoint:
-  # both sides are ordinary comparison expressions (`=`/`< > <= >=`),
-  # lowered the same way they'd be on their own.
   def ast_to_pattern({:or, _, [left, right]}),
     do: %Goal.Either{
       left: constraint(ast_to_pattern(left)),
@@ -449,7 +435,8 @@ defmodule AL.Lowering do
 
   def ast_to_pattern({name, _, _module}), do: AL.Var.var(name)
 
-  def ast_to_pattern({a, b}), do: {ast_to_pattern(a), ast_to_pattern(b)}
+  def ast_to_pattern({_a, _b}),
+    do: raise(ArgumentError, "AL does not support Elixir tuple literals")
 
   def ast_to_pattern(x), do: x
 

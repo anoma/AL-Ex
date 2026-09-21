@@ -13,7 +13,7 @@ defmodule Examples.ALSoaSlots do
   example vm_get_slot_soa_finds_a_value_written_via_set_slot() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :soa_slot_probe, super: :object, ivars: [{:level, [storage: :soa]}] do
+        defclass :soa_slot_probe, super: :object, ivars: [%{name: :level, storage: :soa}] do
         end
       end
 
@@ -32,7 +32,9 @@ defmodule Examples.ALSoaSlots do
   example a_second_set_slot_supersedes_the_first_for_the_same_key() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :soa_slot_probe_resets, super: :object, ivars: [{:level, [storage: :soa]}] do
+        defclass :soa_slot_probe_resets,
+          super: :object,
+          ivars: [%{name: :level, storage: :soa}] do
         end
       end
 
@@ -57,7 +59,7 @@ defmodule Examples.ALSoaSlots do
       run branch: Examples.Support.branch() do
         defclass :soa_slot_probe_many,
           super: :object,
-          ivars: [{:soa_slot_probe_many_level, [storage: :soa]}] do
+          ivars: [%{name: :soa_slot_probe_many_level, storage: :soa}] do
         end
       end
 

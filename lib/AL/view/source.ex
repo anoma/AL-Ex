@@ -660,12 +660,10 @@ defmodule AL.Source do
   defp goal({:gensym, v}), do: call(:gensym, [v])
   defp goal({:ground, t}), do: call(:ground, [t])
   defp goal({:var, x}), do: call(:var, [x])
-  defp goal({:call_term, t}), do: call(:call_term, [t])
   defp goal({:dif, a, b}), do: call(:dif, [a, b])
   defp goal({:isa, object, class}), do: call(:isa, [object, class])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
-  defp goal({:functor, term, name, args}), do: call(:functor, [term, name, args])
   defp goal({:=, a, b}), do: {:=, [], [pat(a), pat(b)]}
   defp goal({:unify, a, b}), do: goal({:=, a, b})
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
@@ -701,6 +699,9 @@ defmodule AL.Source do
 
   defp goal({:oapply, :await_effect, [effect, head, goals]}),
     do: {:await, [], [pat(effect), pat(head), [do: goals(goals)]]}
+
+  defp goal({:oapply, :defmethod, [object, name, head, body]}) when is_list(body),
+    do: {:defmethod, [], [pat(object), pat(name), pat(head), [do: goals(body)]]}
 
   defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
   defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
