@@ -24,6 +24,24 @@ defmodule Examples.ALAnonymousMethods do
     :ok
   end
 
+  example a_do_block_is_a_goals_argument_to_any_send() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defmethod(:list, :lambda, [head, method, body]) do
+          new(:anonymous_method, %{args: [], head: head, body: body}, method)
+        end
+
+        lambda([x, doubled], twice) do
+          doubled = [x, x]
+        end
+
+        run(twice, [:a, result])
+      end
+
+    assert Map.get(bindings, :"$result") == [:a, :a]
+    :ok
+  end
+
   example runs_an_existing_method_object() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

@@ -794,8 +794,12 @@ defmodule AL.Source do
   defp pat({:oapply, op, args}) when is_list(args), do: {op, [], Enum.map(args, &pat/1)}
   defp pat({:oapply, op, args}), do: {op, [], [pat(args)]}
 
-  defp pat(tuple) when is_tuple(tuple),
-    do: {:{}, [], tuple |> Tuple.to_list() |> Enum.map(&pat/1)}
+  defp pat(tuple) when is_tuple(tuple) do
+    case goal(tuple) do
+      {:RAW, [], _} -> {:{}, [], tuple |> Tuple.to_list() |> Enum.map(&pat/1)}
+      ast -> ast
+    end
+  end
 
   defp pat(x), do: x
 end

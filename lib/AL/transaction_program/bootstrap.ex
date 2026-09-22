@@ -958,30 +958,28 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :fold_left, [[], _func, acc, acc])
 
-    defmethod(:list, :fold_left, [[], _head, _body, acc, acc])
-
     defmethod(:list, :fold_left, [[h | t], func, acc, result]) do
       send(acc, func, [h, next_acc])
       fold_left(t, func, next_acc, result)
     end
 
-    defmethod(:list, :fold_left, [[h | t], head, body, acc, result]) do
-      call(head, body, [acc, h, next_acc])
-      fold_left(t, head, body, next_acc, result)
+    defmethod(:list, :fold_left, [[h | t], func, acc, result]) do
+      isa(func, :anonymous_method)
+      run(func, [acc, h, next_acc])
+      fold_left(t, func, next_acc, result)
     end
 
     defmethod(:list, :fold_right, [[], _func, acc, acc])
-
-    defmethod(:list, :fold_right, [[], _head, _body, acc, acc])
 
     defmethod(:list, :fold_right, [[h | t], func, acc, result]) do
       fold_right(t, func, acc, next_acc)
       send(next_acc, func, [h, result])
     end
 
-    defmethod(:list, :fold_right, [[h | t], head, body, acc, result]) do
-      fold_right(t, head, body, acc, next_acc)
-      call(head, body, [next_acc, h, result])
+    defmethod(:list, :fold_right, [[h | t], func, acc, result]) do
+      isa(func, :anonymous_method)
+      fold_right(t, func, acc, next_acc)
+      run(func, [next_acc, h, result])
     end
 
     defmethod(:list, :flatten, [lists, result]) do
@@ -1022,24 +1020,64 @@ defmodule AL.TransactionProgram.Bootstrap do
       dedupe([y | rest], result)
     end
 
-    defmethod(:list, :min_by, [xs, func, min]) do
-      member(xs, min)
-      send(min, func, [v])
-
-      forall(member(xs, other)) do
-        send(other, func, [w])
-        v <= w
-      end
+    defmethod(:list, :lambda, [head, method, body]) do
+      new(:anonymous_method, %{args: [], head: head, body: body}, method)
     end
 
-    defmethod(:list, :max_by, [xs, func, max]) do
-      member(xs, max)
-      send(max, func, [v])
-
-      forall(member(xs, other)) do
-        send(other, func, [w])
-        v >= w
+    defmethod(:list, :min_by, [[h | t], func, min]) do
+      lambda([acc, x, least], step) do
+        send(acc, func, [v])
+        send(x, func, [w])
+        alternative([w >= v, least = acc], [w <= v, least = x])
       end
+
+      fold_left(t, step, h, min)
+    end
+
+    defmethod(:list, :min, [[], _])
+
+    defmethod(:list, :min, [[x | xs], min]) do
+      min(xs, x, min)
+    end
+
+    defmethod(:list, :min, [[], acc, acc])
+
+    defmethod(:list, :min, [[x | xs], acc, min]) do
+      x <= acc
+      min(xs, x, min)
+    end
+
+    defmethod(:list, :min, [[x | xs], acc, min]) do
+      x > acc
+      min(xs, acc, min)
+    end
+
+    defmethod(:list, :max, [[], _])
+
+    defmethod(:list, :max, [[x | xs], max]) do
+      max(xs, x, max)
+    end
+
+    defmethod(:list, :max, [[], acc, acc])
+
+    defmethod(:list, :max, [[x | xs], acc, max]) do
+      x <= acc
+      max(xs, acc, max)
+    end
+
+    defmethod(:list, :max, [[x | xs], acc, max]) do
+      x > acc
+      max(xs, x, max)
+    end
+
+    defmethod(:list, :max_by, [[h | t], func, max]) do
+      lambda([acc, x, greatest], step) do
+        send(acc, func, [v])
+        send(x, func, [w])
+        alternative([w <= v, greatest = acc], [w >= v, greatest = x])
+      end
+
+      fold_left(t, step, h, max)
     end
 
     defmethod(:list, :sum, [[], 0])
