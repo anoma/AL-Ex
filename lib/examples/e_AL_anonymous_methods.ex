@@ -52,4 +52,29 @@ defmodule Examples.ALAnonymousMethods do
     assert Map.get(bindings, :"$result") == 120
     :ok
   end
+
+  example stores_a_lambda_in_a_durable_slot() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        defclass :lambda_holder,
+          super: :object,
+          ivars: [%{name: :condition, type: :anonymous_method}] do
+        end
+
+        lambda([input, output], condition) do
+          output = [input]
+        end
+
+        new(:lambda_holder, %{name: :stored_lambda, condition: condition}, _holder)
+      end
+
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        get(:stored_lambda, :condition, condition)
+        run(condition, [:durable, result])
+      end
+
+    assert bindings[:"$result"] == [:durable]
+    :ok
+  end
 end

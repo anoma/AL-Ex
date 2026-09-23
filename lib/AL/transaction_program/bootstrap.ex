@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 19, deps: [] do
+  defprogram :bootstrap, version: 21, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -461,8 +461,22 @@ defmodule AL.TransactionProgram.Bootstrap do
       vm_map_put(partial, name, value, output)
     end
 
+    defmethod(:object, :include_durable_slot, [partial, name, value, output]) do
+      not [ground(value)]
+      class(value, :anonymous_method)
+      get(value, :args, args)
+      ground(args)
+      vm_map_put(partial, name, value, output)
+    end
+
     defmethod(:object, :include_durable_slot, [partial, _name, value, partial]) do
       not [ground(value)]
+
+      not [
+        class(value, :anonymous_method),
+        get(value, :args, args),
+        ground(args)
+      ]
     end
 
     # A *class* object being created (`new(:class, ...)`, what every
@@ -532,6 +546,13 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:value, :put, [self, key, value, updated]) do
       vm_map_put(self, key, value, updated)
+    end
+
+    defmethod(:value, :put_slots, [self, [], self])
+
+    defmethod(:value, :put_slots, [self, [[key, value] | rest], updated]) do
+      put(self, key, value, partial)
+      put_slots(partial, rest, updated)
     end
 
     defmethod(:value, :init, [self, args, output]) do

@@ -664,6 +664,7 @@ defmodule AL.Source do
   defp goal({:isa, object, class}), do: call(:isa, [object, class])
   defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
   defp goal({:label, term}), do: call(:label, [term])
+
   defp goal({:=, a, b}), do: {:=, [], [pat(a), pat(b)]}
   defp goal({:unify, a, b}), do: goal({:=, a, b})
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
@@ -685,6 +686,7 @@ defmodule AL.Source do
   defp goal({:get_method, o, n, i}), do: call(:method, [o, n, i])
   defp goal({:get_command, tx, time, operation}), do: call(:vm_command, [tx, time, operation])
   defp goal({:set_method, o, n, i}), do: call(:vm_set_method, [o, n, i])
+  defp goal({:send_async, o, m, []}), do: call(:send_async, [o, m])
   defp goal({:send_async, o, m, a}), do: call(:send_async, [o, m, a])
   defp goal({:send_elixir, pid, msg}), do: call(:send_elixir, [pid, msg])
 
@@ -711,6 +713,9 @@ defmodule AL.Source do
   defp goal({:set_oapply, o, seq, h, b}), do: call(:vm_set_oapply, [o, seq, h, b])
 
   defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
+
+  defp goal({:floor_divide, dividend, divisor, quotient}),
+    do: call(:floor_divide, [dividend, divisor, quotient])
 
   defp goal({:oapply, fun, args}) when is_atom(fun) and is_list(args) do
     if AL.Var.var?(fun),
@@ -747,6 +752,7 @@ defmodule AL.Source do
   defp goal({:send, r, m, args}) do
     cond do
       not is_list(args) -> {:send, [], [pat(r), pat(m), pat(args)]}
+      args == [] and AL.Var.var?(m) -> {:send, [], [pat(r), pat(m)]}
       AL.Var.var?(m) -> {:send, [], [pat(r), pat(m), Enum.map(args, &pat/1)]}
       true -> {m, [], [pat(r) | Enum.map(args, &pat/1)]}
     end

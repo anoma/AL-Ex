@@ -54,7 +54,8 @@ control-flow tools.
 ## Objects and executable values
 
 - Normal calls dispatch a selector through the receiver. When the selector is a
-  value, use `send(receiver, selector, args)`.
+  value, use `send(receiver, selector)` with no arguments, or
+  `send(receiver, selector, args)` otherwise.
 - Method objects and `:anonymous_method` values implement `run(args)`. Execute
   them with `run(method, args)`.
 - An `:anonymous_method` is a classed value object with `args`, `head`, and
