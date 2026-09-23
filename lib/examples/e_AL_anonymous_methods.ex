@@ -24,6 +24,24 @@ defmodule Examples.ALAnonymousMethods do
     :ok
   end
 
+  example a_do_block_is_a_goals_argument_to_any_send() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        defmethod(:list, :lambda, [head, method, body]) do
+          new(:anonymous_method, %{args: [], head: head, body: body}, method)
+        end
+
+        lambda([x, doubled], twice) do
+          doubled = [x, x]
+        end
+
+        run(twice, [:a, result])
+      end
+
+    assert Map.get(bindings, :"$result") == [:a, :a]
+    :ok
+  end
+
   example runs_an_existing_method_object() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -32,6 +50,31 @@ defmodule Examples.ALAnonymousMethods do
       end
 
     assert Map.get(bindings, :"$result") == 120
+    :ok
+  end
+
+  example stores_a_lambda_in_a_durable_slot() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        defclass :lambda_holder,
+          super: :object,
+          ivars: [%{name: :condition, type: :anonymous_method}] do
+        end
+
+        lambda([input, output], condition) do
+          output = [input]
+        end
+
+        new(:lambda_holder, %{name: :stored_lambda, condition: condition}, _holder)
+      end
+
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        get(:stored_lambda, :condition, condition)
+        run(condition, [:durable, result])
+      end
+
+    assert bindings[:"$result"] == [:durable]
     :ok
   end
 end
