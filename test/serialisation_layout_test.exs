@@ -33,5 +33,18 @@ defmodule ALSerialisationLayoutTest do
     assert Layout.definition_file?(root, Path.join(root, "card.class.al"))
     refute Layout.definition_file?(root, Path.join(root, "transaction.al"))
     refute Layout.definition_file?(root, root <> "-other/card.class.al")
+    refute Layout.definition_file?(root, Path.join(root, ".#card.class.al"))
+    refute Layout.definition_file?(root, Path.join(root, "#card.class.al#"))
+  end
+
+  test "definition paths are never hidden files" do
+    root = "/tmp/al-layout"
+    branch = AL.Branch.main()
+
+    for owner <- [:".", :"..", :".hidden", :".#card"] do
+      path = Layout.definition_path(root, branch, owner)
+
+      assert Layout.definition_file?(Layout.definitions_dir(root, branch), path)
+    end
   end
 end

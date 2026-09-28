@@ -26,7 +26,8 @@ config :al,
     :constraints,
     :sudoku,
     :blackjack,
-    :euler
+    :euler,
+    :swaps
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.

@@ -263,6 +263,13 @@ defmodule AL.Lowering do
   def ast_to_pattern({:all_dif, _, [vars]}),
     do: %Goal.AllDif{vars: ast_to_pattern(vars)}
 
+  def ast_to_pattern({:floor_divide, _, [dividend, divisor, quotient]}),
+    do: %Goal.FloorDivide{
+      dividend: ast_to_pattern(dividend),
+      divisor: ast_to_pattern(divisor),
+      quotient: ast_to_pattern(quotient)
+    }
+
   def ast_to_pattern({op, _, [a, b]}) when op in @comparison_ops,
     do: %Goal.Compare{op: op, a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
@@ -292,6 +299,13 @@ defmodule AL.Lowering do
       args: ast_to_pattern(args)
     }
 
+  def ast_to_pattern({:send, _, [receiver, method]}),
+    do: %Goal.Send{
+      object: ast_to_pattern(receiver),
+      method: ast_to_pattern(method),
+      args: []
+    }
+
   def ast_to_pattern({:call_next_method, _, [self | args]}),
     do: %Goal.CallNextMethod{self: ast_to_pattern(self), args: Enum.map(args, &ast_to_pattern/1)}
 
@@ -300,6 +314,13 @@ defmodule AL.Lowering do
       object: ast_to_pattern(object),
       method: ast_to_pattern(method),
       args: ast_to_pattern(args)
+    }
+
+  def ast_to_pattern({:send_async, _, [object, method]}),
+    do: %Goal.SendAsync{
+      object: ast_to_pattern(object),
+      method: ast_to_pattern(method),
+      args: []
     }
 
   def ast_to_pattern({:send_elixir, _, [pid, message]}),
