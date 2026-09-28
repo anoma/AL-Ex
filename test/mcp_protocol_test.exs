@@ -38,6 +38,8 @@ defmodule ALMCPProtocolTest do
              "evaluate",
              "evaluateSource",
              "queryAL",
+             "hasPotentialSolution",
+             "nextSolution",
              "listBranches",
              "searchDefinitions",
              "findReferences",
@@ -58,7 +60,17 @@ defmodule ALMCPProtocolTest do
 
     assert "context" in tools_by_name["queryAL"]["outputSchema"]["required"]
 
+    assert tools_by_name["nextSolution"]["outputSchema"] ==
+             tools_by_name["queryAL"]["outputSchema"]
+
+    assert tools_by_name["queryAL"]["outputSchema"]["properties"]["hasPotentialSolution"]["type"] ==
+             "boolean"
+
+    assert tools_by_name["hasPotentialSolution"]["outputSchema"]["properties"] ==
+             %{"hasPotentialSolution" => %{"type" => "boolean"}}
+
     for name <- [
+          "hasPotentialSolution",
           "listBranches",
           "searchDefinitions",
           "diffBranches"
@@ -70,6 +82,8 @@ defmodule ALMCPProtocolTest do
     refute tools_by_name["evaluateSource"]["annotations"]["readOnlyHint"]
     refute tools_by_name["queryAL"]["annotations"]["readOnlyHint"]
     assert tools_by_name["queryAL"]["annotations"]["destructiveHint"]
+    refute tools_by_name["nextSolution"]["annotations"]["readOnlyHint"]
+    assert tools_by_name["nextSolution"]["annotations"]["destructiveHint"]
 
     for name <- [
           "findReferences",
@@ -110,6 +124,7 @@ defmodule ALMCPProtocolTest do
           |> Task.await()
 
         refute first["isError"]
+        assert first["structuredContent"]["hasPotentialSolution"] == true
         context = first["structuredContent"]["context"]
         assert is_binary(context)
 
@@ -124,13 +139,11 @@ defmodule ALMCPProtocolTest do
                  %{"type" => "text", "text" => expected}
                ]
 
-        second =
-          tool_result("evaluate", %{
-            "expression" => "AL.MCP.Contexts.resolve(#{inspect(context)}) |> AL.next_solution()"
-          })
+        second = tool_result("nextSolution", %{"context" => context})
 
         refute second["isError"]
         result = second["structuredContent"]
+        assert result["hasPotentialSolution"] == true
         assert result["branch"] == to_string(branch.id)
         assert is_binary(result["context"])
         refute result["context"] == context
@@ -146,13 +159,10 @@ defmodule ALMCPProtocolTest do
                  %{"type" => "text", "text" => expected}
                ]
 
-        exhausted =
-          tool_result("evaluate", %{
-            "expression" =>
-              "AL.MCP.Contexts.resolve(#{inspect(result["context"])}) |> AL.next_solution()"
-          })
+        exhausted = tool_result("nextSolution", %{"context" => result["context"]})
 
         assert exhausted["isError"]
+        assert exhausted["structuredContent"]["hasPotentialSolution"] == false
 
         failure_state =
           tool_result("evaluate", %{
@@ -167,6 +177,67 @@ defmodule ALMCPProtocolTest do
     end
   end
 
+  test "potential solutions do not advance execution or promise a successful alternative", %{
+    baseline: baseline
+  } do
+    branch = AL.Branch.fork(:tip, baseline)
+    on_exit(fn -> AL.Branch.discard(branch) end)
+
+    for {source, potential} <- [
+          {"answer = 42", false},
+          {"member([1, 2], answer)\nanswer = 1", true}
+        ] do
+      first = tool_result("queryAL", %{"source" => source, "branch" => to_string(branch.id)})
+      refute first["isError"]
+      assert first["structuredContent"]["hasPotentialSolution"] == potential
+      context = first["structuredContent"]["context"]
+      state = AL.MCP.Contexts.resolve(context)
+      command_position = AL.Command.system_time(branch)
+
+      assert AL.has_potential_solution?(state) == potential
+
+      for _ <- 1..2 do
+        check = tool_result("hasPotentialSolution", %{"context" => context})
+        refute check["isError"]
+        assert check["structuredContent"] == %{"hasPotentialSolution" => potential}
+        assert [%{"text" => text}] = check["content"]
+        assert Jason.decode!(text) == check["structuredContent"]
+      end
+
+      assert AL.Command.system_time(branch) == command_position
+      assert AL.MCP.Contexts.resolve(context) == state
+
+      exhausted = tool_result("nextSolution", %{"context" => context})
+      assert exhausted["isError"]
+      assert exhausted["structuredContent"]["status"] == "failed"
+      assert exhausted["structuredContent"]["hasPotentialSolution"] == false
+      assert exhausted["structuredContent"]["reason"]
+
+      check =
+        tool_result("hasPotentialSolution", %{
+          "context" => exhausted["structuredContent"]["context"]
+        })
+
+      refute check["isError"]
+      assert check["structuredContent"] == %{"hasPotentialSolution" => false}
+      assert AL.has_potential_solution?(AL.MCP.Contexts.resolve(context)) == potential
+    end
+  end
+
+  test "solution tools reject missing, invalid, and unknown context IDs" do
+    for tool <- ["hasPotentialSolution", "nextSolution"],
+        arguments <- [%{}, %{"context" => 42}, %{"context" => "unknown"}] do
+      result = tool_result(tool, arguments)
+      assert result["isError"]
+      assert [%{"type" => "text", "text" => message}] = result["content"]
+      assert message =~ "context"
+    end
+
+    result = tool_result("nextSolution", %{"context" => "unknown", "maxLength" => 0})
+    assert result["isError"]
+    assert [%{"text" => "maxLength must be a positive integer"}] = result["content"]
+  end
+
   test "evaluate retains AL results and bare contexts, and releases references", %{
     baseline: baseline
   } do
@@ -176,6 +247,7 @@ defmodule ALMCPProtocolTest do
       })
 
     refute first["isError"]
+    assert first["structuredContent"]["hasPotentialSolution"] == false
     context = first["structuredContent"]["context"]
 
     assert binding_value(first["structuredContent"]["bindings"], "answer") == %{
@@ -187,6 +259,7 @@ defmodule ALMCPProtocolTest do
       tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.resolve(#{inspect(context)})"})
 
     retained = copy["structuredContent"]["context"]
+    assert copy["structuredContent"]["hasPotentialSolution"] == false
     assert is_binary(retained)
     refute retained == context
 
@@ -204,6 +277,13 @@ defmodule ALMCPProtocolTest do
     assert [%{"text" => missing_text}] = missing["content"]
     assert missing_text =~ "Unknown AL context: #{inspect(context)}"
     refute missing_text =~ "must not run"
+
+    for tool <- ["hasPotentialSolution", "nextSolution"] do
+      missing = tool_result(tool, %{"context" => context})
+      assert missing["isError"]
+      assert [%{"text" => missing_text}] = missing["content"]
+      assert missing_text =~ "Unknown AL context: #{inspect(context)}"
+    end
 
     refute tool_result("evaluate", %{
              "expression" => "is_struct(AL.MCP.Contexts.resolve(#{inspect(retained)}), AL)"
@@ -225,6 +305,7 @@ defmodule ALMCPProtocolTest do
     for tool <- ["queryAL", "evaluateSource"] do
       failed = tool_result(tool, %{"source" => "fail()", "branch" => to_string(baseline.id)})
       assert failed["isError"]
+      assert failed["structuredContent"]["hasPotentialSolution"] == false
       assert is_binary(failed["structuredContent"]["context"]), inspect({tool, failed})
 
       inspected =
@@ -239,6 +320,7 @@ defmodule ALMCPProtocolTest do
       assert rejected["isError"]
       assert rejected["structuredContent"]["status"] == "rejected"
       assert Map.fetch!(rejected["structuredContent"], "context") == nil
+      refute Map.has_key?(rejected["structuredContent"], "hasPotentialSolution")
     end
   end
 

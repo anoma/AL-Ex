@@ -36,6 +36,8 @@ defmodule AL.MCP.Tools do
       evaluate_tool(),
       evaluate_source_tool(),
       query_al_tool(),
+      has_potential_solution_tool(),
+      next_solution_tool(),
       list_branches_tool(),
       search_definitions_tool(),
       find_references_tool(),
@@ -54,6 +56,8 @@ defmodule AL.MCP.Tools do
   def call("evaluate", arguments), do: evaluate(arguments)
   def call("evaluateSource", arguments), do: evaluate_source(arguments)
   def call("queryAL", arguments), do: query_al(arguments)
+  def call("hasPotentialSolution", arguments), do: has_potential_solution(arguments)
+  def call("nextSolution", arguments), do: next_solution(arguments)
   def call("listBranches", arguments), do: list_branches(arguments)
   def call("searchDefinitions", arguments), do: search_definitions(arguments)
   def call("findReferences", arguments), do: find_references(arguments)
@@ -115,7 +119,7 @@ defmodule AL.MCP.Tools do
       "name" => "queryAL",
       "title" => "Query AL",
       "description" =>
-        "Parses, retains, and executes AL source as an ordinary transaction, returning losslessly tagged AL bindings, public constraint summaries, and a context ID usable by evaluate. The source may contain writes.",
+        "Parses, retains, and executes AL source as an ordinary transaction, returning losslessly tagged AL bindings, public constraint summaries, and a context ID with hasPotentialSolution indicating untried choicepoints. True does not guarantee another answer. Use nextSolution to continue searching. The source may contain writes.",
       "inputSchema" =>
         object_schema(
           %{
@@ -125,20 +129,71 @@ defmodule AL.MCP.Tools do
           },
           ["source"]
         ),
+      "outputSchema" => al_result_schema(),
+      "annotations" => @mutation_annotations
+    }
+  end
+
+  defp has_potential_solution_tool do
+    %{
+      "name" => "hasPotentialSolution",
+      "title" => "Check for a potential AL solution",
+      "description" =>
+        "Checks whether a retained AL context has untried choicepoints, without advancing execution. True means another search attempt is possible; all remaining alternatives may still fail. False means no alternatives remain in this context.",
+      "inputSchema" =>
+        object_schema(
+          %{"context" => %{"type" => "string", "description" => "Retained AL context ID"}},
+          ["context"]
+        ),
       "outputSchema" => %{
         "type" => "object",
-        "required" => [
-          "status",
-          "branch",
-          "transactionId",
-          "commandTransaction",
-          "bindings",
-          "constraints",
-          "context"
-        ],
-        "additionalProperties" => true
+        "properties" => %{"hasPotentialSolution" => %{"type" => "boolean"}},
+        "required" => ["hasPotentialSolution"],
+        "additionalProperties" => false
       },
+      "annotations" => @read_only_annotations
+    }
+  end
+
+  defp next_solution_tool do
+    %{
+      "name" => "nextSolution",
+      "title" => "Find the next AL solution",
+      "description" =>
+        "Resolves a retained AL context and calls AL.next_solution/1 on its original branch. Returns queryAL's structured result format, including bindings, constraints, a new context ID, and hasPotentialSolution for that returned context. The original context remains usable. Exhaustion and execution failures return isError true with status failed and a reason; hasPotentialSolution does not guarantee success. Continuing execution may perform writes.",
+      "inputSchema" =>
+        object_schema(
+          %{
+            "context" => %{"type" => "string", "description" => "Retained AL context ID"},
+            "maxLength" => max_length_schema()
+          },
+          ["context"]
+        ),
+      "outputSchema" => al_result_schema(),
       "annotations" => @mutation_annotations
+    }
+  end
+
+  defp al_result_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "hasPotentialSolution" => %{
+          "type" => "boolean",
+          "description" =>
+            "Whether the returned context has untried choicepoints. True does not guarantee another answer. Omitted when no AL context is returned."
+        }
+      },
+      "required" => [
+        "status",
+        "branch",
+        "transactionId",
+        "commandTransaction",
+        "bindings",
+        "constraints",
+        "context"
+      ],
+      "additionalProperties" => true
     }
   end
 
@@ -442,6 +497,7 @@ defmodule AL.MCP.Tools do
       {:ok,
        %{
          "context" => AL.MCP.Contexts.retain(context),
+         "hasPotentialSolution" => AL.has_potential_solution?(context),
          "branch" => to_string(context.branch.id)
        }},
       max_length
@@ -483,6 +539,44 @@ defmodule AL.MCP.Tools do
       end
     else
       {:error, message} -> failure(message)
+    end
+  end
+
+  defp has_potential_solution(arguments) do
+    with {:ok, context} <- resolve_context(arguments) do
+      tooling_result(
+        {:ok, %{"hasPotentialSolution" => AL.has_potential_solution?(context)}},
+        @default_max_length
+      )
+    else
+      {:error, message} -> failure(message)
+    end
+  end
+
+  defp next_solution(arguments) do
+    with {:ok, max_length} <- max_length(arguments),
+         {:ok, context} <- resolve_context(arguments) do
+      try do
+        context
+        |> AL.next_solution()
+        |> query_source_result(context.branch, max_length)
+      rescue
+        exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
+      catch
+        kind, reason -> failure(Exception.format(kind, reason, __STACKTRACE__), max_length)
+      end
+    else
+      {:error, message} -> failure(message)
+    end
+  end
+
+  defp resolve_context(arguments) do
+    with {:ok, id} <- required_string(arguments, "context") do
+      try do
+        {:ok, AL.MCP.Contexts.resolve(id)}
+      rescue
+        exception in ArgumentError -> {:error, Exception.message(exception)}
+      end
     end
   end
 
@@ -737,7 +831,7 @@ defmodule AL.MCP.Tools do
     summary = transaction_summary("committed", branch, state)
 
     text =
-      "Committed #{summary["transactionId"]}\nContext: #{summary["context"]}\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}"
+      "Committed #{summary["transactionId"]}\nContext: #{summary["context"]}\nPotential solution: #{summary["hasPotentialSolution"]}\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}"
 
     result =
       summary
@@ -766,7 +860,7 @@ defmodule AL.MCP.Tools do
     reason = if is_map(reason), do: Map.delete(reason, :state), else: reason
 
     text =
-      "Failed #{summary["transactionId"] || "transaction"}\nContext: #{summary["context"]}\n#{inspect_term(reason, max_length)}"
+      "Failed #{summary["transactionId"] || "transaction"}\nContext: #{summary["context"]}\nPotential solution: #{summary["hasPotentialSolution"]}\n#{inspect_term(reason, max_length)}"
 
     failure(text, max_length, Map.put(summary, "reason", inspect_term(reason, max_length)))
   end
@@ -800,7 +894,8 @@ defmodule AL.MCP.Tools do
       "branch" => to_string(branch.id),
       "transactionId" => format_id(state.transaction_object),
       "commandTransaction" => state.tx_id,
-      "context" => AL.MCP.Contexts.retain(state)
+      "context" => AL.MCP.Contexts.retain(state),
+      "hasPotentialSolution" => AL.has_potential_solution?(state)
     }
   end
 
