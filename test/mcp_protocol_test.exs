@@ -9,6 +9,11 @@ defmodule ALMCPProtocolTest do
     {:ok, baseline: baseline}
   end
 
+  setup do
+    start_supervised!({AL.MCP, port: 0})
+    :ok
+  end
+
   test "initializes and advertises the live AL tools" do
     assert {:reply,
             %{
@@ -48,6 +53,11 @@ defmodule ALMCPProtocolTest do
 
     tools_by_name = Map.new(tools, &{&1["name"], &1})
 
+    assert tools_by_name["evaluate"]["inputSchema"]["properties"] |> Map.keys() |> Enum.sort() ==
+             ["expression", "maxLength"]
+
+    assert "context" in tools_by_name["queryAL"]["outputSchema"]["required"]
+
     for name <- [
           "listBranches",
           "searchDefinitions",
@@ -81,6 +91,155 @@ defmodule ALMCPProtocolTest do
              call("evaluate", %{"expression" => "1 + 2"})
 
     assert content == %{"type" => "text", "text" => "3"}
+  end
+
+  test "contexts cross requests and expose ordinary AL operations and alternatives", %{
+    baseline: baseline
+  } do
+    branch = AL.Branch.fork(:tip, baseline)
+
+    try do
+      for tool <- ["queryAL", "evaluateSource"] do
+        first =
+          Task.async(fn ->
+            tool_result(tool, %{
+              "source" => "member([:first, :second], choice)\nin_domain(number, [1, 2])",
+              "branch" => to_string(branch.id)
+            })
+          end)
+          |> Task.await()
+
+        refute first["isError"]
+        context = first["structuredContent"]["context"]
+        assert is_binary(context)
+
+        inspection = %{
+          "expression" =>
+            "state = AL.MCP.Contexts.resolve(#{inspect(context)})\n{state.__struct__, state.branch.id, AL.Var.subst(:\"$choice\", state.active_choicepoint.store)}"
+        }
+
+        expected = inspect({AL, branch.id, :first})
+
+        assert tool_result("evaluate", inspection)["content"] == [
+                 %{"type" => "text", "text" => expected}
+               ]
+
+        second =
+          tool_result("evaluate", %{
+            "expression" => "AL.MCP.Contexts.resolve(#{inspect(context)}) |> AL.next_solution()"
+          })
+
+        refute second["isError"]
+        result = second["structuredContent"]
+        assert result["branch"] == to_string(branch.id)
+        assert is_binary(result["context"])
+        refute result["context"] == context
+
+        assert binding_value(result["bindings"], "choice") == %{
+                 "type" => "atom",
+                 "name" => "second"
+               }
+
+        assert binding_value(result["constraints"], "number") |> map_value("domain")
+
+        assert tool_result("evaluate", inspection)["content"] == [
+                 %{"type" => "text", "text" => expected}
+               ]
+
+        exhausted =
+          tool_result("evaluate", %{
+            "expression" =>
+              "AL.MCP.Contexts.resolve(#{inspect(result["context"])}) |> AL.next_solution()"
+          })
+
+        assert exhausted["isError"]
+
+        failure_state =
+          tool_result("evaluate", %{
+            "expression" =>
+              "AL.MCP.Contexts.resolve(#{inspect(exhausted["structuredContent"]["context"])}).active_choicepoint.store == nil"
+          })
+
+        assert failure_state["content"] == [%{"type" => "text", "text" => "true"}]
+      end
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
+  test "evaluate retains AL results and bare contexts, and releases references", %{
+    baseline: baseline
+  } do
+    first =
+      tool_result("evaluate", %{
+        "expression" => "AL.eval_source(\"answer = 42\", #{inspect(baseline)})"
+      })
+
+    refute first["isError"]
+    context = first["structuredContent"]["context"]
+
+    assert binding_value(first["structuredContent"]["bindings"], "answer") == %{
+             "type" => "integer",
+             "value" => "42"
+           }
+
+    copy =
+      tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.resolve(#{inspect(context)})"})
+
+    retained = copy["structuredContent"]["context"]
+    assert is_binary(retained)
+    refute retained == context
+
+    released =
+      tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.release(#{inspect(context)})"})
+
+    refute released["isError"]
+
+    missing =
+      tool_result("evaluate", %{
+        "expression" => "AL.MCP.Contexts.resolve(#{inspect(context)})\nraise \"must not run\""
+      })
+
+    assert missing["isError"]
+    assert [%{"text" => missing_text}] = missing["content"]
+    assert missing_text =~ "Unknown AL context: #{inspect(context)}"
+    refute missing_text =~ "must not run"
+
+    refute tool_result("evaluate", %{
+             "expression" => "is_struct(AL.MCP.Contexts.resolve(#{inspect(retained)}), AL)"
+           })["isError"]
+
+    :ok = Supervisor.terminate_child(AL.MCP, AL.MCP.Contexts)
+    {:ok, _pid} = Supervisor.restart_child(AL.MCP, AL.MCP.Contexts)
+
+    restarted =
+      tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.resolve(#{inspect(retained)})"})
+
+    assert restarted["isError"]
+
+    assert [%{"text" => restarted_text}] = restarted["content"]
+    assert restarted_text =~ "Unknown AL context: #{inspect(retained)}"
+  end
+
+  test "failed AL runs retain their context and rejected inputs do not", %{baseline: baseline} do
+    for tool <- ["queryAL", "evaluateSource"] do
+      failed = tool_result(tool, %{"source" => "fail()", "branch" => to_string(baseline.id)})
+      assert failed["isError"]
+      assert is_binary(failed["structuredContent"]["context"]), inspect({tool, failed})
+
+      inspected =
+        tool_result("evaluate", %{
+          "expression" =>
+            "is_struct(AL.MCP.Contexts.resolve(#{inspect(failed["structuredContent"]["context"])}), AL)"
+        })
+
+      assert inspected["content"] == [%{"type" => "text", "text" => "true"}]
+
+      rejected = tool_result(tool, %{"source" => "(", "branch" => to_string(baseline.id)})
+      assert rejected["isError"]
+      assert rejected["structuredContent"]["status"] == "rejected"
+      assert Map.fetch!(rejected["structuredContent"], "context") == nil
+    end
   end
 
   test "evaluates retained AL source as one observable transaction", %{baseline: baseline} do
@@ -513,6 +672,11 @@ defmodule ALMCPProtocolTest do
       "method" => "tools/call",
       "params" => %{"name" => name, "arguments" => arguments}
     })
+  end
+
+  defp tool_result(name, arguments) do
+    {:reply, %{"result" => result}} = call(name, arguments)
+    result
   end
 
   defp binding_value(bindings, name) do
