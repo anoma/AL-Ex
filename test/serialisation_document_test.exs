@@ -68,7 +68,8 @@ defmodule ALDocumentTest do
         methods: [
           method(
             selector: :source_define_method,
-            declaration: ":source_define_method, [\n      self,\n      class,\n      :plain\n    ]",
+            declaration:
+              ":source_define_method, [\n      self,\n      class,\n      :plain\n    ]",
             body: "  defmethod(class, [], [])"
           ),
           method([])

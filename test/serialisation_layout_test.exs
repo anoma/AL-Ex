@@ -41,7 +41,7 @@ defmodule ALSerialisationLayoutTest do
     root = "/tmp/al-layout"
     branch = AL.Branch.main()
 
-    for owner <- [:".", :"..", :".hidden", :".#card"] do
+    for owner <- [:., :.., :".hidden", :".#card"] do
       path = Layout.definition_path(root, branch, owner)
 
       assert Layout.definition_file?(Layout.definitions_dir(root, branch), path)

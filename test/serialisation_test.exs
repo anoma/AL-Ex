@@ -40,6 +40,27 @@ defmodule ALSerialisationTest do
     end
   end
 
+  test "reserialising unchanged definitions leaves their files untouched" do
+    branch = AL.Branch.fork()
+    root = temporary_root()
+    class = fresh_id("serialisation_untouched")
+
+    try do
+      assert {:atomic, _} =
+               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+
+      assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
+      path = AL.Serialisation.definition_path(root, branch, class)
+      before = File.stat!(path, time: :posix)
+
+      assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
+      assert File.stat!(path, time: :posix) == before
+    after
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
   test "a non-class method owner is serialised as an extension document" do
     branch = AL.Branch.fork()
     root = temporary_root()

@@ -804,11 +804,15 @@ defmodule AL.Serialisation do
     do: write_file(definition_path(root, branch, owner), text)
 
   defp write_file(path, text) do
-    with :ok <- File.mkdir_p(Path.dirname(path)), {:ok, ^path} <- atomic_write(path, text) do
-      {:ok, path}
+    with :ok <- File.mkdir_p(Path.dirname(path)) do
+      case File.read(path) do
+        {:ok, ^text} -> {:ok, path}
+        {:ok, _other} -> atomic_write(path, text)
+        {:error, :enoent} -> atomic_write(path, text)
+        {:error, reason} -> {:error, {:file_read, path, reason}}
+      end
     else
-      {:error, {:file_write, _path, _reason} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:file_write, path, reason}}
+      {:error, reason} -> {:error, {:file_write, Path.dirname(path), reason}}
     end
   end
 
@@ -833,21 +837,8 @@ defmodule AL.Serialisation do
     end)
   end
 
-  defp write_transaction(root, branch, tx, text) do
-    directory = transactions_dir(root, branch)
-    path = transaction_path(root, branch, tx)
-
-    with :ok <- File.mkdir_p(directory) do
-      case File.read(path) do
-        {:ok, ^text} -> {:ok, path}
-        {:ok, _other} -> atomic_write(path, text)
-        {:error, :enoent} -> atomic_write(path, text)
-        {:error, reason} -> {:error, {:file_read, path, reason}}
-      end
-    else
-      {:error, reason} -> {:error, {:file_write, directory, reason}}
-    end
-  end
+  defp write_transaction(root, branch, tx, text),
+    do: write_file(transaction_path(root, branch, tx), text)
 
   defp atomic_write(path, text) do
     temporary = "#{path}.tmp-#{System.unique_integer([:positive])}"
