@@ -101,7 +101,6 @@ defmodule AL.TransactionProgram do
     program = {:__block__, [], statements ++ [receipt]}
 
     source_ast = {:defprogram, [], [name, opts, [do: body]]}
-    source = Macro.to_string(source_ast)
     origin = %{kind: :transaction_program, file: __CALLER__.file, line: __CALLER__.line}
 
     quote do
@@ -112,7 +111,9 @@ defmodule AL.TransactionProgram do
       def install do
         :ok = AL.TransactionProgram.ensure_execution_class()
 
-        AL.TransactionProgram.retain_install(unquote(source), unquote(Macro.escape(origin)), fn ->
+        source = Macro.to_string(unquote(Macro.escape(source_ast)))
+
+        AL.TransactionProgram.retain_install(source, unquote(Macro.escape(origin)), fn ->
           if function_exported?(__MODULE__, :__prepare_program_install__, 0) do
             :ok = apply(__MODULE__, :__prepare_program_install__, [])
           end

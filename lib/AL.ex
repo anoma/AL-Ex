@@ -823,6 +823,7 @@ defmodule AL do
   end
 
   defp constraint_goal?(%Goal.Compare{}), do: true
+  defp constraint_goal?(%Goal.FloorDivide{}), do: true
 
   defp constraint_goal?(%Goal.Eq{a: a, b: b}),
     do: AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b)
@@ -1556,6 +1557,16 @@ defmodule AL do
           nil -> backtrack(state)
           new_store -> put_bindings(state, new_store, [a, b])
         end
+    end
+  end
+
+  def interp(
+        %Goal.FloorDivide{dividend: dividend, divisor: divisor, quotient: quotient},
+        state
+      ) do
+    case AL.Var.Bounds.floor_divide(store(state), dividend, divisor, quotient, state.branch) do
+      nil -> backtrack(state)
+      new_store -> put_bindings(state, new_store, [dividend, divisor, quotient])
     end
   end
 

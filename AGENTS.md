@@ -20,7 +20,8 @@ object protocols, not as Elixir control flow expressed through AL syntax.
   special-class lists inside a general method.
 - Preserve useful modes. Do not ground, label, cut, or commit merely to make an
   implementation easier when the relation can remain bidirectional.
-- A selector value is applied with `send(receiver, selector, args)`. A method
+- A selector value is applied with `send(receiver, selector)` when it takes no
+  arguments, or `send(receiver, selector, args)` otherwise. A method
   object or `:anonymous_method` value is executed with `run(method, args)`.
   Do not invent Elixir-style callable syntax, functor wrappers, or public call
   terms.

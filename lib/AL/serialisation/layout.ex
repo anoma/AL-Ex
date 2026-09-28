@@ -42,7 +42,8 @@ defmodule AL.Serialisation.Layout do
     relative = Path.relative_to(Path.expand(path), Path.expand(definitions_root))
 
     String.ends_with?(relative, ".class.al") and relative != ".." and
-      not String.starts_with?(relative, "../") and Path.type(relative) == :relative
+      not String.starts_with?(relative, "../") and Path.type(relative) == :relative and
+      not String.starts_with?(Path.basename(relative), ".")
   end
 
   # Atoms are the normal AL identity and remain readable. Percent encoding is
@@ -52,8 +53,7 @@ defmodule AL.Serialisation.Layout do
   defp segment(term) when is_atom(term) do
     case percent_encode(Atom.to_string(term)) do
       "" -> "%EMPTY"
-      "." -> "%2E"
-      ".." -> "%2E%2E"
+      "." <> rest -> "%2E" <> rest
       encoded -> encoded
     end
   end

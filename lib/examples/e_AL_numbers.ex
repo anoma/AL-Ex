@@ -36,6 +36,27 @@ defmodule Examples.ALNumbers do
     :ok
   end
 
+  example negative_literals_are_numbers() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        defmethod(:number, :unit_sign, [-1, :negative])
+        defmethod(:number, :unit_sign, [1, :positive])
+
+        x = -3
+        x < 0
+        y = x + 5
+        %{amount: -3} = %{amount: x}
+        z = +4
+        unit_sign(-1, sign)
+      end
+
+    assert Map.get(bindings, :"$x") == -3
+    assert Map.get(bindings, :"$y") == 2
+    assert Map.get(bindings, :"$z") == 4
+    assert Map.get(bindings, :"$sign") == :negative
+    :ok
+  end
+
   example number_falls_back_to_object() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
