@@ -62,6 +62,22 @@ defmodule ALDocumentTest do
     assert text =~ "#superclass : [:value, :named]"
   end
 
+  test "a declaration whose head spans several lines round trips" do
+    document =
+      class(
+        methods: [
+          method(
+            selector: :source_define_method,
+            declaration: ":source_define_method, [\n      self,\n      class,\n      :plain\n    ]",
+            body: "  defmethod(class, [], [])"
+          ),
+          method([])
+        ]
+      )
+
+    assert {:ok, ^document} = Document.parse(Document.render(document))
+  end
+
   test "a body edited to a different length still parses" do
     text = Document.render(class(methods: [method(body: "  r = 1")]))
     edited = String.replace(text, "r = 1", "r = 100\n  pass")
