@@ -99,15 +99,17 @@ top-level form ends with `.`. Each side of `->` or `;` is one goal; group
 several with a `{...}` block:
 
 ```prolog
-By < 0 -> fail ; {Next = Count + By, set_slot Self count Next}.
+< By 0 -> fail ; {= Next (+ Count By), set_slot Self count Next}.
 
-A = 1 ; A = 2.
+= A 1 ; = A 2.
 
 not {class Value anonymous_method, ground Value}.
 ```
 
 A call's arguments are single terms, so a nested call or arithmetic is
-bracketed: `between Self (Low + 1) High V`. Forms that take goals take blocks:
+bracketed: `between Self (+ Low 1) High V`. Operators are ordinary names
+called in prefix (`= X 1`, `< X 5`), and a constraint disjunction is
+`or (= C 1) (= C 2)`. Forms that take goals take blocks:
 `findall T R {G}`, `forall {C} {A}`, `lambda [Args] M {G}`.
 
 ## Selector values and executable values
@@ -134,7 +136,7 @@ relation for executing stored clause data.
 Partial application is immutable value construction:
 
 ```prolog
-lambda [First, Second, Result] Method {Result = [First, Second]},
+lambda [First, Second, Result] Method {= Result [First, Second]},
 add_arg Method a PartiallyApplied,
 run PartiallyApplied [b, Result].
 ```
@@ -158,7 +160,7 @@ Durable objects are identities whose slots are command-log-backed state:
 ```prolog
 get Object status Status,
 set_slot Object status completed,
-set_slots Object #{status: completed, outcome: Outcome}.
+set_slots Object #{status => completed, outcome => Outcome}.
 ```
 
 `set_slot` dispatches validation through the object's class protocol before the
@@ -193,7 +195,7 @@ tests the primitive against an unclassed identity.
 AL programs contain no tuples; braces are always blocks of goals. Use:
 
 - lists `[A, B . T]` for ordered positional values and relation records;
-- maps `#{key: Value}` for named immutable values;
+- maps `#{key => Value}` for named immutable values;
 - classed value maps when the value needs behavior;
 - durable objects when identity and history matter.
 

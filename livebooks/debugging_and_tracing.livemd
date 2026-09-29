@@ -37,7 +37,7 @@ result =
   run do
     ~AL"""
     @failgreeter
-    #{super: value}.
+    #{super => value}.
 
     failgreeter >> init
     | Self _ Self |.
@@ -60,9 +60,9 @@ AL's reporter can also report domain violations.
 run do
   ~AL"""
   @failure_domain_probe
-  #{super: object, ivars: [#{domain: ["on", "off"], name: state}]}.
+  #{super => object, ivars => [#{domain => ["on", "off"], name => state}]}.
 
-  new failure_domain_probe #{name: failure_domain_instance, state: "on"} _.
+  new failure_domain_probe #{name => failure_domain_instance, state => "on"} _.
   """
 end
 ```
@@ -75,7 +75,7 @@ If a class handles its own misses, sending it something unknown doesn't abort. T
 run do
   ~AL"""
   @failquiet
-  #{super: value}.
+  #{super => value}.
 
   failquiet >> init
   | Self _ Self |.
@@ -124,7 +124,7 @@ AL.trace(:cell)
 
 run do
   ~AL"""
-  new cell #{name: traced} C.
+  new cell #{name => traced} C.
   """
 end
 
@@ -153,10 +153,10 @@ Dispatch on an open receiver can have several candidate legs- a value/ephemeral 
 run do
   ~AL"""
   @trace_leg_class
-  #{super: value}.
+  #{super => value}.
 
   trace_leg_class >> trace_next
-  | #{class: trace_leg_class, letter: a} #{class: trace_leg_class, letter: b} |.
+  | #{class => trace_leg_class, letter => a} #{class => trace_leg_class, letter => b} |.
   """
 end
 
@@ -164,7 +164,7 @@ AL.trace(:trace_next)
 
 run do
   ~AL"""
-  trace_next X #{class: trace_leg_class, letter: b}.
+  trace_next X #{class => trace_leg_class, letter => b}.
   """
 end
 
@@ -194,7 +194,7 @@ When a method has more than one clause that could structurally match, redo tries
 run do
   ~AL"""
   @redo_demo
-  #{super: object}.
+  #{super => object}.
 
   redo_demo >> pick
   | Self first |.
@@ -211,7 +211,7 @@ end
     ~AL"""
     new redo_demo #{} Obj.
     pick Obj Result.
-    Result = second.
+    = Result second.
     """
   end
 
@@ -228,12 +228,12 @@ The first clause (`first`) is attempted and then upon fail, redone into the seco
 run do
   ~AL"""
   @probe_box
-  #{super: object}.
+  #{super => object}.
 
   probe_box >> probe_reject
   | Self V |
-  V = 1,
-  V > 50.
+  = V 1,
+  > V 50.
 
   probe_box >> probe_leaf
   | Self 100 |.
@@ -241,12 +241,12 @@ run do
   probe_box >> probe_mid
   | Self V |
   probe_leaf Self W,
-  V = W + 1.
+  = V (+ W 1).
 
   probe_box >> probe_top
   | Self V |
   probe_mid Self W,
-  V = W + 1.
+  = V (+ W 1).
 
   probe_box >> probe_answer
   | Self V |
@@ -285,11 +285,11 @@ Constraint goals (from [logic and constraints](./logic_and_constraints.livemd)) 
 run do
   ~AL"""
   @triple_class
-  #{super: object}.
+  #{super => object}.
 
   triple_class >> triple
   | Self N Result |
-  Result = N * 3.
+  = Result (* N 3).
   """
 end
 ```

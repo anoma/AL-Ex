@@ -282,6 +282,19 @@ defmodule AL.Command do
     t
   end
 
+  @doc "The parent command count this branch was forked at."
+  @spec fork_point(AL.Branch.t()) :: non_neg_integer() | :absent
+  def fork_point(branch) do
+    {:atomic, t} = :mnesia.transaction(fn -> read_meta(branch, :fork_point, :absent) end)
+    t
+  end
+
+  @spec record_fork_point(AL.Branch.t(), non_neg_integer()) :: :ok
+  def record_fork_point(branch, t) do
+    {:atomic, :ok} = :mnesia.transaction(fn -> write_meta(branch, :fork_point, t) end)
+    :ok
+  end
+
   @spec command(non_neg_integer(), AL.Branch.t()) :: command() | :absent
   def command(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)

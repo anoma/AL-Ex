@@ -16,7 +16,7 @@ defmodule Examples.ALTransactionPrograms do
       program =
         AL.TransactionProgram.from_source(
           """
-          defprogram transaction_program_fixture \#{version: 2, deps: [bootstrap]}.
+          defprogram transaction_program_fixture \#{version => 2, deps => [bootstrap]}.
 
           vm_set_class program_created_object object.
           set_slot program_created_object answer 42.
@@ -79,7 +79,7 @@ defmodule Examples.ALTransactionPrograms do
     AL.Branch.checkout(branch)
 
     source = """
-    defprogram retained_program_fixture \#{version: 1, deps: []}.
+    defprogram retained_program_fixture \#{version => 1, deps => []}.
 
     vm_set_class retained_original object.
     """

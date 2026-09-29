@@ -10,7 +10,7 @@ defmodule Examples.ALMethodSelection do
       run branch: Examples.Support.branch() do
         ~AL"""
         @selection_parent
-        #{super: object}.
+        #{super => object}.
 
         selection_parent >> selection_describe
         | _Self parent |.
@@ -22,7 +22,7 @@ defmodule Examples.ALMethodSelection do
         | _Self class_instance |.
 
         @selection_override
-        #{super: selection_parent}.
+        #{super => selection_parent}.
 
         selection_override >> selection_describe
         | _Self override |.
@@ -31,29 +31,29 @@ defmodule Examples.ALMethodSelection do
         | _Self special override |.
 
         @selection_inheritor
-        #{super: selection_parent}.
+        #{super => selection_parent}.
 
         @selection_left
-        #{super: object}.
+        #{super => object}.
 
         selection_left >> selection_left_mark
         | _Self left |.
 
         @selection_right
-        #{super: object}.
+        #{super => object}.
 
         selection_right >> selection_right_mark
         | _Self right |.
 
         @selection_both
-        #{super: [selection_left, selection_right]}.
+        #{super => [selection_left, selection_right]}.
 
-        new selection_parent #{name: selection_parent_object} _.
-        new selection_override #{name: selection_override_object} _.
-        new selection_inheritor #{name: selection_inheritor_object} _.
-        new selection_left #{name: selection_left_object} _.
-        new selection_right #{name: selection_right_object} _.
-        new selection_both #{name: selection_both_object} _.
+        new selection_parent #{name => selection_parent_object} _.
+        new selection_override #{name => selection_override_object} _.
+        new selection_inheritor #{name => selection_inheritor_object} _.
+        new selection_left #{name => selection_left_object} _.
+        new selection_right #{name => selection_right_object} _.
+        new selection_both #{name => selection_both_object} _.
         vm_set_class selection_singleton object.
 
         selection_singleton >> selection_identify
@@ -121,7 +121,7 @@ defmodule Examples.ALMethodSelection do
       run branch: Examples.Support.branch() do
         ~AL"""
         selection_describe Receiver Result.
-        Receiver = selection_override_object.
+        = Receiver selection_override_object.
         """
       end
 

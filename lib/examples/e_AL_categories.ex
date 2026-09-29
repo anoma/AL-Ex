@@ -16,16 +16,16 @@ defmodule Examples.ALCategories do
       run branch: Examples.Support.branch() do
         ~AL"""
         @greeter_behaviour
-        #{super: object, metaclass: category}.
+        #{super => object, metaclass => category}.
 
         greeter_behaviour >> greet
         | Self hello |.
 
         @cat_a
-        #{super: object, categories: [greeter_behaviour]}.
+        #{super => object, categories => [greeter_behaviour]}.
 
         @cat_b
-        #{super: object, categories: [greeter_behaviour]}.
+        #{super => object, categories => [greeter_behaviour]}.
 
         new cat_a InstanceA.
         new cat_b InstanceB.
@@ -44,21 +44,21 @@ defmodule Examples.ALCategories do
       run branch: Examples.Support.branch() do
         ~AL"""
         @shared_behaviour
-        #{super: object, metaclass: category}.
+        #{super => object, metaclass => category}.
 
         shared_behaviour >> trait
         | Self shared_trait |.
 
         @import_a
-        #{super: object, categories: [shared_behaviour]}.
+        #{super => object, categories => [shared_behaviour]}.
 
         @import_b
-        #{super: object, categories: [shared_behaviour]}.
+        #{super => object, categories => [shared_behaviour]}.
 
-        not {super import_a import_b}.
-        not {super import_b import_a}.
-        not {super import_a shared_behaviour}.
-        Unrelated = true.
+        not (super import_a import_b).
+        not (super import_b import_a).
+        not (super import_a shared_behaviour).
+        = Unrelated true.
         """
       end
 
@@ -71,7 +71,7 @@ defmodule Examples.ALCategories do
       run branch: Examples.Support.branch() do
         ~AL"""
         @reflect_behaviour
-        #{super: object, metaclass: category}.
+        #{super => object, metaclass => category}.
 
         class reflect_behaviour Kind.
         """
@@ -90,13 +90,13 @@ defmodule Examples.ALCategories do
       run branch: Examples.Support.branch() do
         ~AL"""
         @counts_behaviour
-        #{super: object, metaclass: category}.
+        #{super => object, metaclass => category}.
 
         counts_behaviour >> count
         | Self 0 |.
 
         @countable
-        #{super: object, categories: [counts_behaviour]}.
+        #{super => object, categories => [counts_behaviour]}.
 
         new countable Instance.
         findall S Candidates {count S 0, label S}.

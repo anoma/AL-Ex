@@ -1,1 +1,1 @@
-defpackage sudoku #{deps: [], version: 1}.
+defpackage sudoku #{deps => [], version => 1}.

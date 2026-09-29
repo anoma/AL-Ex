@@ -22,8 +22,8 @@ defmodule Examples.ALFreshening do
 
         depth >> down
         | Self N |
-        N > 0,
-        Next = N - 1,
+        > N 0,
+        = Next (- N 1),
         down Self Next.
         """
       end

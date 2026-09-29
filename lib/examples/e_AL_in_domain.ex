@@ -18,7 +18,7 @@ defmodule Examples.ALInDomain do
       run branch: Examples.Support.branch() do
         ~AL"""
         in_domain X [a, b, c].
-        findall X All {label X}.
+        findall X All (label X).
         """
       end
 
@@ -32,7 +32,7 @@ defmodule Examples.ALInDomain do
         ~AL"""
         in_domain Y [a, b, c, d].
         in_domain Y [c, d, e].
-        findall Y All {label Y}.
+        findall Y All (label Y).
         """
       end
 
@@ -85,7 +85,7 @@ defmodule Examples.ALInDomain do
       run branch: Examples.Support.branch() do
         ~AL"""
         in_domain W [a, b].
-        W = not_in_set.
+        = W not_in_set.
         """
       end
 

@@ -1,1 +1,1 @@
-defpackage peers #{deps: [sockets], version: 5}.
+defpackage peers #{deps => [sockets], version => 5}.

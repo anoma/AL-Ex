@@ -16,7 +16,7 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [3, 1, 2, 1]} S.
+        new mapset_value #{elems => [3, 1, 2, 1]} S.
         """
       end
 
@@ -32,11 +32,11 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4, 7]} S.
+        new mapset_value #{elems => [4, 7]} S.
         elem S 4.
         elem S 7.
-        not {elem S 9}.
-        Checked = true.
+        not (elem S 9).
+        = Checked true.
         """
       end
 
@@ -48,9 +48,9 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: []} Empty.
-        not {elem Empty 4}.
-        Checked = true.
+        new mapset_value #{elems => []} Empty.
+        not (elem Empty 4).
+        = Checked true.
         """
       end
 
@@ -62,7 +62,7 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: []} Empty.
+        new mapset_value #{elems => []} Empty.
         insert Empty 4 S.
         """
       end
@@ -75,7 +75,7 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4]} S.
+        new mapset_value #{elems => [4]} S.
         insert S 4 S2.
         """
       end
@@ -88,7 +88,7 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4]} S.
+        new mapset_value #{elems => [4]} S.
         insert S 7 Grown.
         """
       end
@@ -101,8 +101,8 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4]} S1.
-        new mapset_value #{elems: [4]} S2.
+        new mapset_value #{elems => [4]} S1.
+        new mapset_value #{elems => [4]} S2.
         union S1 S2 U.
         """
       end
@@ -115,8 +115,8 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4]} S1.
-        new mapset_value #{elems: [7]} S2.
+        new mapset_value #{elems => [4]} S1.
+        new mapset_value #{elems => [7]} S2.
         union S1 S2 U.
         """
       end
@@ -170,7 +170,7 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: []} Empty.
+        new mapset_value #{elems => []} Empty.
         members Empty Elems.
         """
       end
@@ -183,7 +183,7 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4, 7]} S.
+        new mapset_value #{elems => [4, 7]} S.
         members S Elems.
         """
       end
@@ -212,8 +212,8 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [3, 4]} S1.
-        new mapset_value #{elems: [3, 5]} S2.
+        new mapset_value #{elems => [3, 4]} S1.
+        new mapset_value #{elems => [3, 5]} S2.
         intersection S1 S2 I.
         """
       end
@@ -226,8 +226,8 @@ defmodule Examples.ALMapset do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new mapset_value #{elems: [4]} S1.
-        new mapset_value #{elems: [7]} S2.
+        new mapset_value #{elems => [4]} S1.
+        new mapset_value #{elems => [7]} S2.
         intersection S1 S2 I.
         """
       end

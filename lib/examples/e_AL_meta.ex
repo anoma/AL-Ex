@@ -23,7 +23,7 @@ defmodule Examples.ALMeta do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        ground [1, 2, #{a: b}].
+        ground [1, 2, #{a => b}].
         """
       end
 
@@ -58,7 +58,7 @@ defmodule Examples.ALMeta do
         ~AL"""
         vm_set_super findall_test a.
         vm_set_super findall_test b.
-        findall S Supers {super findall_test S}.
+        findall S Supers (super findall_test S).
         """
       end
 
@@ -73,7 +73,7 @@ defmodule Examples.ALMeta do
         ~AL"""
         vm_set_super forall_test class.
         vm_set_super forall_test behaviour.
-        forall {super forall_test S} {set_slots S #{forall_visited: true}}.
+        forall (super forall_test S) (set_slots S #{forall_visited => true}).
         """
       end
 
@@ -92,7 +92,7 @@ defmodule Examples.ALMeta do
     {:atomic, {_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        not {class nonexistent_xyz C}.
+        not (class nonexistent_xyz C).
         """
       end
 
@@ -103,7 +103,7 @@ defmodule Examples.ALMeta do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        not {class object C}.
+        not (class object C).
         """
       end
 

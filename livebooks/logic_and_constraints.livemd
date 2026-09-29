@@ -45,8 +45,8 @@ end
 ```elixir
 run do
   ~AL"""
-  N = 5.
-  N1 = N - 1.
+  = N 5.
+  = N1 (- N 1).
   """
 end
 ```
@@ -56,8 +56,8 @@ The var can just as easily be buried inside the expression, on either side. No s
 ```elixir
 run do
   ~AL"""
-  X = 10.
-  X = Y + 3.
+  = X 10.
+  = X (+ Y 3).
   """
 end
 ```
@@ -68,23 +68,23 @@ end
 run do
   ~AL"""
   @rectangle
-  #{super: value, ivars: [#{name: width}, #{name: height}, #{name: perimeter}]}.
+  #{super => value, ivars => [#{name => width}, #{name => height}, #{name => perimeter}]}.
 
   rectangle >> init
   | Self Args New |
   get Args width W,
   get Args height H,
   get Args perimeter P,
-  P = 2 * W + 2 * H,
-  New = #{class: rectangle, height: H, perimeter: P, width: W}.
+  = P (+ (* 2 W) (* 2 H)),
+  = New #{class => rectangle, height => H, perimeter => P, width => W}.
 
   rectangle >> area
   | Self Result |
   get Self width W,
   get Self height H,
-  Result = W * H.
+  = Result (* W H).
 
-  new rectangle #{height: 3, perimeter: 16, width: W} R.
+  new rectangle #{height => 3, perimeter => 16, width => W} R.
   area R A.
   """
 end
@@ -97,7 +97,7 @@ end
 ```elixir
 run do
   ~AL"""
-  Y > 1.
+  > Y 1.
   """
 end
 ```
@@ -107,21 +107,21 @@ end
 ```elixir
 run do
   ~AL"""
-  Y > not_a_number.
+  > Y not_a_number.
   """
 end
 ```
 
 ## Posting order doesn't matter
 
-Posting `X < Y` alone narrows nothing observable, since both sides are still open. But once `Y < 5` is posted too, `X` is transitively bound to satisfy the whole chain, without `X < Y` ever being re-checked by hand. This is the propagator sitting parked and re-firing on its own, not a one-shot check.
+Posting `< X Y` alone narrows nothing observable, since both sides are still open. But once `< Y 5` is posted too, `X` is transitively bound to satisfy the whole chain, without `< X Y` ever being re-checked by hand. This is the propagator sitting parked and re-firing on its own, not a one-shot check.
 
 ```elixir
 run do
   ~AL"""
-  X < Y.
-  Y < 5.
-  X = 2.
+  < X Y.
+  < Y 5.
+  = X 2.
   """
 end
 ```
@@ -129,9 +129,9 @@ end
 ```elixir
 run do
   ~AL"""
-  X < Y.
-  Y < 5.
-  X = 10.
+  < X Y.
+  < Y 5.
+  = X 10.
   """
 end
 ```
@@ -146,13 +146,13 @@ An open receiver turns the last two calls below into a search, not a lookup.
 run branch: Examples.Support.branch() do
   ~AL"""
   @direct_vehicle
-  #{super: object}.
+  #{super => object}.
 
   @direct_car
-  #{super: direct_vehicle, ivars: [#{default: red, name: color}]}.
+  #{super => direct_vehicle, ivars => [#{default => red, name => color}]}.
 
   @direct_hydrant
-  #{super: object, ivars: [#{default: red, name: color}]}.
+  #{super => object, ivars => [#{default => red, name => color}]}.
 
   new direct_car Car.
   new direct_hydrant Hydrant.
@@ -160,11 +160,11 @@ run branch: Examples.Support.branch() do
   findall X Inherited {isa X direct_vehicle, label X, get X color red}.
   findall X ConstrainedFirst {isa X direct_vehicle, get X color red, label X}.
   class Car direct_car.
-  not {class Car direct_vehicle}.
+  not (class Car direct_vehicle).
   isa Car direct_vehicle.
   isa Candidate Ancestor.
-  Ancestor = direct_vehicle.
-  Candidate = Car.
+  = Ancestor direct_vehicle.
+  = Candidate Car.
   """
 end
 ```
@@ -177,7 +177,7 @@ end
 run do
   ~AL"""
   dif X 1.
-  X = 2.
+  = X 2.
   """
 end
 ```
@@ -186,12 +186,12 @@ end
 run do
   ~AL"""
   dif X 1.
-  X = 1.
+  = X 1.
   """
 end
 ```
 
-Posted on a still-open var, `dif` drives backtracking directly. `member`'s first clause offers `X = 1`, which violates the constraint and fails, so it falls through to `X = 2` without `1` ever surfacing as a candidate.
+Posted on a still-open var, `dif` drives backtracking directly. `member`'s first clause offers `= X 1`, which violates the constraint and fails, so it falls through to `= X 2` without `1` ever surfacing as a candidate.
 
 ```elixir
 run do
@@ -242,7 +242,7 @@ end
 run do
   ~AL"""
   in_domain X [a, b, c].
-  findall X All {label X}.
+  findall X All (label X).
   """
 end
 ```
@@ -254,7 +254,7 @@ run do
   ~AL"""
   in_domain Y [a, b, c, d].
   in_domain Y [c, d, e].
-  findall Y All {label Y}.
+  findall Y All (label Y).
   """
 end
 ```
@@ -275,7 +275,7 @@ end
 run do
   ~AL"""
   label 5.
-  X = 5.
+  = X 5.
   """
 end
 ```
@@ -285,8 +285,8 @@ On a genuinely open, bounded var, `label` enumerates every value as ordinary bac
 ```elixir
 run do
   ~AL"""
-  X >= 3.
-  X <= 5.
+  >= X 3.
+  <= X 5.
   label X.
   """
 end
@@ -297,7 +297,7 @@ A domain that's still open on at least one side has nothing finite to enumerate,
 ```elixir
 run do
   ~AL"""
-  X >= 3.
+  >= X 3.
   label X.
   """
 end
@@ -328,8 +328,8 @@ If AL cannot derive a finite domain, a relational row, a durable identity, or a 
 ```elixir
 run do
   ~AL"""
-  A = 4.
-  A = 5 or B = 7.
+  = A 4.
+  or (= A 5) (= B 7).
   """
 end
 ```
@@ -339,7 +339,7 @@ If neither side can be decided yet, `either` just stays parked, undetermined, ra
 ```elixir
 run do
   ~AL"""
-  A = 5 or B = 6.
+  or (= A 5) (= B 6).
   """
 end
 ```
@@ -349,8 +349,8 @@ Both `A` and `B` are still open there. `either` is reactive too: post it before 
 ```elixir
 run do
   ~AL"""
-  A = 5 or B = 7.
-  A = 4.
+  or (= A 5) (= B 7).
+  = A 4.
   """
 end
 ```
@@ -361,9 +361,9 @@ Putting `findall`, `=`, `either`, and `label` together: every multiple of 3 or 5
 run do
   ~AL"""
   findall Candidate Candidates {
-    Candidate < 20,
-    Candidate > 0,
-    Candidate = X * 5 or Candidate = Y * 3,
+    < Candidate 20,
+    > Candidate 0,
+    or (= Candidate (* X 5)) (= Candidate (* Y 3)),
     label Candidate
   }.
   """

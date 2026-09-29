@@ -181,10 +181,10 @@ defmodule AL.Tooling do
   defp reference_run(target, branch) do
     AL.run branch: branch.id do
       ~AL"""
-      findall Class TargetClasses {class ^target Class}.
+      findall Class TargetClasses (class ^target Class).
       findall Object Instances {isa Object ^target, label Object}.
-      findall Superclass Supers {super ^target Superclass}.
-      findall Subclass Subclasses {super Subclass ^target}.
+      findall Superclass Supers (super ^target Superclass).
+      findall Subclass Subclasses (super Subclass ^target).
       findall [Owner, Selector, MethodId] MethodBindings {method Owner Selector MethodId, label Owner}.
       findall [MethodId, Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body, label MethodId}.
       """
@@ -200,8 +200,8 @@ defmodule AL.Tooling do
         label Transaction,
         get Transaction tx ^tx,
         get Transaction status Status,
-        findall Reason Reasons {get Transaction reason Reason},
-        findall Source Sources {listing Transaction Source}
+        findall Reason Reasons (get Transaction reason Reason),
+        findall Source Sources (listing Transaction Source)
       }.
       """
     end
@@ -211,12 +211,12 @@ defmodule AL.Tooling do
   defp object_run(object, branch) do
     AL.run branch: branch.id do
       ~AL"""
-      findall Class ObjectClasses {class ^object Class}.
-      findall Superclass ObjectSupers {super ^object Superclass}.
-      findall [Selector, MethodId] ObjectMethods {method ^object Selector MethodId}.
-      findall [Sequence, Head, Body] ObjectClauses {clause ^object Sequence Head Body}.
-      findall [Key, Value] ObjectAosSlots {slot ^object Key Value}.
-      findall [Key, Value] ObjectSoaSlots {slot ^object Key Value soa}.
+      findall Class ObjectClasses (class ^object Class).
+      findall Superclass ObjectSupers (super ^object Superclass).
+      findall [Selector, MethodId] ObjectMethods (method ^object Selector MethodId).
+      findall [Sequence, Head, Body] ObjectClauses (clause ^object Sequence Head Body).
+      findall [Key, Value] ObjectAosSlots (slot ^object Key Value).
+      findall [Key, Value] ObjectSoaSlots (slot ^object Key Value soa).
       """
     end
     |> al_run_result()
@@ -227,8 +227,8 @@ defmodule AL.Tooling do
       ~AL"""
       findall [MethodId, Clauses, Sources] InspectedMethods {
         method ^owner ^selector MethodId,
-        findall [Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body},
-        findall [Sequence, Text, Provenance] Sources {vm_method_source MethodId Sequence Text Provenance}
+        findall [Sequence, Head, Body] Clauses (clause MethodId Sequence Head Body),
+        findall [Sequence, Text, Provenance] Sources (vm_method_source MethodId Sequence Text Provenance)
       }.
       """
     end
@@ -243,11 +243,11 @@ defmodule AL.Tooling do
         label Transaction,
         get Transaction tx ^tx,
         get Transaction status Status,
-        findall Reason Reasons {get Transaction reason Reason},
-        findall [Key, Value] Slots {slot Transaction Key Value}
+        findall Reason Reasons (get Transaction reason Reason),
+        findall [Key, Value] Slots (slot Transaction Key Value)
       }.
-      findall [Text, Origin] TransactionSources {vm_transaction_source ^tx Text Origin}.
-      findall [Time, Operation] TransactionCommands {vm_command ^tx Time Operation}.
+      findall [Text, Origin] TransactionSources (vm_transaction_source ^tx Text Origin).
+      findall [Time, Operation] TransactionCommands (vm_command ^tx Time Operation).
       """
     end
     |> al_run_result()
@@ -259,7 +259,7 @@ defmodule AL.Tooling do
       findall [Package, ActiveBuilds, Builds, Providers] Packages {
         class Package package,
         label Package,
-        findall ActiveBuild ActiveBuilds {active_build Package ActiveBuild},
+        findall ActiveBuild ActiveBuilds (active_build Package ActiveBuild),
         findall Build Builds {class Build Package, label Build},
         findall Provider Providers {
           class Provider package_provider,
@@ -277,17 +277,17 @@ defmodule AL.Tooling do
       ~AL"""
       findall [ActiveBuilds, Builds, Providers] InspectedPackages {
         class ^name package,
-        findall ActiveBuild ActiveBuilds {active_build ^name ActiveBuild},
+        findall ActiveBuild ActiveBuilds (active_build ^name ActiveBuild),
         findall [Build, Slots] Builds {
           class Build ^name,
           label Build,
-          findall [Key, Value] Slots {slot Build Key Value}
+          findall [Key, Value] Slots (slot Build Key Value)
         },
         findall [Provider, Slots] Providers {
           class Provider package_provider,
           label Provider,
           provides Provider ^name,
-          findall [Key, Value] Slots {slot Provider Key Value}
+          findall [Key, Value] Slots (slot Provider Key Value)
         }
       }.
       """
@@ -302,7 +302,7 @@ defmodule AL.Tooling do
       findall [Scope, MethodId, Clauses] LookupProviders {
         member LookupScopes Scope,
         method Scope ^selector MethodId,
-        findall [Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body}
+        findall [Sequence, Head, Body] Clauses (clause MethodId Sequence Head Body)
       }.
       """
     end

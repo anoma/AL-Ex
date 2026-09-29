@@ -15,24 +15,24 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new category #{name: widget_behaviour} _.
+        new category #{name => widget_behaviour} _.
 
         widget_behaviour >> describe
         | Self a_widget |.
 
         @widget
-        #{super: value, ivars: [#{name: label}], categories: [widget_behaviour]}.
+        #{super => value, ivars => [#{name => label}], categories => [widget_behaviour]}.
 
         widget >> init
         | Self Args New |
         get Args label L,
-        New = #{class: widget, label: L}.
+        = New #{class => widget, label => L}.
 
         widget >> label
         | Self L |
         get Self label L.
 
-        new widget #{label: ok} W.
+        new widget #{label => ok} W.
         send W label [L].
         describe W Kind.
         """
@@ -49,7 +49,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @durable_thing
-        #{super: object}.
+        #{super => object}.
 
         new durable_thing Instance.
         class Instance Class.
@@ -68,7 +68,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @singleton_thing
-        #{super: object, metaclass: object}.
+        #{super => object, metaclass => object}.
 
         singleton_thing >> ping
         | Self pong |.
@@ -86,20 +86,20 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @side_meta
-        #{super: class}.
+        #{super => class}.
 
         side_meta >> describe
         | Self class_side |.
 
         @sided_thing
-        #{super: object, metaclass: side_meta}.
+        #{super => object, metaclass => side_meta}.
 
         sided_thing >> describe
         | Self instance_side |.
 
         new sided_thing Instance.
-        findall R OnClass {describe sided_thing R}.
-        findall R OnInstance {describe Instance R}.
+        findall R OnClass (describe sided_thing R).
+        findall R OnInstance (describe Instance R).
         """
       end
 
@@ -118,24 +118,24 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @multi_super_a
-        #{super: object}.
+        #{super => object}.
 
         multi_super_a >> from_a
         | Self a_val |.
 
         @multi_super_b
-        #{super: object}.
+        #{super => object}.
 
         multi_super_b >> from_b
         | Self b_val |.
 
         @multi_super_child
-        #{super: [multi_super_a, multi_super_b]}.
+        #{super => [multi_super_a, multi_super_b]}.
 
         new multi_super_child Instance.
         from_a Instance Av.
         from_b Instance Bv.
-        findall S Supers {super multi_super_child S}.
+        findall S Supers (super multi_super_child S).
         """
       end
 
@@ -154,7 +154,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @multi_clause_thing
-        #{super: object}.
+        #{super => object}.
 
         multi_clause_thing >> pick
         | Self a first |.
@@ -178,13 +178,13 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @bodyless_thing
-        #{super: value}.
+        #{super => value}.
 
         bodyless_thing >> known
         | 42 |.
 
         new bodyless_thing X.
-        X = 42.
+        = X 42.
         """
       end
 
@@ -197,7 +197,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @bare_ivar_probe
-        #{super: object, ivars: [count]}.
+        #{super => object, ivars => [count]}.
         """
       end
 
@@ -205,7 +205,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @named_ivar_probe
-        #{super: object, ivars: [#{name: count}]}.
+        #{super => object, ivars => [#{name => count}]}.
         """
       end
 
@@ -217,7 +217,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redef_probe_b
-        #{super: object}.
+        #{super => object}.
 
         redef_probe_b >> generation
         | Self first |.
@@ -228,12 +228,12 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redef_probe_b
-        #{super: value}.
+        #{super => value}.
 
         redef_probe_b >> generation
         | Self second |.
 
-        findall S Supers {super redef_probe_b S}.
+        findall S Supers (super redef_probe_b S).
         new redef_probe_b Obj.
         generation Obj G.
         """
@@ -249,14 +249,14 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redef_probe_c
-        #{super: object, ivars: [#{default: 0, name: count, type: number}]}.
+        #{super => object, ivars => [#{default => 0, name => count, type => number}]}.
         """
       end
 
     {:atomic, {bindings1, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new redef_probe_c #{name: redef_probe_c_instance} Obj.
+        new redef_probe_c #{name => redef_probe_c_instance} Obj.
         set_slot Obj count 99.
         get Obj count Count.
         """
@@ -267,7 +267,7 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new redef_probe_c #{name: redef_probe_c_instance} Obj.
+        new redef_probe_c #{name => redef_probe_c_instance} Obj.
         get Obj count Count.
         """
       end
@@ -282,8 +282,8 @@ defmodule Examples.ALDefclass do
         ~AL"""
         @redef_probe_soa
         #{
-          super: object,
-          ivars: [#{default: 0, name: count, storage: soa, type: number}]
+          super => object,
+          ivars => [#{default => 0, name => count, storage => soa, type => number}]
         }.
         """
       end
@@ -291,7 +291,7 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings1, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new redef_probe_soa #{name: redef_probe_soa_instance} Obj.
+        new redef_probe_soa #{name => redef_probe_soa_instance} Obj.
         set_slot Obj count 99.
         get Obj count Count.
         """
@@ -302,7 +302,7 @@ defmodule Examples.ALDefclass do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new redef_probe_soa #{name: redef_probe_soa_instance} Obj.
+        new redef_probe_soa #{name => redef_probe_soa_instance} Obj.
         get Obj count Count.
         """
       end
@@ -316,7 +316,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redeclared_probe
-        #{super: object}.
+        #{super => object}.
 
         redeclared_probe >> greet
         | Self hello_v1 |.
@@ -329,7 +329,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redeclared_probe
-        #{super: object}.
+        #{super => object}.
 
         redeclared_probe >> greet_v2
         | Self hello_v2 |.
@@ -359,7 +359,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @logging_metaclass
-        #{super: class}.
+        #{super => class}.
 
         logging_metaclass >> class_redefined
         | Self OldSpec NewSpec |
@@ -368,7 +368,7 @@ defmodule Examples.ALDefclass do
         set_slot Self redef_log [OldSupers, NewSupers].
 
         @logged_thing
-        #{super: object, metaclass: logging_metaclass}.
+        #{super => object, metaclass => logging_metaclass}.
         """
       end
 
@@ -376,7 +376,7 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @logged_thing
-        #{super: value, metaclass: logging_metaclass}.
+        #{super => value, metaclass => logging_metaclass}.
 
         get logged_thing redef_log Log.
         """
@@ -396,12 +396,12 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redef_backfill_probe
-        #{super: object}.
+        #{super => object}.
 
         new redef_backfill_probe Obj.
 
         @redef_backfill_probe
-        #{super: object, ivars: [#{default: 0, name: count, type: number}]}.
+        #{super => object, ivars => [#{default => 0, name => count, type => number}]}.
 
         get Obj count Count.
         """
@@ -419,14 +419,14 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redef_backfill_probe2
-        #{super: object}.
+        #{super => object}.
 
         new redef_backfill_probe2 Obj.
 
         @redef_backfill_probe2
-        #{super: object, ivars: [#{name: nickname}]}.
+        #{super => object, ivars => [#{name => nickname}]}.
 
-        not {get Obj nickname _}.
+        not (get Obj nickname _).
         """
       end
 
@@ -444,14 +444,14 @@ defmodule Examples.ALDefclass do
       run branch: Examples.Support.branch() do
         ~AL"""
         @redef_shrink_probe
-        #{super: object, ivars: [#{name: legs}]}.
+        #{super => object, ivars => [#{name => legs}]}.
 
-        new redef_shrink_probe #{legs: 4} Obj.
+        new redef_shrink_probe #{legs => 4} Obj.
 
         @redef_shrink_probe
-        #{super: object}.
+        #{super => object}.
 
-        not {get Obj legs _}.
+        not (get Obj legs _).
         """
       end
 

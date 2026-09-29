@@ -1,1 +1,1 @@
-defpackage swaps #{deps: [], version: 28}.
+defpackage swaps #{deps => [], version => 28}.

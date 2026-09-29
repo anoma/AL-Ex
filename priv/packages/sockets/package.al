@@ -1,1 +1,1 @@
-defpackage sockets #{deps: [], version: 9}.
+defpackage sockets #{deps => [], version => 9}.

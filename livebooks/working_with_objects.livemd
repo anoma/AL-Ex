@@ -38,7 +38,7 @@ You can re-evaluate the cell freely. Declaring a class or naming an instance aga
 run do
   ~AL"""
   @switch
-  #{super: object, ivars: [#{default: "off", domain: ["on", "off"], name: state}]}.
+  #{super => object, ivars => [#{default => "off", domain => ["on", "off"], name => state}]}.
 
   switch >> flick
   | Self |
@@ -50,7 +50,7 @@ run do
   get Self state "off",
   set_slot Self state "on".
 
-  new switch #{name: switch_instance_1, state: "on"} S.
+  new switch #{name => switch_instance_1, state => "on"} S.
   """
 end
 ```
@@ -150,16 +150,16 @@ As you may have already figured out, AL supports inheritance. This is not the sc
 run do 
   ~AL"""
   @counted_switch
-  #{super: switch, ivars: [#{default: 0, name: count, type: number}]}.
+  #{super => switch, ivars => [#{default => 0, name => count, type => number}]}.
 
   counted_switch >> flick
   | Self |
   get Self count C,
-  C1 = C + 1,
+  = C1 (+ C 1),
   set_slot Self count C1,
   call_next_method Self.
 
-  new counted_switch #{name: counted_switch_instance_1} C.
+  new counted_switch #{name => counted_switch_instance_1} C.
   """
 end
 ```
@@ -180,7 +180,7 @@ In fact, AL even supports multiple inheritance. Let's take a look at the classic
 run do
   ~AL"""
   @colour_cycle_switch
-  #{super: switch, ivars: [#{domain: ["red", "green", "blue"], name: colour}]}.
+  #{super => switch, ivars => [#{domain => ["red", "green", "blue"], name => colour}]}.
 
   colour_cycle_switch >> flick
   | Self |
@@ -197,7 +197,7 @@ run do
   get Self state "on",
   call_next_method Self.
 
-  new colour_cycle_switch #{colour: "red", name: cc_switch_instance_1} C.
+  new colour_cycle_switch #{colour => "red", name => cc_switch_instance_1} C.
   """
 end
 ```
@@ -216,7 +216,7 @@ Regardless this is sufficient for demonstrating how AL manages diamond inheritan
 ```elixir
 run do
   ~AL"""
-  findall [Obj, Id] Objids {method Obj flick Id}.
+  findall [Obj, Id] Objids (method Obj flick Id).
   """
 end
 ```
@@ -225,9 +225,9 @@ end
 run do
   ~AL"""
   @diamond_switch
-  #{super: [counted_switch, colour_cycle_switch]}.
+  #{super => [counted_switch, colour_cycle_switch]}.
 
-  new diamond_switch #{colour: "red", name: diamond_switch_instance_1, state: "off"} C.
+  new diamond_switch #{colour => "red", name => diamond_switch_instance_1, state => "off"} C.
   """
 end
 ```
@@ -250,16 +250,16 @@ end
 ```elixir
 run do
   ~AL"""
-  new category #{ivars: [], name: glowable, super: object} Cat.
+  new category #{ivars => [], name => glowable, super => object} Cat.
 
   glowable >> glow
   | Self Result |
-  Result = shiny.
+  = Result shiny.
 
   @lamp
-  #{super: object, categories: [glowable]}.
+  #{super => object, categories => [glowable]}.
 
-  new lamp #{name: lamp_1} W.
+  new lamp #{name => lamp_1} W.
   glow lamp_1 Result.
   """
 end
@@ -295,7 +295,7 @@ run do
   switch >> print_object
   | Self Description |
   get Self state S,
-  Description = [switch, S].
+  = Description [switch, S].
 
   print_object switch_instance_1 Description.
   """

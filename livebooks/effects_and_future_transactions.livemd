@@ -52,11 +52,11 @@ Define an ordinary object method that emits a file effect and arranges what AL s
     ~AL"""
     @file_reader
     #{
-      super: object,
-      ivars: [
-        #{name: path},
-        #{default: none, name: contents},
-        #{default: none, name: error}
+      super => object,
+      ivars => [
+        #{name => path},
+        #{default => none, name => contents},
+        #{default => none, name => error}
       ]
     }.
 
@@ -68,21 +68,21 @@ Define an ordinary object method that emits a file effect and arranges what AL s
     file_reader >> read
     | Self Observer Effect |
     get Self path Path,
-    new effect #{arguments: [Path], operation: read, provider: file} Effect,
-    await Effect [Outcome] {read_finished Self Observer Outcome}.
+    new effect #{arguments => [Path], operation => read, provider => file} Effect,
+    await Effect [Outcome] (read_finished Self Observer Outcome).
 
     file_reader >> read_finished
-    | Self Observer #{status: ok, value: Contents} |
+    | Self Observer #{status => ok, value => Contents} |
     set_slot Self contents Contents,
     get Observer pid Pid,
-    Message = #{contents: Contents, event: file_read, reader: Self},
+    = Message #{contents => Contents, event => file_read, reader => Self},
     send_elixir Pid Message.
 
     file_reader >> read_finished
-    | Self Observer #{reason: Reason, status: error} |
+    | Self Observer #{reason => Reason, status => error} |
     set_slot Self error Reason,
     get Observer pid Pid,
-    Message = #{event: file_read_failed, reader: Self, reason: Reason},
+    = Message #{event => file_read_failed, reader => Self, reason => Reason},
     send_elixir Pid Message.
     """
   end
@@ -103,8 +103,8 @@ notebook = self()
 {:atomic, {bindings, _state}} =
   run do
     ~AL"""
-    new process #{name: notebook, pid: ^notebook} _.
-    new file_reader #{name: guide_reader, path: ^path} Reader.
+    new process #{name => notebook, pid => ^notebook} _.
+    new file_reader #{name => guide_reader, path => ^path} Reader.
     read Reader notebook Effect.
     """
   end
@@ -118,7 +118,7 @@ after
 end
 ```
 
-`new effect #{provider: P, operation: O, arguments: A} Effect` creates the effect object. `await Effect [Outcome] {Goals}` registers AL goals to run as a fresh transaction after completion and binds `Outcome` to either `#{status: ok, value: Value}` or `#{status: error, reason: Reason}`.
+`new effect #{provider => P, operation => O, arguments => A} Effect` creates the effect object. `await Effect [Outcome] {Goals}` registers AL goals to run as a fresh transaction after completion and binds `Outcome` to either `#{status => ok, value => Value}` or `#{status => error, reason => Reason}`.
 
 It does not suspend the transaction containing it. If that transaction aborts, neither the effect nor its future transaction exists.
 
@@ -129,7 +129,7 @@ It does not suspend the transaction containing it. If that transaction aborts, n
 ```elixir
 run do
   ~AL"""
-  spawn {set_slot guide_reader error cleared}.
+  spawn (set_slot guide_reader error cleared).
   """
 end
 ```

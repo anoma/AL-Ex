@@ -1,1 +1,1 @@
-defpackage blackjack #{deps: [], version: 2}.
+defpackage blackjack #{deps => [], version => 2}.

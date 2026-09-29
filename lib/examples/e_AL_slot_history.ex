@@ -16,7 +16,7 @@ defmodule Examples.ALSlotHistory do
       run branch: Examples.Support.branch() do
         ~AL"""
         @history_probe
-        #{super: object, ivars: [#{name: count}]}.
+        #{super => object, ivars => [#{name => count}]}.
 
         new history_probe Obj.
         set_slot Obj count 1.
@@ -40,7 +40,7 @@ defmodule Examples.ALSlotHistory do
       run branch: Examples.Support.branch() do
         ~AL"""
         @history_probe_unrelated
-        #{super: object, ivars: [#{name: count}, #{name: other}]}.
+        #{super => object, ivars => [#{name => count}, #{name => other}]}.
 
         new history_probe_unrelated Obj.
         set_slot Obj count 1.
@@ -71,14 +71,14 @@ defmodule Examples.ALSlotHistory do
       run branch: Examples.Support.branch() do
         ~AL"""
         @clp_boundary_probe
-        #{super: object, ivars: [#{name: count}]}.
+        #{super => object, ivars => [#{name => count}]}.
 
         new clp_boundary_probe Obj.
         set_slot Obj count 1.
         set_slot Obj count 2.
         vm_slot_at Obj count 1 T1.
         label T1.
-        Boundary = T1 + 1.
+        = Boundary (+ T1 1).
         vm_slot_at Obj count VAtBoundary Boundary.
         """
       end
@@ -103,14 +103,14 @@ defmodule Examples.ALSlotHistory do
       run branch: Examples.Support.branch() do
         ~AL"""
         @clp_upper_bound_probe
-        #{super: object, ivars: [#{name: count}]}.
+        #{super => object, ivars => [#{name => count}]}.
 
         new clp_upper_bound_probe Obj.
         set_slot Obj count 1.
         set_slot Obj count 2.
         vm_slot_at Obj count 1 T.
         vm_slot_at Obj count 2 T2.
-        T >= T2.
+        >= T T2.
         """
       end
 

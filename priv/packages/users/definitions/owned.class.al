@@ -1,5 +1,5 @@
 @owned
-#{super: object, ivars: [#{name: name}, #{name: owner}, #{name: data}]}.
+#{super => object, ivars => [#{name => name}, #{name => owner}, #{name => data}]}.
 
 owned >> update
 | Self Slots |

@@ -13,7 +13,7 @@ defmodule Examples.ALVar do
       run branch: Examples.Support.branch() do
         ~AL"""
         var X.
-        X = 1.
+        = X 1.
         """
       end
 
@@ -25,7 +25,7 @@ defmodule Examples.ALVar do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 1.
+        = X 1.
         var X.
         """
       end

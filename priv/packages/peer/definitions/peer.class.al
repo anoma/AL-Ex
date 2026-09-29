@@ -1,14 +1,14 @@
 @peer
 #{
-  super: object,
-  ivars: [
-    #{name: name},
-    #{default: "127.0.0.1", name: host},
-    #{default: 0, name: port},
-    #{default: none, name: listener},
-    #{default: [], name: connections},
-    #{default: [], name: messages},
-    #{default: idle, name: status}
+  super => object,
+  ivars => [
+    #{name => name},
+    #{default => "127.0.0.1", name => host},
+    #{default => 0, name => port},
+    #{default => none, name => listener},
+    #{default => [], name => connections},
+    #{default => [], name => messages},
+    #{default => idle, name => status}
   ]
 }.
 
@@ -16,10 +16,10 @@ peer >> init
 | Self Args Self |
 get Args peer_name Name,
 call_next_method Self Args Self,
-get_slots Self #{host: Host, port: Port},
-new tcp_socket #{host: Host, owner: Self, packet: 4, port: Port} Listener,
+get_slots Self #{host => Host, port => Port},
+new tcp_socket #{host => Host, owner => Self, packet => 4, port => Port} Listener,
 configure_listener Self Listener,
-set_slots Self #{listener: Listener, name: Name, status: starting},
+set_slots Self #{listener => Listener, name => Name, status => starting},
 listen Listener _.
 
 peer >> configure_listener
@@ -32,7 +32,7 @@ defmethod Listener listening [Socket, Port] {
 defmethod Listener accept [Socket, Address, Connection] {get Socket owner Peer, accepted Peer Socket Address Connection},
 defmethod Listener accept_failed [Socket, Reason] {
   get Socket owner Peer,
-  set_slot Peer status #{reason: Reason, status: error}
+  set_slot Peer status #{reason => Reason, status => error}
 }.
 
 peer >> configure_connection
@@ -54,20 +54,20 @@ defmethod Socket connected [Socket] {
 },
 defmethod Socket connection_failed [Socket, Reason] {
   call_next_method Socket Reason,
-  set_slot Connection state #{reason: Reason, status: error}
+  set_slot Connection state #{reason => Reason, status => error}
 }.
 
 peer >> accepted
 | Self Listener Address Socket |
-get_slots Address #{address: Host, port: Port},
+get_slots Address #{address => Host, port => Port},
 get Listener packet Packet,
 new tcp_socket #{
-  host: Host,
-  listener: Listener,
-  owner: Self,
-  packet: Packet,
-  port: Port,
-  status: connected
+  host => Host,
+  listener => Listener,
+  owner => Self,
+  packet => Packet,
+  port => Port,
+  status => connected
 } Socket,
 configure_connection Self Socket,
 add_connection Self Socket.
@@ -75,9 +75,9 @@ add_connection Self Socket.
 peer >> connect
 | Self Remote Socket Connection |
 get Remote listener Listener,
-get_slots Listener #{host: Host, port: Port},
-new tcp_socket #{host: Host, owner: Self, packet: 4, port: Port} Socket,
-new peer_connection #{socket: Socket} Connection,
+get_slots Listener #{host => Host, port => Port},
+new tcp_socket #{host => Host, owner => Self, packet => 4, port => Port} Socket,
+new peer_connection #{socket => Socket} Connection,
 configure_connection Self Socket Connection,
 add_connection Self Socket,
 connect Socket _.
@@ -101,7 +101,7 @@ send_term Socket Message Effect.
 
 peer >> listening
 | Self _Socket Port |
-set_slots Self #{port: Port, status: listening}.
+set_slots Self #{port => Port, status => listening}.
 
 peer >> connection_established
 | _Self _Socket |.
@@ -117,5 +117,5 @@ peer >> stop
 get Self listener Listener,
 close Listener _,
 get Self connections Connections,
-forall {member Connections Socket} {close Socket _},
+forall (member Connections Socket) (close Socket _),
 set_slot Self status stopping.

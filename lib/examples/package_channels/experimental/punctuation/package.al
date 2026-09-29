@@ -1,1 +1,1 @@
-defpackage punctuation #{deps: [], version: 1}.
+defpackage punctuation #{deps => [], version => 1}.

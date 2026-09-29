@@ -1,1 +1,1 @@
-defpackage users #{deps: [], version: 2}.
+defpackage users #{deps => [], version => 2}.

@@ -52,6 +52,60 @@ defmodule Examples.ALBranch do
     :ok
   end
 
+  example reset_and_rebase_move_a_fork_along_its_parent() do
+    parent = Examples.Support.isolated_branch()
+    at_fork = AL.Command.system_time(parent)
+    child = AL.Branch.fork(:tip, parent)
+    assert AL.Command.fork_point(child) == at_fork
+
+    on_parent = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+    on_child = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+
+    {:atomic, _} =
+      run branch: parent.id do
+        ~AL"""
+        vm_set_class ^on_parent object.
+        """
+      end
+
+    {:atomic, _} =
+      run branch: child.id do
+        ~AL"""
+        vm_set_class ^on_child object.
+        """
+      end
+
+    child = AL.Branch.reset(child)
+    assert AL.Command.fork_point(child) == at_fork
+
+    {:aborted, _} =
+      run branch: child.id do
+        ~AL"""
+        class ^on_child object.
+        """
+      end
+
+    {:aborted, _} =
+      run branch: child.id do
+        ~AL"""
+        class ^on_parent object.
+        """
+      end
+
+    child = AL.Branch.rebase(child, :tip)
+
+    {:atomic, _} =
+      run branch: child.id do
+        ~AL"""
+        class ^on_parent object.
+        """
+      end
+
+    AL.Branch.discard(child)
+    AL.Branch.discard(parent)
+    :ok
+  end
+
   example write_to_fork() do
     tip = AL.Branch.fork()
 
@@ -205,14 +259,14 @@ defmodule Examples.ALBranch do
     {:atomic, _} =
       run branch: branch.id do
         ~AL"""
-        new process #{name: fork_worker_subscriber, pid: ^pid} _.
+        new process #{name => fork_worker_subscriber, pid => ^pid} _.
         vm_set_class fork_worker object.
 
         fork_worker >> handle
         | Self Object |
         vm_set_slot Object processed true,
         get fork_worker_subscriber pid P,
-        Message = #{event: handled, object: Object},
+        = Message #{event => handled, object => Object},
         send_elixir P Message.
         """
       end
@@ -369,23 +423,23 @@ defmodule Examples.ALBranch do
   defp rebuild_workload do
     [
       """
-      @gadget \#{super: object, ivars: [\#{name: size}, \#{name: name}]}.
+      @gadget \#{super => object, ivars => [\#{name => size}, \#{name => name}]}.
 
       gadget >> describe
       | Self Size |
         get Self size Size.
       """,
       """
-      new gadget \#{name: a, size: 1} G.
+      new gadget \#{name => a, size => 1} G.
       set_slot G size 2.
       set_slot G size 3.
-      set_slots G \#{name: b, size: 4}.
+      set_slots G \#{name => b, size => 4}.
       """,
       """
       gadget >> describe
       | Self Size |
         get Self size Size,
-        Size = Size.
+        = Size Size.
       """,
       """
       vm_set_class temp_thing object.

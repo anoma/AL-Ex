@@ -1,1 +1,1 @@
-defpackage euler #{deps: [], version: 1}.
+defpackage euler #{deps => [], version => 1}.

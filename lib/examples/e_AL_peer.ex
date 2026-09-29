@@ -13,16 +13,16 @@ defmodule Examples.ALPeer do
       run branch: Examples.Support.branch() do
         ~AL"""
         @observed_peer
-        #{super: peer}.
+        #{super => peer}.
 
         observed_peer >> receive
         | Self Socket Message |
         call_next_method Self Socket Message,
-        Event = #{event: peer_message, message: Message, peer: Self, socket: Socket},
+        = Event #{event => peer_message, message => Message, peer => Self, socket => Socket},
         send_elixir ^pid Event.
 
-        new peer #{name: peer_alice, peer_name: "Alice"} Alice.
-        new observed_peer #{name: peer_bob, peer_name: "Bob"} Bob.
+        new peer #{name => peer_alice, peer_name => "Alice"} Alice.
+        new observed_peer #{name => peer_bob, peer_name => "Bob"} Bob.
 
         Bob >> listening
         | Self Socket Port |

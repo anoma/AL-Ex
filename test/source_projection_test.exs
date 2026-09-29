@@ -91,7 +91,7 @@ defmodule ALSourceProjectionTest do
     object >> commented_example
     | Self X |
       # leading note
-      X = 1
+      = X 1
       # trailing note
     .
     """

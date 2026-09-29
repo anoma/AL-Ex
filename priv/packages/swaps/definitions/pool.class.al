@@ -1,10 +1,10 @@
 @pool
 #{
-  super: object,
-  ivars: [
-    #{name: name},
-    #{name: reserves, type: reserves},
-    #{default: [], name: limit_orders, type: list}
+  super => object,
+  ivars => [
+    #{name => name},
+    #{name => reserves, type => reserves},
+    #{default => [], name => limit_orders, type => list}
   ]
 }.
 
@@ -40,13 +40,13 @@ set_slot Self reserves ResultingReserves.
 pool >> stream
 | Self Reserves |
 set_slot Self reserves Reserves,
-forall {open_limit_order Self Order} {send_async Order try_fill}.
+forall (open_limit_order Self Order) (send_async Order try_fill).
 
 pool >> open_limit_order
 | Self Order |
 get Self limit_orders Orders,
 member Orders Order,
-get_slots Order #{pool: Self, status: open}.
+get_slots Order #{pool => Self, status => open}.
 
 pool >> place_order
 | Self Order |

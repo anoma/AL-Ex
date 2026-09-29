@@ -1,1 +1,1 @@
-defpackage constraints #{deps: [elixir_process, mapset, interval], version: 2}.
+defpackage constraints #{deps => [elixir_process, mapset, interval], version => 2}.

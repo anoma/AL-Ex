@@ -16,7 +16,7 @@ defmodule AL.Serialisation.Document do
   Encodes one AL definition owner as an AL source file.
 
   A file holds leading `#` comment lines, then `@name #{...}.` for a class or
-  `@+name #{super: [...]}.` for an extension of a class owned elsewhere, then
+  `@+name #{super => [...]}.` for an extension of a class owned elsewhere, then
   the owner's method clauses. Each clause keeps its authored declaration and
   body text. Clause order is file order.
   """

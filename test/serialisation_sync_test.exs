@@ -102,7 +102,7 @@ defmodule ALSyncTest do
     assert {:ok, [{source, nil}]} = Sync.plan(snapshot(%{example: old}), [edited])
     assert source =~ "vm_retract_super example object."
     assert source =~ "vm_set_super example value."
-    assert source =~ "vm_set_slot example ivars [\#{name: rank}]."
+    assert source =~ "vm_set_slot example ivars [\#{name => rank}]."
     assert source =~ "vm_set_slot example comment \"A thing.\"."
     assert source =~ "class_redefined example \#{"
   end

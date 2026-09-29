@@ -32,12 +32,12 @@ AL.Branch.head()
 
 An AL program is a sequence of goals, run together as one transaction with `run do ~AL"""...""" end`. A goal either succeeds, maybe binding some variables along the way, or it fails.
 
-AL has its own Prolog-like syntax. `selector Receiver Arg1 Arg2` sends `selector` to `Receiver`, and operators are written infix: `X = 1`, `X < 5`, `X + 1`. Arguments are single terms, so a nested call or sum goes in brackets: `between Self (Low + 1) High V`. Capitalised names like `X` are variables and lowercase words like `ok` are atoms. Goals are separated by commas and a top-level goal ends with a full stop. Comments start with `#`.
+AL has its own Prolog-like syntax. `selector Receiver Arg1 Arg2` sends `selector` to `Receiver`, and operators are ordinary names written first, like any other call: `= X 1`, `< X 5`, `= Y (+ X 1)`. Arguments are single terms, so a nested call or sum goes in brackets: `between Self (+ Low 1) High V`. Capitalised names like `X` are variables and lowercase words like `ok` are atoms. Goals are separated by commas and a top-level goal ends with a full stop. Comments start with `#`.
 
 ```elixir
 run do
   ~AL"""
-  X = 1.
+  = X 1.
   """
 end
 ```
@@ -49,8 +49,8 @@ A goal that fails aborts the whole transaction.
 ```elixir
 run do
   ~AL"""
-  X = 1.
-  X = 2.
+  = X 1.
+  = X 2.
   """
 end
 ```
@@ -64,7 +64,7 @@ end
 ```elixir
 run do
   ~AL"""
-  X = 2 + 3 * 4.
+  = X (+ 2 (* 3 4)).
   """
 end
 ```
@@ -74,9 +74,9 @@ Comparisons are written directly.
 ```elixir
 run do
   ~AL"""
-  X = 10.
-  X > 5.
-  X < 20.
+  = X 10.
+  > X 5.
+  < X 20.
   """
 end
 ```
@@ -85,12 +85,12 @@ This section does not cover constraint propagation.
 
 ## Lists
 
-Lists are written in square brackets, with `.` separating a tail: `[Head . Tail]`. Maps are written `#{key: Value}`.
+Lists are written in square brackets, with `.` separating a tail: `[Head . Tail]`. Maps are written `#{key => Value}`.
 
 ```elixir
 run do
   ~AL"""
-  [H . T] = [1, 2, 3].
+  = [H . T] [1, 2, 3].
   """
 end
 ```
@@ -118,7 +118,7 @@ Some goals can succeed more than one way. `member` checks whether something is i
 ```elixir
 run do
   ~AL"""
-  findall X Results {member [1, 2, 3] X}.
+  findall X Results (member [1, 2, 3] X).
   """
 end
 ```
@@ -132,7 +132,7 @@ end
 ```elixir
 run do
   ~AL"""
-  forall {member [1, 2, 3] X} {vm_format "~d~%" [X]}.
+  forall (member [1, 2, 3] X) (vm_format "~d~%" [X]).
   """
 end
 ```
@@ -144,8 +144,8 @@ end
 ```elixir
 run do
   ~AL"""
-  X = 5.
-  X > 3 -> Result = big ; Result = small.
+  = X 5.
+  > X 3 -> = Result big ; = Result small.
   """
 end
 ```
@@ -155,7 +155,7 @@ end
 ```elixir
 run do
   ~AL"""
-  findall X Results {X = a ; X = b}.
+  findall X Results (= X a ; = X b).
   """
 end
 ```
@@ -165,7 +165,7 @@ end
 ```elixir
 run do
   ~AL"""
-  findall X Results {{X = a, cut} ; X = b}.
+  findall X Results ({= X a, cut} ; = X b).
   """
 end
 ```
@@ -175,7 +175,7 @@ end
 ```elixir
 run do
   ~AL"""
-  X = 1.
+  = X 1.
   pass.
   """
 end
@@ -200,7 +200,7 @@ An `anonymous_method` is an ephemeral value with a head and body. `add_arg` retu
 ```elixir
 run do
   ~AL"""
-  new anonymous_method #{args: [], body: [Result = [A, B]], head: [A, B, Result]} Method.
+  new anonymous_method #{args => [], body => [(= Result [A, B])], head => [A, B, Result]} Method.
   add_arg Method first Partial.
   run Partial [second, Result].
   """

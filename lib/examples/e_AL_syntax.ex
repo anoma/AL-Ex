@@ -1,7 +1,7 @@
 defmodule Examples.ALSyntax do
   @moduledoc ~S"""
   I show AL's surface syntax: goals as a selector followed by its arguments,
-  capitalised variables, lowercase atoms, `[...]` lists, `#{key: value}` maps,
+  capitalised variables, lowercase atoms, `[...]` lists, `#{key => value}` maps,
   `{goal, ...}` blocks, `C -> T ; E` conditionals, `A ; B` alternatives,
   `@name #{...}.` class declarations and `owner >> selector | Head | Body.`
   method clauses. The clauses one source gives for a selector replace its
@@ -22,13 +22,13 @@ defmodule Examples.ALSyntax do
 
   defp counter_source(class) do
     """
-    @#{al(class)} \#{super: object, ivars: [\#{default: 0, name: count}]}.
+    @#{al(class)} \#{super => object, ivars => [\#{default => 0, name => count}]}.
 
     #{al(class)} >> bump
     | Self By |
       # refuse to count down
       get Self count Count,
-      By < 0 -> fail ; {Next = Count + By, set_slot Self count Next}.
+      < By 0 -> fail ; {= Next (+ Count By), set_slot Self count Next}.
     """
   end
 
@@ -61,16 +61,16 @@ defmodule Examples.ALSyntax do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 1.
-        X > 5 -> Y = big.
+        = X 1.
+        > X 5 -> = Y big.
         """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 1.
-        X > 5 -> Y = big ; Y = small.
+        = X 1.
+        > X 5 -> = Y big ; = Y small.
         """
       end
 
@@ -82,8 +82,8 @@ defmodule Examples.ALSyntax do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 1 ; X = 2.
-        X > 1.
+        = X 1 ; = X 2.
+        > X 1.
         """
       end
 
@@ -125,7 +125,7 @@ defmodule Examples.ALSyntax do
       run branch: branch.id do
         ~AL"""
         @syntax_redefined
-        #{super: object}.
+        #{super => object}.
 
         syntax_redefined >> pick
         | _ first |.
@@ -133,7 +133,7 @@ defmodule Examples.ALSyntax do
         syntax_redefined >> pick
         | _ second |.
 
-        new syntax_redefined #{name: syntax_redefined_instance} _.
+        new syntax_redefined #{name => syntax_redefined_instance} _.
         """
       end
     end
@@ -145,7 +145,7 @@ defmodule Examples.ALSyntax do
       {:atomic, {bindings, _constraints, _}} =
         run branch: branch.id do
           ~AL"""
-          findall P Picks {pick syntax_redefined_instance P}.
+          findall P Picks (pick syntax_redefined_instance P).
           """
         end
 
@@ -155,7 +155,7 @@ defmodule Examples.ALSyntax do
         run branch: branch.id do
           ~AL"""
           defmethod syntax_redefined pick [_, third] {}.
-          findall P Picks {pick syntax_redefined_instance P}.
+          findall P Picks (pick syntax_redefined_instance P).
           """
         end
 
@@ -172,8 +172,8 @@ defmodule Examples.ALSyntax do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Total = ^amount + 3.
-        [First . Rest] = [Total, ^amount].
+        = Total (+ ^amount 3).
+        = [First . Rest] [Total, ^amount].
         """
       end
 
@@ -191,7 +191,7 @@ defmodule Examples.ALSyntax do
         run branch: branch.id do
           ~AL"""
           @syntax_run_counter
-          #{super: object}.
+          #{super => object}.
 
           syntax_run_counter >> greet
           | Self hi |.

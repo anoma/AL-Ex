@@ -52,8 +52,8 @@ defmodule Examples.ALVariant do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = #{size: [1, Y]}.
-        variant X #{size: [1, Z]}.
+        = X #{size => [1, Y]}.
+        variant X #{size => [1, Z]}.
         """
       end
 
@@ -68,13 +68,13 @@ defmodule Examples.ALVariant do
         variant_example >> describe
         | Self Size small |
         get Self size Size,
-        Size < 10.
+        < Size 10.
 
         method variant_example describe M.
         clause M HeadA BodyA.
         clause M HeadB BodyB.
         variant [HeadA, BodyA] [HeadB, BodyB].
-        not {[HeadA, BodyA] == [HeadB, BodyB]}.
+        not (== [HeadA, BodyA] [HeadB, BodyB]).
         """
       end
 

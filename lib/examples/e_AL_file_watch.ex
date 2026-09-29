@@ -15,25 +15,25 @@ defmodule Examples.ALFileWatch do
         run branch: Examples.Support.branch() do
           ~AL"""
           @observed_file_watch
-          #{super: file_watch}.
+          #{super => file_watch}.
 
           observed_file_watch >> watching
           | Self |
           call_next_method Self,
-          send_elixir ^pid #{event: file_watch_status, status: watching, watcher: Self}.
+          send_elixir ^pid #{event => file_watch_status, status => watching, watcher => Self}.
 
           observed_file_watch >> receive
           | Self Event |
-          get Event contents #{status: ok, value: Contents},
+          get Event contents #{status => ok, value => Contents},
           call_next_method Self Event,
-          send_elixir ^pid #{contents: Contents, event: file_changed, watcher: Self}.
+          send_elixir ^pid #{contents => Contents, event => file_changed, watcher => Self}.
 
           observed_file_watch >> stopped
           | Self |
           call_next_method Self,
-          send_elixir ^pid #{event: file_watch_status, status: stopped, watcher: Self}.
+          send_elixir ^pid #{event => file_watch_status, status => stopped, watcher => Self}.
 
-          new observed_file_watch #{name: watched_file, path: ^path} Watcher.
+          new observed_file_watch #{name => watched_file, path => ^path} Watcher.
           watch Watcher StartEffect.
           """
         end
@@ -51,7 +51,7 @@ defmodule Examples.ALFileWatch do
           get ^watcher path ^path.
           get ^watcher contents none.
           class ^start_effect effect.
-          get ^start_effect outcome #{status: ok, value: watching}.
+          get ^start_effect outcome #{status => ok, value => watching}.
           """
         end
 
@@ -75,7 +75,7 @@ defmodule Examples.ALFileWatch do
         run branch: Examples.Support.branch() do
           ~AL"""
           class ^stop_effect effect.
-          get ^stop_effect outcome #{status: ok, value: stopped}.
+          get ^stop_effect outcome #{status => ok, value => stopped}.
           """
         end
 

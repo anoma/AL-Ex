@@ -1,5 +1,5 @@
 @greeter
-#{super: object}.
+#{super => object}.
 
 greeter >> greeting
 | _Self howdy |

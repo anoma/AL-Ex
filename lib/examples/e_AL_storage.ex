@@ -31,8 +31,8 @@ defmodule Examples.ALStorage do
         ~AL"""
         @storage_probe
         #{
-          super: object,
-          ivars: [#{name: regulators}, #{name: concentration, storage: soa}]
+          super => object,
+          ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
         }.
         """
       end
@@ -67,8 +67,8 @@ defmodule Examples.ALStorage do
         ~AL"""
         @storage_probe_construction
         #{
-          super: object,
-          ivars: [#{name: regulators}, #{name: concentration, storage: soa}]
+          super => object,
+          ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
         }.
         """
       end
@@ -76,10 +76,10 @@ defmodule Examples.ALStorage do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new storage_probe_construction #{concentration: 5, regulators: [geneA]} Obj.
+        new storage_probe_construction #{concentration => 5, regulators => [geneA]} Obj.
         slot Obj regulators RegulatorsDirect.
         slot Obj concentration ConcentrationDirect soa.
-        findall [K, V] AllSlots {slot Obj K V}.
+        findall [K, V] AllSlots (slot Obj K V).
         """
       end
 
@@ -100,8 +100,8 @@ defmodule Examples.ALStorage do
         ~AL"""
         @storage_probe_independence
         #{
-          super: object,
-          ivars: [#{name: regulators}, #{name: concentration, storage: soa}]
+          super => object,
+          ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
         }.
         """
       end

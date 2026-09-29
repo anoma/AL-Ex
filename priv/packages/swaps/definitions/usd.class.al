@@ -1,2 +1,2 @@
 @usd
-#{super: currency}.
+#{super => currency}.

@@ -1,2 +1,2 @@
 @renderable
-#{super: object}.
+#{super => object}.

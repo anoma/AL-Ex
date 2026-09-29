@@ -49,9 +49,9 @@ defmodule AL.Syntax do
 
   A goal is a selector followed by its arguments, `get Self count Count`, the
   first argument being the receiver. Variables are capitalised, atoms are
-  lowercase or quoted, `[H . T]` is a list, `#{key: value}` is a map and
-  `{goal, ...}` is a block. `@counter #{super: object, ...}.` declares a class,
-  `@+counter #{super: [other]}.` adds superclasses to a class owned elsewhere,
+  lowercase or quoted, `[H . T]` is a list, `#{key => value}` is a map and
+  `{goal, ...}` is a block. `@counter #{super => object, ...}.` declares a class,
+  `@+counter #{super => [other]}.` adds superclasses to a class owned elsewhere,
   `owner >> selector | Self Arg . Rest | goal, ... .` defines a method clause,
   and every other top-level clause is a comma-separated list of goals ending in
   a full stop.
@@ -64,17 +64,12 @@ defmodule AL.Syntax do
   alias AL.Goal
   alias AL.Syntax.{Capture, Error, Result}
 
-  @arithmetic [:+, :-, :*, :/, :**, :rem]
-  @comparisons [:<, :>, :<=, :>=]
+  @operator_calls [:=, :==, :<, :>, :<=, :>=, :+, :-, :*, :/, :**, :rem, :or]
   @levels [
     {:right, [";"]},
-    {:none, ["->"]},
-    {:left, [:or]},
-    {:none, ["=", "==", "<", ">", "<=", ">="]},
-    {:left, ["+", "-"]},
-    {:left, ["*", "/", :rem]},
-    {:right, ["**"]}
+    {:none, ["->"]}
   ]
+  @operators ["==", "<=", ">=", "**", "=", "<", ">", "+", "-", "*", "/"]
   @primitives [
     :vm_map_get,
     :vm_map_put,
@@ -108,8 +103,7 @@ defmodule AL.Syntax do
              :vm_oapply,
              :vm_set_oapply
            ] ++ @primitives ++ AL.Goal.call_names()
-  @words %{"rem" => :rem, "or" => :or}
-  @symbols [">>", "->", "=>", "==", "<=", ">=", "**"]
+  @symbols [">>", "->", "=>"]
   @singles [
     "@",
     "(",
@@ -122,16 +116,12 @@ defmodule AL.Syntax do
     "|",
     ".",
     ";",
-    "^",
-    "=",
-    "<",
-    ">",
-    "+",
-    "-",
-    "*",
-    "/"
+    "^"
   ]
   @argument_starts ["[", "\#{", "{", "(", "^"]
+
+  defguardp goal_body(node)
+            when is_tuple(node) and tuple_size(node) == 4 and elem(node, 0) in [:block, :paren]
 
   @spec reserved?(atom()) :: boolean()
   def reserved?(name), do: name in @special
@@ -436,7 +426,7 @@ defmodule AL.Syntax do
       grapheme == "'" ->
         with {:ok, raw, stop, rest} <- take_quoted(rest, "'", "'", position(line, column)),
              {:ok, atom} <- quoted_atom(raw, position(line, column)) do
-          atom_or_key(atom, position(line, column), stop, rest, tokens)
+          lex(rest, [{:atom, atom, position(line, column), stop} | tokens])
         end
 
       grapheme =~ ~r/^[0-9]$/ ->
@@ -452,35 +442,34 @@ defmodule AL.Syntax do
         start = position(line, column)
         stop = position(line, column + String.length(name))
 
-        cond do
-          Map.has_key?(@words, name) -> lex(rest, [{:op, @words[name], start, stop} | tokens])
-          name =~ ~r/^[A-Z_]/ -> lex(rest, [{:var, String.to_atom(name), start, stop} | tokens])
-          true -> atom_or_key(String.to_atom(name), start, stop, rest, tokens)
-        end
+        if name =~ ~r/^[A-Z_]/,
+          do: lex(rest, [{:var, String.to_atom(name), start, stop} | tokens]),
+          else: lex(rest, [{:atom, String.to_atom(name), start, stop} | tokens])
 
       true ->
         symbol(chars, tokens)
     end
   end
 
-  defp atom_or_key(atom, start, _stop, [{":", _, _}, {next, _, _} | _] = rest, tokens)
-       when next != "-",
-       do: lex(tl(rest), [{:key, atom, start, start} | tokens])
-
-  defp atom_or_key(atom, start, _stop, [{":", _, _}] = rest, tokens),
-    do: lex(tl(rest), [{:key, atom, start, start} | tokens])
-
-  defp atom_or_key(atom, start, stop, rest, tokens),
-    do: lex(rest, [{:atom, atom, start, stop} | tokens])
-
   defp symbol([{_, line, column} | _] = chars, tokens) do
     two = chars |> Enum.take(2) |> Enum.map_join(&elem(&1, 0))
     one = chars |> hd() |> elem(0)
+
+    operator = Enum.find(@operators, &String.starts_with?(two, &1))
 
     cond do
       two in @symbols ->
         lex(Enum.drop(chars, 2), [
           {:punct, two, position(line, column), position(line, column + 2)} | tokens
+        ])
+
+      operator ->
+        width = String.length(operator)
+
+        lex(Enum.drop(chars, width), [
+          {:atom, String.to_atom(operator), position(line, column),
+           position(line, column + width)}
+          | tokens
         ])
 
       one in @singles ->
@@ -559,7 +548,7 @@ defmodule AL.Syntax do
   defp clauses([{:comment, _, _, _} = comment | rest], items),
     do: clauses(rest, [comment | items])
 
-  defp clauses([{:punct, "@", start, _}, {:punct, "+", _, _} | rest], items) do
+  defp clauses([{:punct, "@", start, _}, {:atom, :+, _, _} | rest], items) do
     with {:ok, name, rest} <- class_name(rest, start),
          {:ok, {:class, class}, rest} <- class(name, rest, start),
          do: clauses(rest, [{:class, %{class | extend: true}} | items])
@@ -744,20 +733,15 @@ defmodule AL.Syntax do
       {:ok, op, rest} ->
         right_levels = if associativity == :right, do: levels, else: tighter
 
-        with {:ok, right, rest} <- operators(rest, right_levels) do
-          node = {:binary, op, left, right, start(left), stop(right)}
-
-          if associativity == :left,
-            do: operator_rest(node, rest, levels),
-            else: {:ok, node, rest}
-        end
+        with {:ok, right, rest} <- operators(rest, right_levels),
+             do: {:ok, {:binary, op, left, right, start(left), stop(right)}, rest}
 
       :none ->
         {:ok, left, tokens}
     end
   end
 
-  defp operator([{kind, op, _, _} | rest], operators) when kind in [:punct, :op] do
+  defp operator([{:punct, op, _, _} | rest], operators) do
     if op in operators,
       do: {:ok, if(is_atom(op), do: op, else: String.to_atom(op)), rest},
       else: :none
@@ -765,14 +749,9 @@ defmodule AL.Syntax do
 
   defp operator(_tokens, _operators), do: :none
 
-  defp unary([{:punct, "-", minus, _}, {:number, number, number_start, stop} | rest])
+  defp unary([{:atom, :-, minus, _}, {:number, number, number_start, stop} | rest])
        when minus.line == number_start.line and minus.column + 1 == number_start.column,
        do: {:ok, {:literal, -number, minus, stop}, rest}
-
-  defp unary([{:punct, "-", minus, _} | rest]) do
-    with {:ok, operand, rest} <- unary(rest),
-         do: {:ok, {:negate, operand, minus, stop(operand)}, rest}
-  end
 
   defp unary([{:atom, name, start, stop} | rest] = tokens) do
     if argument_start?(rest) do
@@ -798,12 +777,9 @@ defmodule AL.Syntax do
 
   defp argument_start?([{:punct, punct, _, _} | _]) when punct in @argument_starts, do: true
 
-  defp argument_start?([{:punct, "-", minus, _}, {:number, _, number, _} | _]),
-    do: minus.line == number.line and minus.column + 1 == number.column
-
   defp argument_start?(_tokens), do: false
 
-  defp argument([{:punct, "-", minus, _}, {:number, number, number_start, stop} | rest])
+  defp argument([{:atom, :-, minus, _}, {:number, number, number_start, stop} | rest])
        when minus.line == number_start.line and minus.column + 1 == number_start.column,
        do: {:ok, {:literal, -number, minus, stop}, rest}
 
@@ -883,11 +859,6 @@ defmodule AL.Syntax do
   defp map_entries([{:punct, "}", _, _} | _] = tokens, entries),
     do: {:ok, Enum.reverse(entries), tokens}
 
-  defp map_entries([{:key, key, start, _} | rest], entries) do
-    with {:ok, value, rest} <- expression(rest),
-         do: map_next(rest, [{{:literal, key, start, start}, value} | entries])
-  end
-
   defp map_entries(tokens, entries) do
     with {:ok, key, rest} <- expression(tokens),
          [{:punct, "=>", _, _} | rest] <- rest,
@@ -895,7 +866,7 @@ defmodule AL.Syntax do
       map_next(rest, [{key, value} | entries])
     else
       {:error, _} = error -> error
-      [token | _] -> unexpected(token, "=> or key:")
+      [token | _] -> unexpected(token, "=>")
       [] -> error(:parse, "missing }", nil)
     end
   end
@@ -1017,9 +988,6 @@ defmodule AL.Syntax do
       otherwise: [%Goal.Fail{}]
     }
 
-  defp goal({:binary, :or, left, right, _, _}, pins),
-    do: %Goal.Either{left: constraint(goal(left, pins)), right: constraint(goal(right, pins))}
-
   defp goal({:paren, inner, _, _}, pins), do: goal(inner, pins)
   defp goal({:atom, :cut, _, _}, _pins), do: %Goal.Cut{}
   defp goal({:atom, :fail, _, _}, _pins), do: %Goal.Fail{}
@@ -1027,51 +995,55 @@ defmodule AL.Syntax do
   defp goal({:atom, name, _, _}, _pins), do: %Goal.OApply{method_id: name, args: []}
   defp goal({:call, name, arguments, start, _}, pins), do: call(name, arguments, start, pins)
   defp goal({:var, _, _, _} = variable, pins), do: term(variable, pins)
-  defp goal({:binary, _, _, _, _, _} = node, pins), do: term(node, pins)
-  defp goal({:negate, _, _, _} = node, pins), do: term(node, pins)
 
   defp goal({:block, _, start, _}, _pins),
     do: raise(ArgumentError, "a block at #{describe(start)} is not a goal on its own")
 
   defp goal(node, _pins), do: raise(ArgumentError, "expected a goal at #{describe(start(node))}")
 
-  defp call(:defmethod, [class, selector, head, {:block, _, _, _} = block], _start, pins),
-    do: %Goal.OApply{
-      method_id: :defmethod,
-      args: [term(class, pins), term(selector, pins), term(head, pins), body(block, pins)]
-    }
+  defp call(:defmethod, [class, selector, head, block], _start, pins)
+       when goal_body(block),
+       do: %Goal.OApply{
+         method_id: :defmethod,
+         args: [term(class, pins), term(selector, pins), term(head, pins), goals(block, pins)]
+       }
 
   defp call(:clear_method, [owner, selector], _start, pins),
     do: %Goal.OApply{method_id: :clear_method, args: [term(owner, pins), term(selector, pins)]}
 
-  defp call(:findall, [template, result, {:block, _, _, _} = block], _start, pins),
-    do: %Goal.Findall{
-      template: term(template, pins),
-      condition: body(block, pins),
-      result: term(result, pins)
-    }
+  defp call(:findall, [template, result, block], _start, pins)
+       when goal_body(block),
+       do: %Goal.Findall{
+         template: term(template, pins),
+         condition: goals(block, pins),
+         result: term(result, pins)
+       }
 
-  defp call(:forall, [condition, {:block, _, _, _} = block], _start, pins),
-    do: %Goal.Forall{condition: goals(condition, pins), body: body(block, pins)}
+  defp call(:forall, [condition, block], _start, pins)
+       when goal_body(block),
+       do: %Goal.Forall{condition: goals(condition, pins), body: goals(block, pins)}
 
   defp call(:not, [condition], _start, pins), do: %Goal.Not{condition: goals(condition, pins)}
 
-  defp call(:lambda, [arguments, method, {:block, _, _, _} = block], _start, pins),
-    do: %Goal.Send{
-      object: term(arguments, pins),
-      method: :lambda,
-      args: [term(method, pins), body(block, pins)]
-    }
+  defp call(:lambda, [arguments, method, block], _start, pins)
+       when goal_body(block),
+       do: %Goal.Send{
+         object: term(arguments, pins),
+         method: :lambda,
+         args: [term(method, pins), goals(block, pins)]
+       }
 
-  defp call(:spawn, [{:block, _, _, _} = block], start, pins) do
-    case body(block, pins) do
+  defp call(:spawn, [block], start, pins)
+       when goal_body(block) do
+    case goals(block, pins) do
       [] -> raise ArgumentError, "spawn at #{describe(start)} requires at least one goal"
       goals -> %Goal.OApply{method_id: :spawn_transaction, args: [goals]}
     end
   end
 
-  defp call(:await, [effect, {:list, _, _, _} = head, {:block, _, _, _} = block], start, pins) do
-    case body(block, pins) do
+  defp call(:await, [effect, {:list, _, _, _} = head, block], start, pins)
+       when goal_body(block) do
+    case goals(block, pins) do
       [] ->
         raise ArgumentError, "await at #{describe(start)} requires at least one goal"
 
@@ -1083,8 +1055,9 @@ defmodule AL.Syntax do
     end
   end
 
-  defp call(:vm_source_scope, [capture_id, {:block, _, _, _} = block], _start, pins),
-    do: %Goal.SourceScope{capture_id: term(capture_id, pins), goals: body(block, pins)}
+  defp call(:vm_source_scope, [capture_id, block], _start, pins)
+       when goal_body(block),
+       do: %Goal.SourceScope{capture_id: term(capture_id, pins), goals: goals(block, pins)}
 
   defp call(:freeze, [variable, goals], _start, pins),
     do: %Goal.Freeze{var: term(variable, pins), goals: goals(goals, pins)}
@@ -1125,6 +1098,9 @@ defmodule AL.Syntax do
       {name, args} when name in @primitives ->
         %Goal.OApply{method_id: name, args: args}
 
+      {name, args} when name in @operator_calls ->
+        Goal.from_call_form(name, args)
+
       {name, args} ->
         Goal.from_call(name, args) || send_call(name, args)
     end
@@ -1132,9 +1108,6 @@ defmodule AL.Syntax do
 
   defp send_call(name, [object | args]), do: %Goal.Send{object: object, method: name, args: args}
   defp send_call(name, []), do: %Goal.OApply{method_id: name, args: []}
-
-  defp constraint(%Goal.Eq{a: a, b: b}), do: %Goal.Compare{op: :=, a: a, b: b}
-  defp constraint(goal), do: goal
 
   defp body(nil, _pins), do: []
 
@@ -1173,23 +1146,8 @@ defmodule AL.Syntax do
   defp term({:map, entries, _, _}, pins),
     do: Map.new(entries, fn {key, value} -> {term(key, pins), term(value, pins)} end)
 
-  defp term({:binary, op, left, right, _, _}, pins) when op in @arithmetic,
-    do: %Goal.OApply{method_id: op, args: [term(left, pins), term(right, pins)]}
-
-  defp term({:binary, op, left, right, _, _}, pins) when op in @comparisons,
-    do: %Goal.Compare{op: op, a: term(left, pins), b: term(right, pins)}
-
-  defp term({:binary, :=, left, right, _, _}, pins),
-    do: %Goal.Eq{a: term(left, pins), b: term(right, pins)}
-
-  defp term({:binary, :==, left, right, _, _}, pins),
-    do: %Goal.Equal{a: term(left, pins), b: term(right, pins)}
-
-  defp term({:binary, op, _, _, _, _} = node, pins) when op in [:or, :";", :->],
+  defp term({:binary, op, _, _, _, _} = node, pins) when op in [:";", :->],
     do: goal(node, pins)
-
-  defp term({:negate, operand, _, _}, pins),
-    do: %Goal.OApply{method_id: :-, args: [term(operand, pins)]}
 
   defp term({:call, _, _, _, _} = node, pins), do: goal(node, pins)
 

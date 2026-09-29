@@ -36,19 +36,22 @@ control-flow tools.
 
 - AL has its own Prolog-like syntax; the grammar is `lib/AL/syntax.bnf`.
   Variables are capitalised (`Self`, `_`), atoms are lowercase or quoted,
-  `[H . T]` is a list, `#{key: V}` is a map, and `{G1, G2}` is a block of
+  `[H . T]` is a list, `#{key => V}` is a map, and `{G1, G2}` is a block of
   goals. Comments start with `#`.
 - A call is juxtaposition: `sel Recv Arg1 Arg2` sends `sel` to `Recv`.
   Arguments are single terms, so nested calls and arithmetic are bracketed:
-  `between Self (Low + 1) High V`. `(foo)` is a goal with no arguments.
+  `between Self (+ Low 1) High V`. `(foo)` is a goal with no arguments.
+- Operators are ordinary names called in prefix: `= X 1`, `< X 5`,
+  `= Y (+ X 1)`, `or (= C 1) (= C 2)`. The only infix forms are `,`, `;`,
+  `->`, and the list tail `.`.
 - Goals are separated by commas and every top-level form ends with `.`.
 - AL has no tuples. Use lists for positional relational data, maps for named
   value data, and value classes when behavior belongs with that data.
 - Transaction programs are `priv/programs/*.al` files that start with
-  `defprogram name #{version: V, deps: [...]}.`. Elixir code embeds AL only as
+  `defprogram name #{version => V, deps => [...]}.`. Elixir code embeds AL only as
   `run do ~AL"""...""" end` (where `^name` pins an Elixir value) or as text
   for `AL.eval_source/3`. Package definition files are AL source: an `@name`
-  class or `@+name #{super: [...]}.` extension declaration followed by that
+  class or `@+name #{super => [...]}.` extension declaration followed by that
   owner's method clauses. Inside an Elixir
   `"..."` string an AL map is written `\#{...}`.
 - A method clause is `owner >> sel` followed by its head on its own line,
@@ -61,7 +64,7 @@ control-flow tools.
   reconsult does, and keeps the method's id. Add a clause to a method defined
   elsewhere with `defmethod Owner Sel [Head] {Body}`.
 - Declare ordinary classes, value classes, metaclasses, and categories as
-  `@name #{super: object, ivars: [#{name: count}]}.`. Ivars are a list of
+  `@name #{super => object, ivars => [#{name => count}]}.`. Ivars are a list of
   maps with a `name:`. Declaring an existing name again replaces its
   declaration and keeps its methods. Reserve raw `new class ...` construction
   for implementation or tests of the class protocol itself.

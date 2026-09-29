@@ -11,7 +11,7 @@ defmodule Examples.ALAnonymousMethods do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new anonymous_method #{args: [], body: [Result = [First, Second]], head: [First, Second, Result]} Method.
+        new anonymous_method #{args => [], body => [(= Result [First, Second])], head => [First, Second, Result]} Method.
         add_arg Method a PartiallyApplied.
         run PartiallyApplied [b, Result].
         """
@@ -27,9 +27,9 @@ defmodule Examples.ALAnonymousMethods do
         ~AL"""
         list >> lambda
         | Head Method Body |
-        new anonymous_method #{args: [], body: Body, head: Head} Method.
+        new anonymous_method #{args => [], body => Body, head => Head} Method.
 
-        lambda [X, Doubled] Twice {Doubled = [X, X]}.
+        lambda [X, Doubled] Twice (= Doubled [X, X]).
         run Twice [a, Result].
         """
       end
@@ -56,10 +56,10 @@ defmodule Examples.ALAnonymousMethods do
       run branch: Examples.Support.branch() do
         ~AL"""
         @lambda_holder
-        #{super: object, ivars: [#{name: condition, type: anonymous_method}]}.
+        #{super => object, ivars => [#{name => condition, type => anonymous_method}]}.
 
-        lambda [Input, Output] Condition {Output = [Input]}.
-        new lambda_holder #{condition: Condition, name: stored_lambda} _Holder.
+        lambda [Input, Output] Condition (= Output [Input]).
+        new lambda_holder #{condition => Condition, name => stored_lambda} _Holder.
         """
       end
 

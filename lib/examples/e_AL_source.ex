@@ -40,7 +40,7 @@ defmodule Examples.ALSource do
     stored = [{:=, %{package: :"$Package", requirement: :"$Requirement"}, :"$Pair"}]
     source = AL.Source.body_source(stored)
 
-    assert source == "\#{package: Package, requirement: Requirement} = Pair"
+    assert source == "= \#{package => Package, requirement => Requirement} Pair"
     assert round_trip(stored) == stored
     source
   end
@@ -68,7 +68,7 @@ defmodule Examples.ALSource do
 
   example compare_to_source() do
     source = AL.Source.body_source([{:compare, :>, :"$X", 1}])
-    assert source == "X > 1"
+    assert source == "> X 1"
     source
   end
 
@@ -76,7 +76,7 @@ defmodule Examples.ALSource do
     self_var = AL.Var.fresh(AL.Var.fresh(:"$Self", "3"), "7")
 
     source = AL.Source.body_source([{:=, self_var, self_var}])
-    assert source == "Self = Self"
+    assert source == "= Self Self"
 
     source
   end
@@ -86,7 +86,7 @@ defmodule Examples.ALSource do
     self_b = AL.Var.fresh(:"$Self", "2")
 
     source = AL.Source.body_source([{:=, self_a, self_b}])
-    assert source == "Self = Self_2"
+    assert source == "= Self Self_2"
 
     source
   end
@@ -97,7 +97,7 @@ defmodule Examples.ALSource do
 
     try do
       source = """
-      @#{AL.Syntax.Printer.term(class)} \#{super: object}.
+      @#{AL.Syntax.Printer.term(class)} \#{super => object}.
 
       #{AL.Syntax.Printer.term(class)} >> greet
       | Self hi |.

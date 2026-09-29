@@ -14,17 +14,17 @@ defmodule Examples.ALBounds do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        5 < 10.
-        10 > 5.
-        5 <= 5.
-        5 >= 5.
+        < 5 10.
+        > 10 5.
+        <= 5 5.
+        >= 5 5.
         """
       end
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        10 < 5.
+        < 10 5.
         """
       end
 
@@ -35,8 +35,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < 10.
-        X = 5.
+        < X 10.
+        = X 5.
         """
       end
 
@@ -45,8 +45,8 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < 10.
-        X = 15.
+        < X 10.
+        = X 15.
         """
       end
 
@@ -61,8 +61,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < 5 + 1.
-        X = 5.
+        < X (+ 5 1).
+        = X 5.
         """
       end
 
@@ -71,8 +71,8 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < 5 + 1.
-        X = 6.
+        < X (+ 5 1).
+        = X 6.
         """
       end
 
@@ -88,9 +88,9 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < Y.
-        Y < 5.
-        X = 2.
+        < X Y.
+        < Y 5.
+        = X 2.
         """
       end
 
@@ -99,9 +99,9 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < Y.
-        Y < 5.
-        X = 10.
+        < X Y.
+        < Y 5.
+        = X 10.
         """
       end
 
@@ -112,8 +112,8 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < 3.
-        X > 5.
+        < X 3.
+        > X 5.
         """
       end
 
@@ -126,9 +126,9 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X <= 5.
-        X >= 5.
-        Z = X + 1.
+        <= X 5.
+        >= X 5.
+        = Z (+ X 1).
         """
       end
 
@@ -145,7 +145,7 @@ defmodule Examples.ALBounds do
       run branch: Examples.Support.branch() do
         ~AL"""
         label 5.
-        X = 5.
+        = X 5.
         """
       end
 
@@ -164,7 +164,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = already_ground_atom.
+        = X already_ground_atom.
         label X.
         """
       end
@@ -179,8 +179,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X >= 3.
-        X <= 5.
+        >= X 3.
+        <= X 5.
         label X.
         """
       end
@@ -190,10 +190,10 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings2, _constraints, _state2}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X >= 3.
-        X <= 5.
+        >= X 3.
+        <= X 5.
         label X.
-        X == 5.
+        == X 5.
         """
       end
 
@@ -206,7 +206,7 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X >= 3.
+        >= X 3.
         label X.
         """
       end
@@ -225,8 +225,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X + 1 <= 5.
-        X = 4.
+        <= (+ X 1) 5.
+        = X 4.
         """
       end
 
@@ -235,8 +235,8 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X + 1 <= 5.
-        X = 5.
+        <= (+ X 1) 5.
+        = X 5.
         """
       end
 
@@ -250,8 +250,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        2 * X <= 7.
-        X = 3.
+        <= (* 2 X) 7.
+        = X 3.
         """
       end
 
@@ -260,8 +260,8 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        2 * X <= 7.
-        X = 4.
+        <= (* 2 X) 7.
+        = X 4.
         """
       end
 
@@ -276,14 +276,14 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X / 2 <= 5.
+        <= (/ X 2) 5.
         """
       end
 
     {:aborted, _trace2} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X * Y <= 10.
+        <= (* X Y) 10.
         """
       end
 
@@ -294,10 +294,10 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Y = 4.
-        #{total: T} = #{total: Y + 1}.
-        [A] = [X + 1].
-        X = 2.
+        = Y 4.
+        = #{total => T} #{total => (+ Y 1)}.
+        = [A] [(+ X 1)].
+        = X 2.
         """
       end
 
@@ -312,8 +312,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        N = 5.
-        N1 = N - 1.
+        = N 5.
+        = N1 (- N 1).
         """
       end
 
@@ -327,8 +327,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 10.
-        X = Y + 3.
+        = X 10.
+        = X (+ Y 3).
         """
       end
 
@@ -340,9 +340,9 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        P = 4.
-        Q = 5.
-        P = Q.
+        = P 4.
+        = Q 5.
+        = P Q.
         """
       end
 
@@ -356,9 +356,9 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = Y.
-        Y <= 5.
-        Y >= 5.
+        = X Y.
+        <= Y 5.
+        >= Y 5.
         """
       end
 
@@ -375,9 +375,9 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Z = A + B.
-        A = 2.
-        B = 3.
+        = Z (+ A B).
+        = A 2.
+        = B 3.
         """
       end
 
@@ -389,11 +389,11 @@ defmodule Examples.ALBounds do
     {:atomic, {_bindings, constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X > 0.
-        Y > 0.
-        X + Y = 22.
-        2 * X = 3 * H.
-        4 * Y = 5 * H.
+        > X 0.
+        > Y 0.
+        = (+ X Y) 22.
+        = (* 2 X) (* 3 H).
+        = (* 4 Y) (* 5 H).
         """
       end
 
@@ -412,10 +412,10 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Z = A + B + C.
-        A = 1.
-        B = 2.
-        C = 3.
+        = Z (+ (+ A B) C).
+        = A 1.
+        = B 2.
+        = C 3.
         """
       end
 
@@ -437,10 +437,10 @@ defmodule Examples.ALBounds do
 
         eq_first >> fib_eq_first
         | S X V |
-        A = X - 1,
-        B = X - 2,
-        X > 2,
-        V = V1 + V2,
+        = A (- X 1),
+        = B (- X 2),
+        > X 2,
+        = V (+ V1 V2),
         fib_eq_first S A V1,
         fib_eq_first S B V2.
 
@@ -464,13 +464,13 @@ defmodule Examples.ALBounds do
 
         regsm >> fib_mod
         | S X A B Q |
-        X > 1,
-        A1 + B1 = Q * 7883 + A,
-        A < 7883,
-        A + 1 > 0,
-        Q + 1 > 0,
-        B = A1,
-        X1 = X - 1,
+        > X 1,
+        = (+ A1 B1) (+ (* Q 7883) A),
+        < A 7883,
+        > (+ A 1) 0,
+        > (+ Q 1) 0,
+        = B A1,
+        = X1 (- X 1),
         fib_mod S X1 A1 B1 Q1.
 
         fib_mod regsm 3000 Out _B _Q.
@@ -486,10 +486,10 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Z = A + C.
-        A <= 2.
-        C <= 3.
-        Z >= 10.
+        = Z (+ A C).
+        <= A 2.
+        <= C 3.
+        >= Z 10.
         """
       end
 
@@ -513,10 +513,10 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < Y.
+        < X Y.
         small_or_large entailed Y.
-        X >= 50.
-        X = 99.
+        >= X 50.
+        = X 99.
         """
       end
 
@@ -525,10 +525,10 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X < Y.
+        < X Y.
         small_or_large entailed Y.
-        X >= 50.
-        X = 150.
+        >= X 50.
+        = X 150.
         """
       end
 
@@ -543,8 +543,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        A = 4.
-        A = 5 or B = 7.
+        = A 4.
+        or (= A 5) (= B 7).
         """
       end
 
@@ -556,9 +556,9 @@ defmodule Examples.ALBounds do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        A = 4.
-        B = 4.
-        A = 5 or B = 6.
+        = A 4.
+        = B 4.
+        or (= A 5) (= B 6).
         """
       end
 
@@ -572,7 +572,7 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        A = 5 or B = 6.
+        or (= A 5) (= B 6).
         """
       end
 
@@ -588,8 +588,8 @@ defmodule Examples.ALBounds do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        A = 5 or B = 7.
-        A = 4.
+        or (= A 5) (= B 7).
+        = A 4.
         """
       end
 
@@ -612,9 +612,9 @@ defmodule Examples.ALBounds do
       run branch: Examples.Support.branch() do
         ~AL"""
         findall Candidate Candidates {
-          Candidate < 20,
-          Candidate > 0,
-          Candidate = X * 5 or Candidate = Y * 3,
+          < Candidate 20,
+          > Candidate 0,
+          or (= Candidate (* X 5)) (= Candidate (* Y 3)),
           label Candidate
         }.
         """

@@ -11,13 +11,13 @@ list >> build_row
 
 list >> build_row
 | [0 . Gs] [Cell . Cs] |
-Cell >= 1,
-Cell <= 9,
+>= Cell 1,
+<= Cell 9,
 build_row Gs Cs.
 
 list >> build_row
 | [N . Gs] [N . Cs] |
-N > 0,
+> N 0,
 build_row Gs Cs.
 
 list >> constrain_rows

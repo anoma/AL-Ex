@@ -12,7 +12,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @greeter
-        #{super: value}.
+        #{super => value}.
 
         greeter >> init
         | Self _ Self |.
@@ -66,14 +66,14 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @gadget
-        #{super: value}.
+        #{super => value}.
 
         gadget >> init
         | Self _ Self |.
 
         gadget >> poke
         | Self X |
-        X = ok.
+        = X ok.
 
         gadget >> does_not_understand
         | Self _M _A |.
@@ -132,7 +132,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall C BeforeRetract {class retract_test C}.
+        findall C BeforeRetract (class retract_test C).
         """
       end
 
@@ -148,7 +148,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall C AfterRetract {class retract_test C}.
+        findall C AfterRetract (class retract_test C).
         """
       end
 
@@ -165,7 +165,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings3, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall C Reclassified {class retract_test C}.
+        findall C Reclassified (class retract_test C).
         """
       end
 
@@ -178,13 +178,13 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @direct_vehicle
-        #{super: object}.
+        #{super => object}.
 
         @direct_car
-        #{super: direct_vehicle, ivars: [#{default: red, name: color}]}.
+        #{super => direct_vehicle, ivars => [#{default => red, name => color}]}.
 
         @direct_hydrant
-        #{super: object, ivars: [#{default: red, name: color}]}.
+        #{super => object, ivars => [#{default => red, name => color}]}.
 
         new direct_car Car.
         new direct_hydrant Hydrant.
@@ -192,11 +192,11 @@ defmodule Examples.ALObjects do
         findall X Inherited {isa X direct_vehicle, label X, get X color red}.
         findall X ConstrainedFirst {isa X direct_vehicle, get X color red, label X}.
         class Car direct_car.
-        not {class Car direct_vehicle}.
+        not (class Car direct_vehicle).
         isa Car direct_vehicle.
         isa Candidate Ancestor.
-        Ancestor = direct_vehicle.
-        Candidate = Car.
+        = Ancestor direct_vehicle.
+        = Candidate Car.
         """
       end
 
@@ -214,12 +214,12 @@ defmodule Examples.ALObjects do
       run branch: branch_id do
         ~AL"""
         @cached_isa_base
-        #{super: object}.
+        #{super => object}.
 
         @cached_isa_leaf
-        #{super: cached_isa_base}.
+        #{super => cached_isa_base}.
 
-        new cached_isa_leaf #{name: cached_isa_object} _.
+        new cached_isa_leaf #{name => cached_isa_object} _.
         """
       end
 
@@ -287,7 +287,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new class #{name: point, super: value} NewPointClass.
+        new class #{name => point, super => value} NewPointClass.
 
         NewPointClass >> init
         | Self _ Self |.
@@ -308,7 +308,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @durable_meta
-        #{super: object}.
+        #{super => object}.
 
         durable_meta >> allocate
         | Self Args Name |
@@ -317,7 +317,7 @@ defmodule Examples.ALObjects do
         vm_set_class Name Meta,
         vm_set_super Name object.
 
-        new durable_meta #{name: alloc_overriden} Obj.
+        new durable_meta #{name => alloc_overriden} Obj.
         class Obj ObjClass.
         """
       end
@@ -364,7 +364,7 @@ defmodule Examples.ALObjects do
     {:atomic, {b3, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Id Ids {method multi pick Id}.
+        findall Id Ids (method multi pick Id).
         """
       end
 
@@ -390,11 +390,11 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @examine_slot_class
-        #{super: object, ivars: [#{name: legs}, #{name: name}]}.
+        #{super => object, ivars => [#{name => legs}, #{name => name}]}.
 
-        set_slots examine_slot_class #{legs: 4}.
+        set_slots examine_slot_class #{legs => 4}.
         new examine_slot_class Obj.
-        set_slots Obj #{name: rex}.
+        set_slots Obj #{name => rex}.
         examine Obj ObjInfo.
         get ObjInfo direct_slots DirectSlots.
         """
@@ -410,7 +410,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @examine_objects_class
-        #{super: object}.
+        #{super => object}.
 
         examine examine_objects_class InfoBefore.
         get InfoBefore objects ObjectsBefore.
@@ -432,13 +432,13 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @ping_class
-        #{super: object}.
+        #{super => object}.
 
         ping_class >> ping
         | _Self pong |.
 
-        new ping_class #{name: ping_a} _.
-        new ping_class #{name: ping_b} _.
+        new ping_class #{name => ping_a} _.
+        new ping_class #{name => ping_b} _.
         vm_set_class ping_proxy object.
 
         ping_proxy >> does_not_understand
@@ -507,7 +507,7 @@ defmodule Examples.ALObjects do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall M Ms {send queryable M [a]}.
+        findall M Ms (send queryable M [a]).
         """
       end
 
@@ -522,7 +522,7 @@ defmodule Examples.ALObjects do
     {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall M Ms {send queryable M [b]}.
+        findall M Ms (send queryable M [b]).
         """
       end
 
@@ -584,18 +584,18 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @real_pinger_class
-        #{super: object}.
+        #{super => object}.
 
         real_pinger_class >> probe
         | _Self hit |.
 
-        new real_pinger_class #{name: real_pinger} _.
+        new real_pinger_class #{name => real_pinger} _.
         vm_set_class tripwire object.
-        set_slots tripwire #{tripped: no}.
+        set_slots tripwire #{tripped => no}.
 
         tripwire >> does_not_understand
         | Self _M _A |
-        set_slots Self #{tripped: yes}.
+        set_slots Self #{tripped => yes}.
         """
       end
 
@@ -656,7 +656,7 @@ defmodule Examples.ALObjects do
         cnm_pet >> describe
         | Self D |
         call_next_method Self Parent,
-        D = [i_am_pet, Parent].
+        = D [i_am_pet, Parent].
 
         vm_set_class cnm_rex cnm_pet.
         describe cnm_rex Result.
@@ -691,9 +691,9 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @multislots
-        #{super: object}.
+        #{super => object}.
 
-        set_slots multislots #{x: 1, y: 2, z: 3}.
+        set_slots multislots #{x => 1, y => 2, z => 3}.
         slots multislots [x, z] M.
         """
       end
@@ -708,10 +708,10 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @get_multislots
-        #{super: object}.
+        #{super => object}.
 
-        set_slots get_multislots #{x: 1, y: 2, z: 3}.
-        get_slots get_multislots #{x: X, z: 3}.
+        set_slots get_multislots #{x => 1, y => 2, z => 3}.
+        get_slots get_multislots #{x => X, z => 3}.
         """
       end
 
@@ -720,7 +720,7 @@ defmodule Examples.ALObjects do
     {:atomic, {map_bindings, _constraints, _runtime}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        get_slots #{left: a, right: b} #{left: Left, right: Right}.
+        get_slots #{left => a, right => b} #{left => Left, right => Right}.
         """
       end
 
@@ -733,13 +733,13 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @method_domain_ping
-        #{super: object}.
+        #{super => object}.
 
         method_domain_ping >> domain_ping
         | Self p |.
 
         @method_domain_both
-        #{super: object}.
+        #{super => object}.
 
         method_domain_both >> domain_ping
         | Self p |.
@@ -750,7 +750,7 @@ defmodule Examples.ALObjects do
         findall O Pingers {method O domain_ping _, label O}.
         findall O Both {method O domain_ping _, method O domain_pong _, label O}.
         findall [O, Id] PongIds {method O domain_pong Id, label O}.
-        findall O None {method O domain_missing _}.
+        findall O None (method O domain_missing _).
         """
       end
 
@@ -766,7 +766,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @clause_domain_a
-        #{super: object}.
+        #{super => object}.
 
         clause_domain_a >> clause_domain_sel
         | Self shared |.
@@ -775,7 +775,7 @@ defmodule Examples.ALObjects do
         | Self only_a |.
 
         @clause_domain_b
-        #{super: object}.
+        #{super => object}.
 
         clause_domain_b >> clause_domain_sel
         | Self shared |.
@@ -785,8 +785,8 @@ defmodule Examples.ALObjects do
         findall M SharedOwners {clause M [_, shared] _, label M}.
         findall M OnlyAOwners {clause M [_, only_a] _, label M}.
         findall [M, S] OnlyARows {clause M S [_, only_a] _, label M}.
-        findall M None {clause M [_, clause_domain_nobody] _}.
-        findall S ASharedSeqs {clause IdA S [_, shared] _}.
+        findall M None (clause M [_, clause_domain_nobody] _).
+        findall S ASharedSeqs (clause IdA S [_, shared] _).
         """
       end
 
@@ -806,14 +806,14 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @slot_own_row_class
-        #{super: object, ivars: [#{name: legs}]}.
+        #{super => object, ivars => [#{name => legs}]}.
 
-        set_slots slot_own_row_class #{legs: 4}.
+        set_slots slot_own_row_class #{legs => 4}.
         new slot_own_row_class Obj.
-        findall Legs InstanceLegs {get Obj legs Legs}.
-        findall Legs ClassLegs {get slot_own_row_class legs Legs}.
-        findall V MapLegs {get #{class: slot_own_row_class} legs V}.
-        findall V MapOwnLegs {get #{class: slot_own_row_class, legs: 8} legs V}.
+        findall Legs InstanceLegs (get Obj legs Legs).
+        findall Legs ClassLegs (get slot_own_row_class legs Legs).
+        findall V MapLegs (get #{class => slot_own_row_class} legs V).
+        findall V MapOwnLegs (get #{class => slot_own_row_class, legs => 8} legs V).
         """
       end
 
@@ -828,13 +828,13 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @slot_default_class
-        #{super: object, ivars: [#{default: 4, name: legs}]}.
+        #{super => object, ivars => [#{default => 4, name => legs}]}.
 
         new slot_default_class Obj.
         get Obj legs Legs.
         set_slot Obj legs 3.
         get Obj legs AfterSet.
-        findall V ClassLegs {get slot_default_class legs V}.
+        findall V ClassLegs (get slot_default_class legs V).
         """
       end
 
@@ -848,10 +848,10 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @slot_override_class
-        #{super: object, ivars: [#{name: legs}]}.
+        #{super => object, ivars => [#{name => legs}]}.
 
-        set_slots slot_override_class #{legs: 4}.
-        new slot_override_class #{legs: 8, name: slot_override_instance} _.
+        set_slots slot_override_class #{legs => 4}.
+        new slot_override_class #{legs => 8, name => slot_override_instance} _.
         """
       end
 
@@ -879,9 +879,9 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @set_slot_domain_class
-        #{super: object, ivars: [#{domain: ["on", "off"], name: state}]}.
+        #{super => object, ivars => [#{domain => ["on", "off"], name => state}]}.
 
-        new set_slot_domain_class #{name: set_slot_domain_instance, state: "on"} _.
+        new set_slot_domain_class #{name => set_slot_domain_instance, state => "on"} _.
         """
       end
 
@@ -930,9 +930,9 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @closed_slot_class
-        #{super: object, ivars: [#{name: declared}]}.
+        #{super => object, ivars => [#{name => declared}]}.
 
-        new closed_slot_class #{declared: 1, name: closed_slot_instance} _.
+        new closed_slot_class #{declared => 1, name => closed_slot_instance} _.
         """
       end
 
@@ -951,10 +951,10 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @open_slot_metaclass
-        #{super: class}.
+        #{super => class}.
 
         @open_slot_class
-        #{super: object, metaclass: open_slot_metaclass}.
+        #{super => object, metaclass => open_slot_metaclass}.
 
         set_slot open_slot_class annotation available.
         get open_slot_class annotation Annotation.
@@ -975,8 +975,8 @@ defmodule Examples.ALObjects do
         ~AL"""
         @durable_ivar_a
         #{
-          super: object,
-          ivars: [#{domain: [hearts, diamonds, clubs, spades], name: suit}]
+          super => object,
+          ivars => [#{domain => [hearts, diamonds, clubs, spades], name => suit}]
         }.
         """
       end
@@ -984,7 +984,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new durable_ivar_a #{suit: hearts} Obj.
+        new durable_ivar_a #{suit => hearts} Obj.
         slot Obj suit Suit.
         """
       end
@@ -1003,8 +1003,8 @@ defmodule Examples.ALObjects do
         ~AL"""
         @durable_ivar_b
         #{
-          super: object,
-          ivars: [#{domain: [hearts, diamonds, clubs, spades], name: suit}]
+          super => object,
+          ivars => [#{domain => [hearts, diamonds, clubs, spades], name => suit}]
         }.
         """
       end
@@ -1013,7 +1013,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         new durable_ivar_b #{} Obj.
-        findall [K, V] Slots {slot Obj K V}.
+        findall [K, V] Slots (slot Obj K V).
         """
       end
 
@@ -1030,8 +1030,8 @@ defmodule Examples.ALObjects do
         ~AL"""
         @durable_ivar_c
         #{
-          super: object,
-          ivars: [#{domain: [hearts, diamonds, clubs, spades], name: suit}]
+          super => object,
+          ivars => [#{domain => [hearts, diamonds, clubs, spades], name => suit}]
         }.
         """
       end
@@ -1039,7 +1039,7 @@ defmodule Examples.ALObjects do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new durable_ivar_c #{suit: not_a_real_suit} _Obj.
+        new durable_ivar_c #{suit => not_a_real_suit} _Obj.
         """
       end
 
@@ -1057,7 +1057,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @durable_ivar_bare
-        #{super: object, ivars: [#{name: legs}]}.
+        #{super => object, ivars => [#{name => legs}]}.
         """
       end
 
@@ -1065,7 +1065,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         new durable_ivar_bare #{} Obj.
-        findall [K, V] Slots {slot Obj K V}.
+        findall [K, V] Slots (slot Obj K V).
         """
       end
 
@@ -1078,7 +1078,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @durable_ivar_typed
-        #{super: object, ivars: [#{name: count, type: number}]}.
+        #{super => object, ivars => [#{name => count, type => number}]}.
         """
       end
 
@@ -1086,7 +1086,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         new durable_ivar_typed #{} Obj.
-        findall [K, V] Slots {slot Obj K V}.
+        findall [K, V] Slots (slot Obj K V).
         """
       end
 
@@ -1099,7 +1099,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @durable_ivar_defaulted
-        #{super: object, ivars: [#{default: 0, name: count, type: number}]}.
+        #{super => object, ivars => [#{default => 0, name => count, type => number}]}.
         """
       end
 
@@ -1116,7 +1116,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new durable_ivar_defaulted #{count: 5} Obj.
+        new durable_ivar_defaulted #{count => 5} Obj.
         get Obj count Count.
         """
       end
@@ -1130,7 +1130,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @value_ivar_open_default
-        #{super: value, ivars: [#{default: Placeholder, name: tag}]}.
+        #{super => value, ivars => [#{default => Placeholder, name => tag}]}.
 
         new value_ivar_open_default #{} Obj.
         get Obj tag Tag.
@@ -1154,12 +1154,12 @@ defmodule Examples.ALObjects do
         ~AL"""
         @durable_ivar_parent
         #{
-          super: object,
-          ivars: [#{default: hearts, domain: [hearts, diamonds], name: suit}]
+          super => object,
+          ivars => [#{default => hearts, domain => [hearts, diamonds], name => suit}]
         }.
 
         @durable_ivar_child
-        #{super: durable_ivar_parent, ivars: [#{default: 0, name: count, type: number}]}.
+        #{super => durable_ivar_parent, ivars => [#{default => 0, name => count, type => number}]}.
         """
       end
 
@@ -1178,7 +1178,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new durable_ivar_child #{count: 3, suit: diamonds} Obj.
+        new durable_ivar_child #{count => 3, suit => diamonds} Obj.
         get Obj suit Suit.
         get Obj count Count.
         """
@@ -1190,7 +1190,7 @@ defmodule Examples.ALObjects do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new durable_ivar_child #{suit: not_a_real_suit} _Obj.
+        new durable_ivar_child #{suit => not_a_real_suit} _Obj.
         """
       end
 
@@ -1207,12 +1207,12 @@ defmodule Examples.ALObjects do
         ~AL"""
         @value_ivar_parent
         #{
-          super: value,
-          ivars: [#{default: hearts, domain: [hearts, diamonds], name: suit}]
+          super => value,
+          ivars => [#{default => hearts, domain => [hearts, diamonds], name => suit}]
         }.
 
         @value_ivar_child
-        #{super: value_ivar_parent, ivars: [#{default: 0, name: count, type: number}]}.
+        #{super => value_ivar_parent, ivars => [#{default => 0, name => count, type => number}]}.
 
         new value_ivar_child #{} Obj.
         get Obj suit Suit.
@@ -1226,7 +1226,7 @@ defmodule Examples.ALObjects do
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new value_ivar_child #{count: 3, suit: diamonds} Obj.
+        new value_ivar_child #{count => 3, suit => diamonds} Obj.
         get Obj suit Suit.
         get Obj count Count.
         """
@@ -1238,7 +1238,7 @@ defmodule Examples.ALObjects do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new value_ivar_child #{suit: not_a_real_suit} _Obj.
+        new value_ivar_child #{suit => not_a_real_suit} _Obj.
         """
       end
 
@@ -1305,25 +1305,25 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @mix_super_3
-        #{super: object}.
+        #{super => object}.
 
         mix_super_3 >> flavour
         | Self lavender |.
 
         @mix_super_1
-        #{super: mix_super_3}.
+        #{super => mix_super_3}.
 
         @mix_super_2
-        #{super: mix_super_3}.
+        #{super => mix_super_3}.
 
         mix_super_2 >> flavour
         | Self chocolate |.
 
         @mix_class
-        #{super: mix_super_1}.
+        #{super => mix_super_1}.
 
         vm_set_super mix_class mix_super_2.
-        new mix_class #{name: mix_obj} _.
+        new mix_class #{name => mix_obj} _.
         flavour mix_obj Flavour.
         """
       end
@@ -1360,14 +1360,14 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @class_scope_probe
-        #{super: object}.
+        #{super => object}.
 
         class_scope_probe >> probe
         | Self hit |.
 
         new class_scope_probe Instance.
         probe Instance hit.
-        Worked = true.
+        = Worked true.
         """
       end
 
@@ -1392,12 +1392,12 @@ defmodule Examples.ALObjects do
       run branch: fork.id do
         ~AL"""
         @lazy_only_class
-        #{super: object}.
+        #{super => object}.
 
         lazy_only_class >> only_here
         | _Self found |.
 
-        new lazy_only_class #{name: lazy_only_object} _.
+        new lazy_only_class #{name => lazy_only_object} _.
         """
       end
 
@@ -1435,19 +1435,19 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         @isa_durable_class_a
-        #{super: object}.
+        #{super => object}.
 
         isa_durable_class_a >> isa_durable_probe
         | Self Self |.
 
         @isa_durable_class_b
-        #{super: object}.
+        #{super => object}.
 
         isa_durable_class_b >> isa_durable_probe
         | Self Self |.
 
-        new isa_durable_class_a #{name: isa_durable_instance_a} _.
-        new isa_durable_class_b #{name: isa_durable_instance_b} _.
+        new isa_durable_class_a #{name => isa_durable_instance_a} _.
+        new isa_durable_class_b #{name => isa_durable_instance_b} _.
         """
       end
 
@@ -1455,7 +1455,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         isa X isa_durable_class_a.
-        X = isa_durable_instance_b.
+        = X isa_durable_instance_b.
         """
       end
 
@@ -1463,7 +1463,7 @@ defmodule Examples.ALObjects do
       run branch: Examples.Support.branch() do
         ~AL"""
         isa X isa_durable_class_a.
-        X = isa_durable_instance_a.
+        = X isa_durable_instance_a.
         """
       end
 

@@ -12,17 +12,17 @@ defmodule Examples.ALArithmetic do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        A = 123 + 5 - 3.
-        F = 10000 - 3.
-        A = 122 + 3.
-        1000122 = 122 + 1000000.
-        B = A + 12.
-        C = B ** 2 + 1.
-        D = C / 3.
-        E = C * 3 + 2.
-        E = 5 - E + 2 * E - 5.
-        G = -7.
-        H = 7.
+        = A (- (+ 123 5) 3).
+        = F (- 10000 3).
+        = A (+ 122 3).
+        = 1000122 (+ 122 1000000).
+        = B (+ A 12).
+        = C (+ (** B 2) 1).
+        = D (/ C 3).
+        = E (+ (* C 3) 2).
+        = E (- (+ (- 5 E) (* 2 E)) 5).
+        = G -7.
+        = H 7.
         """
       end
 
@@ -41,8 +41,8 @@ defmodule Examples.ALArithmetic do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = Y + 1.
-        Y = 4.
+        = X (+ Y 1).
+        = Y 4.
         """
       end
 
@@ -54,7 +54,7 @@ defmodule Examples.ALArithmetic do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 1 / 0.
+        = X (/ 1 0).
         """
       end
 
@@ -65,8 +65,8 @@ defmodule Examples.ALArithmetic do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        A = 7 rem 2.
-        B = 10 rem 5.
+        = A (rem 7 2).
+        = B (rem 10 5).
         """
       end
 
@@ -79,7 +79,7 @@ defmodule Examples.ALArithmetic do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 1 rem 0.
+        = X (rem 1 0).
         """
       end
 
@@ -90,11 +90,11 @@ defmodule Examples.ALArithmetic do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 5.
-        X > 3.
-        X >= 5.
-        X < 10.
-        X <= 5.
+        = X 5.
+        > X 3.
+        >= X 5.
+        < X 10.
+        <= X 5.
         """
       end
 
@@ -106,9 +106,9 @@ defmodule Examples.ALArithmetic do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        10 > 2 + 3.
-        2 + 3 <= 5.
-        2 ** 3 >= 8.
+        > 10 (+ 2 3).
+        <= (+ 2 3) 5.
+        >= (** 2 3) 8.
         """
       end
 
@@ -119,7 +119,7 @@ defmodule Examples.ALArithmetic do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        3 > 5.
+        > 3 5.
         """
       end
 
@@ -133,7 +133,7 @@ defmodule Examples.ALArithmetic do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Y > 1.
+        > Y 1.
         """
       end
 
@@ -142,7 +142,7 @@ defmodule Examples.ALArithmetic do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Y > not_a_number.
+        > Y not_a_number.
         """
       end
 

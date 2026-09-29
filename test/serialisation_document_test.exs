@@ -63,7 +63,7 @@ defmodule ALDocumentTest do
     assert text ==
              "# A card.\n\n" <>
                "@card\n" <>
-               "\#{super: [value, named], ivars: [\#{name: rank}, \#{default: clubs, name: suit}]}.\n\n" <>
+               "\#{\n  super => [value, named],\n  ivars => [\#{name => rank}, \#{default => clubs, name => suit}]\n}.\n\n" <>
                "card >> rank\n| Self R |\n  pass."
 
     assert {:ok, %{program: [%AL.Goal.OApply{method_id: :defclass} | _]}} = AL.Syntax.parse(text)
@@ -71,7 +71,7 @@ defmodule ALDocumentTest do
 
   test "a single super is written without a list" do
     text = Document.render(class(supers: [:value]))
-    assert text =~ "@card\n\#{super: value,"
+    assert text =~ "@card\n\#{super => value,"
     assert {:ok, %Document{supers: [:value]}} = Document.parse(text)
   end
 
@@ -92,18 +92,18 @@ defmodule ALDocumentTest do
   end
 
   test "a body edited to a different length still parses" do
-    text = Document.render(class(methods: [method(body: "  R = 1")]))
-    edited = String.replace(text, "R = 1", "R = 100,\n  pass")
+    text = Document.render(class(methods: [method(body: "  = R 1")]))
+    edited = String.replace(text, "= R 1", "= R 100,\n  pass")
 
     assert {:ok, parsed} = Document.parse(edited)
-    assert [%Method{body: "  R = 100,\n  pass"}] = parsed.methods
+    assert [%Method{body: "  = R 100,\n  pass"}] = parsed.methods
   end
 
   test "full stops inside strings, lists, comments and nested forms do not end the body" do
     body = """
-      A = "stop. \\" still",
-      B = 'atom. too',
-      C = [1, [2, 3] . T],
+      = A "stop. \\" still",
+      = B 'atom. too',
+      = C [1, [2, 3] . T],
       forall {member Xs X} {
         pass
       }
@@ -153,7 +153,7 @@ defmodule ALDocumentTest do
 
     extended = %{document | supers: [:renderable]}
     text = Document.render(extended)
-    assert text =~ "@+map\n\#{super: [renderable]}.\n\n"
+    assert text =~ "@+map\n\#{super => [renderable]}.\n\n"
     assert {:ok, ^extended} = Document.parse(text)
   end
 
@@ -169,18 +169,18 @@ defmodule ALDocumentTest do
 
   test "rejects a method owned by another object" do
     assert {:error, {:invalid_document, _}} =
-             Document.parse("@card \#{super: object}.\n\nother >> rank\n| Self |.")
+             Document.parse("@card \#{super => object}.\n\nother >> rank\n| Self |.")
   end
 
   test "rejects goals and variables in a definition" do
     assert {:error, {:invalid_document, _}} =
-             Document.parse("@card \#{super: object}.\n\nvm_set_class x object.")
+             Document.parse("@card \#{super => object}.\n\nvm_set_class x object.")
 
-    assert {:error, {:invalid_document, _}} = Document.parse("@card \#{super: Super}.")
+    assert {:error, {:invalid_document, _}} = Document.parse("@card \#{super => Super}.")
   end
 
   test "rejects bare ivar names" do
     assert {:error, {:invalid_document, "ivars must be a list of maps with a name"}} =
-             Document.parse("@card \#{super: object, ivars: [rank]}.")
+             Document.parse("@card \#{super => object, ivars => [rank]}.")
   end
 end

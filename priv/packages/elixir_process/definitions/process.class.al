@@ -1,5 +1,5 @@
 @process
-#{super: object, ivars: [#{name: pid}]}.
+#{super => object, ivars => [#{name => pid}]}.
 
 process >> allocate
 | Self Args NewObj |

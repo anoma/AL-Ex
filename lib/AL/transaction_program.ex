@@ -180,7 +180,7 @@ defmodule AL.TransactionProgram do
     programs
     |> order(by_name)
     |> Enum.each(fn program ->
-      ensure_current(program.name, program.version, fn -> install(program) end)
+      ensure_current(program)
     end)
   end
 
@@ -196,14 +196,18 @@ defmodule AL.TransactionProgram do
     end
   end
 
-  @spec current?(atom(), pos_integer(), AL.Branch.t()) :: boolean()
-  def current?(name, version, branch \\ AL.Branch.head()) do
+  @spec current?(t(), AL.Branch.t()) :: boolean()
+  def current?(%__MODULE__{name: name, text: text}, branch \\ AL.Branch.head()) do
     case :mnesia.transaction(fn ->
            Enum.any?(execution_rows(branch), fn {:class, execution, _seq, _class} ->
-             match?(
-               [{:slots, ^execution, %{name: ^name, version: ^version}}],
-               AL.Object.read_slots(execution, branch)
-             )
+             case AL.Object.read_slots(execution, branch) do
+               [{:slots, ^execution, %{name: ^name, tx: tx}}] ->
+                 id = transaction_id(tx, branch)
+                 match?({:source_text, ^id, ^text, _origin}, AL.SourceStore.text(id, branch))
+
+               _ ->
+                 false
+             end
            end)
          end) do
       {:atomic, current?} -> current?
@@ -226,17 +230,17 @@ defmodule AL.TransactionProgram do
     end
   end
 
-  @spec ensure_current(atom(), pos_integer(), (-> any())) :: :ok
-  def ensure_current(name, version, install) do
-    if current?(name, version) do
+  @spec ensure_current(t()) :: :ok
+  def ensure_current(%__MODULE__{} = program) do
+    if current?(program) do
       :ok
     else
-      case install.() do
+      case install(program) do
         {:atomic, _} ->
           :ok
 
         {:aborted, reason} ->
-          raise "AL transaction program #{inspect(name)} failed to install: #{explain(reason)}"
+          raise "AL transaction program #{inspect(program.name)} failed to install: #{explain(reason)}"
       end
     end
   end

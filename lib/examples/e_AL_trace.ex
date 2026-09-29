@@ -15,7 +15,7 @@ defmodule Examples.ALTrace do
       capture_io(fn ->
         run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
           ~AL"""
-          new cell #{name: traced} C.
+          new cell #{name => traced} C.
           """
         end
       end)
@@ -108,7 +108,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @redo_probe_class
-        #{super: value}.
+        #{super => value}.
 
         redo_probe_class >> redo_probe
         | Self from_a |.
@@ -119,7 +119,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         redo_probe X Tag.
-        Tag = not_a.
+        = Tag not_a.
         """
       end
 
@@ -217,8 +217,8 @@ defmodule Examples.ALTrace do
     {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace: [:domino, :vm] do
         ~AL"""
-        X = Y + 1.
-        Y = 4.
+        = X (+ Y 1).
+        = Y 4.
         """
       end
 
@@ -241,7 +241,7 @@ defmodule Examples.ALTrace do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace: [:domino, :vm] do
         ~AL"""
-        findall X Xs {member [1, 2] X}.
+        findall X Xs (member [1, 2] X).
         """
       end
 
@@ -263,7 +263,7 @@ defmodule Examples.ALTrace do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace: [:domino, :vm] do
         ~AL"""
-        findall X Xs {member [1, 2] X}.
+        findall X Xs (member [1, 2] X).
         """
       end
 
@@ -284,7 +284,7 @@ defmodule Examples.ALTrace do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
-        findall X Xs {X > 0, X < 3, label X}.
+        findall X Xs {> X 0, < X 3, label X}.
         """
       end
 
@@ -310,7 +310,7 @@ defmodule Examples.ALTrace do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace: [:domino, :vm] do
         ~AL"""
-        findall [M, X] Xs {X > 0, X < 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M, label X}.
+        findall [M, X] Xs {> X 0, < X 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M, label X}.
         """
       end
 
@@ -339,7 +339,7 @@ defmodule Examples.ALTrace do
     {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
-        findall [M, X] Xs {X > 0, X < 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M}.
+        findall [M, X] Xs {> X 0, < X 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M}.
         """
       end
 
@@ -604,7 +604,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @redo_demo
-        #{super: object}.
+        #{super => object}.
 
         redo_demo >> pick
         | Self first |.
@@ -619,7 +619,7 @@ defmodule Examples.ALTrace do
         ~AL"""
         new redo_demo #{} Obj.
         pick Obj Result.
-        Result = second.
+        = Result second.
         """
       end
 
@@ -637,7 +637,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @chain_box
-        #{super: object}.
+        #{super => object}.
 
         chain_box >> chain
         | Self 1 1 |.
@@ -647,12 +647,12 @@ defmodule Examples.ALTrace do
 
         chain_box >> chain
         | Self N V |
-        N > 2,
-        N1 = N - 1,
-        N2 = N - 2,
+        > N 2,
+        = N1 (- N 1),
+        = N2 (- N 2),
         chain Self N1 V1,
         chain Self N2 V2,
-        V = V1 + V2.
+        = V (+ V1 V2).
         """
       end
 
@@ -701,7 +701,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @pick_box
-        #{super: object}.
+        #{super => object}.
 
         pick_box >> pick
         | Self first |.
@@ -719,7 +719,7 @@ defmodule Examples.ALTrace do
         ~AL"""
         new pick_box #{} Obj.
         pick Obj Chosen.
-        Chosen = third.
+        = Chosen third.
         """
       end
 
@@ -737,7 +737,7 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @attempt_box
-        #{super: object}.
+        #{super => object}.
 
         attempt_box >> probe
         | Self 1 |.
@@ -745,8 +745,8 @@ defmodule Examples.ALTrace do
         attempt_box >> try
         | Self V |
         probe Self W,
-        W = 99,
-        V = unreachable.
+        = W 99,
+        = V unreachable.
 
         attempt_box >> try
         | Self committed |.
@@ -775,12 +775,12 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @probe_box
-        #{super: object}.
+        #{super => object}.
 
         probe_box >> probe_reject
         | Self V |
-        V = 1,
-        V > 50.
+        = V 1,
+        > V 50.
 
         probe_box >> probe_leaf
         | Self 100 |.
@@ -788,12 +788,12 @@ defmodule Examples.ALTrace do
         probe_box >> probe_mid
         | Self V |
         probe_leaf Self W,
-        V = W + 1.
+        = V (+ W 1).
 
         probe_box >> probe_top
         | Self V |
         probe_mid Self W,
-        V = W + 1.
+        = V (+ W 1).
 
         probe_box >> probe_answer
         | Self V |
@@ -837,10 +837,10 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @trace_leg_class
-        #{super: value}.
+        #{super => value}.
 
         trace_leg_class >> trace_next
-        | #{class: trace_leg_class, letter: a} #{class: trace_leg_class, letter: b} |.
+        | #{class => trace_leg_class, letter => a} #{class => trace_leg_class, letter => b} |.
         """
       end
 
@@ -850,7 +850,7 @@ defmodule Examples.ALTrace do
       capture_io(fn ->
         run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
           ~AL"""
-          trace_next X #{class: trace_leg_class, letter: b}.
+          trace_next X #{class => trace_leg_class, letter => b}.
           """
         end
       end)
@@ -865,8 +865,8 @@ defmodule Examples.ALTrace do
     {:atomic, {_bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
-        X = 5.
-        Y = X + 1.
+        = X 5.
+        = Y (+ X 1).
         dif X Z.
         all_dif [X, Z, W].
         in_domain W [1, 2, 3].
@@ -892,8 +892,8 @@ defmodule Examples.ALTrace do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
-        Y = 5.
-        X = Y * 3.
+        = Y 5.
+        = X (* Y 3).
         """
       end
 
@@ -912,11 +912,11 @@ defmodule Examples.ALTrace do
       run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
         ~AL"""
         @triple_class
-        #{super: object}.
+        #{super => object}.
 
         triple_class >> triple
         | Self N Result |
-        Result = N * 3.
+        = Result (* N 3).
         """
       end
 

@@ -11,12 +11,12 @@ defmodule ALSerialisationTest do
     class = fresh_id("serialisation_definition")
 
     source = """
-    @#{al(class)} \#{super: object}.
+    @#{al(class)} \#{super => object}.
 
     #{al(class)} >> ping
     | Self pong |
       # retained exactly
-      Self = Self.
+      = Self Self.
     """
 
     try do
@@ -33,7 +33,7 @@ defmodule ALSerialisationTest do
       assert document.ivars == []
       assert [%Method{selector: :ping} = method] = document.methods
       assert method.declaration == "ping\n| Self pong |"
-      assert method.body == "# retained exactly\nSelf = Self"
+      assert method.body == "# retained exactly\n= Self Self"
     after
       AL.Branch.discard(branch)
       File.rm_rf!(root)
@@ -47,7 +47,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -91,7 +91,7 @@ defmodule ALSerialisationTest do
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "@#{al(class)} \#{super: object}.\n\n" <>
+                 "@#{al(class)} \#{super => object}.\n\n" <>
                    "#{al(class)} >> pick\n| Self old |.\n",
                  branch
                )
@@ -131,7 +131,7 @@ defmodule ALSerialisationTest do
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "@#{al(class)} \#{super: object}.\n\n" <>
+                 "@#{al(class)} \#{super => object}.\n\n" <>
                    "#{al(class)} >> pick\n| Self old |.\n",
                  branch
                )
@@ -159,7 +159,7 @@ defmodule ALSerialisationTest do
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "@#{al(class)} \#{super: object}.\n\n" <>
+                 "@#{al(class)} \#{super => object}.\n\n" <>
                    "#{al(class)} >> old_name\n| Self old |.\n",
                  branch
                )
@@ -200,7 +200,7 @@ defmodule ALSerialisationTest do
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "@#{al(class)} \#{super: object}.\n\n" <>
+                 "@#{al(class)} \#{super => object}.\n\n" <>
                    "#{al(class)} >> ping\n| Self |.\n",
                  branch
                )
@@ -229,7 +229,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -284,7 +284,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -292,8 +292,8 @@ defmodule ALSerialisationTest do
       assert eventually(fn -> AL.Serialisation.quiescent?(branch) end)
 
       document = read_document(path)
-      body = "  # a comment inside the body\n\n  Self = Self"
-      canonical = "# a comment inside the body\nSelf = Self"
+      body = "  # a comment inside the body\n\n  = Self Self"
+      canonical = "# a comment inside the body\n= Self Self"
 
       authored = %{
         document
@@ -326,7 +326,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -349,7 +349,7 @@ defmodule ALSerialisationTest do
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "@#{al(class)} \#{super: object}.\n\n" <>
+                 "@#{al(class)} \#{super => object}.\n\n" <>
                    "#{al(class)} >> pick\n| Self old |.\n",
                  branch
                )
@@ -391,7 +391,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -452,7 +452,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -480,7 +480,7 @@ defmodule ALSerialisationTest do
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("@#{al(class)} \#{super: object}.\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)

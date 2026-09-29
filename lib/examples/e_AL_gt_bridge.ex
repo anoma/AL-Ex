@@ -11,7 +11,7 @@ defmodule Examples.ALGtBridge do
         AL.run branch: branch.id do
           ~AL"""
           vm_set_class inspector_sample object.
-          set_slots inspector_sample #{count: 3, name: "Inspector sample"}.
+          set_slots inspector_sample #{count => 3, name => "Inspector sample"}.
           """
         end
 
@@ -113,9 +113,9 @@ defmodule Examples.ALGtBridge do
           vm_set_super inspector_execution_class program_execution.
           vm_set_class inspector_execution inspector_execution_class.
           get package_system tx InstalledTx.
-          set_slots inspector_execution #{name: package_system, tx: InstalledTx}.
+          set_slots inspector_execution #{name => package_system, tx => InstalledTx}.
           vm_set_class inspector_unknown_execution program_execution.
-          set_slots inspector_unknown_execution #{name: inspector_unknown_execution}.
+          set_slots inspector_unknown_execution #{name => inspector_unknown_execution}.
           """
         end
 
@@ -201,13 +201,13 @@ defmodule Examples.ALGtBridge do
 
     program_execution_receiver_a >> hello
     | Self Result |
-      Result = original_a.
+      = Result original_a.
 
     program_execution_receiver_b >> hello
     | Self Result |
-      Result = original_b.
+      = Result original_b.
 
-    new program_execution \#{deps: [], name: program_execution_coder_fixture, version: 1} _.
+    new program_execution \#{deps => [], name => program_execution_coder_fixture, version => 1} _.
     """
 
     try do
@@ -217,16 +217,16 @@ defmodule Examples.ALGtBridge do
       assert length(rows) == 2
       assert length(Enum.uniq_by(rows, fn [name, seq | _] -> {name, seq} end)) == 2
 
-      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "Result = original_a" end)
+      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "= Result original_a" end)
 
-      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "Result = original_b" end)
+      assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "= Result original_b" end)
 
       assert {:atomic, _} =
                AL.eval_source(
                  """
                  program_execution_receiver_a >> hello
                  | Self Result |
-                   Result = later.
+                   = Result later.
                  """,
                  branch
                )

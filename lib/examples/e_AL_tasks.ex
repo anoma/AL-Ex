@@ -15,14 +15,14 @@ defmodule Examples.ALTasks do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new process #{name: ^subscriber, pid: ^pid} _.
+        new process #{name => ^subscriber, pid => ^pid} _.
         vm_set_class ^name object.
 
         ^name >> handle
         | Self Object |
         vm_set_slot Object processed true,
         get ^subscriber pid P,
-        Message = #{event: handled, object: Object},
+        = Message #{event => handled, object => Object},
         send_elixir P Message.
         """
       end
@@ -80,7 +80,7 @@ defmodule Examples.ALTasks do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        W = async_worker_2.
+        = W async_worker_2.
         send_async W handle [async_obj_2].
         """
       end
@@ -95,7 +95,7 @@ defmodule Examples.ALTasks do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new process #{name: zero_argument_observer, pid: ^observer} _.
+        new process #{name => zero_argument_observer, pid => ^observer} _.
         vm_set_class zero_argument_receiver object.
 
         zero_argument_receiver >> mark
@@ -107,8 +107,8 @@ defmodule Examples.ALTasks do
         get zero_argument_observer pid Process,
         send_elixir Process zero_argument_async_send.
 
-        SyncSelector = mark.
-        AsyncSelector = notify.
+        = SyncSelector mark.
+        = AsyncSelector notify.
         send zero_argument_receiver SyncSelector.
         send_async zero_argument_receiver AsyncSelector.
         get zero_argument_receiver marked Marked.
@@ -125,12 +125,12 @@ defmodule Examples.ALTasks do
     {:atomic, {_bindings, _constraints, spawning_state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new process #{name: spawn_observer, pid: ^pid} _.
+        new process #{name => spawn_observer, pid => ^pid} _.
         vm_set_class spawn_target object.
         spawn {
           set_slot spawn_target value done,
           get spawn_observer pid Observer,
-          Message = #{event: spawned, object: spawn_target},
+          = Message #{event => spawned, object => spawn_target},
           send_elixir Observer Message
         }.
         """
@@ -168,14 +168,14 @@ defmodule Examples.ALTasks do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new process #{name: await_observer, pid: ^pid} _.
+        new process #{name => await_observer, pid => ^pid} _.
         vm_set_class await_target object.
         vm_set_class await_effect effect.
         set_slot await_effect status pending.
         await await_effect [Outcome] {
           set_slot await_target outcome Outcome,
           get await_observer pid Observer,
-          Message = #{event: continued, outcome: Outcome},
+          = Message #{event => continued, outcome => Outcome},
           send_elixir Observer Message
         }.
         """
@@ -186,7 +186,7 @@ defmodule Examples.ALTasks do
     {:atomic, {_bindings, _constraints, completion_state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        complete await_effect #{status: ok, value: connected}.
+        complete await_effect #{status => ok, value => connected}.
         """
       end
 
@@ -212,8 +212,8 @@ defmodule Examples.ALTasks do
       run branch: Examples.Support.branch() do
         ~AL"""
         get await_effect status completed.
-        get await_effect outcome #{status: ok, value: connected}.
-        get await_target outcome #{status: ok, value: connected}.
+        get await_effect outcome #{status => ok, value => connected}.
+        get await_target outcome #{status => ok, value => connected}.
         """
       end
   end

@@ -13,7 +13,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        [First, Second . Rest] = [a, b, c, d].
+        = [First, Second . Rest] [a, b, c, d].
         """
       end
 
@@ -54,7 +54,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [I, X] Elems {at [1, 2, 3] I X}.
+        findall [I, X] Elems (at [1, 2, 3] I X).
         """
       end
 
@@ -91,7 +91,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall M Mins {min_by [[2, a], [1, b], [1, c]] hd M}.
+        findall M Mins (min_by [[2, a], [1, b], [1, c]] hd M).
         """
       end
 
@@ -115,7 +115,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall M Maxes {max_by [[1, a], [2, b], [2, c]] hd M}.
+        findall M Maxes (max_by [[1, a], [2, b], [2, c]] hd M).
         """
       end
 
@@ -127,8 +127,8 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X >= 0.
-        X <= 10.
+        >= X 0.
+        <= X 10.
         findall [X, M] Pairs {min_by [[3, 5], [4, 5], [6, 3], [X, 7]] hd M, label X}.
         """
       end
@@ -147,8 +147,8 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        L = [A, B].
-        forall {member L C} {C = 7}.
+        = L [A, B].
+        forall (member L C) (= C 7).
         """
       end
 
@@ -161,8 +161,8 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        forall {member [1, 2, 3] N} {Double = N * 2, Double <= 6}.
-        Done = true.
+        forall (member [1, 2, 3] N) {= Double (* N 2), <= Double 6}.
+        = Done true.
         """
       end
 
@@ -194,9 +194,9 @@ defmodule Examples.ALLists do
       run branch: Examples.Support.branch() do
         ~AL"""
         dedupe [X, Y] Result.
-        Result = [X, Y].
-        X = 1.
-        Y = 1.
+        = Result [X, Y].
+        = X 1.
+        = Y 1.
         """
       end
 
@@ -219,7 +219,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new anonymous_method #{args: [], body: [Result = #{id: X}], head: [X, Result]} Mapper.
+        new anonymous_method #{args => [], body => [(= Result #{id => X})], head => [X, Result]} Mapper.
         map [a, b, c] Mapper Out.
         """
       end
@@ -232,7 +232,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new anonymous_method #{args: [], body: [Next = [X . Acc]], head: [Acc, X, Next]} Prepend.
+        new anonymous_method #{args => [], body => [(= Next [X . Acc])], head => [Acc, X, Next]} Prepend.
         fold_left [a, b, c] Prepend [] Out.
         """
       end
@@ -245,7 +245,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new anonymous_method #{args: [], body: [Next = [X . Acc]], head: [Acc, X, Next]} Prepend.
+        new anonymous_method #{args => [], body => [(= Next [X . Acc])], head => [Acc, X, Next]} Prepend.
         fold_right [a, b, c] Prepend [] Out.
         """
       end
@@ -283,10 +283,10 @@ defmodule Examples.ALLists do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        L = [1, X, Y].
+        = L [1, X, Y].
         all_dif L.
-        X = 2.
-        Y = 2.
+        = X 2.
+        = Y 2.
         """
       end
 
@@ -297,7 +297,7 @@ defmodule Examples.ALLists do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        L = [1, X, 3].
+        = L [1, X, 3].
         all_dif L.
         label_range L 1 3.
         """
@@ -331,7 +331,7 @@ defmodule Examples.ALLists do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        D = [1, 2, 3, a, b, c].
+        = D [1, 2, 3, a, b, c].
         in_domain X D.
         in_domain Y D.
         in_domain Z D.

@@ -55,6 +55,7 @@ defmodule AL.Goal do
           | AL.Goal.Equal.t()
           | AL.Goal.Variant.t()
           | AL.Goal.StringCodes.t()
+          | AL.Goal.Functor.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
@@ -302,6 +303,12 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Functor do
+    field(:term, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: StringCodes do
     field(:string, AL.Var.t())
     field(:codes, AL.Var.t())
@@ -502,6 +509,7 @@ defmodule AL.Goal do
     {Equal, :equal, [a: :term, b: :term]},
     {Variant, :variant, [a: :term, b: :term]},
     {StringCodes, :string_codes, [string: :term, codes: :term]},
+    {Functor, :functor, [term: :term, name: :term, args: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {FloorDivide, :floor_divide, [dividend: :term, divisor: :term, quotient: :term]},
     {Either, :either, [left: :term, right: :term]},
@@ -540,6 +548,7 @@ defmodule AL.Goal do
     {:dif, Dif, [:a, :b], %{}},
     {:variant, Variant, [:a, :b], %{}},
     {:string_codes, StringCodes, [:string, :codes], %{}},
+    {:functor, Functor, [:term, :name, :args], %{}},
     {:isa, Isa, [:object, :class], %{}},
     {:in_domain, InDomain, [:var, :values], %{}},
     {:all_dif, AllDif, [:vars], %{}},
@@ -591,6 +600,74 @@ defmodule AL.Goal do
          do: {name, Enum.map(fields, &Map.fetch!(goal, &1))}
     end)
   end
+
+  @arithmetic [:+, :-, :*, :/, :**, :rem]
+  @comparisons [:<, :>, :<=, :>=]
+
+  @doc "The name and arguments a goal is written with, receiver first for a send."
+  @spec call_form(term()) :: {atom(), [term()]} | nil
+  def call_form(%Send{object: object, method: method, args: args}) when is_list(args),
+    do: if(named?(method), do: {method, [object | args]})
+
+  def call_form(%Compare{op: op, a: a, b: b}), do: {op, [a, b]}
+  def call_form(%Either{left: left, right: right}), do: {:or, [left, right]}
+  def call_form(%Eq{a: a, b: b}), do: {:=, [a, b]}
+  def call_form(%Equal{a: a, b: b}), do: {:==, [a, b]}
+  def call_form(%CallNextMethod{self: self, args: args}), do: {:call_next_method, [self | args]}
+  def call_form(%Not{condition: condition}), do: {:not, [condition]}
+  def call_form(%Forall{condition: condition, body: body}), do: {:forall, [condition, body]}
+  def call_form(%Freeze{var: var, goals: goals}), do: {:freeze, [var, goals]}
+
+  def call_form(%Findall{template: template, condition: condition, result: result}),
+    do: {:findall, [template, result, condition]}
+
+  def call_form(%OApply{method_id: method_id, args: args}) when is_list(args) do
+    if named?(method_id) and
+         (method_id in @arithmetic or args == [] or AL.Syntax.primitive?(method_id)),
+       do: {method_id, args}
+  end
+
+  def call_form(goal) when is_struct(goal), do: to_call(goal)
+  def call_form(_term), do: nil
+
+  @doc "The goal written with this name and these arguments."
+  @spec from_call_form(atom(), [term()]) :: t() | nil
+  def from_call_form(op, [a, b]) when op in @comparisons, do: %Compare{op: op, a: a, b: b}
+  def from_call_form(:=, [a, b]), do: %Eq{a: a, b: b}
+  def from_call_form(:==, [a, b]), do: %Equal{a: a, b: b}
+
+  def from_call_form(:or, [left, right]),
+    do: %Either{left: constraint(left), right: constraint(right)}
+
+  def from_call_form(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
+
+  def from_call_form(:call_next_method, [self | args]),
+    do: %CallNextMethod{self: self, args: args}
+
+  def from_call_form(:not, [condition]) when is_list(condition), do: %Not{condition: condition}
+
+  def from_call_form(:forall, [condition, body]) when is_list(condition) and is_list(body),
+    do: %Forall{condition: condition, body: body}
+
+  def from_call_form(:freeze, [var, goals]) when is_list(goals),
+    do: %Freeze{var: var, goals: goals}
+
+  def from_call_form(:findall, [template, result, condition]) when is_list(condition),
+    do: %Findall{template: template, condition: condition, result: result}
+
+  def from_call_form(name, args) do
+    cond do
+      AL.Syntax.primitive?(name) -> %OApply{method_id: name, args: args}
+      goal = from_call(name, args) -> goal
+      args == [] -> %OApply{method_id: name, args: []}
+      true -> %Send{object: hd(args), method: name, args: tl(args)}
+    end
+  end
+
+  defp named?(name), do: is_atom(name) and not AL.Var.var?(name)
+
+  defp constraint(%Eq{a: a, b: b}), do: %Compare{op: :=, a: a, b: b}
+  defp constraint(goal), do: goal
 
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
   @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)

@@ -15,8 +15,8 @@ defmodule Examples.ALBlackjack do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new card #{rank: king, suit: spades} King.
-        new card #{rank: queen, suit: hearts} Queen.
+        new card #{rank => king, suit => spades} King.
+        new card #{rank => queen, suit => hearts} Queen.
         hand_total [King, Queen] Total.
         """
       end
@@ -29,9 +29,9 @@ defmodule Examples.ALBlackjack do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new card #{rank: king, suit: spades} King.
-        new card #{rank: ace, suit: hearts} Ace.
-        new card #{suit: clubs} C3.
+        new card #{rank => king, suit => spades} King.
+        new card #{rank => ace, suit => hearts} Ace.
+        new card #{suit => clubs} C3.
         get C3 rank R3.
         findall R3 Completions {label R3, hand_total [King, Ace, C3] 21}.
         """
@@ -157,7 +157,7 @@ defmodule Examples.ALBlackjack do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new card #{rank: 29} _C.
+        new card #{rank => 29} _C.
         """
       end
 
@@ -170,7 +170,7 @@ defmodule Examples.ALBlackjack do
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new card #{rank: 7} C.
+        new card #{rank => 7} C.
         get C rank 2.
         """
       end

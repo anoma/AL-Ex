@@ -1,1 +1,1 @@
-defpackage elixir_process #{deps: [], version: 1}.
+defpackage elixir_process #{deps => [], version => 1}.

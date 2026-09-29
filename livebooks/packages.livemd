@@ -74,7 +74,7 @@ greetings/
 ```
 
 ```text
-defpackage greetings #{deps: [], version: 1}.
+defpackage greetings #{deps => [], version => 1}.
 ```
 
 A `.class.al` file defines a class owned by the package. An `.extension.al` file adds methods or superclasses to a class owned elsewhere.
@@ -120,11 +120,11 @@ author = AL.Branch.head()
 {:atomic, _} =
   run do
     ~AL"""
-    new package #{deps: [], name: greetings, version: 1} greetings.
+    new package #{deps => [], name => greetings, version => 1} greetings.
     active_build greetings Build.
 
     @greeting
-    #{super: object, ivars: [#{name: words}]}.
+    #{super => object, ivars => [#{name => words}]}.
 
     greeting >> words
     | Self Words |
@@ -134,7 +134,7 @@ author = AL.Branch.head()
 
     list >> as_greeting
     | Words Greeting |
-    new greeting #{words: Words} Greeting.
+    new greeting #{words => Words} Greeting.
 
     include_method Build list as_greeting.
     """

@@ -1,5 +1,5 @@
 @punctuator
-#{super: object}.
+#{super => object}.
 
 punctuator >> punctuation
 | _Self bang |

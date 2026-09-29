@@ -9,12 +9,16 @@ object protocols, not as Elixir control flow expressed through AL syntax.
   `AL.Goal` structs the interpreter runs. The grammar is in
   `lib/AL/syntax.bnf`. Variables are capitalised (`Self`, `_`), atoms are
   lowercase or quoted (`point`, `'Hello'`), `[H . T]` is a list,
-  `#{key: V}` is a map, and `{G1, G2}` is a block of goals.
+  `#{key => V}` is a map, and `{G1, G2}` is a block of goals.
 - A call is juxtaposition: `sel Recv Arg1 Arg2` sends `sel` to `Recv`. Call
   arguments are single terms, so a nested call is bracketed:
-  `between Self (Low + 1) High V`. `(foo)` is a goal with no arguments.
+  `between Self (+ Low 1) High V`. `(foo)` is a goal with no arguments.
+- Operators are ordinary names called in prefix: `= X 1`, `< X 5`,
+  `= Y (+ X 1)`, `or (= C 1) (= C 2)`. The only infix forms are `,`, `;`,
+  `->`, and the list tail `.`. A minus touching a number is a negative
+  literal (`-1`).
 - Every top-level form ends with `.`. Goals are separated by commas.
-- A class is declared with `@name #{super: S, ivars: [#{name: x}]}.`. Ivars
+- A class is declared with `@name #{super => S, ivars => [#{name => x}]}.`. Ivars
   are a list of maps with a `name:`. Declaring an existing name again replaces
   its declaration.
 - A method clause is written with the head on its own line:
@@ -43,11 +47,11 @@ object protocols, not as Elixir control flow expressed through AL syntax.
   `not {G}`, `lambda [Args] M {G}`, `spawn {G}`.
 - Comments start with `#`; `#{` always opens a map.
 - The only Elixir in AL is its AST. Transaction programs live in
-  `priv/programs/*.al` and start with `defprogram name #{version: V, deps: [...]}.`.
+  `priv/programs/*.al` and start with `defprogram name #{version => V, deps => [...]}.`.
   Elixir code embeds AL only as `run do ~AL"""...""" end` (where `^name` pins
   an Elixir value) or text passed to `AL.eval_source/3`. Definition files
   (`*.class.al`, `*.extension.al`) are AL source too: leading `#` comment
-  lines, then `@name #{...}.` for a class or `@+name #{super: [...]}.` for an
+  lines, then `@name #{...}.` for a class or `@+name #{super => [...]}.` for an
   extension of a class owned elsewhere, then that owner's method clauses. In an Elixir `"..."` string,
   write an AL map as `\#{...}`; `~AL` and `~S` do not interpolate.
 - AL has no tuples. Represent AL data with lists, maps, or classed value

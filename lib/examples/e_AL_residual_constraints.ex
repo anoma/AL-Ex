@@ -28,7 +28,7 @@ defmodule Examples.ALResidualConstraints do
         in_domain Left [1, 2, 3].
         dif Left 3.
         in_domain Right [2, 3, 4].
-        Left = Right.
+        = Left Right.
         """
       end
 
@@ -70,7 +70,7 @@ defmodule Examples.ALResidualConstraints do
         ~AL"""
         in_domain Value [1, 2].
         dif Value 2.
-        Value = 1.
+        = Value 1.
         """
       end
 
@@ -82,7 +82,7 @@ defmodule Examples.ALResidualConstraints do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        {in_domain Value [1, 2], Value = 9} ; in_domain Value [3, 4].
+        {in_domain Value [1, 2], = Value 9} ; in_domain Value [3, 4].
         """
       end
 
@@ -94,7 +94,7 @@ defmodule Examples.ALResidualConstraints do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Value Values {in_domain Value [1, 2] ; in_domain Value [3, 4]}.
+        findall Value Values (in_domain Value [1, 2] ; in_domain Value [3, 4]).
         """
       end
 
@@ -113,7 +113,7 @@ defmodule Examples.ALResidualConstraints do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [Left, Right] Answers {Left > 0, Right > 0, Left + Right = 10}.
+        findall [Left, Right] Answers {> Left 0, > Right 0, = (+ Left Right) 10}.
         """
       end
 
@@ -131,7 +131,7 @@ defmodule Examples.ALResidualConstraints do
       run branch: Examples.Support.branch() do
         ~AL"""
         @constraint_record
-        #{super: value, ivars: [#{domain: [a, b], name: kind}]}.
+        #{super => value, ivars => [#{domain => [a, b], name => kind}]}.
 
         constraint_record >> constraint_probe
         | _Self ok |.

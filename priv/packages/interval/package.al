@@ -1,1 +1,1 @@
-defpackage interval #{deps: [], version: 1}.
+defpackage interval #{deps => [], version => 1}.

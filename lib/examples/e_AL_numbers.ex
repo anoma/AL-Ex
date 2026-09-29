@@ -30,7 +30,7 @@ defmodule Examples.ALNumbers do
         ~AL"""
         number >> double
         | Self Result |
-        Result = Self * 2.
+        = Result (* Self 2).
 
         double 21 Out.
         """
@@ -50,11 +50,11 @@ defmodule Examples.ALNumbers do
         number >> unit_sign
         | 1 positive |.
 
-        X = -3.
-        X < 0.
-        Y = X + 5.
-        #{amount: -3} = #{amount: X}.
-        Z = 4.
+        = X -3.
+        < X 0.
+        = Y (+ X 5).
+        = #{amount => -3} #{amount => X}.
+        = Z 4.
         unit_sign -1 Sign.
         """
       end
@@ -202,7 +202,7 @@ defmodule Examples.ALNumbers do
       run branch: Examples.Support.branch() do
         ~AL"""
         stays_open X.
-        X = not_a_number.
+        = X not_a_number.
         """
       end
   end
@@ -217,7 +217,7 @@ defmodule Examples.ALNumbers do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [V] Values {between object 2 5 V}.
+        findall [V] Values (between object 2 5 V).
         """
       end
 
@@ -239,7 +239,7 @@ defmodule Examples.ALNumbers do
       run branch: Examples.Support.branch() do
         ~AL"""
         class X number.
-        X = not_a_number.
+        = X not_a_number.
         """
       end
 
@@ -247,7 +247,7 @@ defmodule Examples.ALNumbers do
       run branch: Examples.Support.branch() do
         ~AL"""
         class X number.
-        X = 7.
+        = X 7.
         """
       end
 

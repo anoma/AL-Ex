@@ -1,1 +1,1 @@
-defpackage greeting #{deps: [], version: 1}.
+defpackage greeting #{deps => [], version => 1}.

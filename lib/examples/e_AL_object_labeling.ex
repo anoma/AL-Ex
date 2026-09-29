@@ -10,35 +10,35 @@ defmodule Examples.ALObjectLabeling do
       run branch: Examples.Support.branch() do
         ~AL"""
         @labeling_animal
-        #{super: object}.
+        #{super => object}.
 
         @labeling_dog
-        #{super: labeling_animal, ivars: [#{name: labeling_unique_slot}]}.
+        #{super => labeling_animal, ivars => [#{name => labeling_unique_slot}]}.
 
         @labeling_cat
-        #{super: labeling_animal}.
+        #{super => labeling_animal}.
 
         @labeling_named
-        #{super: object}.
+        #{super => object}.
 
         @labeling_named_dog
-        #{super: [labeling_dog, labeling_named]}.
+        #{super => [labeling_dog, labeling_named]}.
 
-        new labeling_animal #{name: labeling_animal_object} _.
-        new labeling_dog #{name: labeling_dog_object} _.
-        new labeling_cat #{name: labeling_cat_object} _.
-        new labeling_named_dog #{name: labeling_named_dog_object} _.
+        new labeling_animal #{name => labeling_animal_object} _.
+        new labeling_dog #{name => labeling_dog_object} _.
+        new labeling_cat #{name => labeling_cat_object} _.
+        new labeling_named_dog #{name => labeling_named_dog_object} _.
         set_slot labeling_dog_object labeling_unique_slot labeling_unique_value.
 
         @labeling_shape
-        #{super: value}.
+        #{super => value}.
 
         @labeling_circle
-        #{super: [labeling_shape, value]}.
+        #{super => [labeling_shape, value]}.
 
         labeling_circle >> init
         | _Self _Args New |
-        New = #{class: labeling_circle, radius: 1}.
+        = New #{class => labeling_circle, radius => 1}.
         """
       end
 
@@ -100,7 +100,7 @@ defmodule Examples.ALObjectLabeling do
         ~AL"""
         isa Object labeling_animal.
         dif Object labeling_animal_object.
-        findall Object Objects {label Object}.
+        findall Object Objects (label Object).
         """
       end
 
@@ -166,7 +166,7 @@ defmodule Examples.ALObjectLabeling do
         findall [Object, Marker, ExactClass] Answers {
           class Object labeling_dog,
           label Object,
-          Marker = after_label,
+          = Marker after_label,
           class Object ExactClass
         }.
         """
@@ -197,7 +197,7 @@ defmodule Examples.ALObjectLabeling do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Marker Markers {class Object ExactClass, label ExactClass, Marker = after_class_label}.
+        findall Marker Markers {class Object ExactClass, label ExactClass, = Marker after_class_label}.
         """
       end
 
@@ -210,7 +210,7 @@ defmodule Examples.ALObjectLabeling do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Marker Markers {super Subclass Superclass, label Subclass, Marker = after_super_label}.
+        findall Marker Markers {super Subclass Superclass, label Subclass, = Marker after_super_label}.
         """
       end
 
@@ -226,7 +226,7 @@ defmodule Examples.ALObjectLabeling do
         findall [Object, Marker] Answers {
           slot Object labeling_unique_slot labeling_unique_value,
           label Object,
-          Marker = after_slot_label
+          = Marker after_slot_label
         }.
         """
       end

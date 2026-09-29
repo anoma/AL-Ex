@@ -29,21 +29,23 @@ defmodule AL.Application do
     register_edge_providers()
     AL.Outbox.start_all()
 
+    main_time = AL.Command.system_time(AL.Branch.main())
     bootstrap()
-    AL.Branch.ensure_examples()
+
+    if AL.Command.system_time(AL.Branch.main()) == main_time,
+      do: AL.Branch.ensure_examples(),
+      else: AL.Branch.rebase_examples()
+
     AL.Serialisation.start_all()
 
     {:ok, pid}
   end
 
   def bootstrap() do
-    packages_pending? = not AL.Package.system_available?()
+    programs = Enum.reject(AL.TransactionProgram.configured(), &AL.TransactionProgram.current?/1)
 
-    programs =
-      AL.TransactionProgram.configured()
-      |> Enum.reject(fn program ->
-        AL.TransactionProgram.current?(program.name, program.version)
-      end)
+    packages_pending? =
+      not (AL.Package.system_available?() and AL.Package.configured_current?())
 
     :ok = install_startup(programs, packages_pending?)
     register_natives()
@@ -67,10 +69,7 @@ defmodule AL.Application do
     end
 
     Enum.each(ready_programs, fn program ->
-      :ok =
-        AL.TransactionProgram.ensure_current(program.name, program.version, fn ->
-          AL.TransactionProgram.install(program)
-        end)
+      :ok = AL.TransactionProgram.ensure_current(program)
     end)
 
     if packages_ready? do

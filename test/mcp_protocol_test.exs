@@ -100,14 +100,14 @@ defmodule ALMCPProtocolTest do
                 }
               }} =
                call("evaluateSource", %{
-                 "source" => "Result = ok.",
+                 "source" => "= Result ok.",
                  "branch" => to_string(branch.id)
                })
 
       assert branch_id == to_string(branch.id)
       assert is_integer(command_tx)
 
-      assert {:atomic, [{:source_text, ^command_tx, "Result = ok.", _origin}]} =
+      assert {:atomic, [{:source_text, ^command_tx, "= Result ok.", _origin}]} =
                :mnesia.transaction(fn ->
                  [AL.SourceStore.text(command_tx, branch)]
                end)
@@ -120,13 +120,13 @@ defmodule ALMCPProtocolTest do
     branch = AL.Branch.fork(:tip, baseline)
 
     source = """
-    AtomValue = ok.
-    BinaryValue = "ok".
-    IntegerValue = 9007199254740993.
-    FloatValue = 1.5.
-    MapValue = \#{key: "value"}.
-    ProperList = [1, two].
-    ImproperList = [1 . tail].
+    = AtomValue ok.
+    = BinaryValue "ok".
+    = IntegerValue 9007199254740993.
+    = FloatValue 1.5.
+    = MapValue \#{key => "value"}.
+    = ProperList [1, two].
+    = ImproperList [1 . tail].
     in_domain Choice [1, 2].
     """
 
@@ -269,15 +269,15 @@ defmodule ALMCPProtocolTest do
     branch = AL.Branch.fork(:tip, baseline)
 
     source = """
-    @mcp_inspected \#{super: object, ivars: [\#{name: name}]}.
+    @mcp_inspected \#{super => object, ivars => [\#{name => name}]}.
 
     mcp_inspected >> answer
     | _Self 42 |.
 
     mcp_inspected >> tail_reference
     | Self Head Out |
-      Self = Self,
-      Out = [Head . answer].
+      = Self Self,
+      = Out [Head . answer].
 
     vm_set_class mcp_instance mcp_inspected.
     """

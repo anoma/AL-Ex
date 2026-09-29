@@ -50,7 +50,7 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall T Ts {tag ^c T}.
+        findall T Ts (tag ^c T).
         """
       end
 
@@ -89,7 +89,7 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: tip.id do
         ~AL"""
-        findall T Ts {tag ^c T}.
+        findall T Ts (tag ^c T).
         """
       end
 
@@ -138,7 +138,7 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall T Ts {tag ^c T}.
+        findall T Ts (tag ^c T).
         """
       end
 
@@ -203,7 +203,7 @@ defmodule Examples.ALClauses do
       run branch: Examples.Support.branch() do
         ~AL"""
         method ^c tag Id.
-        findall S Seqs {clause Id S H Body}.
+        findall S Seqs (clause Id S H Body).
         """
       end
 
@@ -250,7 +250,7 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall T Ts {tag ^c T}.
+        findall T Ts (tag ^c T).
         """
       end
 
@@ -267,7 +267,7 @@ defmodule Examples.ALClauses do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Head Heads {clause defmethod Head Body}.
+        findall Head Heads (clause defmethod Head Body).
         """
       end
 
@@ -304,7 +304,7 @@ defmodule Examples.ALClauses do
 
         cons_arg_test >> wrap
         | Self H T Out |
-        Out = [H . T].
+        = Out [H . T].
         """
       end
 
@@ -324,7 +324,7 @@ defmodule Examples.ALClauses do
       run branch: Examples.Support.branch() do
         ~AL"""
         method list at Id.
-        findall Head Heads {clause Id Head Body}.
+        findall Head Heads (clause Id Head Body).
         """
       end
 
@@ -336,7 +336,7 @@ defmodule Examples.ALClauses do
       run branch: Examples.Support.branch() do
         ~AL"""
         method list at Id.
-        findall [Head, Body] Clauses {clause Id Head Body}.
+        findall [Head, Body] Clauses (clause Id Head Body).
         """
       end
 

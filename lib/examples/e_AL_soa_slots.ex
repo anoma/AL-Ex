@@ -15,7 +15,7 @@ defmodule Examples.ALSoaSlots do
       run branch: Examples.Support.branch() do
         ~AL"""
         @soa_slot_probe
-        #{super: object, ivars: [#{name: level, storage: soa}]}.
+        #{super => object, ivars => [#{name => level, storage => soa}]}.
         """
       end
 
@@ -38,7 +38,7 @@ defmodule Examples.ALSoaSlots do
       run branch: Examples.Support.branch() do
         ~AL"""
         @soa_slot_probe_resets
-        #{super: object, ivars: [#{name: level, storage: soa}]}.
+        #{super => object, ivars => [#{name => level, storage => soa}]}.
         """
       end
 
@@ -65,7 +65,7 @@ defmodule Examples.ALSoaSlots do
       run branch: Examples.Support.branch() do
         ~AL"""
         @soa_slot_probe_many
-        #{super: object, ivars: [#{name: soa_slot_probe_many_level, storage: soa}]}.
+        #{super => object, ivars => [#{name => soa_slot_probe_many_level, storage => soa}]}.
         """
       end
 
@@ -76,7 +76,7 @@ defmodule Examples.ALSoaSlots do
         new soa_slot_probe_many Obj2.
         set_slot Obj1 soa_slot_probe_many_level 1.
         set_slot Obj2 soa_slot_probe_many_level 2.
-        findall [O, V] Results {slot O soa_slot_probe_many_level V soa}.
+        findall [O, V] Results (slot O soa_slot_probe_many_level V soa).
         """
       end
 

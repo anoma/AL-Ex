@@ -40,7 +40,7 @@ defmodule Examples.ALEffects do
       {:atomic, {bindings, _constraints, _state}} =
         run branch: Examples.Support.branch() do
           ~AL"""
-          new effect #{arguments: [^path], operation: read, provider: file} Effect.
+          new effect #{arguments => [^path], operation => read, provider => file} Effect.
           """
         end
 
@@ -59,7 +59,7 @@ defmodule Examples.ALEffects do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [], operation: transaction_context, provider: example_effect} Effect.
+        new effect #{arguments => [], operation => transaction_context, provider => example_effect} Effect.
         """
       end
 
@@ -89,7 +89,7 @@ defmodule Examples.ALEffects do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [], operation: notify, provider: example_effect} _.
+        new effect #{arguments => [], operation => notify, provider => example_effect} _.
         fail.
         """
       end
@@ -107,7 +107,7 @@ defmodule Examples.ALEffects do
 
         effect_emitter >> emit
         | _Self Effect |
-        new effect #{arguments: [from_method], operation: echo, provider: example_effect} Effect.
+        new effect #{arguments => [from_method], operation => echo, provider => example_effect} Effect.
 
         emit effect_emitter Effect.
         """
@@ -123,7 +123,7 @@ defmodule Examples.ALEffects do
     {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [Unbound], operation: echo, provider: example_effect} _.
+        new effect #{arguments => [Unbound], operation => echo, provider => example_effect} _.
         """
       end
 
@@ -144,7 +144,7 @@ defmodule Examples.ALEffects do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [later], operation: wait, provider: example_effect} Effect.
+        new effect #{arguments => [later], operation => wait, provider => example_effect} Effect.
         """
       end
 
@@ -164,7 +164,7 @@ defmodule Examples.ALEffects do
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [initialized], operation: echo, provider: example_effect} Effect.
+        new effect #{arguments => [initialized], operation => echo, provider => example_effect} Effect.
         """
       end
 
@@ -194,7 +194,7 @@ defmodule Examples.ALEffects do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [object_effect], operation: wait, provider: example_effect} Effect.
+        new effect #{arguments => [object_effect], operation => wait, provider => example_effect} Effect.
         """
       end
 
@@ -206,13 +206,13 @@ defmodule Examples.ALEffects do
         ~AL"""
         class ^effect effect.
         get_slots ^effect #{
-          arguments: [object_effect],
-          completed_by: CompletedBy,
-          operation: wait,
-          outcome: Outcome,
-          provider: example_effect,
-          requested_by: RequestedBy,
-          status: Status
+          arguments => [object_effect],
+          completed_by => CompletedBy,
+          operation => wait,
+          outcome => Outcome,
+          provider => example_effect,
+          requested_by => RequestedBy,
+          status => Status
         }.
         class RequestedBy transaction.
         """
@@ -226,7 +226,7 @@ defmodule Examples.ALEffects do
     {:atomic, {completed, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        get_slots ^effect #{completed_by: CompletedBy, outcome: Outcome, status: Status}.
+        get_slots ^effect #{completed_by => CompletedBy, outcome => Outcome, status => Status}.
         class CompletedBy transaction.
         """
       end
@@ -241,7 +241,7 @@ defmodule Examples.ALEffects do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [], operation: raise, provider: example_effect} Effect.
+        new effect #{arguments => [], operation => raise, provider => example_effect} Effect.
         """
       end
 
@@ -257,8 +257,8 @@ defmodule Examples.ALEffects do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new effect #{arguments: [first], operation: echo, provider: example_effect} First.
-        new effect #{arguments: [second], operation: echo, provider: example_effect} Second.
+        new effect #{arguments => [first], operation => echo, provider => example_effect} First.
+        new effect #{arguments => [second], operation => echo, provider => example_effect} Second.
         """
       end
 
@@ -282,7 +282,7 @@ defmodule Examples.ALEffects do
       {:atomic, {_bindings, _constraints, state}} =
         run branch: Examples.Support.branch() do
           ~AL"""
-          new effect #{arguments: [], operation: notify, provider: example_effect} _.
+          new effect #{arguments => [], operation => notify, provider => example_effect} _.
           """
         end
 
@@ -314,7 +314,7 @@ defmodule Examples.ALEffects do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
           ~AL"""
-          new effect #{arguments: [], operation: notify, provider: example_effect} _.
+          new effect #{arguments => [], operation => notify, provider => example_effect} _.
           """
         end
 
@@ -326,7 +326,7 @@ defmodule Examples.ALEffects do
         {:atomic, {bindings, _constraints, _state}} =
           run branch: child.id do
             ~AL"""
-            new effect #{arguments: [], operation: branch, provider: example_effect} Effect.
+            new effect #{arguments => [], operation => branch, provider => example_effect} Effect.
             """
           end
 

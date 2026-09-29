@@ -16,7 +16,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         @failgreeter
-        #{super: value}.
+        #{super => value}.
 
         failgreeter >> init
         | Self _ Self |.
@@ -60,7 +60,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         @failbody
-        #{super: value}.
+        #{super => value}.
 
         failbody >> init
         | Self _ Self |.
@@ -85,7 +85,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         @no_trace_failbody
-        #{super: value}.
+        #{super => value}.
 
         no_trace_failbody >> init
         | Self _ Self |.
@@ -121,9 +121,9 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         @failure_domain_probe
-        #{super: object, ivars: [#{domain: ["on", "off"], name: state}]}.
+        #{super => object, ivars => [#{domain => ["on", "off"], name => state}]}.
 
-        new failure_domain_probe #{name: failure_domain_instance, state: "on"} _.
+        new failure_domain_probe #{name => failure_domain_instance, state => "on"} _.
         """
       end
 
@@ -202,7 +202,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         dif X 1.
-        X = 1.
+        = X 1.
         """
       end
 
@@ -218,7 +218,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         dif X 1.
-        X = 1.
+        = X 1.
         """
       end
 
@@ -229,7 +229,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         isa Y number.
-        Y = not_a_number.
+        = Y not_a_number.
         """
       end
 
@@ -241,7 +241,7 @@ defmodule Examples.ALFailures do
     {:aborted, plain_reason} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        1 = 2.
+        = 1 2.
         """
       end
 
@@ -255,7 +255,7 @@ defmodule Examples.ALFailures do
       run branch: Examples.Support.branch() do
         ~AL"""
         @failquiet
-        #{super: value}.
+        #{super => value}.
 
         failquiet >> init
         | Self _ Self |.

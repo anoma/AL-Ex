@@ -37,7 +37,7 @@ defmodule Examples.ALMaps do
     {:atomic, {bindings, _constraints, program_state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        get #{a: 3, b: 4, c: 3} K 3.
+        get #{a => 3, b => 4, c => 3} K 3.
         """
       end
 
@@ -54,8 +54,8 @@ defmodule Examples.ALMaps do
     {:atomic, {bindings, _constraints, _}} =
       run do
         ~AL"""
-        get #{present: 7} present fallback Present.
-        get #{present: 7} missing fallback Missing.
+        get #{present => 7} present fallback Present.
+        get #{present => 7} missing fallback Missing.
         """
       end
 
@@ -68,7 +68,7 @@ defmodule Examples.ALMaps do
     {:atomic, {bindings, _constraints, program_state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        put #{a: 3, b: 4, c: 3} c 4 M2.
+        put #{a => 3, b => 4, c => 3} c 4 M2.
         """
       end
 
@@ -81,8 +81,8 @@ defmodule Examples.ALMaps do
     {:atomic, {bindings, _constraints, _}} =
       run do
         ~AL"""
-        put_new #{present: 7} present fallback Preserved.
-        put_new #{present: 7} missing fallback Extended.
+        put_new #{present => 7} present fallback Preserved.
+        put_new #{present => 7} missing fallback Extended.
         """
       end
 

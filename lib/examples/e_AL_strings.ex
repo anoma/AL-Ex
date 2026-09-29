@@ -14,7 +14,7 @@ defmodule Examples.ALStrings do
         ~AL"""
         class "hello" C.
         isa "hello" value.
-        not {isa "hello" number}.
+        not (isa "hello" number).
         """
       end
 
@@ -90,8 +90,8 @@ defmodule Examples.ALStrings do
         ~AL"""
         string_codes FromCodes [104 . Rest].
         string_codes FromString LaterCodes.
-        Rest = [105].
-        FromString = "ok".
+        = Rest [105].
+        = FromString "ok".
         """
       end
 
@@ -105,8 +105,8 @@ defmodule Examples.ALStrings do
         ~AL"""
         findall String Strings {
           string_codes String [Code],
-          Code >= 97,
-          Code <= 99,
+          >= Code 97,
+          <= Code 99,
           label Code
         }.
         """
@@ -148,7 +148,7 @@ defmodule Examples.ALStrings do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [Front, Back] Splits {concat Front Back "ab"}.
+        findall [Front, Back] Splits (concat Front Back "ab").
         """
       end
 
@@ -160,7 +160,7 @@ defmodule Examples.ALStrings do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Parts Answers {split "a,b,,c" "," Parts}.
+        findall Parts Answers (split "a,b,,c" "," Parts).
         split "plain" "," Unsplit.
         split "" "," Empty.
         """
@@ -186,7 +186,7 @@ defmodule Examples.ALStrings do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Parts Answers {split "a:::b" "::" Parts}.
+        findall Parts Answers (split "a:::b" "::" Parts).
         """
       end
 

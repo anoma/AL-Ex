@@ -1,5 +1,5 @@
 @welcome_message
-#{super: object}.
+#{super => object}.
 
 welcome_message >> parts
 | _Self [Greeting, Punctuation] |

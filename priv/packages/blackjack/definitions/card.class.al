@@ -1,9 +1,9 @@
 @card
 #{
-  super: value,
-  ivars: [
-    #{domain: [spades, diamonds, hearts, clubs], name: suit},
-    #{domain: [2, 3, 4, 5, 6, 7, 8, 9, 10, jack, queen, king, ace], name: rank}
+  super => value,
+  ivars => [
+    #{domain => [spades, diamonds, hearts, clubs], name => suit},
+    #{domain => [2, 3, 4, 5, 6, 7, 8, 9, 10, jack, queen, king, ace], name => rank}
   ]
 }.
 

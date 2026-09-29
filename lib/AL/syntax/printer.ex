@@ -10,12 +10,8 @@ defmodule AL.Syntax.Printer do
   @semi 1
   @arrow 2
   @either 3
-  @comparison 4
-  @additive 5
-  @multiplicative 6
-  @power 7
-  @unary 8
   @call 8
+  @operators [:=, :==, :<, :>, :<=, :>=, :+, :-, :*, :/, :**]
   @primary 9
 
   @spec defmethod(term(), term(), term(), [term()]) :: String.t()
@@ -131,7 +127,7 @@ defmodule AL.Syntax.Printer do
              argument(class, indent),
              argument(selector, indent),
              argument(head, indent),
-             block(body, indent)
+             goal_group(body, indent)
            ],
            context
          )
@@ -152,7 +148,7 @@ defmodule AL.Syntax.Printer do
         categories: categories
       ]
       |> Enum.reject(fn {key, value} -> value == default(key) end)
-      |> Enum.map(fn {key, value} -> "#{key}: #{term(value, indent <> "  ")}" end)
+      |> Enum.map(fn {key, value} -> "#{atom(key)} => #{term(value, indent <> "  ")}" end)
 
     wrap(
       "@" <>
@@ -170,7 +166,7 @@ defmodule AL.Syntax.Printer do
              term(name, indent, @primary) <>
              "\n" <>
              indent <>
-             layout("\#{", ["super: " <> term(supers, indent <> "  ")], "}", indent),
+             layout("\#{", ["super => " <> term(supers, indent <> "  ")], "}", indent),
            @semi,
            context
          )
@@ -180,29 +176,20 @@ defmodule AL.Syntax.Printer do
 
   defp goal(%Goal.OApply{method_id: :spawn_transaction, args: [goals]}, indent, context)
        when is_list(goals) and goals != [],
-       do: applied(:spawn, [block(goals, indent)], context)
+       do: applied(:spawn, [goal_group(goals, indent)], context)
 
   defp goal(%Goal.OApply{method_id: :await_effect, args: [effect, head, goals]}, indent, context)
        when is_list(head) and is_list(goals) and goals != [],
        do:
          applied(
            :await,
-           [argument(effect, indent), argument(head, indent), block(goals, indent)],
+           [argument(effect, indent), argument(head, indent), goal_group(goals, indent)],
            context
          )
 
-  defp goal(%Goal.OApply{method_id: op, args: [left, right]}, indent, context)
-       when op in [:+, :-, :*, :/, :**, :rem],
-       do: infix(op, left, right, indent, context)
-
-  defp goal(%Goal.OApply{method_id: :-, args: [operand]}, indent, context) do
-    operand =
-      if is_number(operand),
-        do: "(#{term(operand, indent)})",
-        else: term(operand, indent, @primary)
-
-    wrap("-" <> operand, @unary, context)
-  end
+  defp goal(%Goal.OApply{method_id: op, args: args}, indent, context)
+       when op in [:+, :-, :*, :/, :**, :rem] and is_list(args) and args != [],
+       do: call(op, args, indent, context)
 
   defp goal(%Goal.OApply{method_id: method_id, args: args}, indent, context)
        when is_atom(method_id) and is_list(args) do
@@ -229,7 +216,7 @@ defmodule AL.Syntax.Printer do
        do:
          applied(
            :lambda,
-           [argument(object, indent), argument(method, indent), block(body, indent)],
+           [argument(object, indent), argument(method, indent), goal_group(body, indent)],
            context
          )
 
@@ -294,12 +281,12 @@ defmodule AL.Syntax.Printer do
        do:
          applied(
            :findall,
-           [argument(template, indent), argument(result, indent), block(condition, indent)],
+           [argument(template, indent), argument(result, indent), goal_group(condition, indent)],
            context
          )
 
   defp goal(%Goal.Forall{condition: condition, body: body}, indent, context) when is_list(body),
-    do: applied(:forall, [goal_group(condition, indent), block(body, indent)], context)
+    do: applied(:forall, [goal_group(condition, indent), goal_group(body, indent)], context)
 
   defp goal(%Goal.Not{condition: condition}, indent, context),
     do: applied(:not, [goal_group(condition, indent)], context)
@@ -339,21 +326,20 @@ defmodule AL.Syntax.Printer do
   defp goal(%Goal.SourceScope{capture_id: capture_id, goals: goals}, indent, context)
        when is_list(goals),
        do:
-         applied(:vm_source_scope, [argument(capture_id, indent), block(goals, indent)], context)
+         applied(
+           :vm_source_scope,
+           [argument(capture_id, indent), goal_group(goals, indent)],
+           context
+         )
 
   defp goal(%Goal.Either{left: left, right: right}, indent, context),
-    do:
-      wrap(
-        goal(left, indent, @either) <> " or " <> goal(right, indent, @comparison),
-        @either,
-        context
-      )
+    do: call(:or, [left, right], indent, context)
 
   defp goal(%Goal.Compare{op: op, a: a, b: b}, indent, context),
-    do: comparison(op, a, b, indent, context)
+    do: call(op, [a, b], indent, context)
 
-  defp goal(%Goal.Eq{a: a, b: b}, indent, context), do: comparison(:=, a, b, indent, context)
-  defp goal(%Goal.Equal{a: a, b: b}, indent, context), do: comparison(:==, a, b, indent, context)
+  defp goal(%Goal.Eq{a: a, b: b}, indent, context), do: call(:=, [a, b], indent, context)
+  defp goal(%Goal.Equal{a: a, b: b}, indent, context), do: call(:==, [a, b], indent, context)
 
   defp goal(%Goal.Comment{text: text}, indent, context),
     do: call(:comment, [text], indent, context)
@@ -363,29 +349,6 @@ defmodule AL.Syntax.Printer do
       {name, args} -> call(name, args, indent, context)
       nil -> raise ArgumentError, "#{inspect(goal)} has no AL syntax"
     end
-  end
-
-  defp comparison(op, a, b, indent, context),
-    do:
-      wrap(
-        "#{term(a, indent, @additive)} #{op} #{term(b, indent, @additive)}",
-        @comparison,
-        context
-      )
-
-  defp infix(op, left, right, indent, context) do
-    {level, left_context, right_context} =
-      case op do
-        op when op in [:+, :-] -> {@additive, @additive, @multiplicative}
-        op when op in [:*, :/, :rem] -> {@multiplicative, @multiplicative, @power}
-        :** -> {@power, @primary, @power}
-      end
-
-    wrap(
-      "#{term(left, indent, left_context)} #{op} #{term(right, indent, right_context)}",
-      level,
-      context
-    )
   end
 
   defp wrap(text, level, context) when level < context, do: "(" <> text <> ")"
@@ -432,6 +395,12 @@ defmodule AL.Syntax.Printer do
   end
 
   defp sequence(goals, indent, context), do: term(goals, indent, context)
+
+  defp goal_group([single], indent) do
+    if comment?(single),
+      do: block([single], indent),
+      else: "(" <> goal(load(single), indent, @semi) <> ")"
+  end
 
   defp goal_group(goals, indent) when is_list(goals), do: block(goals, indent)
   defp goal_group(goals, indent), do: term(goals, indent, @primary)
@@ -480,14 +449,8 @@ defmodule AL.Syntax.Printer do
     inner = indent <> "  "
 
     entries =
-      Enum.map(Enum.sort(term), fn
-        {key, value} when is_atom(key) and not is_nil(key) and not is_boolean(key) ->
-          if AL.Var.var?(key),
-            do: "#{term(key, inner)} => #{term(value, inner)}",
-            else: "#{atom(key)}: #{term(value, inner)}"
-
-        {key, value} ->
-          "#{term(key, inner)} => #{term(value, inner)}"
+      Enum.map(Enum.sort(term), fn {key, value} ->
+        "#{term(key, inner)} => #{term(value, inner)}"
       end)
 
     layout("\#{", entries, "}", indent)
@@ -548,7 +511,7 @@ defmodule AL.Syntax.Printer do
   defp atom(atom) do
     text = Atom.to_string(atom)
 
-    if text =~ ~r/^[a-z][a-zA-Z0-9_]*$/ and text not in ["rem", "or"],
+    if text =~ ~r/^[a-z][a-zA-Z0-9_]*$/ or atom in @operators,
       do: text,
       else: "'" <> (text |> String.replace("\\", "\\\\") |> String.replace("'", "\\'")) <> "'"
   end

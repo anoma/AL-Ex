@@ -38,7 +38,7 @@ defmodule Examples.ALPackages do
           factorial 5 120.
           active_build euler Build.
           extends_class Build number.
-          not {originates_class Build number}.
+          not (originates_class Build number).
           """
         end
 
@@ -91,10 +91,10 @@ defmodule Examples.ALPackages do
       AL.run do
         ~AL"""
         active_build users Build.
-        findall Class Classes {originates_class Build Class}.
-        findall [Owner, Selector] Methods {adds_method Build Owner Selector}.
-        findall [Owner, Superclass] Superclasses {adds_superclass Build Owner Superclass}.
-        findall Owner Extensions {extends_class Build Owner}.
+        findall Class Classes (originates_class Build Class).
+        findall [Owner, Selector] Methods (adds_method Build Owner Selector).
+        findall [Owner, Superclass] Superclasses (adds_superclass Build Owner Superclass).
+        findall Owner Extensions (extends_class Build Owner).
         """
       end
 
@@ -136,7 +136,7 @@ defmodule Examples.ALPackages do
       creation =
         AL.run branch: branch.id do
           ~AL"""
-          new package #{deps: [], name: handmade_package, version: 1} handmade_package.
+          new package #{deps => [], name => handmade_package, version => 1} handmade_package.
           active_build handmade_package Build.
           class Build handmade_package.
           build_status Build open.
@@ -145,7 +145,7 @@ defmodule Examples.ALPackages do
           added_superclasses Build [].
 
           @handmade_value
-          #{super: object}.
+          #{super => object}.
 
           handmade_value >> value
           | _Self made_in_al |
@@ -214,8 +214,8 @@ defmodule Examples.ALPackages do
       creation =
         AL.run branch: branch.id do
           ~AL"""
-          new package #{name: working_package} working_package.
-          new class #{name: working_class} working_class.
+          new package #{name => working_package} working_package.
+          new class #{name => working_class} working_class.
           active_build working_package Build.
           include_class Build working_class.
           """
@@ -271,10 +271,10 @@ defmodule Examples.ALPackages do
           active_build widget_rendering Extender.
           originates_class Originator composable_widget.
           originates_class Extender renderable.
-          not {originates_class Extender composable_widget}.
+          not (originates_class Extender composable_widget).
           adds_superclass Extender composable_widget renderable.
           adds_method Extender composable_widget rendering_package.
-          findall Class Extensions {extends_class Extender Class}.
+          findall Class Extensions (extends_class Extender Class).
           super composable_widget renderable.
           new composable_widget Widget.
           rendering_package Widget widget_rendering.
@@ -320,9 +320,9 @@ defmodule Examples.ALPackages do
         AL.run branch: branch.id do
           ~AL"""
           active_build widget_core _Originator.
-          not {active_build widget_rendering _Extender}.
-          not {super composable_widget renderable}.
-          not {method composable_widget rendering_package _Method}.
+          not (active_build widget_rendering _Extender).
+          not (super composable_widget renderable).
+          not (method composable_widget rendering_package _Method).
           new composable_widget Widget.
           package_origin Widget widget_core.
           """
@@ -421,7 +421,7 @@ defmodule Examples.ALPackages do
           provides ^provider interval.
           provider_source ^provider _.
           build_status ^build complete.
-          new interval_value #{hi: 7, lo: 3} Interval.
+          new interval_value #{hi => 7, lo => 3} Interval.
           elem Interval 5.
           """
         end
@@ -456,7 +456,7 @@ defmodule Examples.ALPackages do
         AL.run branch: author.id do
           ~AL"""
           @exported_value
-          #{super: object}.
+          #{super => object}.
 
           exported_value >> value
           | _Self from_export |
@@ -673,7 +673,7 @@ defmodule Examples.ALPackages do
       extension =
         AL.run branch: branch.id do
           ~AL"""
-          defmethod package accepts_requirement [opaque_dependency, Provider, _Dependencies, ^opaque] {provider_version Provider 1}.
+          defmethod package accepts_requirement [opaque_dependency, Provider, _Dependencies, ^opaque] (provider_version Provider 1).
           """
         end
 

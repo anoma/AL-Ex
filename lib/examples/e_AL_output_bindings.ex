@@ -19,7 +19,7 @@ defmodule Examples.ALOutputBindings do
         vm_set_super next_sol_test alpha.
         vm_set_super next_sol_test beta.
         super next_sol_test S.
-        Pair = [S, S].
+        = Pair [S, S].
         """
       end
 
@@ -38,7 +38,7 @@ defmodule Examples.ALOutputBindings do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [1, _, _] Result {1 == 1}.
+        findall [1, _, _] Result (== 1 1).
         """
       end
 

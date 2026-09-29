@@ -13,8 +13,8 @@ defmodule Examples.ALFreeze do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 3.
-        freeze X {Y = X + 1}.
+        = X 3.
+        freeze X (= Y (+ X 1)).
         """
       end
 
@@ -26,8 +26,8 @@ defmodule Examples.ALFreeze do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        freeze X {Y = X + 1}.
-        X = 3.
+        freeze X (= Y (+ X 1)).
+        = X 3.
         """
       end
 
@@ -44,7 +44,7 @@ defmodule Examples.ALFreeze do
         frozen >> five
         | _Self 5 |.
 
-        freeze V {W = V + 1}.
+        freeze V (= W (+ V 1)).
         five frozen V.
         """
       end
@@ -57,7 +57,7 @@ defmodule Examples.ALFreeze do
     {:aborted, _reason} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        freeze X {Y = X + 1}.
+        freeze X (= Y (+ X 1)).
         """
       end
 
@@ -72,9 +72,9 @@ defmodule Examples.ALFreeze do
                 {:atomic, {b, _constraints, _}} =
                   run branch: Examples.Support.branch() do
                     ~AL"""
-                    freeze A {B = A * 2}.
-                    freeze B {A = B / 2}.
-                    A = 21.
+                    freeze A (= B (* A 2)).
+                    freeze B (= A (/ B 2)).
+                    = A 21.
                     """
                   end
 
@@ -86,9 +86,9 @@ defmodule Examples.ALFreeze do
                 {:atomic, {b, _constraints, _}} =
                   run branch: Examples.Support.branch() do
                     ~AL"""
-                    freeze A {B = A * 2}.
-                    freeze B {A = B / 2}.
-                    B = 42.
+                    freeze A (= B (* A 2)).
+                    freeze B (= A (/ B 2)).
+                    = B 42.
                     """
                   end
 
@@ -103,9 +103,9 @@ defmodule Examples.ALFreeze do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        freeze X {Fired = yes}.
-        X = Y.
-        Y = 5.
+        freeze X (= Fired yes).
+        = X Y.
+        = Y 5.
         """
       end
 

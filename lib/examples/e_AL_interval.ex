@@ -18,7 +18,7 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 4, lo: 1} I.
+        new interval_value #{hi => 4, lo => 1} I.
         """
       end
 
@@ -30,7 +30,7 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 4, lo: 5} I.
+        new interval_value #{hi => 4, lo => 5} I.
         """
       end
 
@@ -42,13 +42,13 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 4, lo: 1} I.
+        new interval_value #{hi => 4, lo => 1} I.
         elem I 1.
         elem I 4.
         elem I 2.
-        not {elem I 0}.
-        not {elem I 5}.
-        Checked = true.
+        not (elem I 0).
+        not (elem I 5).
+        = Checked true.
         """
       end
 
@@ -60,10 +60,10 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 4, lo: 5} Empty.
-        not {elem Empty 0}.
-        not {elem Empty 5}.
-        Checked = true.
+        new interval_value #{hi => 4, lo => 5} Empty.
+        not (elem Empty 0).
+        not (elem Empty 5).
+        = Checked true.
         """
       end
 
@@ -75,8 +75,8 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 5, lo: 1} A.
-        new interval_value #{hi: 8, lo: 3} B.
+        new interval_value #{hi => 5, lo => 1} A.
+        new interval_value #{hi => 8, lo => 3} B.
         intersection A B I.
         """
       end
@@ -89,8 +89,8 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 5, lo: 1} A.
-        new interval_value #{hi: 8, lo: 3} B.
+        new interval_value #{hi => 5, lo => 1} A.
+        new interval_value #{hi => 8, lo => 3} B.
         intersection A B I1.
         intersection B A I2.
         """
@@ -104,8 +104,8 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 2, lo: 1} A.
-        new interval_value #{hi: 4, lo: 3} B.
+        new interval_value #{hi => 2, lo => 1} A.
+        new interval_value #{hi => 4, lo => 3} B.
         intersection A B I.
         """
       end
@@ -118,8 +118,8 @@ defmodule Examples.ALInterval do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new interval_value #{hi: 4, lo: 5} Empty.
-        new interval_value #{hi: 10, lo: 1} A.
+        new interval_value #{hi => 4, lo => 5} Empty.
+        new interval_value #{hi => 10, lo => 1} A.
         intersection Empty A I1.
         intersection A Empty I2.
         """

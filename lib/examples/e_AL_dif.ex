@@ -32,7 +32,7 @@ defmodule Examples.ALDif do
       run branch: Examples.Support.branch() do
         ~AL"""
         dif X 1.
-        X = 2.
+        = X 2.
         """
       end
 
@@ -44,7 +44,7 @@ defmodule Examples.ALDif do
       run branch: Examples.Support.branch() do
         ~AL"""
         dif X 1.
-        X = 1.
+        = X 1.
         """
       end
 
@@ -76,7 +76,7 @@ defmodule Examples.ALDif do
         ~AL"""
         dif X 1.
         dif X 2.
-        X = 2.
+        = X 2.
         """
       end
 
@@ -85,7 +85,7 @@ defmodule Examples.ALDif do
         ~AL"""
         dif X 1.
         dif X 2.
-        X = 1.
+        = X 1.
         """
       end
 
@@ -94,7 +94,7 @@ defmodule Examples.ALDif do
         ~AL"""
         dif X 1.
         dif X 2.
-        X = 3.
+        = X 3.
         """
       end
 
@@ -111,13 +111,13 @@ defmodule Examples.ALDif do
       run branch: Examples.Support.branch() do
         ~AL"""
         @dif_dispatch_pingable
-        #{super: object}.
+        #{super => object}.
 
         dif_dispatch_pingable >> ping
         | _Self pong |.
 
-        new dif_dispatch_pingable #{name: dif_dispatch_ping_a} _.
-        new dif_dispatch_pingable #{name: dif_dispatch_ping_b} _.
+        new dif_dispatch_pingable #{name => dif_dispatch_ping_a} _.
+        new dif_dispatch_pingable #{name => dif_dispatch_ping_b} _.
         """
       end
 

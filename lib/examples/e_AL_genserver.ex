@@ -21,12 +21,12 @@ defmodule Examples.ALGenserver do
 
       run branch: Examples.Support.branch() do
         ~AL"""
-        new process #{name: ^object_id, pid: ^pid} _.
+        new process #{name => ^object_id, pid => ^pid} _.
 
         ^object_id >> increment
         | Self Amount |
         get Self pid P,
-        Message = #{amount: Amount, event: increment},
+        = Message #{amount => Amount, event => increment},
         send_elixir P Message.
         """
       end

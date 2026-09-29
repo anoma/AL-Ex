@@ -180,14 +180,14 @@ defmodule ALPackageImportTest do
         class dependency_value class.
         active_build application_package ^application_build.
         active_build dependency ^dependency_build.
-        dependency_builds ^application_build [#{build: ^dependency_build, package: dependency}].
+        dependency_builds ^application_build [#{build => ^dependency_build, package => dependency}].
         """
       end
 
     assert {:atomic, _} = result
   end
 
-  test "startup reuses its active graph until an explicit channel update", %{
+  test "startup keeps its active graph until the channel content changes", %{
     branch: branch,
     root: root
   } do
@@ -209,16 +209,16 @@ defmodule ALPackageImportTest do
     first_build = AL.Package.active_build(:configured_fixture, branch)
     assert first_build
 
+    assert :ok = AL.Package.ensure_configured(branch: branch)
+    assert AL.Package.active_build(:configured_fixture, branch) == first_build
+    assert length(AL.Package.builds(:configured_fixture, branch)) == 1
+
     definition
     |> File.read!()
     |> String.replace("| _Self ok |", "| _Self changed |")
     |> then(&File.write!(definition, &1))
 
     assert :ok = AL.Package.ensure_configured(branch: branch)
-    assert AL.Package.active_build(:configured_fixture, branch) == first_build
-    assert length(AL.Package.builds(:configured_fixture, branch)) == 1
-
-    assert :ok = AL.Package.update_configured(branch: branch)
     second_build = AL.Package.active_build(:configured_fixture, branch)
     assert second_build != first_build
     assert length(AL.Package.builds(:configured_fixture, branch)) == 2
@@ -364,8 +364,8 @@ defmodule ALPackageImportTest do
     creation =
       AL.run branch: branch.id do
         ~AL"""
-        new user #{name: dana} Dana.
-        new owned #{data: guarded, owner: Dana} Owned.
+        new user #{name => dana} Dana.
+        new owned #{data => guarded, owner => Dana} Owned.
         """
       end
 
@@ -376,7 +376,7 @@ defmodule ALPackageImportTest do
     rejected =
       AL.run branch: branch.id do
         ~AL"""
-        update ^owned Caller [#{data: leaked}].
+        update ^owned Caller [#{data => leaked}].
         """
       end
 
@@ -422,9 +422,9 @@ defmodule ALPackageImportTest do
     program =
       AL.TransactionProgram.from_source(
         """
-        defprogram legacy \#{version: 1, deps: [bootstrap]}.
+        defprogram legacy \#{version => 1, deps => [bootstrap]}.
 
-        @legacy_value \#{super: object}.
+        @legacy_value \#{super => object}.
 
         legacy_value >> value
         | _Self ok |.
@@ -466,7 +466,7 @@ defmodule ALPackageImportTest do
     path = Path.join(root, "definitions/#{owner}.class.al")
 
     File.write!(path, """
-    @#{owner} \#{super: object}.
+    @#{owner} \#{super => object}.
 
     #{owner} >> value
     | _Self ok |

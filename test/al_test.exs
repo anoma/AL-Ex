@@ -134,6 +134,10 @@ defmodule ALStringsTest do
   use ExExample.ExUnit, for: Examples.ALStrings
 end
 
+defmodule ALFunctorTest do
+  use ExExample.ExUnit, for: Examples.ALFunctor
+end
+
 defmodule ALNinetyNineTest do
   use ExExample.ExUnit, for: Examples.ALNinetyNine
 end

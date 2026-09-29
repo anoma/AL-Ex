@@ -227,13 +227,19 @@ defmodule AL.Package do
   @spec ensure_configured(keyword()) :: :ok | {:error, term()}
   def ensure_configured(opts \\ []) do
     branch = Keyword.get(opts, :branch, AL.Branch.head())
-    requested = configured_environment()
+    if configured_current?(branch), do: :ok, else: update_configured(opts)
+  end
 
-    if current_environment?(requested, branch) and
-         configured_channels_registered?(configured_channels(), branch) do
-      :ok
-    else
-      update_configured(opts)
+  @doc "Whether the configured roots are active from the channel sources currently on disk."
+  @spec configured_current?(AL.Branch.t()) :: boolean()
+  def configured_current?(branch \\ AL.Branch.head()) do
+    case Discovery.discover(configured_channels()) do
+      {:ok, catalog} ->
+        current_environment?(configured_environment(), branch) and
+          channels_current?(catalog.channels, branch)
+
+      {:error, _reason} ->
+        false
     end
   end
 
@@ -1063,7 +1069,7 @@ defmodule AL.Package do
   end
 
   defp package_class_source(name) do
-    "new package \#{ivars: [], name: #{literal(name)}, open_build: false, super: package_build} _."
+    "new package \#{ivars => [], name => #{literal(name)}, open_build => false, super => package_build} _."
   end
 
   defp reusable_build(package, digest, branch) do
@@ -1479,24 +1485,21 @@ defmodule AL.Package do
     end
   end
 
-  defp configured_channels_registered?(specs, branch) do
+  defp channels_current?(channels, branch) do
     case :mnesia.transaction(fn ->
-           configured_channels_registered_in_transaction?(specs, branch)
+           Enum.all?(channels, fn channel ->
+             location = al_channel_term(channel.location)
+             revision = channel.revision
+
+             match?(
+               [%{slots: %{location: ^location, revision: ^revision}}],
+               channel_instances(channel.name, branch)
+             )
+           end)
          end) do
-      {:atomic, registered?} -> registered?
+      {:atomic, current?} -> current?
       _ -> false
     end
-  end
-
-  defp configured_channels_registered_in_transaction?(specs, branch) do
-    Enum.all?(specs, fn {name, location} ->
-      location = al_channel_term(location)
-
-      case channel_instances(name, branch) do
-        [%{slots: %{location: ^location}}] -> true
-        _ -> false
-      end
-    end)
   end
 
   defp current_environment_in_transaction?(requested, branch) do

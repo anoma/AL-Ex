@@ -10,29 +10,29 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         @pending_value
-        #{super: value, ivars: [#{domain: [only], name: tag}]}.
+        #{super => value, ivars => [#{domain => [only], name => tag}]}.
 
         @pending_unique_parent
-        #{super: object}.
+        #{super => object}.
 
         @pending_unique_child
-        #{super: pending_unique_parent}.
+        #{super => pending_unique_parent}.
 
         @pending_shared_parent
-        #{super: object}.
+        #{super => object}.
 
         @pending_shared_child_a
-        #{super: pending_shared_parent}.
+        #{super => pending_shared_parent}.
 
         @pending_shared_child_b
-        #{super: pending_shared_parent}.
+        #{super => pending_shared_parent}.
 
         @pending_record
-        #{super: object, ivars: [#{name: pending_tag}]}.
+        #{super => object, ivars => [#{name => pending_tag}]}.
 
-        new pending_record #{name: pending_unique_record, pending_tag: unique_value} _.
-        new pending_record #{name: pending_shared_record_a, pending_tag: shared_value} _.
-        new pending_record #{name: pending_shared_record_b, pending_tag: shared_value} _.
+        new pending_record #{name => pending_unique_record, pending_tag => unique_value} _.
+        new pending_record #{name => pending_shared_record_a, pending_tag => shared_value} _.
+        new pending_record #{name => pending_shared_record_b, pending_tag => shared_value} _.
         """
       end
 
@@ -46,7 +46,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         class Object ExactClass.
-        ExactClass = pending_value.
+        = ExactClass pending_value.
         label Object.
         """
       end
@@ -63,7 +63,7 @@ defmodule Examples.ALPendingLinks do
         ~AL"""
         class Object ExactClass.
         label ExactClass.
-        ExactClass = pending_value.
+        = ExactClass pending_value.
         """
       end
 
@@ -81,7 +81,7 @@ defmodule Examples.ALPendingLinks do
         ~AL"""
         class Object ExactClass.
         label ExactClass.
-        ExactClass = pending_value.
+        = ExactClass pending_value.
         label Object.
         """
       end
@@ -96,7 +96,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         super Subclass Superclass.
-        Subclass = pending_unique_child.
+        = Subclass pending_unique_child.
         """
       end
 
@@ -110,7 +110,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         super Subclass Superclass.
-        Superclass = pending_unique_parent.
+        = Superclass pending_unique_parent.
         """
       end
 
@@ -124,7 +124,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         super Subclass Superclass.
-        Superclass = pending_shared_parent.
+        = Superclass pending_shared_parent.
         """
       end
 
@@ -142,7 +142,7 @@ defmodule Examples.ALPendingLinks do
         ~AL"""
         findall Subclass Subclasses {
           super Subclass Superclass,
-          Superclass = pending_shared_parent,
+          = Superclass pending_shared_parent,
           label Subclass
         }.
         """
@@ -172,7 +172,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         super Subclass Superclass.
-        Subclass = not_a_registered_class.
+        = Subclass not_a_registered_class.
         label Superclass.
         """
       end
@@ -187,7 +187,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         slot Object pending_tag Value.
-        Object = pending_unique_record.
+        = Object pending_unique_record.
         """
       end
 
@@ -201,7 +201,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         slot Object pending_tag Value.
-        Value = unique_value.
+        = Value unique_value.
         """
       end
 
@@ -215,7 +215,7 @@ defmodule Examples.ALPendingLinks do
       run branch: Examples.Support.branch() do
         ~AL"""
         slot Object pending_tag Value.
-        Value = shared_value.
+        = Value shared_value.
         """
       end
 
@@ -231,7 +231,7 @@ defmodule Examples.ALPendingLinks do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall Object Objects {slot Object pending_tag Value, Value = shared_value, label Object}.
+        findall Object Objects {slot Object pending_tag Value, = Value shared_value, label Object}.
         """
       end
 

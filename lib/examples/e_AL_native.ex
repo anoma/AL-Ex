@@ -145,7 +145,7 @@ defmodule Examples.ALNative do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall D All {al_native_divisors 6 D}.
+        findall D All (al_native_divisors 6 D).
         """
       end
 

@@ -24,8 +24,8 @@ defmodule Examples.ALSourceInput do
         "source_parse_class >> unicode\r\n" <>
         "| Self |\r\n" <>
         "  # comment inside the method\r\n" <>
-        "  Self = \"é\".\r\n\r\n" <>
-        "@source_parse_other \#{super: object}.\r\n"
+        "  = Self \"é\".\r\n\r\n" <>
+        "@source_parse_other \#{super => object}.\r\n"
 
     {:ok, result} = Syntax.parse(source)
 
@@ -41,9 +41,9 @@ defmodule Examples.ALSourceInput do
              "source_parse_class >> unicode\r\n" <>
                "| Self |\r\n" <>
                "  # comment inside the method\r\n" <>
-               "  Self = \"é\""
+               "  = Self \"é\""
 
-    assert class_source == "@source_parse_other \#{super: object}"
+    assert class_source == "@source_parse_other \#{super => object}"
 
     assert [
              %AL.Goal.OApply{method_id: :clear_method},
@@ -82,7 +82,7 @@ defmodule Examples.ALSourceInput do
 
   example final_definition_ranges_exclude_trailing_comments() do
     source =
-      "\"é\" = \"é\".\n" <>
+      "= \"é\" \"é\".\n" <>
         "source_parse_class >> final_form\n| Self |. # not owned by the method"
 
     {:ok, result} = Syntax.parse(source)
@@ -101,15 +101,15 @@ defmodule Examples.ALSourceInput do
 
     assert {:error, %Syntax.Error{phase: :parse}} =
              Syntax.parse("""
-             @broken_source_class \#{super: object} {
-               A = B.
+             @broken_source_class \#{super => object} {
+               = A B.
              }
              """)
 
     assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("42.")
     assert {:error, %Syntax.Error{phase: :compile}} = AL.eval_source("42.")
     assert {:error, %Syntax.Error{phase: :parse}} = Syntax.parse("X =.")
-    assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("Pair = {ok, 1}.")
+    assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("= Pair {ok, 1}.")
     assert {:error, %Syntax.Error{phase: :parse}} = Syntax.parse("receiver >> selector Self.")
 
     :ok
@@ -168,7 +168,7 @@ defmodule Examples.ALSourceInput do
 
   example source_input_preserves_heap_limited_evaluation() do
     source = """
-    Result = ok.
+    = Result ok.
     """
 
     assert {:atomic, {bindings, _constraints, nil}} =
@@ -184,7 +184,7 @@ defmodule Examples.ALSourceInput do
 
     try do
       source = """
-      @#{al(class)} \#{super: object}.
+      @#{al(class)} \#{super => object}.
 
       #{al(class)} >> ping
       | Self pong |.
@@ -194,7 +194,7 @@ defmodule Examples.ALSourceInput do
 
       #{al(class)} >> outside
       | Self |
-        Self = Self.
+        = Self Self.
       """
 
       {:atomic, _} = AL.eval_source(source, branch)
@@ -307,7 +307,7 @@ defmodule Examples.ALSourceInput do
                diagnostic: nil
              } = AL.Source.method_clause_source(class, :outside, outside_id, 0, branch)
 
-      assert outside_text == "#{al(class)} >> outside\n| Self |\n  Self = Self"
+      assert outside_text == "#{al(class)} >> outside\n| Self |\n  = Self Self"
 
       :ok
     after
@@ -326,7 +326,7 @@ defmodule Examples.ALSourceInput do
         end)
 
       source = """
-      @#{al(class)} \#{super: object}.
+      @#{al(class)} \#{super => object}.
 
       #{al(class)} >> ping
       | Self pong |.
@@ -752,7 +752,7 @@ defmodule Examples.ALSourceInput do
                diagnostic: nil
              } = AL.Source.method_clause_source(:object, :between, method_id, 0, branch)
 
-      assert text == "object >> between\n| _Self Low High Low |\nLow <= High"
+      assert text == "object >> between\n| _Self Low High Low |\n<= Low High"
     after
       AL.Branch.discard(branch)
     end
@@ -764,11 +764,11 @@ defmodule Examples.ALSourceInput do
 
     try do
       source = """
-      @#{al(class)} \#{super: object}.
+      @#{al(class)} \#{super => object}.
 
       #{al(class)} >> describe
       | Self small |
-        Self = Self.
+        = Self Self.
 
       #{al(class)} >> describe
       | Self big |.
@@ -779,7 +779,7 @@ defmodule Examples.ALSourceInput do
       output = capture_io(fn -> AL.Source.print_method(class, :describe, branch) end)
 
       assert output ==
-               "#{al(class)} >> describe\n| Self small |\n  Self = Self\n\n" <>
+               "#{al(class)} >> describe\n| Self small |\n  = Self Self\n\n" <>
                  "#{al(class)} >> describe\n| Self big |\n\n"
 
       :ok

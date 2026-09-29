@@ -43,7 +43,7 @@ defmodule Examples.ALControlFlow do
         ~AL"""
         vm_set_method ^chooser_cut pick ^cut_impl.
         vm_set_class ^cut_impl behaviour.
-        vm_set_oapply ^cut_impl [Self, a] {cut}.
+        vm_set_oapply ^cut_impl [Self, a] (cut).
         vm_set_oapply ^cut_impl [Self, b] {}.
         vm_set_method ^chooser_plain pick ^plain_impl.
         vm_set_class ^plain_impl behaviour.
@@ -55,14 +55,14 @@ defmodule Examples.ALControlFlow do
     {:atomic, {cut_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall X Xs {pick ^chooser_cut X}.
+        findall X Xs (pick ^chooser_cut X).
         """
       end
 
     {:atomic, {plain_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall X Xs {pick ^chooser_plain X}.
+        findall X Xs (pick ^chooser_plain X).
         """
       end
 
@@ -76,7 +76,7 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        class object C -> Out = then_ran ; Out = else_ran.
+        class object C -> = Out then_ran ; = Out else_ran.
         """
       end
 
@@ -88,7 +88,7 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        class nonexistent_xyz C -> Out = then_ran ; Out = else_ran.
+        class nonexistent_xyz C -> = Out then_ran ; = Out else_ran.
         """
       end
 
@@ -101,7 +101,7 @@ defmodule Examples.ALControlFlow do
       run branch: Examples.Support.branch() do
         ~AL"""
         vm_set_class branch_pick widget.
-        class branch_pick gadget -> Out = first ; class branch_pick widget -> Out = second ; Out = none.
+        class branch_pick gadget -> = Out first ; class branch_pick widget -> = Out second ; = Out none.
         """
       end
 
@@ -117,7 +117,7 @@ defmodule Examples.ALControlFlow do
         ~AL"""
         vm_set_super ite_test s1.
         vm_set_super ite_test s2.
-        findall R Results {super ite_test X -> R = X ; R = none}.
+        findall R Results (super ite_test X -> = R X ; = R none).
         """
       end
 
@@ -129,7 +129,7 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        call [X, Result] {Result = X} [hello, Out].
+        call [X, Result] (= Result X) [hello, Out].
         """
       end
 
@@ -143,7 +143,7 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        Out = hello.
+        = Out hello.
         pass.
         """
       end
@@ -156,8 +156,8 @@ defmodule Examples.ALControlFlow do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        class object C -> pass ; Out = else_ran.
-        Out = then_ran_and_passed.
+        class object C -> pass ; = Out else_ran.
+        = Out then_ran_and_passed.
         """
       end
 

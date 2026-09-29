@@ -1,1 +1,1 @@
-defpackage widget_core #{deps: [], version: 1}.
+defpackage widget_core #{deps => [], version => 1}.

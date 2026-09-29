@@ -116,20 +116,20 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @letter_chain
-        #{super: value}.
+        #{super => value}.
 
         letter_chain >> next
-        | #{class: letter_chain, letter: a} #{class: letter_chain, letter: b} |.
+        | #{class => letter_chain, letter => a} #{class => letter_chain, letter => b} |.
 
         letter_chain >> next
-        | #{class: letter_chain, letter: b} #{class: letter_chain, letter: c} |.
+        | #{class => letter_chain, letter => b} #{class => letter_chain, letter => c} |.
         """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        next X #{class: letter_chain, letter: b}.
+        next X #{class => letter_chain, letter => b}.
         """
       end
 
@@ -141,7 +141,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @lazy_dispatch_value
-        #{super: value}.
+        #{super => value}.
 
         lazy_dispatch_value >> lazy_dispatch_probe
         | _Self reached |.
@@ -171,17 +171,17 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @lazy_dispatch_parent
-        #{super: object}.
+        #{super => object}.
 
         lazy_dispatch_parent >> lazy_dispatch_inherited
         | _Self parent |.
 
         @lazy_dispatch_child
-        #{super: lazy_dispatch_parent}.
+        #{super => lazy_dispatch_parent}.
 
-        new lazy_dispatch_child #{name: lazy_dispatch_child_instance} Child.
+        new lazy_dispatch_child #{name => lazy_dispatch_child_instance} Child.
         lazy_dispatch_inherited Receiver Result.
-        Receiver = Child.
+        = Receiver Child.
         """
       end
 
@@ -194,20 +194,20 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @lazy_override_parent
-        #{super: object}.
+        #{super => object}.
 
         lazy_override_parent >> lazy_override_probe
         | _Self parent |.
 
         @lazy_override_child
-        #{super: lazy_override_parent}.
+        #{super => lazy_override_parent}.
 
         lazy_override_child >> lazy_override_probe
         | _Self child |.
 
-        new lazy_override_child #{name: lazy_override_child_instance} Child.
+        new lazy_override_child #{name => lazy_override_child_instance} Child.
         lazy_override_probe Receiver Result.
-        Receiver = Child.
+        = Receiver Child.
         """
       end
 
@@ -220,23 +220,23 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @dispatch_partition_parent
-        #{super: object}.
+        #{super => object}.
 
         dispatch_partition_parent >> dispatch_partition_probe
         | _Self parent |.
 
         @dispatch_partition_override
-        #{super: dispatch_partition_parent}.
+        #{super => dispatch_partition_parent}.
 
         dispatch_partition_override >> dispatch_partition_probe
         | _Self override |.
 
         @dispatch_partition_inheritor
-        #{super: dispatch_partition_parent}.
+        #{super => dispatch_partition_parent}.
 
-        new dispatch_partition_parent #{name: dispatch_partition_parent_instance} _.
-        new dispatch_partition_override #{name: dispatch_partition_override_instance} _.
-        new dispatch_partition_inheritor #{name: dispatch_partition_inheritor_instance} _.
+        new dispatch_partition_parent #{name => dispatch_partition_parent_instance} _.
+        new dispatch_partition_override #{name => dispatch_partition_override_instance} _.
+        new dispatch_partition_inheritor #{name => dispatch_partition_inheritor_instance} _.
         findall [Receiver, Result] Answers {dispatch_partition_probe Receiver Result, label Receiver}.
         """
       end
@@ -254,17 +254,17 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @label_left_parent
-        #{super: value}.
+        #{super => value}.
 
         @label_right_parent
-        #{super: value}.
+        #{super => value}.
 
         @label_common_child
-        #{super: [label_left_parent, label_right_parent, value]}.
+        #{super => [label_left_parent, label_right_parent, value]}.
 
         label_common_child >> init
         | _Self _Args New |
-        New = #{class: label_common_child}.
+        = New #{class => label_common_child}.
 
         isa Object label_left_parent.
         isa Object label_right_parent.
@@ -284,7 +284,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @letter_chain_antipattern
-        #{super: value}.
+        #{super => value}.
 
         letter_chain_antipattern >> a
         | a |.
@@ -302,7 +302,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @letter_word
-        #{super: value}.
+        #{super => value}.
 
         letter_word >> letter_word_stays_open
         | Self |.
@@ -315,7 +315,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         letter_word_stays_open X.
-        X = not_a_letter_word.
+        = X not_a_letter_word.
         """
       end
 
@@ -323,7 +323,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         letter_word_stays_open X.
-        X = letter_word_real_instance.
+        = X letter_word_real_instance.
         """
       end
 
@@ -340,13 +340,13 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @letter_chain_reflective
-        #{super: value}.
+        #{super => value}.
 
         letter_chain_reflective >> next
-        | #{class: letter_chain_reflective, letter: a} #{class: letter_chain_reflective, letter: b} |.
+        | #{class => letter_chain_reflective, letter => a} #{class => letter_chain_reflective, letter => b} |.
 
         letter_chain_reflective >> next
-        | #{class: letter_chain_reflective, letter: b} #{class: letter_chain_reflective, letter: c} |.
+        | #{class => letter_chain_reflective, letter => b} #{class => letter_chain_reflective, letter => c} |.
 
         letter_chain_reflective >> chain_from
         | Self First |
@@ -361,7 +361,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        chain_from X #{class: letter_chain_reflective, letter: b}.
+        chain_from X #{class => letter_chain_reflective, letter => b}.
         """
       end
 
@@ -389,10 +389,10 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @left_value_class
-        #{super: value}.
+        #{super => value}.
 
         @right_value_class
-        #{super: value}.
+        #{super => value}.
         """
       end
 
@@ -419,10 +419,10 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @ghost_value_class
-        #{super: value}.
+        #{super => value}.
 
         @ghost_durable_class
-        #{super: object}.
+        #{super => object}.
         """
       end
 
@@ -448,17 +448,17 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @ghost_left
-        #{super: value}.
+        #{super => value}.
 
         @ghost_right
-        #{super: value}.
+        #{super => value}.
         """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall X Xs {isa X ghost_right}.
+        findall X Xs (isa X ghost_right).
         """
       end
 
@@ -502,7 +502,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @open_value_without_witness
-        #{super: value}.
+        #{super => value}.
         """
       end
 
@@ -522,10 +522,10 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @inherited_value_parent
-        #{super: value, ivars: [#{name: payload}]}.
+        #{super => value, ivars => [#{name => payload}]}.
 
         @inherited_value_child
-        #{super: inherited_value_parent}.
+        #{super => inherited_value_parent}.
         """
       end
 
@@ -546,8 +546,8 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         isa X number.
-        X >= 2.
-        X <= 3.
+        >= X 2.
+        <= X 3.
         label X.
         """
       end
@@ -563,7 +563,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @durable_witness_class
-        #{super: object}.
+        #{super => object}.
 
         new durable_witness_class #{} Obj.
         """
@@ -588,13 +588,13 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @isa_descendant_parent
-        #{super: object}.
+        #{super => object}.
 
         isa_descendant_parent >> isa_descendant_probe
         | Self hit |.
 
         @isa_descendant_child
-        #{super: isa_descendant_parent}.
+        #{super => isa_descendant_parent}.
 
         new isa_descendant_child #{} Obj.
         """
@@ -623,7 +623,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @witnessless_durable_class
-        #{super: object}.
+        #{super => object}.
         """
       end
 
@@ -650,7 +650,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @letter_symbol
-        #{super: value}.
+        #{super => value}.
         """
       end
 
@@ -673,24 +673,24 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @square
-        #{super: value, ivars: [#{name: side}]}.
+        #{super => value, ivars => [#{name => side}]}.
 
         square >> init
         | Self Args New |
         get Args side Side,
-        New = #{class: square, side: Side}.
+        = New #{class => square, side => Side}.
 
         square >> get
         | Self K V |
         vm_map_get Self K V.
 
         square >> area
-        | #{class: square, side: Side} Result |
-        ground Side -> Result = Side * Side ; {
+        | #{class => square, side => Side} Result |
+        ground Side -> = Result (* Side Side) ; {
           ground Result,
           between Self 1 Result Side,
-          Check = Side * Side,
-          Check = Result
+          = Check (* Side Side),
+          = Check Result
         }.
         """
       end
@@ -698,7 +698,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new square #{side: 4} Sq.
+        new square #{side => 4} Sq.
         area Sq A.
         """
       end
@@ -727,20 +727,20 @@ defmodule Examples.ALGenerative do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new class #{ivars: [], name: coins, super: object} _.
+        new class #{ivars => [], name => coins, super => object} _.
 
         coins >> change
         | Self 0 _Denoms [] |.
 
         coins >> change
         | Self Amount [C . Rest] [C . Combo] |
-        Amount >= C,
-        Remaining = Amount - C,
+        >= Amount C,
+        = Remaining (- Amount C),
         change Self Remaining [C . Rest] Combo.
 
         coins >> change
         | Self Amount [_C . Rest] Combo |
-        Amount > 0,
+        > Amount 0,
         change Self Amount Rest Combo.
         """
       end
@@ -749,7 +749,7 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         new coins Coins.
-        findall Combo All {change Coins 30 [25, 10, 5, 1] Combo}.
+        findall Combo All (change Coins 30 [25, 10, 5, 1] Combo).
         """
       end
 
@@ -791,7 +791,7 @@ defmodule Examples.ALGenerative do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        X = 5.
+        = X 5.
         """
       end
 
@@ -804,9 +804,9 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @labeled_vehicle
-        #{super: object, ivars: [#{name: color}]}.
+        #{super => object, ivars => [#{name => color}]}.
 
-        new labeled_vehicle #{color: red, name: labeled_car} _.
+        new labeled_vehicle #{color => red, name => labeled_car} _.
         class Vehicle labeled_vehicle.
         label Vehicle.
         get Vehicle color Color.
@@ -823,13 +823,13 @@ defmodule Examples.ALGenerative do
       run branch: Examples.Support.branch() do
         ~AL"""
         @dispatch_vehicle
-        #{super: value}.
+        #{super => value}.
 
         dispatch_vehicle >> dispatch_kind
         | _Self vehicle |.
 
         @dispatch_car
-        #{super: [dispatch_vehicle, value]}.
+        #{super => [dispatch_vehicle, value]}.
 
         dispatch_car >> dispatch_kind
         | _Self car |.
@@ -851,10 +851,10 @@ defmodule Examples.ALGenerative do
       run branch: branch_id do
         ~AL"""
         @explicit_branch_value
-        #{super: value}.
+        #{super => value}.
 
         explicit_branch_value >> identify
-        | #{class: explicit_branch_value, name: member} member |.
+        | #{class => explicit_branch_value, name => member} member |.
         """
       end
 

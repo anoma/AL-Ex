@@ -1,1 +1,1 @@
-defpackage http #{deps: [], version: 2}.
+defpackage http #{deps => [], version => 2}.

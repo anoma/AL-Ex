@@ -11,14 +11,14 @@ defmodule ALSyntaxReaderTest do
     | Self X |
       get Self x X.
 
-    @point #{super: object}.
+    @point #{super => object}.
     """
 
     {:ok, result} = Syntax.parse(text)
     [method, class] = result.captures
 
     assert {:ok, "point >> x\n| Self X |\n  get Self x X"} = Syntax.slice(text, method.range)
-    assert {:ok, "@point \#{super: object}"} = Syntax.slice(text, class.range)
+    assert {:ok, "@point \#{super => object}"} = Syntax.slice(text, class.range)
     assert method.path == [1]
     assert class.path == [2]
   end
@@ -60,7 +60,7 @@ defmodule ALSyntaxReaderTest do
       list >> size
       | [_ . T] N |
         size T M,
-        N = M + 1.
+        = N (+ M 1).
 
       defmethod list size [extra] {pass}.
       """)
@@ -80,7 +80,7 @@ defmodule ALSyntaxReaderTest do
   test "list tails, negative numbers, strings, maps and quoted atoms read as data" do
     {:ok, result} =
       Syntax.parse(~S"""
-      [H . T] = [-1, "a \"b\"", #{k: 'odd atom', 2 => nil}, 2.5].
+      = [H . T] [-1, "a \"b\"", #{k => 'odd atom', 2 => nil}, 2.5].
       """)
 
     assert [%Goal.Eq{a: [:"$H" | :"$T"], b: [-1, "a \"b\"", %{:k => :"odd atom", 2 => nil}, 2.5]}] =
@@ -88,7 +88,7 @@ defmodule ALSyntaxReaderTest do
   end
 
   test "a call takes single-term arguments, so nested calls are bracketed" do
-    {:ok, %{program: [call, zero]}} = Syntax.parse("between Self (Low + 1) High V, X = (foo).")
+    {:ok, %{program: [call, zero]}} = Syntax.parse("between Self (+ Low 1) High V, = X (foo).")
 
     assert %Goal.Send{
              method: :between,
@@ -100,7 +100,7 @@ defmodule ALSyntaxReaderTest do
   end
 
   test "commas bind loosest, so conditionals and alternatives need no brackets" do
-    {:ok, %{program: program}} = Syntax.parse("a X, X > 1 -> b ; c, d X.")
+    {:ok, %{program: program}} = Syntax.parse("a X, > X 1 -> b ; c, d X.")
 
     assert [
              %Goal.Send{method: :a},
@@ -113,14 +113,14 @@ defmodule ALSyntaxReaderTest do
            ] = program
 
     assert {:ok, %{program: [%Goal.Implies{otherwise: [%Goal.Fail{}]}]}} =
-             Syntax.parse("X > 1 -> Y = 2.")
+             Syntax.parse("> X 1 -> = Y 2.")
 
     assert {:ok, %{program: [%Goal.Or{or: [%Goal.Eq{}], then: [%Goal.Eq{}, %Goal.Eq{}]}]}} =
-             Syntax.parse("X = 1 ; {X = 2, Y = 3}.")
+             Syntax.parse("= X 1 ; {= X 2, = Y 3}.")
   end
 
-  test "arithmetic follows the usual precedence" do
-    {:ok, %{program: [%Goal.Eq{b: sum}]}} = Syntax.parse("X = 1 + 2 * 3 ** 2 - -(4).")
+  test "operators are prefix calls, nested with brackets" do
+    {:ok, %{program: [%Goal.Eq{b: sum}]}} = Syntax.parse("= X (- (+ 1 (* 2 (** 3 2))) (- (4))).")
 
     assert %Goal.OApply{
              method_id: :-,
@@ -140,8 +140,17 @@ defmodule ALSyntaxReaderTest do
            } = sum
   end
 
+  test "an operator is an ordinary atom, and a touching minus makes a negative number" do
+    {:ok, %{program: [functor, negative, negate]}} =
+      Syntax.parse("functor G < [X, 10], = Y -1, = Z (- 1).")
+
+    assert %Goal.Functor{term: :"$G", name: :<, args: [:"$X", 10]} = functor
+    assert %Goal.Eq{a: :"$Y", b: -1} = negative
+    assert %Goal.Eq{a: :"$Z", b: %Goal.OApply{method_id: :-, args: [1]}} = negate
+  end
+
   test "comments are kept in method bodies only, and a map is not a comment" do
-    {:ok, result} = Syntax.parse("# top\nc >> m\n| Self |\n  # body\n  pass.\nX = \#{}.")
+    {:ok, result} = Syntax.parse("# top\nc >> m\n| Self |\n  # body\n  pass.\n= X \#{}.")
 
     assert [
              %Goal.OApply{method_id: :clear_method},
@@ -159,7 +168,8 @@ defmodule ALSyntaxReaderTest do
     assert {:error, %Error{phase: :parse}} = Syntax.parse("pass")
     assert {:error, %Error{phase: :parse}} = Syntax.parse("X =.")
     assert {:error, %Error{phase: :compile}} = Syntax.parse("@point [].")
-    assert {:error, %Error{phase: :parse}} = Syntax.parse("@point \#{super: object} {}")
+    assert {:error, %Error{phase: :parse}} = Syntax.parse("@point \#{super => object} {}")
+    assert {:error, %Error{phase: :parse}} = Syntax.parse("= M \#{key: value}.")
     assert {:error, %Error{phase: :parse}} = Syntax.parse("point >> x Self.")
     assert {:error, %Error{phase: :compile}} = Syntax.parse("{pass}.")
   end
@@ -173,7 +183,7 @@ defmodule ALSyntaxReaderTest do
         run do
           ~AL\"\"\"
           pass.
-          X = f (Y.
+          = X (f Y.
           \"\"\"
         end
       end

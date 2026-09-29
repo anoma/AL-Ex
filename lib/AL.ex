@@ -1446,6 +1446,25 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
+    if AL.Var.var?(term) do
+      with true <- is_atom(name) and not AL.Var.var?(name) and proper_list?(args),
+           %_{} = goal <- Goal.from_call_form(name, args) do
+        put_bindings(state, unify(state, term, goal), [term])
+      else
+        _ -> backtrack(state)
+      end
+    else
+      case Goal.call_form(term) do
+        {term_name, term_args} ->
+          put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
+
+        nil ->
+          backtrack(state)
+      end
+    end
+  end
+
   def interp(%Goal.Variant{a: a, b: b}, state) do
     if variant_renaming(a, b, {%{}, %{}}), do: state, else: backtrack(state)
   end
@@ -1887,6 +1906,10 @@ defmodule AL do
   defp format_decimal(term), do: inspect(term)
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | rest]), do: proper_list?(rest)
+  defp proper_list?(_term), do: false
 
   defp code_list([], codes), do: {:ok, Enum.reverse(codes)}
 

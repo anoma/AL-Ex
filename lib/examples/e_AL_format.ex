@@ -48,7 +48,7 @@ defmodule Examples.ALFormat do
       capture_io(fn ->
         run branch: Examples.Support.branch() do
           ~AL"""
-          X = 2 + 2.
+          = X (+ 2 2).
           vm_format "x is ~d~%" [X].
           """
         end
@@ -92,11 +92,11 @@ defmodule Examples.ALFormat do
         run branch: Examples.Support.branch() do
           ~AL"""
           @format_o_print_object_class
-          #{super: object}.
+          #{super => object}.
 
           format_o_print_object_class >> print_object
           | Self Text |
-          Text = "a shiny thing".
+          = Text "a shiny thing".
 
           new format_o_print_object_class Obj.
           vm_format "~o~%" [Obj].
@@ -114,7 +114,7 @@ defmodule Examples.ALFormat do
         run branch: Examples.Support.branch() do
           ~AL"""
           @format_o_default_class
-          #{super: object}.
+          #{super => object}.
 
           new format_o_default_class Obj.
           vm_format "~o~%" [Obj].
@@ -132,11 +132,11 @@ defmodule Examples.ALFormat do
         run branch: Examples.Support.branch() do
           ~AL"""
           @format_o_multi_class
-          #{super: object}.
+          #{super => object}.
 
           format_o_multi_class >> print_object
           | Self Text |
-          Text = "widget".
+          = Text "widget".
 
           new format_o_multi_class A.
           new format_o_multi_class B.
@@ -154,7 +154,7 @@ defmodule Examples.ALFormat do
       run branch: Examples.Support.branch() do
         ~AL"""
         @format_o_no_match_class
-        #{super: object}.
+        #{super => object}.
 
         format_o_no_match_class >> print_object
         | definitely_not_self _Text |.

@@ -219,8 +219,8 @@ also starts/stops the Outbox per branch.
   (`lib/AL/command_log/`, `lib/AL/view/`, `lib/AL/branch.ex` respectively) —
   nothing else in the interpreter reaches into Mnesia directly.
 - **`AL.TransactionProgram` (lib/AL/transaction_program.ex)** — loads
-  `priv/programs/<name>.al` (first form `defprogram name #{version: V,
-  deps: [...]}.`), executes it, and creates a durable execution receipt;
+  `priv/programs/<name>.al` (first form `defprogram name #{version => V,
+  deps => [...]}.`), executes it, and creates a durable execution receipt;
   dependency-ordered, reversible `uninstall`. `bootstrap` is foundational
   (class/object/method machinery **and** the list protocol).
 - **Package protocol (`priv/programs/package_system.al`)** —
@@ -576,7 +576,7 @@ diff/merge and valid-time queries are unbuilt.
 
 - **Ivar specs** — a class's `ivars:` is a list of maps, each with a `name:`
   and optionally `domain:`/`type:`/`default:`/`storage:`
-  (`ivars: [#{name: suit, domain: [hearts, ...]}]`). A bare name is rejected by
+  (`ivars: [#{name => suit, domain => [hearts, ...]}]`). A bare name is rejected by
   `allocate_class` and by the definition document reader. `:value`'s default
   `:init` wires checking + generation from it automatically. `domain:` posts `in_domain`; `type:` attaches `isa` so
   `vm_label`'s class-`:domain`-method fallback can generate a value. Zero VM

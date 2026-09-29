@@ -1,11 +1,11 @@
 @buy_limit_order
 #{
-  super: object,
-  ivars: [
-    #{name: pool, type: pool},
-    #{name: condition, type: anonymous_method},
-    #{default: open, domain: [open, filled], name: status},
-    #{name: filled_swap, type: swap}
+  super => object,
+  ivars => [
+    #{name => pool, type => pool},
+    #{name => condition, type => anonymous_method},
+    #{default => open, domain => [open, filled], name => status},
+    #{name => filled_swap, type => swap}
   ]
 }.
 
@@ -36,7 +36,7 @@ buy_limit_order >> complete
 | Self Trade |
 get Self pool Pool,
 execute Trade Pool,
-set_slots Self #{filled_swap: Trade, status: filled},
+set_slots Self #{filled_swap => Trade, status => filled},
 remove_order Pool Self,
 after_fill Self Trade.
 

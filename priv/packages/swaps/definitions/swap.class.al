@@ -1,7 +1,7 @@
 @swap
 #{
-  super: value,
-  ivars: [#{name: input, type: currency}, #{name: output, type: currency}]
+  super => value,
+  ivars => [#{name => input, type => currency}, #{name => output, type => currency}]
 }.
 
 swap >> input_amount
@@ -16,15 +16,15 @@ amount Output Amount.
 
 swap >> match_reserves
 | Self Reserves [InputSlot, InputReserve] [OutputSlot, OutputReserve] |
-get_slots Self #{input: Input, output: Output},
+get_slots Self #{input => Input, output => Output},
 {
-  get_slots Reserves #{x: InputReserve, y: OutputReserve},
-  InputSlot = x,
-  OutputSlot = y
+  get_slots Reserves #{x => InputReserve, y => OutputReserve},
+  = InputSlot x,
+  = OutputSlot y
 } ; {
-  get_slots Reserves #{x: OutputReserve, y: InputReserve},
-  InputSlot = y,
-  OutputSlot = x
+  get_slots Reserves #{x => OutputReserve, y => InputReserve},
+  = InputSlot y,
+  = OutputSlot x
 },
 class InputReserve InputCurrency,
 isa Input InputCurrency,

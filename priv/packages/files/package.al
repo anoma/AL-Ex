@@ -1,1 +1,1 @@
-defpackage files #{deps: [], version: 1}.
+defpackage files #{deps => [], version => 1}.

@@ -11,8 +11,8 @@ defmodule Examples.ALUsers do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new user #{name: alice} Alice.
-        new owned #{data: #{label: thing}, owner: Alice} Obj.
+        new user #{name => alice} Alice.
+        new owned #{data => #{label => thing}, owner => Alice} Obj.
         get Obj owner Owner.
         class Obj C.
         """
@@ -28,7 +28,7 @@ defmodule Examples.ALUsers do
       run branch: Examples.Support.branch() do
         ~AL"""
         @owned_ivar_probe
-        #{super: owned, ivars: [#{default: [], name: items, type: list}]}.
+        #{super => owned, ivars => [#{default => [], name => items, type => list}]}.
         """
       end
 
@@ -44,7 +44,7 @@ defmodule Examples.ALUsers do
     {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [Key, Value] Slots {slot ^object Key Value}.
+        findall [Key, Value] Slots (slot ^object Key Value).
         """
       end
 
@@ -65,9 +65,9 @@ defmodule Examples.ALUsers do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new user #{name: bob} Bob.
-        new user #{name: charlie} Charlie.
-        new owned #{data: #{label: secret}, owner: Charlie} Obj.
+        new user #{name => bob} Bob.
+        new user #{name => charlie} Charlie.
+        new owned #{data => #{label => secret}, owner => Charlie} Obj.
         """
       end
 
@@ -78,7 +78,7 @@ defmodule Examples.ALUsers do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        update ^obj ^charlie [#{data: #{label: updated}}].
+        update ^obj ^charlie [#{data => #{label => updated}}].
         """
       end
 
@@ -94,7 +94,7 @@ defmodule Examples.ALUsers do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        update ^obj ^bob [#{data: #{label: hacked}}].
+        update ^obj ^bob [#{data => #{label => hacked}}].
         """
       end
 
@@ -107,8 +107,8 @@ defmodule Examples.ALUsers do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new user #{name: dana} Dana.
-        new owned #{data: #{label: guarded}, owner: Dana} Obj.
+        new user #{name => dana} Dana.
+        new owned #{data => #{label => guarded}, owner => Dana} Obj.
         """
       end
 
@@ -117,7 +117,7 @@ defmodule Examples.ALUsers do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        update ^obj Caller [#{data: #{label: leaked}}].
+        update ^obj Caller [#{data => #{label => leaked}}].
         """
       end
 

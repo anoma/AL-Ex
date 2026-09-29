@@ -60,7 +60,7 @@ A `run do ... end` block is one transaction. Every write inside it, no matter ho
   run do
     ~AL"""
     @tx_demo
-    #{super: object, ivars: [#{name: greeting}]}.
+    #{super => object, ivars => [#{name => greeting}]}.
 
     tx_demo >> hello
     | Self hi |.
@@ -121,7 +121,7 @@ Since the log is the real source of truth, the durable object tables (`class`, `
   run do
     ~AL"""
     @hydration_demo
-    #{super: object, ivars: [#{name: greeting}]}.
+    #{super => object, ivars => [#{name => greeting}]}.
 
     hydration_demo >> hello
     | Self hi |.
@@ -303,7 +303,7 @@ Slots keep their own history. `slot_history/3` reads it back from oldest first.
 run do
   ~AL"""
   @history_probe
-  #{super: object, ivars: [#{name: count}]}.
+  #{super => object, ivars => [#{name => count}]}.
 
   new history_probe Obj.
   set_slot Obj count 1.
@@ -322,14 +322,14 @@ end
 run do
   ~AL"""
   @boundary_probe
-  #{super: object, ivars: [#{name: count}]}.
+  #{super => object, ivars => [#{name => count}]}.
 
   new boundary_probe Obj.
   set_slot Obj count 1.
   set_slot Obj count 2.
   vm_slot_at Obj count 1 T1.
   label T1.
-  Boundary = T1 + 1.
+  = Boundary (+ T1 1).
   vm_slot_at Obj count VAtBoundary Boundary.
   """
 end
@@ -345,19 +345,19 @@ A `vm_slot_at` call with an open time variable does not just filter, it posts a 
 run do
   ~AL"""
   @upper_bound_probe
-  #{super: object, ivars: [#{name: count}]}.
+  #{super => object, ivars => [#{name => count}]}.
 
   new upper_bound_probe Obj.
   set_slot Obj count 1.
   set_slot Obj count 2.
   vm_slot_at Obj count 1 T.
   vm_slot_at Obj count 2 T2.
-  T >= T2.
+  >= T T2.
   """
 end
 ```
 
-The interval during which the slot held `1` ends exactly when the interval during which it holds `2` begins, so `T >= T2` is comparing two already-bounded variables whose intervals are disjointed.
+The interval during which the slot held `1` ends exactly when the interval during which it holds `2` begins, so `>= T T2` is comparing two already-bounded variables whose intervals are disjointed.
 
 ## Temporality: overlap across two objects
 
@@ -367,13 +367,13 @@ Since an open `T` from `vm_slot_at` is a real bound, not just a filtered value, 
 run do
   ~AL"""
   @sensor_a
-  #{super: object, ivars: [#{name: status}]}.
+  #{super => object, ivars => [#{name => status}]}.
 
   @sensor_b
-  #{super: object, ivars: [#{name: status}]}.
+  #{super => object, ivars => [#{name => status}]}.
 
-  new sensor_a #{name: sensor_a_1, status: off} _.
-  new sensor_b #{name: sensor_b_1, status: on} _.
+  new sensor_a #{name => sensor_a_1, status => off} _.
+  new sensor_b #{name => sensor_b_1, status => on} _.
   """
 end
 
@@ -399,7 +399,7 @@ run do
   ~AL"""
   vm_slot_at sensor_a_1 status on Ta.
   vm_slot_at sensor_b_1 status on Tb.
-  Ta = Tb.
+  = Ta Tb.
   """
 end
 ```

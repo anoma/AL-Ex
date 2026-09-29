@@ -13,12 +13,12 @@ defmodule Examples.ALHTTP do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
           ~AL"""
-          new process #{name: http_get_observer, pid: ^pid} _.
-          new http_request #{body: "", headers: [], method: get, timeout: 1000, url: ^url} Request.
+          new process #{name => http_get_observer, pid => ^pid} _.
+          new http_request #{body => "", headers => [], method => get, timeout => 1000, url => ^url} Request.
           execute Request Response.
           await Response [Outcome] {
             get http_get_observer pid Observer,
-            Event = #{event: http_result, outcome: Outcome, response: Response},
+            = Event #{event => http_result, outcome => Outcome, response => Response},
             send_elixir Observer Event
           }.
           """
@@ -57,19 +57,19 @@ defmodule Examples.ALHTTP do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
           ~AL"""
-          new process #{name: http_post_observer, pid: ^pid} _.
+          new process #{name => http_post_observer, pid => ^pid} _.
           new http_request #{
-            body: "payload",
-            headers: [#{name: "content-type", value: "text/plain"}],
-            method: post,
-            name: http_post_request,
-            timeout: 1000,
-            url: ^url
+            body => "payload",
+            headers => [#{name => "content-type", value => "text/plain"}],
+            method => post,
+            name => http_post_request,
+            timeout => 1000,
+            url => ^url
           } Request.
           execute Request Response.
           await Response [Outcome] {
             get http_post_observer pid Observer,
-            Event = #{event: http_post_result, outcome: Outcome},
+            = Event #{event => http_post_result, outcome => Outcome},
             send_elixir Observer Event
           }.
           """
@@ -92,12 +92,12 @@ defmodule Examples.ALHTTP do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        new process #{name: http_failure_observer, pid: ^pid} _.
-        new http_request #{body: "", headers: [], method: get, timeout: 1000, url: ^url} Request.
+        new process #{name => http_failure_observer, pid => ^pid} _.
+        new http_request #{body => "", headers => [], method => get, timeout => 1000, url => ^url} Request.
         execute Request Response.
         await Response [Outcome] {
           get http_failure_observer pid Observer,
-          Event = #{event: http_failure, outcome: Outcome},
+          = Event #{event => http_failure, outcome => Outcome},
           send_elixir Observer Event
         }.
         """

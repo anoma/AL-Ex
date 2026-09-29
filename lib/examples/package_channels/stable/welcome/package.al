@@ -1,1 +1,1 @@
-defpackage welcome #{deps: [greeting, punctuation], version: 1}.
+defpackage welcome #{deps => [greeting, punctuation], version => 1}.

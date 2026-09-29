@@ -1,9 +1,9 @@
-defprogram package_system #{deps: [bootstrap], version: 14}.
+defprogram package_system #{deps => [bootstrap], version => 14}.
 
 @channel
 #{
-  super: object,
-  ivars: [#{name: channel_name}, #{name: location}, #{name: revision}]
+  super => object,
+  ivars => [#{name => channel_name}, #{name => location}, #{name => revision}]
 }.
 
 channel >> channel_name
@@ -20,15 +20,15 @@ get Self revision Revision.
 
 @package_provider
 #{
-  super: object,
-  ivars: [
-    #{name: channel},
-    #{name: channel_revision},
-    #{name: provides},
-    #{name: version},
-    #{name: requirements},
-    #{name: source_digest},
-    #{name: source}
+  super => object,
+  ivars => [
+    #{name => channel},
+    #{name => channel_revision},
+    #{name => provides},
+    #{name => version},
+    #{name => requirements},
+    #{name => source_digest},
+    #{name => source}
   ]
 }.
 
@@ -62,18 +62,18 @@ get Self source Source.
 
 @package_build
 #{
-  super: object,
-  ivars: [
-    #{name: package},
-    #{name: version},
-    #{name: requirements},
-    #{name: dependency_builds},
-    #{name: digest},
-    #{name: provider},
-    #{name: status},
-    #{name: originated_classes},
-    #{name: added_methods},
-    #{name: added_superclasses}
+  super => object,
+  ivars => [
+    #{name => package},
+    #{name => version},
+    #{name => requirements},
+    #{name => dependency_builds},
+    #{name => digest},
+    #{name => provider},
+    #{name => status},
+    #{name => originated_classes},
+    #{name => added_methods},
+    #{name => added_superclasses}
   ]
 }.
 
@@ -149,10 +149,10 @@ package_build >> include_class
 build_status Self open,
 class Owner _Metaclass,
 include_contribution Self originated_classes Owner,
-findall Selector Selectors {method Owner Selector _Method},
-forall {member Selectors Selector} {include_method Self Owner Selector},
-findall Superclass Superclasses {super Owner Superclass},
-forall {member Superclasses Superclass} {include_superclass Self Owner Superclass}.
+findall Selector Selectors (method Owner Selector _Method),
+forall (member Selectors Selector) (include_method Self Owner Selector),
+findall Superclass Superclasses (super Owner Superclass),
+forall (member Superclasses Superclass) (include_superclass Self Owner Superclass).
 
 package_build >> include_contribution
 | Self Slot Contribution |
@@ -162,7 +162,7 @@ member Contributions Contribution.
 package_build >> include_contribution
 | Self Slot Contribution |
 get Self Slot Contributions,
-not {member Contributions Contribution},
+not (member Contributions Contribution),
 concat Contributions [Contribution] Updated,
 set_slot Self Slot Updated.
 
@@ -176,7 +176,7 @@ contribution_owners Self Rest Seen Owners.
 
 package_build >> contribution_owners
 | Self [[Owner, _] . Rest] Seen Owners |
-not {member Seen Owner},
+not (member Seen Owner),
 contribution_owners Self Rest [Owner . Seen] Owners.
 
 package_build >> extends_class
@@ -186,10 +186,10 @@ added_superclasses Self Superclasses,
 concat Methods Superclasses Contributions,
 contribution_owners Self Contributions [] Owners,
 member Owners Class,
-not {originates_class Self Class}.
+not (originates_class Self Class).
 
 @package
-#{super: class, ivars: [#{name: active_build}]}.
+#{super => class, ivars => [#{name => active_build}]}.
 
 package >> allocate
 | Self Args Name |
@@ -207,14 +207,14 @@ get Args version 1 Version,
 get Args deps [] Requirements,
 active_dependency_builds Self Requirements DependencyBuilds,
 build Self #{
-  added_methods: [],
-  added_superclasses: [],
-  dependency_builds: DependencyBuilds,
-  originated_classes: [],
-  package: Self,
-  requirements: Requirements,
-  status: open,
-  version: Version
+  added_methods => [],
+  added_superclasses => [],
+  dependency_builds => DependencyBuilds,
+  originated_classes => [],
+  package => Self,
+  requirements => Requirements,
+  status => open,
+  version => Version
 } OpenBuild,
 set_slot Self active_build OpenBuild.
 
@@ -243,7 +243,7 @@ package >> accepts_build
 | Self _Provider _Dependencies Self |.
 
 package >> accepts_build
-| Self Provider Dependencies #{package: Self, requirement: Requirement} |
+| Self Provider Dependencies #{package => Self, requirement => Requirement} |
 accepts_requirement Self Provider Dependencies Requirement.
 
 package >> active_dependency_builds
@@ -254,17 +254,17 @@ package >> active_dependency_builds
 requirement_package package_resolver Requirement Package,
 active_build Package Build,
 active_dependency_builds Self Rest Remaining,
-Dependencies = [#{build: Build, package: Package} . Remaining].
+= Dependencies [#{build => Build, package => Package} . Remaining].
 
 @package_resolver
-#{super: object, metaclass: object}.
+#{super => object, metaclass => object}.
 
 package_resolver >> resolve
 | Self Providers Requested Solution |
 resolve_requirements Self Requested Providers [] [] Solution.
 
 package_resolver >> requirement_package
-| _Self #{package: Package, requirement: _Requirement} Package |.
+| _Self #{package => Package, requirement => _Requirement} Package |.
 
 package_resolver >> requirement_package
 | _Self Package Package |.
@@ -286,8 +286,8 @@ accepts_build Package Provider Dependencies Requirement.
 package_resolver >> resolve_requirement
 | Self Requirement Providers Stack SelectedBefore Selected |
 requirement_package Self Requirement Package,
-not {member SelectedBefore [Package, _Provider, _Dependencies]},
-not {member Stack Package},
+not (member SelectedBefore [Package, _Provider, _Dependencies]),
+not (member Stack Package),
 provider_for Package Providers Requirement Provider,
 requirements_for Package Provider Requirements,
 resolve_requirements Self Requirements Providers [Package . Stack] SelectedBefore SelectedWithDependencies,
@@ -300,7 +300,7 @@ package_resolver >> dependency_providers
 
 package_resolver >> dependency_providers
 | Self [Requirement . Rest] Selected [
-  #{package: Package, provider: Provider, requirement: Requirement} . Dependencies
+  #{package => Package, provider => Provider, requirement => Requirement} . Dependencies
 ] |
 requirement_package Self Requirement Package,
 member Selected [Package, Provider, _DependencyDependencies],

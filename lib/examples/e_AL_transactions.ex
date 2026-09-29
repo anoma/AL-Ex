@@ -74,7 +74,7 @@ defmodule Examples.ALTransactions do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        findall [Time, Operation] Commands {vm_command ^tx_id Time Operation}.
+        findall [Time, Operation] Commands (vm_command ^tx_id Time Operation).
         """
       end
 

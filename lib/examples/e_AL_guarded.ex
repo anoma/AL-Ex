@@ -12,7 +12,7 @@ defmodule Examples.ALGuarded do
     branch = AL.Branch.fork()
 
     {:atomic, {bindings, _constraints, nil}} =
-      AL.eval_source("X = 42.", branch, heap: 2_000_000)
+      AL.eval_source("= X 42.", branch, heap: 2_000_000)
 
     assert AL.Var.deref(bindings, :"$X") == 42
     AL.Branch.discard(branch)
