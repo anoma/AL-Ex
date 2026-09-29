@@ -104,8 +104,9 @@ generative/durable/domain dispatch convergence specifically, read
 
 ## Change discipline
 
-- Add or change a goal: update the struct/type, the `AL.Syntax` compiler and
-  `AL.Syntax.Printer`, interpreter handler, stored representation if
+- Add or change a goal: update the struct/type, its surface call in
+  `AL.Goal`'s `@calls` table (which both `AL.Syntax` and
+  `AL.Syntax.Printer` read), interpreter handler, stored representation if
   applicable, command log operation, projection, and replay path as one
   semantic change.
 - Change the surface syntax: update `AL.Syntax`, `AL.Syntax.Printer`, and

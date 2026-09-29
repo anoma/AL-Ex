@@ -358,65 +358,12 @@ defmodule AL.Syntax.Printer do
   defp goal(%Goal.Comment{text: text}, indent, context),
     do: call(:comment, [text], indent, context)
 
-  defp goal(%Goal.GetOapply{object: object, seq: :"$_", head: head, body: body}, indent, context),
-    do: call(:clause, [object, head, body], indent, context)
-
-  defp goal(
-         %Goal.GetSlots{object: object, key: key, value: value, store: :auto},
-         indent,
-         context
-       ),
-       do: call(:slot, [object, key, value], indent, context)
-
-  defp goal(%Goal.SendAsync{object: object, method: method, args: []}, indent, context),
-    do: call(:send_async, [object, method], indent, context)
-
   defp goal(goal, indent, context) when is_struct(goal) do
-    case simple(goal) do
-      {name, fields} -> call(name, Enum.map(fields, &Map.fetch!(goal, &1)), indent, context)
+    case Goal.to_call(goal) do
+      {name, args} -> call(name, args, indent, context)
       nil -> raise ArgumentError, "#{inspect(goal)} has no AL syntax"
     end
   end
-
-  defp simple(%Goal.GetClass{}), do: {:class, [:object, :class]}
-  defp simple(%Goal.GetSuper{}), do: {:super, [:object, :super]}
-  defp simple(%Goal.AssertValidClauseSelf{}), do: {:vm_assert_valid_clause_self, [:class, :head]}
-  defp simple(%Goal.GetMethod{}), do: {:method, [:object, :name, :id]}
-  defp simple(%Goal.GetCommand{}), do: {:vm_command, [:transaction, :time, :operation]}
-  defp simple(%Goal.GetOapply{}), do: {:clause, [:object, :seq, :head, :body]}
-  defp simple(%Goal.TransactionSource{}), do: {:vm_transaction_source, [:tx, :text, :origin]}
-
-  defp simple(%Goal.MethodSource{}),
-    do: {:vm_method_source, [:object, :seq, :text, :provenance]}
-
-  defp simple(%Goal.SetClass{}), do: {:vm_set_class, [:object, :class]}
-  defp simple(%Goal.SetSuper{}), do: {:vm_set_super, [:object, :super]}
-  defp simple(%Goal.SetMethod{}), do: {:vm_set_method, [:object, :name, :id]}
-  defp simple(%Goal.SetSlot{}), do: {:vm_set_slot, [:object, :key, :value]}
-  defp simple(%Goal.GetSlots{}), do: {:slot, [:object, :key, :value, :store]}
-  defp simple(%Goal.GetSlotAt{}), do: {:vm_slot_at, [:object, :key, :value, :t]}
-  defp simple(%Goal.RetractClass{}), do: {:vm_retract_class, [:object, :class]}
-  defp simple(%Goal.RetractSuper{}), do: {:vm_retract_super, [:object, :super]}
-  defp simple(%Goal.RetractMethod{}), do: {:vm_retract_method, [:object, :name, :id]}
-  defp simple(%Goal.RetractOapply{}), do: {:vm_retract_oapply, [:object, :head]}
-  defp simple(%Goal.RetractSlot{}), do: {:vm_retract_slot, [:object, :key]}
-  defp simple(%Goal.Gensym{}), do: {:gensym, [:var]}
-  defp simple(%Goal.Format{}), do: {:vm_format, [:control, :args]}
-  defp simple(%Goal.Ground{}), do: {:ground, [:term]}
-  defp simple(%Goal.Label{}), do: {:label, [:term]}
-  defp simple(%Goal.IsVar{}), do: {:var, [:term]}
-  defp simple(%Goal.Dif{}), do: {:dif, [:a, :b]}
-  defp simple(%Goal.Isa{}), do: {:isa, [:object, :class]}
-  defp simple(%Goal.InDomain{}), do: {:in_domain, [:var, :values]}
-  defp simple(%Goal.AllDif{}), do: {:all_dif, [:vars]}
-  defp simple(%Goal.FloorDivide{}), do: {:floor_divide, [:dividend, :divisor, :quotient]}
-  defp simple(%Goal.SendAsync{}), do: {:send_async, [:object, :method, :args]}
-  defp simple(%Goal.SendElixir{}), do: {:send_elixir, [:pid, :message]}
-
-  defp simple(%Goal.EmitEffect{}),
-    do: {:vm_emit_effect, [:effect, :provider, :operation, :arguments]}
-
-  defp simple(_goal), do: nil
 
   defp comparison(op, a, b, indent, context),
     do:

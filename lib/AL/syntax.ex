@@ -66,6 +66,15 @@ defmodule AL.Syntax do
 
   @arithmetic [:+, :-, :*, :/, :**, :rem]
   @comparisons [:<, :>, :<=, :>=]
+  @levels [
+    {:right, [";"]},
+    {:none, ["->"]},
+    {:left, [:or]},
+    {:none, ["=", "==", "<", ">", "<=", ">="]},
+    {:left, ["+", "-"]},
+    {:left, ["*", "/", :rem]},
+    {:right, ["**"]}
+  ]
   @primitives [
     :vm_map_get,
     :vm_map_put,
@@ -88,51 +97,17 @@ defmodule AL.Syntax do
              :lambda,
              :spawn,
              :await,
+             :freeze,
+             :call,
+             :call_next_method,
+             :comment,
              :cut,
              :fail,
              :pass,
-             :comment,
-             :class,
-             :super,
-             :method,
-             :clause,
-             :slot,
-             :send,
-             :send_async,
-             :send_elixir,
-             :call,
-             :call_next_method,
-             :emit_effect,
-             :gensym,
-             :ground,
-             :label,
-             :var,
-             :freeze,
-             :dif,
-             :isa,
-             :in_domain,
-             :all_dif,
-             :floor_divide,
-             :vm_assert_valid_clause_self,
              :vm_source_scope,
-             :vm_command,
              :vm_oapply,
-             :vm_transaction_source,
-             :vm_method_source,
-             :vm_set_class,
-             :vm_set_super,
-             :vm_set_method,
-             :vm_set_oapply,
-             :vm_set_slot,
-             :vm_slot_at,
-             :vm_retract_class,
-             :vm_retract_super,
-             :vm_retract_method,
-             :vm_retract_oapply,
-             :vm_retract_slot,
-             :vm_format,
-             :vm_emit_effect
-           ] ++ @primitives
+             :vm_set_oapply
+           ] ++ @primitives ++ AL.Goal.call_names()
   @words %{"rem" => :rem, "or" => :or}
   @symbols [">>", "->", "=>", "==", "<=", ">=", "**"]
   @singles [
@@ -756,106 +731,39 @@ defmodule AL.Syntax do
   defp describe_closer("."), do: "a full stop"
   defp describe_closer(closer), do: closer
 
-  defp expression(tokens), do: semi(tokens)
+  defp expression(tokens), do: operators(tokens, @levels)
 
-  defp semi(tokens) do
-    with {:ok, left, rest} <- arrow(tokens) do
-      case rest do
-        [{:punct, ";", _, _} | rest] ->
-          with {:ok, right, rest} <- semi(rest),
-               do: {:ok, {:semi, left, right, start(left), stop(right)}, rest}
+  defp operators(tokens, []), do: unary(tokens)
 
-        _ ->
-          {:ok, left, rest}
-      end
+  defp operators(tokens, [_ | tighter] = levels) do
+    with {:ok, left, rest} <- operators(tokens, tighter), do: operator_rest(left, rest, levels)
+  end
+
+  defp operator_rest(left, tokens, [{associativity, operators} | tighter] = levels) do
+    case operator(tokens, operators) do
+      {:ok, op, rest} ->
+        right_levels = if associativity == :right, do: levels, else: tighter
+
+        with {:ok, right, rest} <- operators(rest, right_levels) do
+          node = {:binary, op, left, right, start(left), stop(right)}
+
+          if associativity == :left,
+            do: operator_rest(node, rest, levels),
+            else: {:ok, node, rest}
+        end
+
+      :none ->
+        {:ok, left, tokens}
     end
   end
 
-  defp arrow(tokens) do
-    with {:ok, left, rest} <- or_expression(tokens) do
-      case rest do
-        [{:punct, "->", _, _} | rest] ->
-          with {:ok, right, rest} <- or_expression(rest),
-               do: {:ok, {:arrow, left, right, start(left), stop(right)}, rest}
-
-        _ ->
-          {:ok, left, rest}
-      end
-    end
+  defp operator([{kind, op, _, _} | rest], operators) when kind in [:punct, :op] do
+    if op in operators,
+      do: {:ok, if(is_atom(op), do: op, else: String.to_atom(op)), rest},
+      else: :none
   end
 
-  defp or_expression(tokens) do
-    with {:ok, left, rest} <- comparison(tokens), do: or_rest(left, rest)
-  end
-
-  defp or_rest(left, [{:op, :or, _, _} | rest]) do
-    with {:ok, right, rest} <- comparison(rest),
-         do: or_rest({:binary, :or, left, right, start(left), stop(right)}, rest)
-  end
-
-  defp or_rest(left, rest), do: {:ok, left, rest}
-
-  defp comparison(tokens) do
-    with {:ok, left, rest} <- additive(tokens) do
-      case rest do
-        [{:punct, op, _, _} | rest] when op in ["=", "==", "<", ">", "<=", ">="] ->
-          with {:ok, right, rest} <- additive(rest),
-               do:
-                 {:ok, {:binary, String.to_atom(op), left, right, start(left), stop(right)}, rest}
-
-        _ ->
-          {:ok, left, rest}
-      end
-    end
-  end
-
-  defp additive(tokens) do
-    with {:ok, left, rest} <- multiplicative(tokens), do: additive_rest(left, rest)
-  end
-
-  defp additive_rest(left, [{:punct, op, _, _} | rest]) when op in ["+", "-"] do
-    with {:ok, right, rest} <- multiplicative(rest),
-         do:
-           additive_rest(
-             {:binary, String.to_atom(op), left, right, start(left), stop(right)},
-             rest
-           )
-  end
-
-  defp additive_rest(left, rest), do: {:ok, left, rest}
-
-  defp multiplicative(tokens) do
-    with {:ok, left, rest} <- power(tokens), do: multiplicative_rest(left, rest)
-  end
-
-  defp multiplicative_rest(left, [{:punct, op, _, _} | rest]) when op in ["*", "/"] do
-    with {:ok, right, rest} <- power(rest),
-         do:
-           multiplicative_rest(
-             {:binary, String.to_atom(op), left, right, start(left), stop(right)},
-             rest
-           )
-  end
-
-  defp multiplicative_rest(left, [{:op, :rem, _, _} | rest]) do
-    with {:ok, right, rest} <- power(rest),
-         do: multiplicative_rest({:binary, :rem, left, right, start(left), stop(right)}, rest)
-  end
-
-  defp multiplicative_rest(left, rest), do: {:ok, left, rest}
-
-  defp power(tokens) do
-    with {:ok, left, rest} <- unary(tokens) do
-      case rest do
-        [{:punct, "**", _, _} | rest] ->
-          with {:ok, right, rest} <- power(rest),
-               do: {:ok, {:binary, :**, left, right, start(left), stop(right)}, rest}
-
-        _ ->
-          {:ok, left, rest}
-      end
-    end
-  end
+  defp operator(_tokens, _operators), do: :none
 
   defp unary([{:punct, "-", minus, _}, {:number, number, number_start, stop} | rest])
        when minus.line == number_start.line and minus.column + 1 == number_start.column,
@@ -1092,17 +1000,17 @@ defmodule AL.Syntax do
     end
   end
 
-  defp goal({:semi, {:arrow, condition, then, _, _}, otherwise, _, _}, pins),
+  defp goal({:binary, :";", {:binary, :->, condition, then, _, _}, otherwise, _, _}, pins),
     do: %Goal.Implies{
       condition: goals(condition, pins),
       then: goals(then, pins),
       otherwise: goals(otherwise, pins)
     }
 
-  defp goal({:semi, left, right, _, _}, pins),
+  defp goal({:binary, :";", left, right, _, _}, pins),
     do: %Goal.Or{or: goals(left, pins), then: goals(right, pins)}
 
-  defp goal({:arrow, condition, then, _, _}, pins),
+  defp goal({:binary, :->, condition, then, _, _}, pins),
     do: %Goal.Implies{
       condition: goals(condition, pins),
       then: goals(then, pins),
@@ -1205,148 +1113,25 @@ defmodule AL.Syntax do
 
   defp simple_call(name, args) do
     case {name, args} do
-      {:class, [object, class]} ->
-        %Goal.GetClass{object: object, class: class}
-
-      {:super, [object, super]} ->
-        %Goal.GetSuper{object: object, super: super}
-
-      {:vm_assert_valid_clause_self, [class, head]} ->
-        %Goal.AssertValidClauseSelf{class: class, head: head}
-
-      {:method, [object, method, id]} ->
-        %Goal.GetMethod{object: object, name: method, id: id}
-
-      {:vm_command, [transaction, time, operation]} ->
-        %Goal.GetCommand{transaction: transaction, time: time, operation: operation}
-
-      {:clause, [object, head, body]} ->
-        %Goal.GetOapply{object: object, seq: :"$_", head: head, body: body}
-
-      {:clause, [object, seq, head, body]} ->
-        %Goal.GetOapply{object: object, seq: seq, head: head, body: body}
-
       {:comment, [text]} when is_binary(text) ->
         %Goal.Comment{text: text}
 
       {:vm_oapply, [method_id, args]} ->
         %Goal.OApply{method_id: method_id, args: args}
 
-      {:vm_transaction_source, [tx, text, origin]} ->
-        %Goal.TransactionSource{tx: tx, text: text, origin: origin}
-
-      {:vm_method_source, [object, seq, text, provenance]} ->
-        %Goal.MethodSource{object: object, seq: seq, text: text, provenance: provenance}
-
-      {:vm_set_class, [object, class]} ->
-        %Goal.SetClass{object: object, class: class}
-
-      {:vm_set_super, [object, super]} ->
-        %Goal.SetSuper{object: object, super: super}
-
-      {:vm_set_method, [object, method, id]} ->
-        %Goal.SetMethod{object: object, name: method, id: id}
-
-      {:vm_set_slot, [object, key, value]} ->
-        %Goal.SetSlot{object: object, key: key, value: value}
-
-      {:slot, [object, key, value]} ->
-        %Goal.GetSlots{object: object, key: key, value: value, store: :auto}
-
-      {:slot, [object, key, value, store]} ->
-        %Goal.GetSlots{object: object, key: key, value: value, store: store}
-
-      {:vm_slot_at, [object, key, value, t]} ->
-        %Goal.GetSlotAt{object: object, key: key, value: value, t: t}
-
-      {:vm_retract_class, [object, class]} ->
-        %Goal.RetractClass{object: object, class: class}
-
-      {:vm_retract_super, [object, super]} ->
-        %Goal.RetractSuper{object: object, super: super}
-
-      {:vm_retract_method, [object, method, id]} ->
-        %Goal.RetractMethod{object: object, name: method, id: id}
-
-      {:vm_retract_oapply, [object, head]} ->
-        %Goal.RetractOapply{object: object, head: head}
-
-      {:vm_retract_slot, [object, key]} ->
-        %Goal.RetractSlot{object: object, key: key}
-
-      {:gensym, [var]} ->
-        %Goal.Gensym{var: var}
-
-      {:vm_format, [control, args]} ->
-        %Goal.Format{control: control, args: args}
-
-      {:ground, [term]} ->
-        %Goal.Ground{term: term}
-
-      {:label, [term]} ->
-        %Goal.Label{term: term}
-
-      {:var, [term]} ->
-        %Goal.IsVar{term: term}
-
-      {:dif, [a, b]} ->
-        %Goal.Dif{a: a, b: b}
-
-      {:isa, [object, class]} ->
-        %Goal.Isa{object: object, class: class}
-
-      {:in_domain, [var, values]} ->
-        %Goal.InDomain{var: var, values: values}
-
-      {:all_dif, [vars]} ->
-        %Goal.AllDif{vars: vars}
-
-      {:floor_divide, [dividend, divisor, quotient]} ->
-        %Goal.FloorDivide{dividend: dividend, divisor: divisor, quotient: quotient}
-
-      {:send, [object, method, args]} ->
-        %Goal.Send{object: object, method: method, args: args}
-
-      {:send, [object, method]} ->
-        %Goal.Send{object: object, method: method, args: []}
-
       {:call_next_method, [self | args]} ->
         %Goal.CallNextMethod{self: self, args: args}
-
-      {:send_async, [object, method, args]} ->
-        %Goal.SendAsync{object: object, method: method, args: args}
-
-      {:send_async, [object, method]} ->
-        %Goal.SendAsync{object: object, method: method, args: []}
-
-      {:send_elixir, [pid, message]} ->
-        %Goal.SendElixir{pid: pid, message: message}
-
-      {:vm_emit_effect, [effect, provider, operation, arguments]} ->
-        %Goal.EmitEffect{
-          effect: effect,
-          provider: provider,
-          operation: operation,
-          arguments: arguments
-        }
-
-      {:emit_effect, [provider, operation, arguments, effect]} ->
-        %Goal.Send{
-          object: :effect,
-          method: :new,
-          args: [%{provider: provider, operation: operation, arguments: arguments}, effect]
-        }
 
       {name, args} when name in @primitives ->
         %Goal.OApply{method_id: name, args: args}
 
-      {name, [object | args]} ->
-        %Goal.Send{object: object, method: name, args: args}
-
-      {name, []} ->
-        %Goal.OApply{method_id: name, args: []}
+      {name, args} ->
+        Goal.from_call(name, args) || send_call(name, args)
     end
   end
+
+  defp send_call(name, [object | args]), do: %Goal.Send{object: object, method: name, args: args}
+  defp send_call(name, []), do: %Goal.OApply{method_id: name, args: []}
 
   defp constraint(%Goal.Eq{a: a, b: b}), do: %Goal.Compare{op: :=, a: a, b: b}
   defp constraint(goal), do: goal
@@ -1400,13 +1185,13 @@ defmodule AL.Syntax do
   defp term({:binary, :==, left, right, _, _}, pins),
     do: %Goal.Equal{a: term(left, pins), b: term(right, pins)}
 
-  defp term({:binary, :or, _, _, _, _} = node, pins), do: goal(node, pins)
+  defp term({:binary, op, _, _, _, _} = node, pins) when op in [:or, :";", :->],
+    do: goal(node, pins)
 
   defp term({:negate, operand, _, _}, pins),
     do: %Goal.OApply{method_id: :-, args: [term(operand, pins)]}
 
   defp term({:call, _, _, _, _} = node, pins), do: goal(node, pins)
-  defp term({kind, _, _, _, _} = node, pins) when kind in [:semi, :arrow], do: goal(node, pins)
 
   defp term({:pin, name, start, _}, pins) do
     if pins,

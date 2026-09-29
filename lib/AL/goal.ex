@@ -506,6 +506,76 @@ defmodule AL.Goal do
     {Comment, :comment, [text: :term]}
   ]
 
+  @calls [
+    {:class, GetClass, [:object, :class], %{}},
+    {:super, GetSuper, [:object, :super], %{}},
+    {:method, GetMethod, [:object, :name, :id], %{}},
+    {:clause, GetOapply, [:object, :head, :body], %{seq: :"$_"}},
+    {:clause, GetOapply, [:object, :seq, :head, :body], %{}},
+    {:slot, GetSlots, [:object, :key, :value], %{store: :auto}},
+    {:slot, GetSlots, [:object, :key, :value, :store], %{}},
+    {:send, Send, [:object, :method], %{args: []}},
+    {:send, Send, [:object, :method, :args], %{}},
+    {:send_async, SendAsync, [:object, :method], %{args: []}},
+    {:send_async, SendAsync, [:object, :method, :args], %{}},
+    {:send_elixir, SendElixir, [:pid, :message], %{}},
+    {:gensym, Gensym, [:var], %{}},
+    {:ground, Ground, [:term], %{}},
+    {:label, Label, [:term], %{}},
+    {:var, IsVar, [:term], %{}},
+    {:dif, Dif, [:a, :b], %{}},
+    {:isa, Isa, [:object, :class], %{}},
+    {:in_domain, InDomain, [:var, :values], %{}},
+    {:all_dif, AllDif, [:vars], %{}},
+    {:floor_divide, FloorDivide, [:dividend, :divisor, :quotient], %{}},
+    {:vm_assert_valid_clause_self, AssertValidClauseSelf, [:class, :head], %{}},
+    {:vm_command, GetCommand, [:transaction, :time, :operation], %{}},
+    {:vm_transaction_source, TransactionSource, [:tx, :text, :origin], %{}},
+    {:vm_method_source, MethodSource, [:object, :seq, :text, :provenance], %{}},
+    {:vm_set_class, SetClass, [:object, :class], %{}},
+    {:vm_set_super, SetSuper, [:object, :super], %{}},
+    {:vm_set_method, SetMethod, [:object, :name, :id], %{}},
+    {:vm_set_slot, SetSlot, [:object, :key, :value], %{}},
+    {:vm_slot_at, GetSlotAt, [:object, :key, :value, :t], %{}},
+    {:vm_retract_class, RetractClass, [:object, :class], %{}},
+    {:vm_retract_super, RetractSuper, [:object, :super], %{}},
+    {:vm_retract_method, RetractMethod, [:object, :name, :id], %{}},
+    {:vm_retract_oapply, RetractOapply, [:object, :head], %{}},
+    {:vm_retract_slot, RetractSlot, [:object, :key], %{}},
+    {:vm_format, Format, [:control, :args], %{}},
+    {:vm_emit_effect, EmitEffect, [:effect, :provider, :operation, :arguments], %{}}
+  ]
+
+  @call_forms Map.new(@calls, fn {name, module, fields, defaults} ->
+                {{name, length(fields)}, {module, fields, defaults}}
+              end)
+
+  @doc "The names of the calls that read as a goal other than a send."
+  @spec call_names() :: [atom()]
+  def call_names, do: @calls |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+  @doc "The goal an AL call reads as, when its name and arity name one."
+  @spec from_call(atom(), [term()]) :: t() | nil
+  def from_call(name, args) do
+    case Map.fetch(@call_forms, {name, length(args)}) do
+      {:ok, {module, fields, defaults}} ->
+        struct(module, Map.merge(defaults, Map.new(Enum.zip(fields, args))))
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc "The shortest AL call that reads back as this goal."
+  @spec to_call(t()) :: {atom(), [term()]} | nil
+  def to_call(%module{} = goal) do
+    Enum.find_value(@calls, fn {name, call_module, fields, defaults} ->
+      if call_module == module and
+           Enum.all?(defaults, fn {key, value} -> Map.fetch!(goal, key) == value end),
+         do: {name, Enum.map(fields, &Map.fetch!(goal, &1))}
+    end)
+  end
+
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
   @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
 
