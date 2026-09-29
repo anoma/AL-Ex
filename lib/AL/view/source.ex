@@ -667,6 +667,8 @@ defmodule AL.Source do
   defp goal({:=, a, b}), do: {:=, [], [pat(a), pat(b)]}
   defp goal({:unify, a, b}), do: goal({:=, a, b})
   defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
+  defp goal({:variant, a, b}), do: {:variant, [], [pat(a), pat(b)]}
+  defp goal({:string_codes, string, codes}), do: {:string_codes, [], [pat(string), pat(codes)]}
 
   defp goal({:transaction_source, tx, text, origin}),
     do: call(:vm_transaction_source, [tx, text, origin])

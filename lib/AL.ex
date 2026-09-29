@@ -1494,6 +1494,27 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.Variant{a: a, b: b}, state) do
+    if variant_renaming(a, b, {%{}, %{}}), do: state, else: backtrack(state)
+  end
+
+  def interp(%Goal.StringCodes{string: string, codes: codes} = goal, state) do
+    cond do
+      is_binary(string) and String.valid?(string) ->
+        put_bindings(state, unify(state, String.to_charlist(string), codes), [codes])
+
+      AL.Var.var?(string) ->
+        case code_list(codes, []) do
+          {:ok, list} -> put_bindings(state, unify(state, string, List.to_string(list)), [string])
+          {:open, var} -> suspend(state, [string, var], goal)
+          :error -> backtrack(state)
+        end
+
+      true ->
+        backtrack(state)
+    end
+  end
+
   # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
   # AL.Var.bind/4 rechecks on each future bind.
   def interp(%Goal.Dif{a: a, b: b}, state) do
@@ -1904,6 +1925,78 @@ defmodule AL do
   defp format_decimal(term), do: inspect(term)
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
+
+  defp code_list([], codes), do: {:ok, Enum.reverse(codes)}
+
+  defp code_list([code | rest], codes) do
+    cond do
+      AL.Var.var?(code) -> {:open, code}
+      codepoint?(code) -> code_list(rest, [code | codes])
+      true -> :error
+    end
+  end
+
+  defp code_list(rest, _codes) do
+    if AL.Var.var?(rest), do: {:open, rest}, else: :error
+  end
+
+  defp codepoint?(code),
+    do: is_integer(code) and code in 0..0x10FFFF and code not in 0xD800..0xDFFF
+
+  defp suspend(state, vars, goal) do
+    choice = state.active_choicepoint
+
+    suspensions =
+      Enum.reduce(vars, choice.suspensions, fn var, suspensions ->
+        Map.update(suspensions, var, [goal], &(&1 ++ [goal]))
+      end)
+
+    %AL{state | active_choicepoint: %AL.Choicepoint{choice | suspensions: suspensions}}
+  end
+
+  defp variant_renaming(a, b, renaming) do
+    case {AL.Var.var?(a), AL.Var.var?(b)} do
+      {true, true} -> rename_variant(a, b, renaming)
+      {false, false} -> variant_structure(a, b, renaming)
+      _ -> nil
+    end
+  end
+
+  defp rename_variant(:"$_", _b, renaming), do: renaming
+  defp rename_variant(_a, :"$_", renaming), do: renaming
+
+  defp rename_variant(a, b, {forward, backward} = renaming) do
+    case {Map.fetch(forward, a), Map.fetch(backward, b)} do
+      {{:ok, ^b}, {:ok, ^a}} -> renaming
+      {:error, :error} -> {Map.put(forward, a, b), Map.put(backward, b, a)}
+      _ -> nil
+    end
+  end
+
+  defp variant_structure([ha | ta], [hb | tb], renaming) do
+    with renaming when not is_nil(renaming) <- variant_renaming(ha, hb, renaming) do
+      variant_renaming(ta, tb, renaming)
+    end
+  end
+
+  defp variant_structure(a, b, renaming)
+       when is_tuple(a) and is_tuple(b) and tuple_size(a) == tuple_size(b),
+       do: variant_renaming(Tuple.to_list(a), Tuple.to_list(b), renaming)
+
+  defp variant_structure(a, b, renaming)
+       when is_map(a) and is_map(b) and map_size(a) == map_size(b) do
+    if Enum.sort(Map.keys(a)) == Enum.sort(Map.keys(b)) do
+      Enum.reduce_while(Map.keys(a), renaming, fn key, renaming ->
+        case variant_renaming(Map.fetch!(a, key), Map.fetch!(b, key), renaming) do
+          nil -> {:halt, nil}
+          renaming -> {:cont, renaming}
+        end
+      end)
+    end
+  end
+
+  defp variant_structure(a, a, renaming), do: renaming
+  defp variant_structure(_a, _b, _renaming), do: nil
 
   defp schedule_future_transaction(state, status, effect, head, goals) do
     future = AL.Var.var("future_transaction_#{fresh_scope()}")

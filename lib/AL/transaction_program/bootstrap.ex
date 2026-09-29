@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 19, deps: [] do
+  defprogram :bootstrap, version: 20, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -803,6 +803,36 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     new(:class, %{name: :number, super: :value, ivars: []}, _)
 
+    new(:class, %{name: :string, super: :value, ivars: []}, _)
+
+    defmethod(:string, :concat, [self, other, whole]) do
+      string_codes(whole, whole_codes)
+      string_codes(self, self_codes)
+      string_codes(other, other_codes)
+      concat(self_codes, other_codes, whole_codes)
+    end
+
+    defmethod(:string, :length, [self, n]) do
+      string_codes(self, codes)
+      length(codes, n)
+    end
+
+    defmethod(:string, :split, [self, separator, parts]) do
+      string_codes(separator, separator_codes)
+      ground(self)
+      string_codes(self, codes)
+      split(codes, separator_codes, part_codes)
+      strings_codes(parts, part_codes)
+    end
+
+    defmethod(:string, :split, [self, separator, parts]) do
+      string_codes(separator, separator_codes)
+      not [ground(self)]
+      strings_codes(parts, part_codes)
+      split(codes, separator_codes, part_codes)
+      string_codes(self, codes)
+    end
+
     defmethod(:number, :factorial, [1, 1])
 
     # TODO: Propagating multiplicative intervals
@@ -917,6 +947,31 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :concat, [[fh | ft], second, [fh | inner]]) do
       concat(ft, second, inner)
+    end
+
+    defmethod(:list, :contains, [self, sublist]) do
+      concat(_prefix, suffix, self)
+      concat(sublist, _rest, suffix)
+    end
+
+    defmethod(:list, :split, [self, [separator | separators], [self]]) do
+      not [contains(self, [separator | separators])]
+    end
+
+    defmethod(:list, :split, [self, [separator | separators], [part | parts]]) do
+      concat(part, separated, self)
+      concat([separator | separators], rest, separated)
+      concat(part, [separator | separators], through_separator)
+      concat(before_last, [_last], through_separator)
+      not [contains(before_last, [separator | separators])]
+      split(rest, [separator | separators], parts)
+    end
+
+    defmethod(:list, :strings_codes, [[], []])
+
+    defmethod(:list, :strings_codes, [[string | strings], [codes | rest]]) do
+      string_codes(string, codes)
+      strings_codes(strings, rest)
     end
 
     # member keeps a stable behaviour id (`:list_member`) so the trace example can
