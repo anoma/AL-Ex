@@ -21,21 +21,21 @@ defmodule AL.Var.Bounds do
   re-running on every later touch of them. Backtracking restores a
   choicepoint's own store, which still carries it.
 
-  Wake classes. A propagator with a still-open var on *both* sides is
-  *ground-woken*: a mere bound narrowing of one of its vars re-queues it
-  only as `{:check, prop}`, which tests the two sides' intervals for a
-  refutation and narrows nothing, so it queues nothing. Once one side is
-  wholly ground it is *narrow-woken* and propagates for real — the open
-  side is then solved against a constant, which reaches its own fixpoint
-  in one pass instead of creeping toward the other side. Grounding a var
-  wakes every propagator parked on it for real, whichever class it is in
-  (`AL.Var.bind/4` runs the fixpoint over them), as does posting a fresh
-  propagator. Chasing two moving sides converges one unit per round, so
-  the narrow wake made a chain of linear equations posted before the
-  calls that ground them cost O(domain width) rounds per frame rather
-  than O(1); refuting without narrowing keeps the refutation and drops
-  the ratchet. The cost is completeness, not soundness: a ground-woken
-  propagator's narrowing waits until one of its sides grounds.
+  Wake classes. Narrowing a var to a domain finite at both ends re-queues
+  every propagator parked on it, so propagation runs to a full fixpoint;
+  that terminates because each round removes at least one value from a
+  finite domain, though a cycle such as `x < y, y < x` over a wide domain
+  takes as many rounds as the domain is wide. Narrowing a var whose domain
+  stays unbounded at either end re-queues a propagator with a still-open
+  var on *both* sides only as `{:check, prop}`, which narrows its sides
+  once and re-queues nothing it wakes: a cycle against an infinite bound
+  would otherwise ratchet forever, so it stops after one step and stays
+  parked, the same trade SWI-Prolog's clpfd makes. A propagator with one
+  side wholly ground propagates for real either way, since solving the
+  open side against a constant reaches its fixpoint in one pass. Grounding
+  a var wakes every propagator parked on it for real (`AL.Var.bind/4` runs
+  the fixpoint over them), as does posting a fresh propagator. The cost is
+  completeness only where a domain is unbounded, never soundness.
   """
 
   alias AL.Var.ConstraintSet
@@ -467,57 +467,47 @@ defmodule AL.Var.Bounds do
           ),
           AL.Branch.t()
         ) :: AL.Var.store() | nil
-  def run_fixpoint(store, worklist, branch) do
-    case Enum.at(worklist, 0) do
-      nil ->
+  def run_fixpoint(store, worklist, branch),
+    do: drain(store, :queue.from_list(Enum.to_list(worklist)), MapSet.new(worklist), branch)
+
+  defp drain(store, queue, waiting, branch) do
+    case :queue.out(queue) do
+      {:empty, _queue} ->
         store
 
-      {:check, prop} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case check_only(store, prop) do
-          nil -> nil
-          new_store -> run_fixpoint(new_store, rest, branch)
-        end
-
-      {:either, left, right} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case resolve_either(store, left, right, branch) do
-          nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
-        end
-
-      {:all_dif, vars} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case AL.Var.AllDif.resolve(store, vars, branch) do
-          nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
-        end
-
-      {lo_aff, hi_aff, strict} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case narrow_pair(store, lo_aff, hi_aff, strict, branch) do
+      {{:value, item}, queue} ->
+        case propagate(store, item, branch) do
           nil ->
             nil
 
-          {new_store, more} ->
-            run_fixpoint(retire(new_store, t), MapSet.union(rest, more), branch)
+          {new_store, woken} ->
+            {queue, waiting} = enqueue(woken, queue, MapSet.delete(waiting, item))
+            drain(new_store, queue, waiting, branch)
         end
     end
   end
 
-  defp check_only(store, {lo_aff, hi_aff, strict} = prop) do
-    {lo_lo, lo_hi} = domain_of(store, lo_aff)
-    {hi_lo, hi_hi} = domain_of(store, hi_aff)
+  defp enqueue(woken, queue, waiting) do
+    Enum.reduce(woken, {queue, waiting}, fn item, {queue, waiting} ->
+      if MapSet.member?(waiting, item),
+        do: {queue, waiting},
+        else: {:queue.in(item, queue), MapSet.put(waiting, item)}
+    end)
+  end
 
-    cond do
-      refuted?(bump_up(lo_lo, strict), hi_hi) -> nil
-      entailed?(lo_hi, hi_lo, strict) -> unpark(store, prop, prop_vars(prop))
-      true -> store
-    end
+  defp propagate(store, {:check, {lo_aff, hi_aff, strict} = prop}, branch) do
+    with {new_store, _woken} <- narrow_pair(store, lo_aff, hi_aff, strict, branch),
+         do: {retire(new_store, prop), []}
+  end
+
+  defp propagate(store, {:either, left, right}, branch),
+    do: resolve_either(store, left, right, branch)
+
+  defp propagate(store, {:all_dif, vars}, branch), do: AL.Var.AllDif.resolve(store, vars, branch)
+
+  defp propagate(store, {lo_aff, hi_aff, strict} = prop, branch) do
+    with {new_store, woken} <- narrow_pair(store, lo_aff, hi_aff, strict, branch),
+         do: {retire(new_store, prop), woken}
   end
 
   defp retire(store, {lo_aff, hi_aff, strict} = prop) do
@@ -530,10 +520,6 @@ defmodule AL.Var.Bounds do
   end
 
   defp prop_vars({lo_aff, hi_aff, _strict}), do: affine_vars(lo_aff) ++ affine_vars(hi_aff)
-
-  defp refuted?(nil, _hi_hi), do: false
-  defp refuted?(_floor, nil), do: false
-  defp refuted?(floor, hi_hi), do: floor > hi_hi
 
   defp entailed?(nil, _hi_lo, _strict), do: false
   defp entailed?(_lo_hi, nil, _strict), do: false
@@ -817,12 +803,14 @@ defmodule AL.Var.Bounds do
             end
 
           true ->
-            {:ok, set_bounds(store, dv, {v_lo, v_hi}), wake_on_narrow(store, dv)}
+            {:ok, set_bounds(store, dv, {v_lo, v_hi}), wake_on_narrow(store, dv, {v_lo, v_hi})}
         end
     end
   end
 
-  defp wake_on_narrow(store, v) do
+  defp wake_on_narrow(store, v, {lo, hi}) when lo != nil and hi != nil, do: props_of(store, v)
+
+  defp wake_on_narrow(store, v, _unbounded) do
     Enum.map(props_of(store, v), fn prop ->
       if ground_woken?(store, prop), do: {:check, prop}, else: prop
     end)
