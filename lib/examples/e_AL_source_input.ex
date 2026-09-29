@@ -1,14 +1,17 @@
 defmodule Examples.ALSourceInput do
   @moduledoc """
-  I show how complete AL source text becomes one lowered program and one
+  I show how complete AL source text becomes one compiled program and one
   transaction. I also show the source ranges retained for later provenance.
   """
 
   use ExExample
+  use AL
   import ExUnit.Assertions
   import ExUnit.CaptureIO
 
-  alias AL.Source.Parser
+  alias AL.Syntax
+
+  defp al(term), do: AL.Syntax.Printer.term(term)
 
   defp fresh_id(prefix) do
     suffix = System.unique_integer([:positive])
@@ -18,118 +21,96 @@ defmodule Examples.ALSourceInput do
   example parses_complete_source_and_exact_definition_ranges() do
     source =
       "# leading comment\r\n" <>
-        "defmethod(:source_parse_class, :unicode, [self]) do\r\n" <>
+        "source_parse_class >> unicode\r\n" <>
+        "| Self |\r\n" <>
         "  # comment inside the method\r\n" <>
-        "  self = \"é\"\r\n" <>
-        "end\r\n\r\n" <>
-        "defclass :source_parse_nested, super: :object do\r\n" <>
-        "  defmethod(:ping, [self, :pong])\r\n" <>
-        "end\r\n"
+        "  Self = \"é\".\r\n\r\n" <>
+        "@source_parse_other \#{super: object}.\r\n"
 
-    {:ok, result} = Parser.parse(source)
+    {:ok, result} = Syntax.parse(source)
 
-    assert length(result.program) == 2
+    assert length(result.program) == 3
     assert [method, class] = result.captures
+    assert {method.ordinal, method.kind, method.path} == {0, :defmethod, [1]}
+    assert {class.ordinal, class.kind, class.path} == {1, :defclass, [2]}
 
-    assert {method.ordinal, method.kind, method.path, method.authored_as} ==
-             {0, :defmethod, [0], :standalone}
-
-    assert {class.ordinal, class.kind, class.path, class.authored_as} ==
-             {1, :defclass, [1], :standalone}
-
-    assert [nested] = class.children
-
-    assert {nested.ordinal, nested.kind, nested.path, nested.authored_as} ==
-             {2, :defmethod, [1, :methods, 0], :nested}
-
-    {:ok, method_source} = Parser.slice(source, method.range)
-    {:ok, class_source} = Parser.slice(source, class.range)
-    {:ok, nested_source} = Parser.slice(source, nested.range)
+    {:ok, method_source} = Syntax.slice(source, method.range)
+    {:ok, class_source} = Syntax.slice(source, class.range)
 
     assert method_source ==
-             "defmethod(:source_parse_class, :unicode, [self]) do\r\n" <>
+             "source_parse_class >> unicode\r\n" <>
+               "| Self |\r\n" <>
                "  # comment inside the method\r\n" <>
-               "  self = \"é\"\r\n" <>
-               "end"
+               "  Self = \"é\""
 
-    assert class_source ==
-             "defclass :source_parse_nested, super: :object do\r\n" <>
-               "  defmethod(:ping, [self, :pong])\r\n" <>
-               "end"
+    assert class_source == "@source_parse_other \#{super: object}"
 
-    assert nested_source == "defmethod(:ping, [self, :pong])"
+    assert [
+             %AL.Goal.OApply{method_id: :clear_method},
+             %AL.Goal.OApply{args: [_, _, _, [%AL.Goal.Comment{}, %AL.Goal.Eq{}]]},
+             _
+           ] = result.program
+
     result
   end
 
-  example captures_only_the_authored_al_run_body() do
-    source =
-      "defmodule Examples.SourceCapture do\n" <>
-        "  AL.run do\n" <>
-        "    # retained comment\n" <>
-        "    vm_set_class(:captured_run_object, :object)\n" <>
-        "  end\n" <>
-        "end\n"
+  example run_retains_exactly_its_source() do
+    branch = Examples.Support.isolated_branch()
 
-    {:ok, range} = Parser.run_range(source, 2)
-    {:ok, retained} = Parser.slice(source, range)
+    try do
+      {:atomic, {_bindings, _constraints, state}} =
+        run branch: branch.id do
+          ~AL"""
+          # retained comment
+          vm_set_class captured_run_object object.
+          """
+        end
 
-    assert retained ==
-             "\n" <>
-               "    # retained comment\n" <>
-               "    vm_set_class(:captured_run_object, :object)\n" <>
-               "  "
+      {:atomic, texts} = :mnesia.transaction(fn -> AL.SourceStore.texts(branch) end)
+      tx = state.tx_id
 
-    refute retained =~ "AL.run"
-    refute retained =~ "defmodule"
-    :ok
+      assert {:source_text, ^tx, retained, %{kind: :al_run}} =
+               Enum.find(texts, fn {:source_text, tx_id, _text, _origin} -> tx_id == tx end)
+
+      assert retained == "# retained comment\nvm_set_class captured_run_object object.\n"
+
+      :ok
+    after
+      AL.Branch.discard(branch)
+    end
   end
 
   example final_definition_ranges_exclude_trailing_comments() do
     source =
-      "\"é\" = :ok; " <>
-        "defmethod :source_parse_class, :final_form, [self] # not owned by the method"
+      "\"é\" = \"é\".\n" <>
+        "source_parse_class >> final_form\n| Self |. # not owned by the method"
 
-    {:ok, result} = Parser.parse(source)
+    {:ok, result} = Syntax.parse(source)
     assert [method] = result.captures
-    assert method.range.start == %{line: 1, column: 12}
+    assert method.range.start == %{line: 2, column: 1}
 
-    assert {:ok, "defmethod :source_parse_class, :final_form, [self]"} =
-             Parser.slice(source, method.range)
+    assert {:ok, "source_parse_class >> final_form\n| Self |"} =
+             Syntax.slice(source, method.range)
 
     result
   end
 
-  example syntax_and_lowering_errors_are_structured() do
-    assert {:error, %Parser.Error{phase: :parse, line: 1, column: column}} =
-             Parser.parse("defmethod(:broken")
+  example syntax_and_compile_errors_are_structured() do
+    assert {:error, %Syntax.Error{phase: :parse, line: 1, column: 8}} =
+             Syntax.parse("broken (X")
 
-    assert is_integer(column)
-
-    assert {:error, %Parser.Error{phase: :lowering}} =
-             Parser.parse("""
-             defclass :broken_source_class, super: :object do
-               a = b
-             end
+    assert {:error, %Syntax.Error{phase: :parse}} =
+             Syntax.parse("""
+             @broken_source_class \#{super: object} {
+               A = B.
+             }
              """)
 
-    assert {:error, %Parser.Error{phase: :lowering}} = Parser.parse("42")
-    assert {:error, %Parser.Error{phase: :lowering}} = AL.eval_source("42")
-
-    assert {:error,
-            %Parser.Error{
-              phase: :lowering,
-              message: "AL does not support Elixir tuple literals"
-            }} = Parser.parse("pair = {:ok, 1}")
-
-    assert {:error,
-            %Parser.Error{
-              phase: :lowering,
-              message: "AL does not support Elixir tuple literals"
-            }} = Parser.parse("triple = {:point, 1, 2}")
-
-    {:ok, call_named_defmethod} = Parser.parse("defmethod(:receiver, :selector)")
-    assert call_named_defmethod.captures == []
-    assert [%AL.Goal.Send{method: :defmethod}] = call_named_defmethod.program
+    assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("42.")
+    assert {:error, %Syntax.Error{phase: :compile}} = AL.eval_source("42.")
+    assert {:error, %Syntax.Error{phase: :parse}} = Syntax.parse("X =.")
+    assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("Pair = {ok, 1}.")
+    assert {:error, %Syntax.Error{phase: :parse}} = Syntax.parse("receiver >> selector Self.")
 
     :ok
   end
@@ -141,8 +122,8 @@ defmodule Examples.ALSourceInput do
 
     try do
       source = """
-      vm_set_class(#{inspect(first)}, :object)
-      vm_set_class(#{inspect(second)}, :object)
+      vm_set_class #{al(first)} object.
+      vm_set_class #{al(second)} object.
       """
 
       {:atomic, _} = AL.eval_source(source, branch)
@@ -169,8 +150,8 @@ defmodule Examples.ALSourceInput do
 
     try do
       source = """
-      vm_set_class(#{inspect(object)}, :object)
-      fail()
+      vm_set_class #{al(object)} object.
+      fail.
       """
 
       assert {:aborted, _reason} = AL.eval_source(source, branch)
@@ -187,13 +168,13 @@ defmodule Examples.ALSourceInput do
 
   example source_input_preserves_heap_limited_evaluation() do
     source = """
-    result = :ok
+    Result = ok.
     """
 
     assert {:atomic, {bindings, _constraints, nil}} =
              AL.eval_source(source, AL.Branch.head(), heap: 2_000_000)
 
-    assert Map.fetch!(bindings, :"$result") == :ok
+    assert Map.fetch!(bindings, :"$Result") == :ok
     :ok
   end
 
@@ -203,14 +184,17 @@ defmodule Examples.ALSourceInput do
 
     try do
       source = """
-      defclass #{inspect(class)}, super: :object do
-        defmethod(:ping, [self, :pong])
-        defmethod(:ping, [self, :pong])
-      end
+      @#{al(class)} \#{super: object}.
 
-      defmethod(#{inspect(class)}, :outside, [self]) do
-        self = self
-      end
+      #{al(class)} >> ping
+      | Self pong |.
+
+      #{al(class)} >> ping
+      | Self pong |.
+
+      #{al(class)} >> outside
+      | Self |
+        Self = Self.
       """
 
       {:atomic, _} = AL.eval_source(source, branch)
@@ -269,8 +253,7 @@ defmodule Examples.ALSourceInput do
 
       assert [{:class, ^class, _seq, class_command_t, :open, _metaclass}] = class_rows
 
-      assert {:source_span, ^class_command_t, ^tx_id, :defclass, class_range,
-              %{class: ^class, authored_as: :standalone}} =
+      assert {:source_span, ^class_command_t, ^tx_id, :defclass, class_range, %{class: ^class}} =
                Map.fetch!(spans_by_command, class_command_t)
 
       assert class_range.start.line == 1
@@ -282,9 +265,9 @@ defmodule Examples.ALSourceInput do
 
       assert ping_command_t_1 != ping_command_t_2
 
-      for {command_t, line} <- [{ping_command_t_1, 2}, {ping_command_t_2, 3}] do
+      for {command_t, line} <- [{ping_command_t_1, 3}, {ping_command_t_2, 6}] do
         assert {:source_span, ^command_t, ^tx_id, :defmethod, range,
-                %{class: ^class, method: :ping, authored_as: :nested}} =
+                %{class: ^class, method: :ping}} =
                  Map.fetch!(spans_by_command, command_t)
 
         assert range.start.line == line
@@ -296,40 +279,35 @@ defmodule Examples.ALSourceInput do
              ] = outside_rows
 
       assert {:source_span, ^outside_command_t, ^tx_id, :defmethod, outside_range,
-              %{class: ^class, method: :outside, authored_as: :standalone}} =
+              %{class: ^class, method: :outside}} =
                Map.fetch!(spans_by_command, outside_command_t)
 
-      assert outside_range.start.line == 6
+      assert outside_range.start.line == 9
+      ping_text = "#{al(class)} >> ping\n| Self pong |"
 
       assert %{
-               text: "defmethod(:ping, [self, :pong])",
-               start_line: 2,
+               text: ^ping_text,
+               start_line: 3,
                provenance: :retained,
                origin: %{kind: :eval_source, label: nil},
-               authored_as: :nested,
                diagnostic: nil
              } = AL.Source.method_clause_source(class, :ping, ping_id, 0, branch)
 
       assert %{
-               text: "defmethod(:ping, [self, :pong])",
-               start_line: 3,
+               text: ^ping_text,
+               start_line: 6,
                provenance: :retained,
-               authored_as: :nested,
                diagnostic: nil
              } = AL.Source.method_clause_source(class, :ping, ping_id, 1, branch)
 
       assert %{
                text: outside_text,
-               start_line: 6,
+               start_line: 9,
                provenance: :retained,
-               authored_as: :standalone,
                diagnostic: nil
              } = AL.Source.method_clause_source(class, :outside, outside_id, 0, branch)
 
-      assert outside_text ==
-               "defmethod(#{inspect(class)}, :outside, [self]) do\n" <>
-                 "  self = self\n" <>
-                 "end"
+      assert outside_text == "#{al(class)} >> outside\n| Self |\n  Self = Self"
 
       :ok
     after
@@ -348,11 +326,12 @@ defmodule Examples.ALSourceInput do
         end)
 
       source = """
-      defclass #{inspect(class)}, super: :object do
-        defmethod(:ping, [self, :pong])
-      end
+      @#{al(class)} \#{super: object}.
 
-      fail()
+      #{al(class)} >> ping
+      | Self pong |.
+
+      fail.
       """
 
       assert {:aborted, reason} = AL.eval_source(source, branch)
@@ -393,9 +372,9 @@ defmodule Examples.ALSourceInput do
     second = fresh_id("source_parent_second")
     child_only = fresh_id("source_child_only")
 
-    first_source = "defmethod(:object, #{inspect(first)}, [self])\n"
-    second_source = "defmethod(:object, #{inspect(second)}, [self])\n"
-    child_source = "defmethod(:object, #{inspect(child_only)}, [self])\n"
+    first_source = "object >> #{al(first)}\n| Self |.\n"
+    second_source = "object >> #{al(second)}\n| Self |.\n"
+    child_source = "object >> #{al(child_only)}\n| Self |.\n"
 
     {:atomic, _} = AL.eval_source(first_source, parent)
 
@@ -447,7 +426,7 @@ defmodule Examples.ALSourceInput do
       assert %{text: expected_first, provenance: :retained, diagnostic: nil} =
                AL.Source.method_clause_source(:object, first, first_id, 0, child)
 
-      assert expected_first == String.trim_trailing(first_source)
+      assert expected_first <> ".\n" == first_source
 
       assert {:atomic, :absent} =
                :mnesia.transaction(fn -> AL.SourceStore.span(second_command_t, child) end)
@@ -502,7 +481,7 @@ defmodule Examples.ALSourceInput do
   example retained_source_survives_projection_replay() do
     branch = Examples.Support.isolated_branch()
     method = fresh_id("source_replay_method")
-    source = "defmethod(:object, #{inspect(method)}, [self])\n"
+    source = "object >> #{al(method)}\n| Self |.\n"
 
     try do
       {:atomic, _} = AL.eval_source(source, branch)
@@ -550,9 +529,6 @@ defmodule Examples.ALSourceInput do
     assert {:error, %AL.Goal.StorableError{reason: :capture_id}} =
              AL.Goal.validate_storable([:head | capture_id])
 
-    assert {:error, %AL.Goal.StorableError{reason: :tagged_source_method}} =
-             AL.Goal.validate_storable({:al_source_method, capture_id, :ping, [], []})
-
     assert {:error, %AL.Goal.StorableError{reason: :source_scope_exit}} =
              AL.Goal.validate_storable(%AL.Goal.SourceScopeExit{capture_id: capture_id})
 
@@ -593,10 +569,10 @@ defmodule Examples.ALSourceInput do
   example legacy_clauses_use_the_decompiled_reader_fallback() do
     branch = Examples.Support.isolated_branch()
     method = fresh_id("source_legacy_method")
-    source = "defmethod(:object, #{inspect(method)}, [self])\n"
+    source = "object >> #{al(method)}\n| Self |.\n"
 
     try do
-      {:ok, %Parser.Result{program: program}} = Parser.parse(source)
+      {:ok, %Syntax.Result{program: program}} = Syntax.parse(source)
       {:atomic, _} = AL.eval(program, nil, branch)
 
       {:atomic, method_id} =
@@ -612,11 +588,10 @@ defmodule Examples.ALSourceInput do
                start_line: 1,
                provenance: :decompiled,
                origin: nil,
-               authored_as: nil,
                diagnostic: nil
              } = AL.Source.method_clause_source(:object, method, method_id, 0, branch)
 
-      assert decompiled =~ "defmethod(:object, #{inspect(method)}, [self])"
+      assert decompiled == "object >> #{al(method)}\n| Self |"
 
       assert [[name, 0, ^decompiled, 1, 1, :decompiled, nil]] =
                Enum.filter(AL.Source.method_source_rows(:object, branch), fn row ->
@@ -633,8 +608,8 @@ defmodule Examples.ALSourceInput do
   example open_readers_hide_retracted_clauses_but_history_keeps_them() do
     branch = Examples.Support.isolated_branch()
     method = fresh_id("source_history_method")
-    first_source = "defmethod(:object, #{inspect(method)}, [self, :first])\n"
-    second_source = "defmethod(:object, #{inspect(method)}, [self, :second])\n"
+    first_source = "object >> #{al(method)}\n| Self first |.\n"
+    second_source = "object >> #{al(method)}\n| Self second |.\n"
 
     try do
       {:atomic, _} = AL.eval_source(first_source, branch)
@@ -747,7 +722,7 @@ defmodule Examples.ALSourceInput do
                  branch
                )
 
-      assert expected_second == String.trim_trailing(second_source)
+      assert expected_second <> ".\n" == second_source
 
       assert [[name, ^current_clause_seq, ^expected_second, 2, 1, :retained, nil]] =
                Enum.filter(AL.Source.method_source_rows(:object, branch), fn row ->
@@ -761,7 +736,7 @@ defmodule Examples.ALSourceInput do
     end
   end
 
-  example al_run_retains_source_for_compile_time_defined_programs() do
+  example transaction_programs_retain_their_program_file_source() do
     branch = AL.Branch.fork_fresh()
 
     try do
@@ -773,17 +748,11 @@ defmodule Examples.ALSourceInput do
       assert %{
                text: text,
                provenance: :retained,
-               origin: %{kind: :al_run, file: file, line: line},
+               origin: %{kind: :transaction_program, file: "priv/programs/bootstrap.al"},
                diagnostic: nil
              } = AL.Source.method_clause_source(:object, :between, method_id, 0, branch)
 
-      assert String.ends_with?(file, "lib/AL/transaction_program/bootstrap.ex")
-      assert is_integer(line)
-
-      assert text ==
-               "defmethod(:object, :between, [_self, low, high, low]) do\n" <>
-                 "      low <= high\n" <>
-                 "    end"
+      assert text == "object >> between\n| _Self Low High Low |\nLow <= High"
     after
       AL.Branch.discard(branch)
     end
@@ -795,13 +764,14 @@ defmodule Examples.ALSourceInput do
 
     try do
       source = """
-      defclass #{inspect(class)}, super: :object do
-        defmethod(:describe, [self, :small]) do
-          self = self
-        end
+      @#{al(class)} \#{super: object}.
 
-        defmethod(:describe, [self, :big])
-      end
+      #{al(class)} >> describe
+      | Self small |
+        Self = Self.
+
+      #{al(class)} >> describe
+      | Self big |.
       """
 
       {:atomic, _} = AL.eval_source(source, branch)
@@ -809,8 +779,8 @@ defmodule Examples.ALSourceInput do
       output = capture_io(fn -> AL.Source.print_method(class, :describe, branch) end)
 
       assert output ==
-               "defmethod(:describe, [self, :small]) do\n    self = self\n  end\n\n" <>
-                 "defmethod(:describe, [self, :big])\n\n"
+               "#{al(class)} >> describe\n| Self small |\n  Self = Self\n\n" <>
+                 "#{al(class)} >> describe\n| Self big |\n\n"
 
       :ok
     after

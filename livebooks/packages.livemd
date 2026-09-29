@@ -12,10 +12,7 @@ Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
   config: [
     al: [
-      transaction_programs: [
-        AL.TransactionProgram.Bootstrap,
-        AL.TransactionProgram.PackageSystem
-      ],
+      transaction_programs: [:bootstrap, :package_system],
       package_channels: [{:builtin, {:priv, "packages"}}],
       package_environment: [:interval],
       natives: []
@@ -34,10 +31,7 @@ A package groups AL definitions so they can be discovered, installed, extended, 
 
 ```text
 config :al,
-  transaction_programs: [
-    AL.TransactionProgram.Bootstrap,
-    AL.TransactionProgram.PackageSystem
-  ],
+  transaction_programs: [:bootstrap, :package_system],
   package_channels: [
     {:builtin, {:priv, "packages"}},
     {:local, "/absolute/path/to/packages"}
@@ -80,11 +74,7 @@ greetings/
 ```
 
 ```text
-Package {
-  #name : :greetings,
-  #version : 1,
-  #deps : []
-}
+defpackage greetings #{deps: [], version: 1}.
 ```
 
 A `.class.al` file defines a class owned by the package. An `.extension.al` file adds methods or superclasses to a class owned elsewhere.
@@ -104,15 +94,17 @@ The source files are portable representations of a small durable object model:
 channel -> provider -> build <- active package
 ```
 
-The package name is itself a class. For example, `:interval` is a `:package`, while its exact build is an instance of `:interval`. Its `:active_build` slot selects the definitions currently in use.
+The package name is itself a class. For example, `interval` is a `package`, while its exact build is an instance of `interval`. Its `active_build` slot selects the definitions currently in use.
 
 ```elixir
 run do
-  class(:interval, :package)
-  active_build(:interval, build)
-  class(build, :interval)
-  build_provider(build, provider)
-  provider_channel(provider, channel)
+  ~AL"""
+  class interval package.
+  active_build interval Build.
+  class Build interval.
+  build_provider Build Provider.
+  provider_channel Provider Channel.
+  """
 end
 ```
 
@@ -127,47 +119,43 @@ author = AL.Branch.head()
 
 {:atomic, _} =
   run do
-    new(
-      :package,
-      %{name: :greetings, version: 1, deps: [], redef: true},
-      :greetings
-    )
+    ~AL"""
+    new package #{deps: [], name: greetings, version: 1} greetings.
+    active_build greetings Build.
 
-    active_build(:greetings, build)
+    @greeting
+    #{super: object, ivars: [#{name: words}]}.
 
-    defclass :greeting,
-      super: :object,
-      redef: true,
-      ivars: [:words] do
-      defmethod(:words, [self, words]) do
-        get(self, :words, words)
-      end
-    end
+    greeting >> words
+    | Self Words |
+    get Self words Words.
 
-    include_class(build, :greeting)
+    include_class Build greeting.
 
-    defmethod(:list, :as_greeting, [words, greeting]) do
-      new(:greeting, %{words: words}, greeting)
-    end
+    list >> as_greeting
+    | Words Greeting |
+    new greeting #{words: Words} Greeting.
 
-    include_method(build, :list, :as_greeting)
+    include_method Build list as_greeting.
+    """
   end
 ```
 
-The package owns `:greeting` and extends the existing `:list` class.
+The package owns `greeting` and extends the existing `list` class.
 
 ```elixir
 run do
-  as_greeting([:hello, :package], greeting)
-  words(greeting, words)
-
-  active_build(:greetings, build)
-  originates_class(build, :greeting)
-  adds_method(build, :list, :as_greeting)
+  ~AL"""
+  as_greeting [hello, package] Greeting.
+  words Greeting Words.
+  active_build greetings Build.
+  originates_class Build greeting.
+  adds_method Build list as_greeting.
+  """
 end
 ```
 
-Use `include_superclass(build, class, superclass)` when the package adds an inheritance edge.
+Use `include_superclass Build Class Superclass` when the package adds an inheritance edge.
 
 ## Export a package
 
@@ -197,17 +185,13 @@ The exported source is now the build's reference, so `AL.Package.diff(:greetings
 
 ## Import a package
 
-Import registers a bundle, builds it, and activates its definitions on the selected branch. This example forks from transaction zero so the branch begins without `:greetings`.
+Import registers a bundle, builds it, and activates its definitions on the selected branch. This example forks from transaction zero so the branch begins without `greetings`.
 
 ```elixir
 consumer = AL.Branch.fork(0, author)
 AL.Branch.checkout(consumer)
 
-:ok =
-  AL.TransactionProgram.install_all([
-    AL.TransactionProgram.Bootstrap,
-    AL.TransactionProgram.PackageSystem
-  ])
+:ok = AL.TransactionProgram.install_all(AL.TransactionProgram.configured())
 
 AL.Package.active?(:greetings, consumer)
 ```
@@ -219,8 +203,10 @@ Map.take(imported, [:package, :build, :provider, :definitions])
 
 ```elixir
 run branch: consumer.id do
-  as_greeting([:hello, :consumer], greeting)
-  words(greeting, words)
+  ~AL"""
+  as_greeting [hello, consumer] Greeting.
+  words Greeting Words.
+  """
 end
 ```
 

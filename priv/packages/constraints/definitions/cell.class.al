@@ -1,68 +1,43 @@
-Class {
-  #name : :cell,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [:subscribers, :domain, :name]
-}
+@cell
+#{super: object, ivars: [#{name: subscribers}, #{name: domain}, #{name: name}]}.
 
-:cell >> :init, [self, args, self] [
-  set_slots(self, %{name: self, subscribers: []})
-]
+cell >> init
+| Self Args Self |
+set_slots Self #{name: Self, subscribers: []}.
 
-:cell >> :constrain, [self, candidate] [
-  implies do
-    [get(self, :domain, old_domain)] ->
-      intersection(old_domain, candidate, new_domain)
+cell >> constrain
+| Self Candidate |
+get Self domain OldDomain -> {
+  intersection OldDomain Candidate NewDomain,
+  NewDomain == OldDomain -> pass ; {set_slot Self domain NewDomain, notify Self NewDomain}
+} ; {set_slot Self domain Candidate, notify Self Candidate}.
 
-      implies do
-        [new_domain == old_domain] ->
-          pass()
+cell >> notify
+| Self Domain |
+forall {get Self subscribers Subscribers, member Subscribers Subscriber} {send_async Subscriber cell_updated [Self, Domain]},
+cut.
 
-        :else ->
-          set_slot(self, :domain, new_domain)
-          notify(self, new_domain)
-      end
+cell >> subscribe
+| Self Subscriber |
+get Self subscribers Subscribers,
+set_slot Self subscribers [Subscriber . Subscribers].
 
-    :else ->
-      set_slot(self, :domain, candidate)
-      notify(self, candidate)
-  end
-]
+cell >> dependents
+| Self Dependents |
+dependents Self #{} Dependents.
 
-:cell >> :notify, [self, domain] [
-  forall(get(self, :subscribers, subscribers), member(subscribers, subscriber)) do
-    send_async(subscriber, :cell_updated, [self, domain])
-  end
+cell >> dependents
+| Self Acc Dependents |
+get Acc Self Seen -> Acc = Dependents ; {
+  get Self subscribers Subscribers,
+  put Acc Self Subscribers NewAcc,
+  dependents Self NewAcc Subscribers Dependents
+}.
 
-  cut()
-]
+cell >> dependents
+| Self Acc [] Acc |.
 
-:cell >> :subscribe, [self, subscriber] [
-  get(self, :subscribers, subscribers)
-  set_slot(self, :subscribers, [subscriber | subscribers])
-]
-
-:cell >> :dependents, [self, dependents] [
-  dependents(self, %{}, dependents)
-]
-
-:cell >> :dependents, [self, acc, dependents] [
-  implies do
-    [get(acc, self, seen)] ->
-      acc = dependents
-
-    :else ->
-      get(self, :subscribers, subscribers)
-      put(acc, self, subscribers, new_acc)
-      dependents(self, new_acc, subscribers, dependents)
-  end
-]
-
-:cell >> :dependents, [self, acc, [], acc] [
-
-]
-
-:cell >> :dependents, [self, acc, [subscriber | subscribers], dependents] [
-  dependents(subscriber, acc, new_acc)
-  dependents(self, new_acc, subscribers, dependents)
-]
+cell >> dependents
+| Self Acc [Subscriber . Subscribers] Dependents |
+dependents Subscriber Acc NewAcc,
+dependents Self NewAcc Subscribers Dependents.

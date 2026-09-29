@@ -1,5 +1,1 @@
-Package {
-  #name : :files,
-  #version : 1,
-  #deps : []
-}
+defpackage files #{deps: [], version: 1}.

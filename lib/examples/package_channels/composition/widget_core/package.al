@@ -1,5 +1,1 @@
-Package {
-  #name : :widget_core,
-  #version : 1,
-  #deps : []
-}
+defpackage widget_core #{deps: [], version: 1}.

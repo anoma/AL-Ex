@@ -9,64 +9,70 @@ solve them later.
 
 Write base and recursive cases as clauses:
 
-```elixir
-defmethod(:list, :same_length, [[], []])
+```prolog
+list >> same_length
+| [] [] |.
 
-defmethod(:list, :same_length, [[_ | xs], [_ | ys]]) do
-  same_length(xs, ys)
-end
+list >> same_length
+| [_ . Xs] [_ . Ys] |
+same_length Xs Ys.
 ```
 
-Do not replace this with an `implies` ladder or an Elixir-side length check. The
-two clauses are both explanations of the relation and remain available to
+Do not replace this with a `->` ladder or a host-side length check. The two
+clauses are both explanations of the relation and remain available to
 backtracking.
 
 ## Use clauses for alternatives
 
-Repeated selectors are one ordered, multi-clause method, including inside a
-`defclass`. Separate cases by head shape and relational guards:
+Repeated selectors are one ordered, multi-clause method. Separate cases by head
+shape and relational guards:
 
-```elixir
-defmethod(:list, :map, [[], _operation, []])
+```prolog
+list >> map
+| [] _Operation [] |.
 
-defmethod(:list, :map, [[head | tail], selector, [mapped | rest]]) do
-  send(head, selector, [mapped])
-  map(tail, selector, rest)
-end
+list >> map
+| [Head . Tail] Selector [Mapped . Rest] |
+send Head Selector [Mapped],
+map Tail Selector Rest.
 
-defmethod(:list, :map, [[head | tail], method, [mapped | rest]]) do
-  isa(method, :anonymous_method)
-  run(method, [head, mapped])
-  map(tail, method, rest)
-end
+list >> map
+| [Head . Tail] Method [Mapped . Rest] |
+isa Method anonymous_method,
+run Method [Head, Mapped],
+map Tail Method Rest.
 ```
 
 The alternatives have the same arity. The anonymous-method clause identifies
-its object relationally with `isa`; it is not selected by an Elixir type test or
+its object relationally with `isa`; it is not selected by a type test or
 argument count. If the selector interpretation fails, backtracking can reach
 the executable-value interpretation.
 
-Use `implies` only when this backtracking behavior is not wanted. It is a soft
-cut: the first successful condition commits to its branch.
+Use a conditional `C -> T ; E` only when this backtracking behavior is not
+wanted. It is a soft cut: the first successful condition commits to its branch.
+As in Prolog, `C -> T` without an else fails when `C` fails.
 
 ## Put behavior in dispatch
 
 When policy differs by kind of object, define or override a method on the
-relevant class or metaclass. Avoid a general method that fetches `class(self,
-class_name)`, walks superclasses, and compares against a list of special names.
-That reproduces dispatch manually and usually requires a cut to hide overlapping
-branches.
+relevant class or metaclass. Avoid a general method that fetches
+`class Self ClassName`, walks superclasses, and compares against a list of
+special names. That reproduces dispatch manually and usually requires a cut to
+hide overlapping branches.
 
 A useful shape is:
 
-```elixir
-defmethod(:object, :operation, [self, args]) do
-  validate_operation(self, args)
-  perform_operation(self, args)
-end
+```prolog
+object >> operation
+| Self Args |
+validate_operation Self Args,
+perform_operation Self Args.
 
-defmethod(:class, :validate_operation, [_self, _args])
-defmethod(:behaviour, :validate_operation, [_self, _args])
+class >> validate_operation
+| _Self _Args |.
+
+behaviour >> validate_operation
+| _Self _Args |.
 ```
 
 Custom metaclasses then inherit policy normally, and another class can refine
@@ -85,48 +91,62 @@ variable before a later method or label split it into answers.
 Use `not` as negation as failure, not as a general inequality operator. Prefer
 `dif` when two terms must remain different even if either is still open.
 
+## Goal sequences
+
+Goals are separated by commas, and the comma binds loosest, so a conditional
+or alternative needs no brackets as one item of a body or block. Every
+top-level form ends with `.`. Each side of `->` or `;` is one goal; group
+several with a `{...}` block:
+
+```prolog
+By < 0 -> fail ; {Next = Count + By, set_slot Self count Next}.
+
+A = 1 ; A = 2.
+
+not {class Value anonymous_method, ground Value}.
+```
+
+A call's arguments are single terms, so a nested call or arithmetic is
+bracketed: `between Self (Low + 1) High V`. Forms that take goals take blocks:
+`findall T R {G}`, `forall {C} {A}`, `lambda [Args] M {G}`.
+
 ## Selector values and executable values
 
 A selector is data naming behavior on another receiver. Omit the argument list
 when it is empty:
 
-```elixir
-send(receiver, selector)
-send(receiver, selector, args)
+```prolog
+send Receiver Selector.
+send Receiver Selector Args.
 ```
 
 A method object is itself executable through its `run` protocol:
 
-```elixir
-run(method, args)
+```prolog
+run Method Args.
 ```
 
-This applies both to durable method objects returned by `method/3` and to
-`:anonymous_method` values. Do not introduce `callable.(...)`, a functor wrapper,
-or a public call term. `call(head, body, args)` remains an internal relation for
-executing stored clause data.
+This applies both to durable method objects returned by `method` and to
+`anonymous_method` values. Do not introduce callable syntax, a functor
+wrapper, or a public call term. `call Head Body Args` remains an internal
+relation for executing stored clause data.
 
 Partial application is immutable value construction:
 
-```elixir
-new(
-  :anonymous_method,
-  %{args: [], head: [first, second, result], body: [result = [first, second]]},
-  method
-)
-
-add_arg(method, :a, partially_applied)
-run(partially_applied, [:b, result])
+```prolog
+lambda [First, Second, Result] Method {Result = [First, Second]},
+add_arg Method a PartiallyApplied,
+run PartiallyApplied [b, Result].
 ```
 
 An updater should read only what it changes or needs:
 
-```elixir
-defmethod(:add_arg, [self, arg, updated]) do
-  get(self, :args, args)
-  concat(args, [arg], updated_args)
-  put(self, :args, updated_args, updated)
-end
+```prolog
+anonymous_method >> add_arg
+| Self Arg Updated |
+get Self args Args,
+concat Args [Arg] UpdatedArgs,
+put Self args UpdatedArgs Updated.
 ```
 
 Do not fetch and reconstruct unrelated `head` and `body` fields.
@@ -135,10 +155,10 @@ Do not fetch and reconstruct unrelated `head` and `body` fields.
 
 Durable objects are identities whose slots are command-log-backed state:
 
-```elixir
-get(object, :status, status)
-set_slot(object, :status, :completed)
-set_slots(object, %{status: :completed, outcome: outcome})
+```prolog
+get Object status Status,
+set_slot Object status completed,
+set_slots Object #{status: completed, outcome: Outcome}.
 ```
 
 `set_slot` dispatches validation through the object's class protocol before the
@@ -146,9 +166,9 @@ VM records the mutation. Use it for ordinary modeled state.
 
 Value objects are maps. An update returns another value:
 
-```elixir
-get(value, :args, args)
-put(value, :args, updated_args, updated)
+```prolog
+get Value args Args,
+put Value args UpdatedArgs Updated.
 ```
 
 Their initializer must construct a complete map by unification. A map does not
@@ -170,13 +190,12 @@ tests the primitive against an unclassed identity.
 
 ## Representation discipline
 
-AL programs do not contain Elixir tuple literals. Use:
+AL programs contain no tuples; braces are always blocks of goals. Use:
 
-- lists for ordered positional values and relation records;
-- maps for named immutable values;
+- lists `[A, B . T]` for ordered positional values and relation records;
+- maps `#{key: Value}` for named immutable values;
 - classed value maps when the value needs behavior;
 - durable objects when identity and history matter.
 
-Internal Elixir modules may use tuples for goal encodings, Mnesia rows, and
-private return values. Do not leak those encodings into AL surface examples or
-APIs.
+Internal Elixir modules use tuples for goal encodings, Mnesia rows, and private
+return values. Do not leak those encodings into AL source or APIs.

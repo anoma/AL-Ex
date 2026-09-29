@@ -1,6 +1,2 @@
-Class {
-  #name : :eth,
-  #superclass : [:currency],
-  #metaclass : :class,
-  #ivars : []
-}
+@eth
+#{super: currency}.

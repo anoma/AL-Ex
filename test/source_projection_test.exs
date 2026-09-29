@@ -29,8 +29,12 @@ defmodule ALSourceProjectionTest do
         branch
         |> clauses()
         |> Enum.flat_map(fn {owner, selector, _clause, head, body} ->
-          text = AL.Source.defmethod_source(owner, selector, head, body)
-          if String.contains?(text, "RAW("), do: [{owner, selector, text}], else: []
+          try do
+            AL.Source.defmethod_source(owner, selector, head, body)
+            []
+          rescue
+            exception -> [{owner, selector, Exception.message(exception)}]
+          end
         end)
 
       assert offenders == []
@@ -63,28 +67,33 @@ defmodule ALSourceProjectionTest do
   end
 
   test "ground goals retain their primitive meaning when decompiled" do
-    body = [{:ground, :"$caller"}]
-    rendered = AL.Source.defmethod_source(:owned, :may, [:"$self", :"$caller"], body)
+    body = [{:ground, :"$Caller"}]
+    rendered = AL.Source.defmethod_source(:owned, :may, [:"$Self", :"$Caller"], body)
 
-    assert rendered =~ "ground(caller)"
+    assert rendered =~ "ground Caller"
 
-    assert {:ok, ast} = Code.string_to_quoted(rendered)
+    assert {:ok,
+            %{
+              program: [
+                _clear,
+                %AL.Goal.OApply{method_id: :defmethod, args: [_, _, _, parsed_body]}
+              ]
+            }} =
+             AL.Syntax.parse(rendered <> ".")
 
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [_class, _name, _head, parsed_body]} =
-             AL.Lowering.ast_to_pattern(ast)
-
-    assert AL.Goal.to_stored(parsed_body) == body
+    assert Enum.map(parsed_body, &AL.Goal.to_stored/1) == body
   end
 
   test "comments are stored as inert goals and render back as comments" do
     branch = AL.Branch.fork()
 
     source = """
-    defmethod(:object, :commented_example, [self, x]) do
+    object >> commented_example
+    | Self X |
       # leading note
-      x = 1
+      X = 1
       # trailing note
-    end
+    .
     """
 
     try do
@@ -98,29 +107,29 @@ defmodule ALSourceProjectionTest do
                {:comment, " trailing note"}
              ]
 
-      rendered = AL.Source.defmethod_source(:object, :commented_example, [:"$self", :"$x"], body)
+      rendered = AL.Source.defmethod_source(:object, :commented_example, [:"$Self", :"$X"], body)
       assert rendered =~ "# leading note"
       assert rendered =~ "# trailing note"
 
       assert {:atomic, {bindings, _constraints, _state}} =
-               AL.eval_source("commented_example(:object, answer)\n", branch)
+               AL.eval_source("commented_example object Answer.\n", branch)
 
-      assert Map.get(bindings, :"$answer") == 1
+      assert Map.get(bindings, :"$Answer") == 1
     after
       AL.Branch.discard(branch)
     end
   end
 
   defp reparse(owner, selector, text) do
-    with {:ok, ast} <- Code.string_to_quoted(text),
-         %AL.Goal.OApply{method_id: :defmethod, args: [_class, _name, head, body]} <-
-           AL.Lowering.ast_to_pattern(ast) do
+    with {:ok,
+          %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod, args: [_, _, head, body]}]}} <-
+           AL.Syntax.parse(text <> ".") do
       {:ok,
        AL.Source.defmethod_source(
          owner,
          selector,
          AL.Goal.to_stored(head),
-         AL.Goal.to_stored(body)
+         Enum.map(body, &AL.Goal.to_stored/1)
        )}
     else
       other -> {:error, other}

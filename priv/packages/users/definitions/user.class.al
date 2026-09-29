@@ -1,6 +1,2 @@
-Class {
-  #name : :user,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [:name]
-}
+@user
+#{super: object, ivars: [#{name: name}]}.

@@ -1,6 +1,6 @@
 defmodule Examples.ALSource do
   @moduledoc """
-  I show off decompiling the source into readable code
+  I show off decompiling stored goals into readable AL source
   """
 
   use ExExample
@@ -14,40 +14,33 @@ defmodule Examples.ALSource do
   end
 
   example reverse_clause_to_source() do
-    head = [[:"$h" | :"$t"], :"$reversed"]
+    head = [[:"$H" | :"$T"], :"$Reversed"]
 
     body = [
-      {:send, :"$t", :reverse, [:"$reversed_tl"]},
-      {:send, :"$reversed_tl", :concat, [[:"$h"], :"$reversed"]}
+      {:send, :"$T", :reverse, [:"$ReversedTl"]},
+      {:send, :"$ReversedTl", :concat, [[:"$H"], :"$Reversed"]}
     ]
 
     source = AL.Source.defmethod_source(:list, :reverse, head, body)
 
     assert source ==
-             "defmethod(:list, :reverse, [[h | t], reversed]) do\n" <>
-               "  reverse(t, reversed_tl)\n  concat(reversed_tl, [h], reversed)\nend"
+             "list >> reverse\n| [H . T] Reversed |\n" <>
+               "reverse T ReversedTl,\nconcat ReversedTl [H] Reversed"
 
     source
   end
 
   example literal_head_to_source() do
-    source = AL.Source.defmethod_source(:zkfol, :col, [:"$self", 1, 0, 1, [[0, 1]]], [])
-    assert source == "defmethod(:zkfol, :col, [self, 1, 0, 1, [[0, 1]]]) do\nend"
+    source = AL.Source.defmethod_source(:zkfol, :col, [:"$Self", 1, 0, 1, [[0, 1]]], [])
+    assert source == "zkfol >> col\n| Self 1 0 1 [[0, 1]] |"
     source
   end
 
-  example legacy_unify_rows_read_as_eq() do
-    assert %AL.Goal.Eq{a: :"$a", b: 1} = AL.Goal.from_stored({:unify, :"$a", 1})
-    assert AL.Source.body_source([{:unify, :"$a", 1}]) == "a = 1"
-    assert round_trip([{:unify, :"$a", 1}]) == [{:=, :"$a", 1}]
-    :ok
-  end
-
   example map_patterns_with_variables_to_source() do
-    stored = [{:=, %{package: :"$package", requirement: :"$requirement"}, :"$pair"}]
+    stored = [{:=, %{package: :"$Package", requirement: :"$Requirement"}, :"$Pair"}]
     source = AL.Source.body_source(stored)
 
-    assert source == "%{requirement: requirement, package: package} = pair"
+    assert source == "\#{package: Package, requirement: Requirement} = Pair"
     assert round_trip(stored) == stored
     source
   end
@@ -57,13 +50,16 @@ defmodule Examples.ALSource do
 
     {:atomic, _} =
       run branch: branch.id do
-        vm_set_class(:scoped, :object)
+        ~AL"""
+        vm_set_class scoped object.
 
-        defmethod(:scoped, :hi, [_self])
+        scoped >> hi
+        | _Self |.
+        """
       end
 
     sources = AL.Source.method_sources(:scoped, branch.id)
-    assert [["hi", "defmethod(:scoped, :hi, [_self]) do\nend"]] == sources
+    assert [["hi", "scoped >> hi\n| _Self |"]] == sources
     assert AL.Source.method_sources(:scoped) == []
 
     AL.Branch.discard(branch)
@@ -71,26 +67,26 @@ defmodule Examples.ALSource do
   end
 
   example compare_to_source() do
-    source = AL.Source.body_source([{:compare, :>, :"$x", 1}])
-    assert source == "x > 1"
+    source = AL.Source.body_source([{:compare, :>, :"$X", 1}])
+    assert source == "X > 1"
     source
   end
 
   example freshened_vars_recover_their_authored_name() do
-    self_var = AL.Var.fresh(AL.Var.fresh(:"$self", "3"), "7")
+    self_var = AL.Var.fresh(AL.Var.fresh(:"$Self", "3"), "7")
 
     source = AL.Source.body_source([{:=, self_var, self_var}])
-    assert source == "self = self"
+    assert source == "Self = Self"
 
     source
   end
 
   example distinct_freshened_vars_sharing_a_name_get_suffixed() do
-    self_a = AL.Var.fresh(:"$self", "1")
-    self_b = AL.Var.fresh(:"$self", "2")
+    self_a = AL.Var.fresh(:"$Self", "1")
+    self_b = AL.Var.fresh(:"$Self", "2")
 
     source = AL.Source.body_source([{:=, self_a, self_b}])
-    assert source == "self = self_2"
+    assert source == "Self = Self_2"
 
     source
   end
@@ -101,9 +97,10 @@ defmodule Examples.ALSource do
 
     try do
       source = """
-      defclass #{inspect(class)}, super: :object do
-        defmethod(:greet, [self, :hi])
-      end
+      @#{AL.Syntax.Printer.term(class)} \#{super: object}.
+
+      #{AL.Syntax.Printer.term(class)} >> greet
+      | Self hi |.
       """
 
       {:atomic, _} = AL.eval_source(source, branch)
@@ -111,11 +108,13 @@ defmodule Examples.ALSource do
       output =
         capture_io(fn ->
           run branch: branch.id do
-            listing(^class, :greet)
+            ~AL"""
+            listing ^class greet.
+            """
           end
         end)
 
-      assert output == "defmethod(:greet, [self, :hi])\n\n"
+      assert output == "#{AL.Syntax.Printer.term(class)} >> greet\n| Self hi |\n\n"
     after
       AL.Branch.discard(branch)
     end
@@ -132,8 +131,8 @@ defmodule Examples.ALSource do
   end
 
   example an_op_and_a_send_of_the_same_name_decompile_differently() do
-    op = {:set_class, :"$o", :"$c"}
-    message = {:send, :"$o", :set_class, [:"$c"]}
+    op = {:set_class, :"$O", :"$C"}
+    message = {:send, :"$O", :set_class, [:"$C"]}
 
     assert AL.Source.body_source([op]) != AL.Source.body_source([message])
     assert round_trip([op]) == [op]
@@ -168,12 +167,9 @@ defmodule Examples.ALSource do
   defp round_trip(stored) do
     text = AL.Source.body_source(stored)
 
-    case AL.Source.Parser.parse_quoted(text, []) do
-      {:ok, ast} ->
-        ast
-        |> AL.Lowering.ast_to_pattern()
-        |> List.wrap()
-        |> Enum.map(&AL.Goal.to_stored/1)
+    case AL.Syntax.parse("o >> m\n| |\n" <> text <> "\n.") do
+      {:ok, %{program: [_clear, %AL.Goal.OApply{args: [_, _, _, body]}]}} ->
+        Enum.map(body, &AL.Goal.to_stored/1)
 
       {:error, _reason} ->
         {:unparseable, text}
@@ -185,53 +181,53 @@ defmodule Examples.ALSource do
 
   defp round_trip_cases do
     [
-      {:set_class, :"$o", :thing},
-      {:set_super, :"$o", :object},
-      {:set_slot, :"$o", :key, :"$v"},
-      {:retract_class, :"$o", :thing},
-      {:retract_super, :"$o", :object},
-      {:retract_slot, :"$o", :key},
-      {:get_method, :"$o", :sel, :"$id"},
-      {:set_method, :"$o", :sel, :"$id"},
-      {:retract_method, :"$o", :sel, :"$id"},
-      {:retract_oapply, :"$o", [:"$a"]},
-      {:get_oapply, :"$o", :"$_", [:"$a"], :"$b"},
-      {:set_oapply, :"$o", :next, [:"$a"], []},
-      {:get_oapply, :"$o", 2, [:"$a"], :"$b"},
-      {:set_oapply, :"$o", 3, [:"$a"], []},
-      {:oapply, :map_get, [:"$m", :key, :"$v"]},
-      {:oapply, :map_put, [:"$m", :key, :"$v", :"$out"]},
-      {:oapply, :fresh_id, [:"$id"]},
-      {:oapply, :current_tx, [:"$tx"]},
-      {:oapply, :transaction_object, [:"$tx", :"$object"]},
-      {:oapply, :cached_ivar_specs, [:"$class", :"$specs"]},
-      {:oapply, :cached_find_ivar_spec, [:"$o", :"$key", :"$spec"]},
-      {:oapply, :source_method_parts, [:"$a", :"$b", :"$c", :"$d"]},
-      {:oapply, :rem, [:"$x", 2]},
-      {:oapply, :+, [:"$x", 1]},
-      {:get_class, :"$o", :"$c"},
-      {:get_super, :"$o", :"$s"},
-      {:get_slot, :"$o", :key, :"$v", :aos},
-      {:slot_at, :"$o", :key, :"$v", 3},
-      {:ground, :"$x"},
-      {:var, :"$x"},
-      {:gensym, :"$x"},
-      {:label, :"$x"},
-      {:dif, :"$a", :"$b"},
-      {:isa, :"$o", :thing},
-      {:=, :"$a", :"$b"},
-      {:in_domain, :"$x", [1, 2]},
-      {:all_dif, [:"$a", :"$b"]},
-      {:format, "~a", [:"$x"]},
-      {:send, :"$o", :sel, [:"$a"]},
-      {:send, :"$o", :"$selector", []},
-      {:send_async, :"$o", :sel, [:"$a"]},
-      {:send_async, :"$o", :"$selector", []},
-      {:emit_effect, :"$effect", :"$provider", :"$operation", :"$arguments"},
-      {:compare, :>, :"$x", 1},
-      {:not, [{:get_class, :"$o", :thing}]},
-      {:findall, :"$x", [{:get_class, :"$x", :thing}], :"$xs"},
-      {:forall, [{:get_class, :"$x", :thing}], [{:=, :"$x", 1}]}
+      {:set_class, :"$O", :thing},
+      {:set_super, :"$O", :object},
+      {:set_slot, :"$O", :key, :"$V"},
+      {:retract_class, :"$O", :thing},
+      {:retract_super, :"$O", :object},
+      {:retract_slot, :"$O", :key},
+      {:get_method, :"$O", :sel, :"$Id"},
+      {:set_method, :"$O", :sel, :"$Id"},
+      {:retract_method, :"$O", :sel, :"$Id"},
+      {:retract_oapply, :"$O", [:"$A"]},
+      {:get_oapply, :"$O", :"$_", [:"$A"], :"$B"},
+      {:set_oapply, :"$O", :next, [:"$A"], []},
+      {:get_oapply, :"$O", 2, [:"$A"], :"$B"},
+      {:set_oapply, :"$O", 3, [:"$A"], []},
+      {:oapply, :vm_map_get, [:"$M", :key, :"$V"]},
+      {:oapply, :vm_map_put, [:"$M", :key, :"$V", :"$Out"]},
+      {:oapply, :vm_fresh_id, [:"$Id"]},
+      {:oapply, :vm_current_tx, [:"$Tx"]},
+      {:oapply, :vm_transaction_object, [:"$Tx", :"$Object"]},
+      {:oapply, :vm_cached_ivar_specs, [:"$Class", :"$Specs"]},
+      {:oapply, :vm_cached_find_ivar_spec, [:"$O", :"$Key", :"$Spec"]},
+      {:oapply, :source_method_parts, [:"$A", :"$B", :"$C", :"$D"]},
+      {:oapply, :rem, [:"$X", 2]},
+      {:oapply, :+, [:"$X", 1]},
+      {:get_class, :"$O", :"$C"},
+      {:get_super, :"$O", :"$S"},
+      {:get_slot, :"$O", :key, :"$V", :aos},
+      {:slot_at, :"$O", :key, :"$V", 3},
+      {:ground, :"$X"},
+      {:var, :"$X"},
+      {:gensym, :"$X"},
+      {:label, :"$X"},
+      {:dif, :"$A", :"$B"},
+      {:isa, :"$O", :thing},
+      {:=, :"$A", :"$B"},
+      {:in_domain, :"$X", [1, 2]},
+      {:all_dif, [:"$A", :"$B"]},
+      {:format, "~a", [:"$X"]},
+      {:send, :"$O", :sel, [:"$A"]},
+      {:send, :"$O", :"$Selector", []},
+      {:send_async, :"$O", :sel, [:"$A"]},
+      {:send_async, :"$O", :"$Selector", []},
+      {:emit_effect, :"$Effect", :"$Provider", :"$Operation", :"$Arguments"},
+      {:compare, :>, :"$X", 1},
+      {:not, [{:get_class, :"$O", :thing}]},
+      {:findall, :"$X", [{:get_class, :"$X", :thing}], :"$Xs"},
+      {:forall, [{:get_class, :"$X", :thing}], [{:=, :"$X", 1}]}
     ]
   end
 end

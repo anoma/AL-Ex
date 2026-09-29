@@ -16,26 +16,28 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:process, %{name: :constant_subscriber, pid: ^pid}, _)
+        ~AL"""
+        new process #{name: constant_subscriber, pid: ^pid} _.
 
-        defmethod(:constant_subscriber, :cell_updated, [self, cell, domain]) do
-          slot(self, :pid, p)
-          message = %{event: :cell_updated, cell: cell, domain: domain}
-          send_elixir(p, message)
-        end
+        constant_subscriber >> cell_updated
+        | Self Cell Domain |
+        slot Self pid P,
+        Message = #{cell: Cell, domain: Domain, event: cell_updated},
+        send_elixir P Message.
 
-        defmethod(:constant_subscriber, :dependents, [self, acc, dependents]) do
-          acc = dependents
-        end
+        constant_subscriber >> dependents
+        | Self Acc Dependents |
+        Acc = Dependents.
 
-        new(:cell, %{name: :x}, x)
-        subscribe(x, :constant_subscriber)
+        new cell #{name: x} X.
+        subscribe X constant_subscriber.
+        new propagator #{input_cells: [], output_cell: X} Propagator.
 
-        new(:propagator, %{input_cells: [], output_cell: x}, propagator)
+        Propagator >> constrain
+        | _Self [] 2 |.
 
-        defmethod(propagator, :constrain, [_self, [], 2])
-
-        cut
+        cut.
+        """
       end
 
     # A subscriber only ever gets *future* changes, per how propagators work
@@ -44,13 +46,15 @@ defmodule Examples.ALConstraints do
     # directly instead of waiting on one.
     slot_result =
       run branch: Examples.Support.branch() do
-        slot(:x, :domain, domain)
+        ~AL"""
+        slot x domain Domain.
+        """
       end
 
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$domain")
+          Map.get(bindings, :"$Domain")
 
         {:aborted, _} ->
           receive do
@@ -64,10 +68,12 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        slot(:x, :domain, domain)
+        ~AL"""
+        slot x domain Domain.
+        """
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{2 => true}}
+    assert Map.get(bindings, :"$Domain") == %{class: :mapset_value, elems: %{2 => true}}
 
     bindings
   end
@@ -79,37 +85,40 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:process, %{name: :inc_subscriber, pid: ^pid}, _)
+        ~AL"""
+        new process #{name: inc_subscriber, pid: ^pid} _.
 
-        defmethod(:inc_subscriber, :cell_updated, [self, cell, domain]) do
-          slot(self, :pid, p)
-          message = %{event: :cell_updated, cell: cell, domain: domain}
-          send_elixir(p, message)
-        end
+        inc_subscriber >> cell_updated
+        | Self Cell Domain |
+        slot Self pid P,
+        Message = #{cell: Cell, domain: Domain, event: cell_updated},
+        send_elixir P Message.
 
-        defmethod(:inc_subscriber, :dependents, [self, acc, dependents]) do
-          acc = dependents
-        end
+        inc_subscriber >> dependents
+        | Self Acc Dependents |
+        Acc = Dependents.
 
-        new(:cell, %{name: :y}, y)
-        subscribe(y, :inc_subscriber)
+        new cell #{name: y} Y.
+        subscribe Y inc_subscriber.
+        new propagator #{input_cells: [x], name: x_y, output_cell: Y} Propagator.
 
-        new(:propagator, %{input_cells: [:x], output_cell: y, name: :x_y}, propagator)
-
-        defmethod(propagator, :constrain, [_self, [x_val], y_val]) do
-          y_val = 1 + x_val
-        end
+        Propagator >> constrain
+        | _Self [XVal] YVal |
+        YVal = 1 + XVal.
+        """
       end
 
     slot_result =
       run branch: Examples.Support.branch() do
-        slot(:y, :domain, domain)
+        ~AL"""
+        slot y domain Domain.
+        """
       end
 
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$domain")
+          Map.get(bindings, :"$Domain")
 
         {:aborted, _} ->
           receive do
@@ -123,10 +132,12 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        slot(:y, :domain, domain)
+        ~AL"""
+        slot y domain Domain.
+        """
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{3 => true}}
+    assert Map.get(bindings, :"$Domain") == %{class: :mapset_value, elems: %{3 => true}}
 
     bindings
   end
@@ -136,10 +147,12 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        dependents(:x, dependents)
+        ~AL"""
+        dependents x Dependents.
+        """
       end
 
-    dependents = Map.get(bindings, :"$dependents")
+    dependents = Map.get(bindings, :"$Dependents")
 
     assert MapSet.new(Map.keys(dependents)) == MapSet.new([:x, :y, :x_y])
 
@@ -151,55 +164,57 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:process, %{name: :bidirectional_adder_subscriber, pid: ^pid}, _)
+        ~AL"""
+        new process #{name: bidirectional_adder_subscriber, pid: ^pid} _.
 
-        defmethod(:bidirectional_adder_subscriber, :cell_updated, [self, cell, domain]) do
-          slot(self, :pid, p)
-          message = %{event: :cell_updated, cell: cell, domain: domain}
-          send_elixir(p, message)
-        end
+        bidirectional_adder_subscriber >> cell_updated
+        | Self Cell Domain |
+        slot Self pid P,
+        Message = #{cell: Cell, domain: Domain, event: cell_updated},
+        send_elixir P Message.
 
-        defmethod(:bidirectional_adder_subscriber, :dependents, [self, acc, dependents]) do
-          acc = dependents
-        end
+        bidirectional_adder_subscriber >> dependents
+        | Self Acc Dependents |
+        Acc = Dependents.
 
-        new(:cell, %{name: :a}, a)
-        new(:cell, %{name: :b}, b)
-        new(:cell, %{name: :c}, c)
+        new cell #{name: a} A.
+        new cell #{name: b} B.
+        new cell #{name: c} C.
+        subscribe A bidirectional_adder_subscriber.
+        new propagator #{input_cells: [A, B], name: ab_c, output_cell: C} PropagatorAb.
+        new propagator #{input_cells: [A, C], name: ac_b, output_cell: B} PropagatorAc.
+        new propagator #{input_cells: [B, C], name: bc_a, output_cell: A} PropagatorBc.
 
-        subscribe(a, :bidirectional_adder_subscriber)
+        PropagatorAb >> constrain
+        | _Self [AVal, BVal] CVal |
+        CVal = AVal + BVal.
 
-        new(:propagator, %{input_cells: [a, b], output_cell: c, name: :ab_c}, propagator_ab)
-        new(:propagator, %{input_cells: [a, c], output_cell: b, name: :ac_b}, propagator_ac)
-        new(:propagator, %{input_cells: [b, c], output_cell: a, name: :bc_a}, propagator_bc)
+        PropagatorAc >> constrain
+        | _Self [AVal, CVal] BVal |
+        BVal = CVal - AVal.
 
-        defmethod(propagator_ab, :constrain, [_self, [a_val, b_val], c_val]) do
-          c_val = a_val + b_val
-        end
+        PropagatorBc >> constrain
+        | _Self [BVal, CVal] AVal |
+        AVal = CVal - BVal.
 
-        defmethod(propagator_ac, :constrain, [_self, [a_val, c_val], b_val]) do
-          b_val = c_val - a_val
-        end
-
-        defmethod(propagator_bc, :constrain, [_self, [b_val, c_val], a_val]) do
-          a_val = c_val - b_val
-        end
-
-        new(:mapset_value, %{elems: [3]}, three)
-        new(:mapset_value, %{elems: [5]}, five)
-        send_async(b, :constrain, [three])
-        send_async(c, :constrain, [five])
+        new mapset_value #{elems: [3]} Three.
+        new mapset_value #{elems: [5]} Five.
+        send_async B constrain [Three].
+        send_async C constrain [Five].
+        """
       end
 
     slot_result =
       run branch: Examples.Support.branch() do
-        slot(:a, :domain, domain)
+        ~AL"""
+        slot a domain Domain.
+        """
       end
 
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$domain")
+          Map.get(bindings, :"$Domain")
 
         {:aborted, _} ->
           receive do
@@ -213,10 +228,12 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        slot(:a, :domain, domain)
+        ~AL"""
+        slot a domain Domain.
+        """
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :mapset_value, elems: %{2 => true}}
+    assert Map.get(bindings, :"$Domain") == %{class: :mapset_value, elems: %{2 => true}}
 
     bindings
   end
@@ -226,10 +243,12 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        dependents(:a, dependents)
+        ~AL"""
+        dependents a Dependents.
+        """
       end
 
-    dependents = Map.get(bindings, :"$dependents")
+    dependents = Map.get(bindings, :"$Dependents")
 
     assert MapSet.new(Map.keys(dependents)) == MapSet.new([:c, :b, :a, :ab_c, :ac_b, :bc_a])
 
@@ -241,53 +260,53 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {_bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:process, %{name: :interval_subscriber, pid: ^pid}, _)
+        ~AL"""
+        new process #{name: interval_subscriber, pid: ^pid} _.
 
-        defmethod(:interval_subscriber, :cell_updated, [self, cell, domain]) do
-          slot(self, :pid, p)
-          message = %{event: :cell_updated, cell: cell, domain: domain}
-          send_elixir(p, message)
-        end
+        interval_subscriber >> cell_updated
+        | Self Cell Domain |
+        slot Self pid P,
+        Message = #{cell: Cell, domain: Domain, event: cell_updated},
+        send_elixir P Message.
 
-        defmethod(:interval_subscriber, :dependents, [self, acc, dependents]) do
-          acc = dependents
-        end
+        interval_subscriber >> dependents
+        | Self Acc Dependents |
+        Acc = Dependents.
 
-        new(:cell, %{name: :ia}, ia)
-        new(:cell, %{name: :ib}, ib)
-        new(:cell, %{name: :ic}, ic)
-        subscribe(ic, :interval_subscriber)
+        new cell #{name: ia} Ia.
+        new cell #{name: ib} Ib.
+        new cell #{name: ic} Ic.
+        subscribe Ic interval_subscriber.
+        new propagator #{input_cells: [Ia, Ib], name: interval_adder, output_cell: Ic} Adder.
 
-        new(:propagator, %{input_cells: [ia, ib], output_cell: ic, name: :interval_adder}, adder)
+        Adder >> constrain
+        | _Self [I1, I2] Result |
+        vm_map_get I1 lo Lo1,
+        vm_map_get I1 hi Hi1,
+        vm_map_get I2 lo Lo2,
+        vm_map_get I2 hi Hi2,
+        Lo = Lo1 + Lo2,
+        Hi = Hi1 + Hi2,
+        Result = #{class: interval_value, hi: Hi, lo: Lo}.
 
-        # Interval-typed :constrain: does arithmetic on the interval terms
-        # directly, unlike the scalar-combo :constrain clauses above.
-        defmethod(adder, :constrain, [_self, [i1, i2], result]) do
-          vm_map_get(i1, :lo, lo1)
-          vm_map_get(i1, :hi, hi1)
-          vm_map_get(i2, :lo, lo2)
-          vm_map_get(i2, :hi, hi2)
-          lo = lo1 + lo2
-          hi = hi1 + hi2
-          result = %{class: :interval_value, lo: lo, hi: hi}
-        end
-
-        new(:interval_value, %{lo: 1, hi: 5}, interval_a)
-        new(:interval_value, %{lo: 3, hi: 8}, interval_b)
-
-        send_async(ia, :constrain, [interval_a])
-        send_async(ib, :constrain, [interval_b])
+        new interval_value #{hi: 5, lo: 1} IntervalA.
+        new interval_value #{hi: 8, lo: 3} IntervalB.
+        send_async Ia constrain [IntervalA].
+        send_async Ib constrain [IntervalB].
+        """
       end
 
     slot_result =
       run branch: Examples.Support.branch() do
-        slot(:ic, :domain, domain)
+        ~AL"""
+        slot ic domain Domain.
+        """
       end
 
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$domain")
+          Map.get(bindings, :"$Domain")
 
         {:aborted, _} ->
           receive do
@@ -301,10 +320,12 @@ defmodule Examples.ALConstraints do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        slot(:ic, :domain, domain)
+        ~AL"""
+        slot ic domain Domain.
+        """
       end
 
-    assert Map.get(bindings, :"$domain") == %{class: :interval_value, lo: 4, hi: 13}
+    assert Map.get(bindings, :"$Domain") == %{class: :interval_value, lo: 4, hi: 13}
 
     bindings
   end

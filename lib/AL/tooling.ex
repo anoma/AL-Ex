@@ -180,199 +180,131 @@ defmodule AL.Tooling do
 
   defp reference_run(target, branch) do
     AL.run branch: branch.id do
-      findall(class, target_classes) do
-        class(^target, class)
-      end
-
-      findall(object, instances) do
-        isa(object, ^target)
-        label(object)
-      end
-
-      findall(superclass, supers) do
-        super(^target, superclass)
-      end
-
-      findall(subclass, subclasses) do
-        super(subclass, ^target)
-      end
-
-      findall([owner, selector, method_id], method_bindings) do
-        method(owner, selector, method_id)
-        label(owner)
-      end
-
-      findall([method_id, sequence, head, body], clauses) do
-        clause(method_id, sequence, head, body)
-        label(method_id)
-      end
+      ~AL"""
+      findall Class TargetClasses {class ^target Class}.
+      findall Object Instances {isa Object ^target, label Object}.
+      findall Superclass Supers {super ^target Superclass}.
+      findall Subclass Subclasses {super Subclass ^target}.
+      findall [Owner, Selector, MethodId] MethodBindings {method Owner Selector MethodId, label Owner}.
+      findall [MethodId, Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body, label MethodId}.
+      """
     end
     |> al_run_result()
   end
 
   defp failure_run(tx, branch) do
     AL.run branch: branch.id do
-      findall([transaction, status, reasons, sources], failures) do
-        class(transaction, :transaction)
-        label(transaction)
-        get(transaction, :tx, ^tx)
-        get(transaction, :status, status)
-
-        findall(reason, reasons) do
-          get(transaction, :reason, reason)
-        end
-
-        findall(source, sources) do
-          listing(transaction, source)
-        end
-      end
+      ~AL"""
+      findall [Transaction, Status, Reasons, Sources] Failures {
+        class Transaction transaction,
+        label Transaction,
+        get Transaction tx ^tx,
+        get Transaction status Status,
+        findall Reason Reasons {get Transaction reason Reason},
+        findall Source Sources {listing Transaction Source}
+      }.
+      """
     end
     |> al_run_result()
   end
 
   defp object_run(object, branch) do
     AL.run branch: branch.id do
-      findall(class, object_classes) do
-        class(^object, class)
-      end
-
-      findall(superclass, object_supers) do
-        super(^object, superclass)
-      end
-
-      findall([selector, method_id], object_methods) do
-        method(^object, selector, method_id)
-      end
-
-      findall([sequence, head, body], object_clauses) do
-        clause(^object, sequence, head, body)
-      end
-
-      findall([key, value], object_aos_slots) do
-        slot(^object, key, value)
-      end
-
-      findall([key, value], object_soa_slots) do
-        slot(^object, key, value, :soa)
-      end
+      ~AL"""
+      findall Class ObjectClasses {class ^object Class}.
+      findall Superclass ObjectSupers {super ^object Superclass}.
+      findall [Selector, MethodId] ObjectMethods {method ^object Selector MethodId}.
+      findall [Sequence, Head, Body] ObjectClauses {clause ^object Sequence Head Body}.
+      findall [Key, Value] ObjectAosSlots {slot ^object Key Value}.
+      findall [Key, Value] ObjectSoaSlots {slot ^object Key Value soa}.
+      """
     end
     |> al_run_result()
   end
 
   defp method_run(owner, selector, branch) do
     AL.run branch: branch.id do
-      findall([method_id, clauses, sources], inspected_methods) do
-        method(^owner, ^selector, method_id)
-
-        findall([sequence, head, body], clauses) do
-          clause(method_id, sequence, head, body)
-        end
-
-        findall([sequence, text, provenance], sources) do
-          vm_method_source(method_id, sequence, text, provenance)
-        end
-      end
+      ~AL"""
+      findall [MethodId, Clauses, Sources] InspectedMethods {
+        method ^owner ^selector MethodId,
+        findall [Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body},
+        findall [Sequence, Text, Provenance] Sources {vm_method_source MethodId Sequence Text Provenance}
+      }.
+      """
     end
     |> al_run_result()
   end
 
   defp transaction_run(tx, branch) do
     AL.run branch: branch.id do
-      findall([transaction, status, reasons, slots], inspected_transactions) do
-        class(transaction, :transaction)
-        label(transaction)
-        get(transaction, :tx, ^tx)
-        get(transaction, :status, status)
-
-        findall(reason, reasons) do
-          get(transaction, :reason, reason)
-        end
-
-        findall([key, value], slots) do
-          slot(transaction, key, value)
-        end
-      end
-
-      findall([text, origin], transaction_sources) do
-        vm_transaction_source(^tx, text, origin)
-      end
-
-      findall([time, operation], transaction_commands) do
-        vm_command(^tx, time, operation)
-      end
+      ~AL"""
+      findall [Transaction, Status, Reasons, Slots] InspectedTransactions {
+        class Transaction transaction,
+        label Transaction,
+        get Transaction tx ^tx,
+        get Transaction status Status,
+        findall Reason Reasons {get Transaction reason Reason},
+        findall [Key, Value] Slots {slot Transaction Key Value}
+      }.
+      findall [Text, Origin] TransactionSources {vm_transaction_source ^tx Text Origin}.
+      findall [Time, Operation] TransactionCommands {vm_command ^tx Time Operation}.
+      """
     end
     |> al_run_result()
   end
 
   defp packages_run(branch) do
     AL.run branch: branch.id do
-      findall([package, active_builds, builds, providers], packages) do
-        class(package, :package)
-        label(package)
-
-        findall(active_build, active_builds) do
-          active_build(package, active_build)
-        end
-
-        findall(build, builds) do
-          class(build, package)
-          label(build)
-        end
-
-        findall(provider, providers) do
-          class(provider, :package_provider)
-          label(provider)
-          provides(provider, package)
-        end
-      end
+      ~AL"""
+      findall [Package, ActiveBuilds, Builds, Providers] Packages {
+        class Package package,
+        label Package,
+        findall ActiveBuild ActiveBuilds {active_build Package ActiveBuild},
+        findall Build Builds {class Build Package, label Build},
+        findall Provider Providers {
+          class Provider package_provider,
+          label Provider,
+          provides Provider Package
+        }
+      }.
+      """
     end
     |> al_run_result()
   end
 
   defp package_run(name, branch) do
     AL.run branch: branch.id do
-      findall([active_builds, builds, providers], inspected_packages) do
-        class(^name, :package)
-
-        findall(active_build, active_builds) do
-          active_build(^name, active_build)
-        end
-
-        findall([build, slots], builds) do
-          class(build, ^name)
-          label(build)
-
-          findall([key, value], slots) do
-            slot(build, key, value)
-          end
-        end
-
-        findall([provider, slots], providers) do
-          class(provider, :package_provider)
-          label(provider)
-          provides(provider, ^name)
-
-          findall([key, value], slots) do
-            slot(provider, key, value)
-          end
-        end
-      end
+      ~AL"""
+      findall [ActiveBuilds, Builds, Providers] InspectedPackages {
+        class ^name package,
+        findall ActiveBuild ActiveBuilds {active_build ^name ActiveBuild},
+        findall [Build, Slots] Builds {
+          class Build ^name,
+          label Build,
+          findall [Key, Value] Slots {slot Build Key Value}
+        },
+        findall [Provider, Slots] Providers {
+          class Provider package_provider,
+          label Provider,
+          provides Provider ^name,
+          findall [Key, Value] Slots {slot Provider Key Value}
+        }
+      }.
+      """
     end
     |> al_run_result()
   end
 
   defp method_lookup_run(receiver, selector, branch) do
     AL.run branch: branch.id do
-      inheritance_chain(^receiver, lookup_scopes)
-
-      findall([scope, method_id, clauses], lookup_providers) do
-        member(lookup_scopes, scope)
-        method(scope, ^selector, method_id)
-
-        findall([sequence, head, body], clauses) do
-          clause(method_id, sequence, head, body)
-        end
-      end
+      ~AL"""
+      inheritance_chain ^receiver LookupScopes.
+      findall [Scope, MethodId, Clauses] LookupProviders {
+        member LookupScopes Scope,
+        method Scope ^selector MethodId,
+        findall [Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body}
+      }.
+      """
     end
     |> al_run_result()
   end
@@ -597,39 +529,39 @@ defmodule AL.Tooling do
 
   defp failure_state(_reason), do: nil
 
-  defp binding(bindings, :target_classes), do: Map.get(bindings, :"$target_classes", [])
-  defp binding(bindings, :instances), do: Map.get(bindings, :"$instances", [])
-  defp binding(bindings, :supers), do: Map.get(bindings, :"$supers", [])
-  defp binding(bindings, :subclasses), do: Map.get(bindings, :"$subclasses", [])
-  defp binding(bindings, :method_bindings), do: Map.get(bindings, :"$method_bindings", [])
-  defp binding(bindings, :clauses), do: Map.get(bindings, :"$clauses", [])
-  defp binding(bindings, :failures), do: Map.get(bindings, :"$failures", [])
-  defp binding(bindings, :object_classes), do: Map.get(bindings, :"$object_classes", [])
-  defp binding(bindings, :object_supers), do: Map.get(bindings, :"$object_supers", [])
-  defp binding(bindings, :object_methods), do: Map.get(bindings, :"$object_methods", [])
-  defp binding(bindings, :object_clauses), do: Map.get(bindings, :"$object_clauses", [])
-  defp binding(bindings, :object_aos_slots), do: Map.get(bindings, :"$object_aos_slots", [])
-  defp binding(bindings, :object_soa_slots), do: Map.get(bindings, :"$object_soa_slots", [])
-  defp binding(bindings, :inspected_methods), do: Map.get(bindings, :"$inspected_methods", [])
+  defp binding(bindings, :target_classes), do: Map.get(bindings, :"$TargetClasses", [])
+  defp binding(bindings, :instances), do: Map.get(bindings, :"$Instances", [])
+  defp binding(bindings, :supers), do: Map.get(bindings, :"$Supers", [])
+  defp binding(bindings, :subclasses), do: Map.get(bindings, :"$Subclasses", [])
+  defp binding(bindings, :method_bindings), do: Map.get(bindings, :"$MethodBindings", [])
+  defp binding(bindings, :clauses), do: Map.get(bindings, :"$Clauses", [])
+  defp binding(bindings, :failures), do: Map.get(bindings, :"$Failures", [])
+  defp binding(bindings, :object_classes), do: Map.get(bindings, :"$ObjectClasses", [])
+  defp binding(bindings, :object_supers), do: Map.get(bindings, :"$ObjectSupers", [])
+  defp binding(bindings, :object_methods), do: Map.get(bindings, :"$ObjectMethods", [])
+  defp binding(bindings, :object_clauses), do: Map.get(bindings, :"$ObjectClauses", [])
+  defp binding(bindings, :object_aos_slots), do: Map.get(bindings, :"$ObjectAosSlots", [])
+  defp binding(bindings, :object_soa_slots), do: Map.get(bindings, :"$ObjectSoaSlots", [])
+  defp binding(bindings, :inspected_methods), do: Map.get(bindings, :"$InspectedMethods", [])
 
   defp binding(bindings, :inspected_transactions),
-    do: Map.get(bindings, :"$inspected_transactions", [])
+    do: Map.get(bindings, :"$InspectedTransactions", [])
 
   defp binding(bindings, :transaction_sources),
-    do: Map.get(bindings, :"$transaction_sources", [])
+    do: Map.get(bindings, :"$TransactionSources", [])
 
   defp binding(bindings, :transaction_commands),
-    do: Map.get(bindings, :"$transaction_commands", [])
+    do: Map.get(bindings, :"$TransactionCommands", [])
 
-  defp binding(bindings, :packages), do: Map.get(bindings, :"$packages", [])
+  defp binding(bindings, :packages), do: Map.get(bindings, :"$Packages", [])
 
   defp binding(bindings, :inspected_packages),
-    do: Map.get(bindings, :"$inspected_packages", [])
+    do: Map.get(bindings, :"$InspectedPackages", [])
 
   defp binding(bindings, :lookup_providers),
-    do: Map.get(bindings, :"$lookup_providers", [])
+    do: Map.get(bindings, :"$LookupProviders", [])
 
-  defp binding(bindings, :lookup_scopes), do: Map.get(bindings, :"$lookup_scopes", [])
+  defp binding(bindings, :lookup_scopes), do: Map.get(bindings, :"$LookupScopes", [])
 
   defp observation(%AL{} = state) do
     %{

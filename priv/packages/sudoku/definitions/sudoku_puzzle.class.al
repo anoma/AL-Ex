@@ -1,19 +1,15 @@
-Class {
-  #name : :sudoku_puzzle,
-  #superclass : [:value],
-  #metaclass : :class,
-  #ivars : [:rows]
-}
+@sudoku_puzzle
+#{super: value, ivars: [#{name: rows}]}.
 
-:sudoku_puzzle >> :init, [self, args, new] [
-  get(args, :givens, givens)
-  build_rows(givens, rows)
-  constrain_rows(rows)
-  new = %{rows: rows, class: :sudoku_puzzle}
-]
+sudoku_puzzle >> init
+| Self Args New |
+get Args givens Givens,
+build_rows Givens Rows,
+constrain_rows Rows,
+New = #{class: sudoku_puzzle, rows: Rows}.
 
-:sudoku_puzzle >> :solve, [self, solved] [
-  get(self, :rows, rows)
-  label_rows(rows)
-  solved = rows
-]
+sudoku_puzzle >> solve
+| Self Solved |
+get Self rows Rows,
+label_rows Rows,
+Solved = Rows.

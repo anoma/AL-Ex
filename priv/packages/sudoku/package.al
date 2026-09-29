@@ -1,6 +1,1 @@
-Package {
-  #name : :sudoku,
-  #version : 1,
-  #deps : []
-}
-
+defpackage sudoku #{deps: [], version: 1}.

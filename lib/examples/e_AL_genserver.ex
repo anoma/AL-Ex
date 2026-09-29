@@ -20,13 +20,15 @@ defmodule Examples.ALGenserver do
       pid = self()
 
       run branch: Examples.Support.branch() do
-        new(:process, %{name: ^object_id, pid: ^pid}, _)
+        ~AL"""
+        new process #{name: ^object_id, pid: ^pid} _.
 
-        defmethod(^object_id, :increment, [self, amount]) do
-          get(self, :pid, p)
-          message = %{event: :increment, amount: amount}
-          send_elixir(p, message)
-        end
+        ^object_id >> increment
+        | Self Amount |
+        get Self pid P,
+        Message = #{amount: Amount, event: increment},
+        send_elixir P Message.
+        """
       end
 
       {:ok, %{object_id: object_id, observer: observer, count: 0}}
@@ -44,8 +46,10 @@ defmodule Examples.ALGenserver do
       object_id = state.object_id
 
       run branch: Examples.Support.branch() do
-        vm_retract_class(^object_id, c)
-        vm_retract_super(^object_id, s)
+        ~AL"""
+        vm_retract_class ^object_id C.
+        vm_retract_super ^object_id S.
+        """
       end
     end
   end
@@ -62,7 +66,9 @@ defmodule Examples.ALGenserver do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        send_async(:my_counter, :increment, [5])
+        ~AL"""
+        send_async my_counter increment [5].
+        """
       end
 
     assert_receive {:count_changed, ^pid, 5}, 1000

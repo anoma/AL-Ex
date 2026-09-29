@@ -8,8 +8,8 @@ config :logger,
 config :al,
   serialisation_dir: "src/al",
   transaction_programs: [
-    AL.TransactionProgram.Bootstrap,
-    AL.TransactionProgram.PackageSystem
+    :bootstrap,
+    :package_system
   ],
   package_channels: [
     {:builtin, {:priv, "packages"}}

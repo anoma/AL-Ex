@@ -507,9 +507,7 @@ defmodule AL.Goal do
   ]
 
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
-  @from_form @forms
-             |> Map.new(fn {mod, tag, fields} -> {tag, {mod, fields}} end)
-             |> Map.put(:unify, {Eq, [a: :term, b: :term]})
+  @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
 
   @type stored() :: tuple() | atom()
 
@@ -573,9 +571,6 @@ defmodule AL.Goal do
 
   defp invalid_storable(%SourceScopeExit{} = exit), do: {exit, :source_scope_exit}
   defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
-
-  defp invalid_storable({:al_source_method, _capture_id, _method, _head, _body} = tagged),
-    do: {tagged, :tagged_source_method}
 
   defp invalid_storable({evaluation_ref, ordinal} = capture_id)
        when is_reference(evaluation_ref) and is_integer(ordinal),

@@ -32,12 +32,16 @@ defmodule Examples.ALTransactions do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^a, :object)
+        ~AL"""
+        vm_set_class ^a object.
+        """
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^b, :object)
+        ~AL"""
+        vm_set_class ^b object.
+        """
       end
 
     {:atomic, commands} =
@@ -60,18 +64,22 @@ defmodule Examples.ALTransactions do
 
     {:atomic, {_bindings, _constraints, written}} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^object, :object)
+        ~AL"""
+        vm_set_class ^object object.
+        """
       end
+
+    tx_id = written.tx_id
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([time, operation], commands) do
-          vm_command(^written.tx_id, time, operation)
-        end
+        ~AL"""
+        findall [Time, Operation] Commands {vm_command ^tx_id Time Operation}.
+        """
       end
 
     assert [[time, {:set_class, {^object, :object}}]] =
-             Enum.filter(Map.get(bindings, :"$commands"), fn
+             Enum.filter(Map.get(bindings, :"$Commands"), fn
                [_time, {:set_class, {^object, :object}}] -> true
                _command -> false
              end)

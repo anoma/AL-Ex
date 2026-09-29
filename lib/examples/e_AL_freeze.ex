@@ -12,44 +12,53 @@ defmodule Examples.ALFreeze do
   example bound_runs_at_once() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        x = 3
-        freeze(x, [y = x + 1])
+        ~AL"""
+        X = 3.
+        freeze X {Y = X + 1}.
+        """
       end
 
-    assert AL.Var.deref(bindings, :"$y") == 4
+    assert AL.Var.deref(bindings, :"$Y") == 4
     :ok
   end
 
   example binding_wakes_in_place() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        freeze(x, [y = x + 1])
-        x = 3
+        ~AL"""
+        freeze X {Y = X + 1}.
+        X = 3.
+        """
       end
 
-    assert AL.Var.deref(bindings, :"$y") == 4
+    assert AL.Var.deref(bindings, :"$Y") == 4
     :ok
   end
 
   example a_clause_head_wakes_too() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        vm_set_class(:frozen, :object)
+        ~AL"""
+        vm_set_class frozen object.
 
-        defmethod(:frozen, :five, [_self, 5])
+        frozen >> five
+        | _Self 5 |.
 
-        freeze(v, [w = v + 1])
-        five(:frozen, v)
+        freeze V {W = V + 1}.
+        five frozen V.
+        """
       end
 
-    assert AL.Var.deref(bindings, :"$w") == 6
+    assert AL.Var.deref(bindings, :"$W") == 6
     :ok
   end
 
   example floundering_fails() do
     {:aborted, _reason} =
       run branch: Examples.Support.branch() do
-        freeze(x, [y = x + 1])
+        ~AL"""
+        freeze X {Y = X + 1}.
+        """
       end
 
     :ok
@@ -62,24 +71,28 @@ defmodule Examples.ALFreeze do
              (fn ->
                 {:atomic, {b, _constraints, _}} =
                   run branch: Examples.Support.branch() do
-                    freeze(a, [b = a * 2])
-                    freeze(b, [a = b / 2])
-                    a = 21
+                    ~AL"""
+                    freeze A {B = A * 2}.
+                    freeze B {A = B / 2}.
+                    A = 21.
+                    """
                   end
 
-                {AL.Var.deref(b, :"$a"), AL.Var.deref(b, :"$b")}
+                {AL.Var.deref(b, :"$A"), AL.Var.deref(b, :"$B")}
               end).()
 
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _constraints, _}} =
                   run branch: Examples.Support.branch() do
-                    freeze(a, [b = a * 2])
-                    freeze(b, [a = b / 2])
-                    b = 42
+                    ~AL"""
+                    freeze A {B = A * 2}.
+                    freeze B {A = B / 2}.
+                    B = 42.
+                    """
                   end
 
-                {AL.Var.deref(b, :"$a"), AL.Var.deref(b, :"$b")}
+                {AL.Var.deref(b, :"$A"), AL.Var.deref(b, :"$B")}
               end).()
 
     :ok
@@ -89,12 +102,14 @@ defmodule Examples.ALFreeze do
   example aliased_variable_still_wakes() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        freeze(x, [fired = :yes])
-        x = y
-        y = 5
+        ~AL"""
+        freeze X {Fired = yes}.
+        X = Y.
+        Y = 5.
+        """
       end
 
-    assert AL.Var.deref(bindings, :"$fired") == :yes
+    assert AL.Var.deref(bindings, :"$Fired") == :yes
     :ok
   end
 end

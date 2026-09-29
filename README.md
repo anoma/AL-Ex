@@ -44,6 +44,9 @@ Install from terminal using `iex -S mix` or as a mix dependency.
 
 `lib/examples` contains examples.
 `lib/AL` contains the runtime code.
+`lib/AL/syntax.bnf` is the grammar of AL source.
+`editors/al-mode.el` is an Emacs major mode for `.al` files.
+`priv/programs` contains the transaction programs, such as `bootstrap.al`, that set up an image.
 `priv/packages` contains the packages that will be installed upon image setup.
 
 ## Livebooks

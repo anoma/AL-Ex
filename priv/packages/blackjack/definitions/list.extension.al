@@ -1,13 +1,8 @@
-Extension {
-  #name : :list
-}
+list >> hand_total
+| [] 0 |.
 
-:list >> :hand_total, [[], 0] [
-
-]
-
-:list >> :hand_total, [[card | rest], total] [
-  card_value(card, v)
-  hand_total(rest, rest_total)
-  total = v + rest_total
-]
+list >> hand_total
+| [Card . Rest] Total |
+card_value Card V,
+hand_total Rest RestTotal,
+Total = V + RestTotal.

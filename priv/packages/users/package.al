@@ -1,5 +1,1 @@
-Package {
-  #name : :users,
-  #version : 2,
-  #deps : []
-}
+defpackage users #{deps: [], version: 2}.

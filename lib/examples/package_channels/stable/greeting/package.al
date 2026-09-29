@@ -1,5 +1,1 @@
-Package {
-  #name : :greeting,
-  #version : 1,
-  #deps : []
-}
+defpackage greeting #{deps: [], version: 1}.

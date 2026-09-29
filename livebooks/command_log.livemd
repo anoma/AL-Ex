@@ -10,7 +10,7 @@ System.put_env(
 
 Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
-  config: [al: [transaction_programs: [AL.TransactionProgram.Bootstrap], natives: []]]
+  config: [al: [transaction_programs: [:bootstrap], natives: []]]
 )
 ```
 
@@ -20,7 +20,7 @@ This notebook is self-contained. The cell above installs AL directly, no separat
 
 If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
 
-`Mix.install` has to finish running before AL's macros (`run`, `defclass`, and the rest) can be brought into scope, so that happens in its own cell here.
+`Mix.install` has to finish running before AL's `run` macro and `~AL` sigil can be brought into scope, so that happens in its own cell here.
 
 ```elixir
 use AL
@@ -36,7 +36,9 @@ Durable objects (classes, methods, slots) live in Mnesia tables you can query di
 before = AL.Command.system_time()
 
 run do
-  vm_set_class(:command_log_demo, :object)
+  ~AL"""
+  vm_set_class command_log_demo object.
+  """
 end
 
 {:atomic, commands} =
@@ -56,12 +58,16 @@ A `run do ... end` block is one transaction. Every write inside it, no matter ho
 ```elixir
 {:atomic, {bindings, _}} =
   run do
-    defclass :tx_demo, super: :object, ivars: [:greeting] do
-      defmethod(:hello, [self, :hi])
-    end
+    ~AL"""
+    @tx_demo
+    #{super: object, ivars: [#{name: greeting}]}.
 
-    new(:tx_demo, obj)
-    set_slot(obj, :greeting, "hi")
+    tx_demo >> hello
+    | Self hi |.
+
+    new tx_demo Obj.
+    set_slot Obj greeting "hi".
+    """
   end
 
 {:atomic, commands} =
@@ -79,12 +85,16 @@ c = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower) |> String.to_ato
 
 {:atomic, _} =
   run do
-    vm_set_class(^a, :object)
+    ~AL"""
+    vm_set_class ^a object.
+    """
   end
 
 {:atomic, _} =
   run do
-    vm_set_class(^c, :object)
+    ~AL"""
+    vm_set_class ^c object.
+    """
   end
 
 {:atomic, commands} =
@@ -109,23 +119,29 @@ Since the log is the real source of truth, the durable object tables (`class`, `
 ```elixir
 {:atomic, {bindings, _}} =
   run do
-    defclass :hydration_demo, super: :object, ivars: [:greeting] do
-      defmethod(:hello, [self, :hi])
-    end
+    ~AL"""
+    @hydration_demo
+    #{super: object, ivars: [#{name: greeting}]}.
 
-    new(:hydration_demo, obj)
-    set_slot(obj, :greeting, "hi")
+    hydration_demo >> hello
+    | Self hi |.
+
+    new hydration_demo Obj.
+    set_slot Obj greeting "hi".
+    """
   end
 
-obj = Map.get(bindings, :"$obj")
+obj = Map.get(bindings, :"$Obj")
 
 :ok = AL.Object.drop_tables(AL.Branch.head())
 :ok = AL.Object.create_tables(AL.Branch.head())
 {:atomic, _} = AL.Object.hydrate_since(0)
 
 run do
-  class(^obj, c)
-  get(^obj, :greeting, g)
+  ~AL"""
+  class ^obj C.
+  get ^obj greeting G.
+  """
 end
 ```
 
@@ -140,18 +156,22 @@ tip = AL.Branch.fork()
 
 {:atomic, {bindings, _}} =
   run branch: tip.id do
-    vm_set_slot(:widget, :x, 3)
-    vm_get_slot(:widget, :x, x)
+    ~AL"""
+    vm_set_slot widget x 3.
+    vm_get_slot widget x X.
+    """
   end
 
-Map.get(bindings, :"$x")
+Map.get(bindings, :"$X")
 ```
 
 Main never saw it.
 
 ```elixir
 run do
-  vm_get_slot(:widget, :x, x)
+  ~AL"""
+  vm_get_slot widget x X.
+  """
 end
 ```
 
@@ -167,26 +187,34 @@ A fork taken before a write does not see it, even though a fork taken right afte
 before_fork = AL.Command.system_time()
 
 run do
-  vm_set_class(:fork_timing_demo, :object)
+  ~AL"""
+  vm_set_class fork_timing_demo object.
+  """
 end
 
 past = AL.Branch.fork(before_fork)
 tip = AL.Branch.fork()
 
 run branch: tip.id do
-  class(:fork_timing_demo, :object)
+  ~AL"""
+  class fork_timing_demo object.
+  """
 end
 ```
 
 ```elixir
 run branch: past.id do
-  class(:fork_timing_demo, :object)
+  ~AL"""
+  class fork_timing_demo object.
+  """
 end
 ```
 
 ```elixir
 run branch: past.id do
-  class(:object, :class)
+  ~AL"""
+  class object class.
+  """
 end
 ```
 
@@ -204,11 +232,15 @@ branch = AL.Branch.fork()
 AL.Branch.checkout(branch)
 
 run do
-  vm_set_class(:checkout_demo, :object)
+  ~AL"""
+  vm_set_class checkout_demo object.
+  """
 end
 
 run do
-  class(:checkout_demo, :object)
+  ~AL"""
+  class checkout_demo object.
+  """
 end
 ```
 
@@ -216,7 +248,9 @@ end
 AL.Branch.checkout(AL.Branch.main())
 
 run do
-  class(:checkout_demo, :object)
+  ~AL"""
+  class checkout_demo object.
+  """
 end
 ```
 
@@ -243,11 +277,15 @@ AL.Branch.discard(parent)
 
 ```elixir
 run branch: child.id do
-  vm_set_class(:survivor, :object)
+  ~AL"""
+  vm_set_class survivor object.
+  """
 end
 
 run branch: child.id do
-  class(:survivor, :object)
+  ~AL"""
+  class survivor object.
+  """
 end
 ```
 
@@ -263,14 +301,16 @@ Slots keep their own history. `slot_history/3` reads it back from oldest first.
 
 ```elixir
 run do
-  defclass :history_probe, super: :object, ivars: [:count] do
-  end
+  ~AL"""
+  @history_probe
+  #{super: object, ivars: [#{name: count}]}.
 
-  new(:history_probe, obj)
-  set_slot(obj, :count, 1)
-  set_slot(obj, :count, 2)
-  set_slot(obj, :count, 3)
-  slot_history(obj, :count, values)
+  new history_probe Obj.
+  set_slot Obj count 1.
+  set_slot Obj count 2.
+  set_slot Obj count 3.
+  slot_history Obj count Values.
+  """
 end
 ```
 
@@ -280,21 +320,22 @@ end
 
 ```elixir
 run do
-  defclass :boundary_probe, super: :object, ivars: [:count] do
-  end
+  ~AL"""
+  @boundary_probe
+  #{super: object, ivars: [#{name: count}]}.
 
-  new(:boundary_probe, obj)
-  set_slot(obj, :count, 1)
-  set_slot(obj, :count, 2)
-
-  vm_slot_at(obj, :count, 1, t1)
-  label(t1)
-  boundary = t1 + 1
-  vm_slot_at(obj, :count, v_at_boundary, boundary)
+  new boundary_probe Obj.
+  set_slot Obj count 1.
+  set_slot Obj count 2.
+  vm_slot_at Obj count 1 T1.
+  label T1.
+  Boundary = T1 + 1.
+  vm_slot_at Obj count VAtBoundary Boundary.
+  """
 end
 ```
 
-`t1` is the last instant the slot held `1`. Querying one instant later returns `2`, not `1`. The boundary belongs to the value that just took effect, not the one it closed out.
+`T1` is the last instant the slot held `1`. Querying one instant later returns `2`, not `1`. The boundary belongs to the value that just took effect, not the one it closed out.
 
 ## Temporality
 
@@ -302,59 +343,70 @@ A `vm_slot_at` call with an open time variable does not just filter, it posts a 
 
 ```elixir
 run do
-  defclass :upper_bound_probe, super: :object, ivars: [:count] do
-  end
+  ~AL"""
+  @upper_bound_probe
+  #{super: object, ivars: [#{name: count}]}.
 
-  new(:upper_bound_probe, obj)
-  set_slot(obj, :count, 1)
-  set_slot(obj, :count, 2)
-
-  vm_slot_at(obj, :count, 1, t)
-  vm_slot_at(obj, :count, 2, t2)
-  t >= t2
+  new upper_bound_probe Obj.
+  set_slot Obj count 1.
+  set_slot Obj count 2.
+  vm_slot_at Obj count 1 T.
+  vm_slot_at Obj count 2 T2.
+  T >= T2.
+  """
 end
 ```
 
-The interval during which the slot held `1` ends exactly when the interval during which it holds `2` begins, so `t >= t2` is comparing two already-bounded variables whose intervals are disjointed.
+The interval during which the slot held `1` ends exactly when the interval during which it holds `2` begins, so `T >= T2` is comparing two already-bounded variables whose intervals are disjointed.
 
 ## Temporality: overlap across two objects
 
-Since an open `t` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `=` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `=` succeeds. If they never coincided, it fails.
+Since an open `T` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `=` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `=` succeeds. If they never coincided, it fails.
 
 ```elixir
 run do
-  defclass :sensor_a, super: :object, ivars: [:status] do
-  end
+  ~AL"""
+  @sensor_a
+  #{super: object, ivars: [#{name: status}]}.
 
-  defclass :sensor_b, super: :object, ivars: [:status] do
-  end
+  @sensor_b
+  #{super: object, ivars: [#{name: status}]}.
 
-  new(:sensor_a, %{name: :sensor_a_1, status: :off}, _)
-  new(:sensor_b, %{name: :sensor_b_1, status: :on}, _)
+  new sensor_a #{name: sensor_a_1, status: off} _.
+  new sensor_b #{name: sensor_b_1, status: on} _.
+  """
 end
 
 run do
-  set_slot(:sensor_a_1, :status, :on)
+  ~AL"""
+  set_slot sensor_a_1 status on.
+  """
 end
 
 run do
-  set_slot(:sensor_b_1, :status, :off)
+  ~AL"""
+  set_slot sensor_b_1 status off.
+  """
 end
 
 run do
-  set_slot(:sensor_a_1, :status, :off)
+  ~AL"""
+  set_slot sensor_a_1 status off.
+  """
 end
 
 run do
-  vm_slot_at(:sensor_a_1, :status, :on, ta)
-  vm_slot_at(:sensor_b_1, :status, :on, tb)
-  ta = tb
+  ~AL"""
+  vm_slot_at sensor_a_1 status on Ta.
+  vm_slot_at sensor_b_1 status on Tb.
+  Ta = Tb.
+  """
 end
 ```
 
-Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `:on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `=`.
+Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `=`.
 
-This is not the same as asking whether one sensor's whole `:on` period came entirely before or after the other's. `>=` and `<=` between two bound variables like these only ask whether some pairing of instants could satisfy the comparison, not whether every instant in one interval relates to every instant in the other that way. Proving that stronger kind of claim needs both endpoints of an interval available on their own, which is not something `vm_slot_at` exposes today. More on this below.
+This is not the same as asking whether one sensor's whole `on` period came entirely before or after the other's. `>=` and `<=` between two bound variables like these only ask whether some pairing of instants could satisfy the comparison, not whether every instant in one interval relates to every instant in the other that way. Proving that stronger kind of claim needs both endpoints of an interval available on their own, which is not something `vm_slot_at` exposes today. More on this below.
 
 ## Plans for future temporality features
 

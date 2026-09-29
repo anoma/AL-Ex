@@ -1,70 +1,66 @@
-Class {
-  #name : :pool,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [
-    %{name: :name},
-    %{name: :reserves, type: :reserves},
-    %{name: :limit_orders, type: :list, default: []}
+@pool
+#{
+  super: object,
+  ivars: [
+    #{name: name},
+    #{name: reserves, type: reserves},
+    #{default: [], name: limit_orders, type: list}
   ]
-}
+}.
 
-:pool >> :constant_product, [self, constant] [
-  get(self, :reserves, reserves)
-  constant_product(reserves, constant)
-]
+pool >> constant_product
+| Self Constant |
+get Self reserves Reserves,
+constant_product Reserves Constant.
 
-:pool >> :spot_price, [self, price] [
-  get(self, :reserves, reserves)
-  spot_price(reserves, price)
-]
+pool >> spot_price
+| Self Price |
+get Self reserves Reserves,
+spot_price Reserves Price.
 
-:pool >> :quote, [self, trade, resulting_reserves] [
-  get(self, :reserves, initial_reserves)
-  quote_from(initial_reserves, trade, resulting_reserves)
-]
+pool >> quote
+| Self Trade ResultingReserves |
+get Self reserves InitialReserves,
+quote_from InitialReserves Trade ResultingReserves.
 
-:pool >> :quote_at, [self, trade, time, resulting_reserves] [
-  reserves_at(self, time, initial_reserves)
-  quote_from(initial_reserves, trade, resulting_reserves)
-]
+pool >> quote_at
+| Self Trade Time ResultingReserves |
+reserves_at Self Time InitialReserves,
+quote_from InitialReserves Trade ResultingReserves.
 
-:pool >> :execute, [self, trade] [
-  quote(self, trade, resulting_reserves)
-  input_amount(trade, input_amount)
-  output_amount(trade, output_amount)
-  label(input_amount)
-  label(output_amount)
-  set_slot(self, :reserves, resulting_reserves)
-]
+pool >> execute
+| Self Trade |
+quote Self Trade ResultingReserves,
+input_amount Trade InputAmount,
+output_amount Trade OutputAmount,
+label InputAmount,
+label OutputAmount,
+set_slot Self reserves ResultingReserves.
 
-:pool >> :stream, [self, reserves] [
-  set_slot(self, :reserves, reserves)
+pool >> stream
+| Self Reserves |
+set_slot Self reserves Reserves,
+forall {open_limit_order Self Order} {send_async Order try_fill}.
 
-  forall(open_limit_order(self, order)) do
-    send_async(order, :try_fill)
-  end
-]
+pool >> open_limit_order
+| Self Order |
+get Self limit_orders Orders,
+member Orders Order,
+get_slots Order #{pool: Self, status: open}.
 
-:pool >> :open_limit_order, [self, order] [
-  get(self, :limit_orders, orders)
-  member(orders, order)
-  get_slots(order, %{pool: self, status: :open})
-]
+pool >> place_order
+| Self Order |
+isa Order buy_limit_order,
+get Self limit_orders Orders,
+set_slot Self limit_orders [Order . Orders].
 
-:pool >> :place_order, [self, order] [
-  isa(order, :buy_limit_order)
-  get(self, :limit_orders, orders)
-  set_slot(self, :limit_orders, [order | orders])
-]
+pool >> remove_order
+| Self Order |
+get Self limit_orders Orders,
+concat EarlierOrders [Order . LaterOrders] Orders,
+concat EarlierOrders LaterOrders RemainingOrders,
+set_slot Self limit_orders RemainingOrders.
 
-:pool >> :remove_order, [self, order] [
-  get(self, :limit_orders, orders)
-  concat(earlier_orders, [order | later_orders], orders)
-  concat(earlier_orders, later_orders, remaining_orders)
-  set_slot(self, :limit_orders, remaining_orders)
-]
-
-:pool >> :reserves_at, [self, time, reserves] [
-  vm_slot_at(self, :reserves, reserves, time)
-]
+pool >> reserves_at
+| Self Time Reserves |
+vm_slot_at Self reserves Reserves Time.

@@ -1,6 +1,1 @@
-Package {
-  #name : :mapset,
-  #version : 1,
-  #deps : []
-}
-
+defpackage mapset #{deps: [], version: 1}.

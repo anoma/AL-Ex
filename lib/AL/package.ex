@@ -576,7 +576,7 @@ defmodule AL.Package do
          },
          :ok <-
            evaluate_chunks(
-             [{"set_slots(#{literal(build)}, #{literal(slots)})", nil}],
+             [{"set_slots #{literal(build)} #{literal(slots)}.", nil}],
              package_publication_origin(name, build, provider, build_digest),
              branch
            ) do
@@ -878,11 +878,11 @@ defmodule AL.Package do
 
     case channel_instances(channel.name, branch) do
       [] ->
-        chunks = [{"new(:channel, #{literal(slots)}, channel_instance)", nil}]
+        chunks = [{"new channel #{literal(slots)} ChannelInstance.", nil}]
 
         with {:ok, {bindings, _constraints, _state}} <-
                evaluate_chunks_result(chunks, channel_origin(channel), branch) do
-          {:ok, Map.fetch!(bindings, :"$channel_instance")}
+          {:ok, Map.fetch!(bindings, :"$ChannelInstance")}
         end
 
       [%{id: id, slots: ^slots}] ->
@@ -891,7 +891,7 @@ defmodule AL.Package do
       [%{id: id}] ->
         with :ok <-
                evaluate_chunks(
-                 [{"set_slots(#{literal(id)}, #{literal(slots)})", nil}],
+                 [{"set_slots #{literal(id)} #{literal(slots)}.", nil}],
                  channel_origin(channel),
                  branch
                ) do
@@ -932,14 +932,14 @@ defmodule AL.Package do
 
       [:program_execution] ->
         [
-          {"retract_existing_facts(#{literal(name)})", nil},
+          {"retract_existing_facts #{literal(name)}.", nil},
           {package_class_source(name), nil}
         ]
 
       [:package] ->
         case AL.Object.read_slots(name, branch) do
           [{:slots, ^name, slots}] when is_map_key(slots, :deps) ->
-            [{"vm_retract_slot(#{literal(name)}, :deps)", nil}]
+            [{"vm_retract_slot #{literal(name)} deps.", nil}]
 
           _ ->
             []
@@ -963,11 +963,11 @@ defmodule AL.Package do
 
     case matching_providers(slots, branch) do
       [] ->
-        chunks = [{"new(:package_provider, #{literal(slots)}, package_provider)", nil}]
+        chunks = [{"new package_provider #{literal(slots)} PackageProvider.", nil}]
 
         with {:ok, {bindings, _constraints, _state}} <-
                evaluate_chunks_result(chunks, provider_origin(provider, channel), branch) do
-          id = Map.fetch!(bindings, :"$package_provider")
+          id = Map.fetch!(bindings, :"$PackageProvider")
           {:ok, %{provider | id: id, channel: channel}}
         end
 
@@ -1063,7 +1063,7 @@ defmodule AL.Package do
   end
 
   defp package_class_source(name) do
-    "new(:package, %{name: #{literal(name)}, super: :package_build, ivars: [], open_build: false}, _)"
+    "new package \#{ivars: [], name: #{literal(name)}, open_build: false, super: package_build} _."
   end
 
   defp reusable_build(package, digest, branch) do
@@ -1087,12 +1087,12 @@ defmodule AL.Package do
     provider = build.provider
 
     chunks = [
-      {"build(#{literal(provider.document.name)}, #{literal(args)}, package_build)", nil}
+      {"build #{literal(provider.document.name)} #{literal(args)} PackageBuild.", nil}
     ]
 
     with {:ok, {bindings, _constraints, _state}} <-
            evaluate_chunks_result(chunks, build_origin(build, args), branch) do
-      {:ok, Map.fetch!(bindings, :"$package_build")}
+      {:ok, Map.fetch!(bindings, :"$PackageBuild")}
     end
   end
 
@@ -1445,7 +1445,7 @@ defmodule AL.Package do
           added_superclasses: superclasses
         }
 
-        chunk = {"set_slots(#{literal(build)}, #{literal(slots)})", nil}
+        chunk = {"set_slots #{literal(build)} #{literal(slots)}.", nil}
         {:cont, {:ok, chunks ++ [chunk]}}
       else
         {:error, _reason} = error -> {:halt, error}
@@ -1459,14 +1459,14 @@ defmodule AL.Package do
       |> Map.keys()
       |> Enum.reject(&Map.has_key?(final, &1))
       |> Enum.sort_by(&:erlang.term_to_binary/1)
-      |> Enum.map(&{"vm_retract_slot(#{literal(&1)}, :active_build)", nil})
+      |> Enum.map(&{"vm_retract_slot #{literal(&1)} active_build.", nil})
 
     changed =
       final
       |> Enum.reject(fn {package, build} -> Map.get(current, package) == build end)
       |> Enum.sort_by(fn {package, _build} -> :erlang.term_to_binary(package) end)
       |> Enum.map(fn {package, build} ->
-        {"vm_set_slot(#{literal(package)}, :active_build, #{literal(build)})", nil}
+        {"vm_set_slot #{literal(package)} active_build #{literal(build)}.", nil}
       end)
 
     removed ++ changed
@@ -1714,6 +1714,5 @@ defmodule AL.Package do
 
   defp duplicated?(values), do: length(values) != length(Enum.uniq(values))
 
-  defp literal(value),
-    do: inspect(value, pretty: false, limit: :infinity, printable_limit: :infinity)
+  defp literal(value), do: AL.Syntax.Printer.term(value)
 end

@@ -1,5 +1,1 @@
-Package {
-  #name : :punctuation,
-  #version : 1,
-  #deps : []
-}
+defpackage punctuation #{deps: [], version: 1}.

@@ -100,14 +100,14 @@ defmodule ALMCPProtocolTest do
                 }
               }} =
                call("evaluateSource", %{
-                 "source" => "result = :ok",
+                 "source" => "Result = ok.",
                  "branch" => to_string(branch.id)
                })
 
       assert branch_id == to_string(branch.id)
       assert is_integer(command_tx)
 
-      assert {:atomic, [{:source_text, ^command_tx, "result = :ok", _origin}]} =
+      assert {:atomic, [{:source_text, ^command_tx, "Result = ok.", _origin}]} =
                :mnesia.transaction(fn ->
                  [AL.SourceStore.text(command_tx, branch)]
                end)
@@ -120,14 +120,14 @@ defmodule ALMCPProtocolTest do
     branch = AL.Branch.fork(:tip, baseline)
 
     source = """
-    atom_value = :ok
-    binary_value = "ok"
-    integer_value = 9007199254740993
-    float_value = 1.5
-    map_value = %{:key => "value"}
-    proper_list = [1, :two]
-    improper_list = [1 | :tail]
-    in_domain(choice, [1, 2])
+    AtomValue = ok.
+    BinaryValue = "ok".
+    IntegerValue = 9007199254740993.
+    FloatValue = 1.5.
+    MapValue = \#{key: "value"}.
+    ProperList = [1, two].
+    ImproperList = [1 . tail].
+    in_domain Choice [1, 2].
     """
 
     try do
@@ -151,25 +151,25 @@ defmodule ALMCPProtocolTest do
       assert is_integer(command_tx)
       assert Jason.encode!(result)
 
-      assert binding_value(bindings, "atom_value") == %{"type" => "atom", "name" => "ok"}
+      assert binding_value(bindings, "AtomValue") == %{"type" => "atom", "name" => "ok"}
 
-      assert binding_value(bindings, "binary_value") == %{
+      assert binding_value(bindings, "BinaryValue") == %{
                "type" => "binary",
                "encoding" => "utf8",
                "value" => "ok"
              }
 
-      assert binding_value(bindings, "integer_value") == %{
+      assert binding_value(bindings, "IntegerValue") == %{
                "type" => "integer",
                "value" => "9007199254740993"
              }
 
-      assert binding_value(bindings, "float_value") == %{
+      assert binding_value(bindings, "FloatValue") == %{
                "type" => "float",
                "value" => "1.5"
              }
 
-      assert binding_value(bindings, "map_value") == %{
+      assert binding_value(bindings, "MapValue") == %{
                "type" => "map",
                "entries" => [
                  %{
@@ -179,7 +179,7 @@ defmodule ALMCPProtocolTest do
                ]
              }
 
-      assert binding_value(bindings, "proper_list") == %{
+      assert binding_value(bindings, "ProperList") == %{
                "type" => "list",
                "items" => [
                  %{"type" => "integer", "value" => "1"},
@@ -187,16 +187,16 @@ defmodule ALMCPProtocolTest do
                ]
              }
 
-      assert binding_value(bindings, "improper_list") == %{
+      assert binding_value(bindings, "ImproperList") == %{
                "type" => "list",
                "items" => [%{"type" => "integer", "value" => "1"}],
                "tail" => %{"type" => "atom", "name" => "tail"}
              }
 
-      assert binding_value(bindings, "choice") == %{"type" => "variable", "name" => "choice"}
+      assert binding_value(bindings, "Choice") == %{"type" => "variable", "name" => "Choice"}
 
       assert constraints
-             |> binding_value("choice")
+             |> binding_value("Choice")
              |> map_value("domain") == %{
                "type" => "list",
                "items" => [
@@ -227,7 +227,7 @@ defmodule ALMCPProtocolTest do
                   }
                 }
               }} =
-               call("evaluateSource", %{"source" => "fail()", "branch" => to_string(branch.id)})
+               call("evaluateSource", %{"source" => "fail.", "branch" => to_string(branch.id)})
 
       assert is_integer(command_tx)
 
@@ -242,7 +242,7 @@ defmodule ALMCPProtocolTest do
                     "status" => "failed",
                     "message" => message,
                     "causeKind" => "goal_failed",
-                    "source" => "fail()",
+                    "source" => "fail.",
                     "observation" => %{
                       "transaction" => observation_tx,
                       "object" => "tx_" <> _
@@ -269,15 +269,17 @@ defmodule ALMCPProtocolTest do
     branch = AL.Branch.fork(:tip, baseline)
 
     source = """
-    defclass :mcp_inspected, super: :object, ivars: [:name] do
-      defmethod(:answer, [_self, 42])
+    @mcp_inspected \#{super: object, ivars: [\#{name: name}]}.
 
-      defmethod(:tail_reference, [self, head, out]) do
-        self = self
-        out = [head | :answer]
-      end
-    end
-    vm_set_class(:mcp_instance, :mcp_inspected)
+    mcp_inspected >> answer
+    | _Self 42 |.
+
+    mcp_inspected >> tail_reference
+    | Self Head Out |
+      Self = Self,
+      Out = [Head . answer].
+
+    vm_set_class mcp_instance mcp_inspected.
     """
 
     try do
@@ -327,7 +329,7 @@ defmodule ALMCPProtocolTest do
                })
 
       assert [%{"source" => %{"text" => method_source}}] = binding["clauses"]
-      assert method_source =~ "defmethod(:answer"
+      assert method_source =~ "answer\n| _Self 42 |"
 
       assert {:reply,
               %{

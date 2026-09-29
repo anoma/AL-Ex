@@ -39,10 +39,12 @@ defmodule Examples.ALEffects do
     try do
       {:atomic, {bindings, _constraints, _state}} =
         run branch: Examples.Support.branch() do
-          emit_effect(:file, :read, [^path], effect)
+          ~AL"""
+          new effect #{arguments: [^path], operation: read, provider: file} Effect.
+          """
         end
 
-      effect = bindings[:"$effect"]
+      effect = bindings[:"$Effect"]
 
       assert {:ok, "alpha\nbeta\n"} =
                AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -56,10 +58,12 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :transaction_context, [], effect)
+        ~AL"""
+        new effect #{arguments: [], operation: transaction_context, provider: example_effect} Effect.
+        """
       end
 
-    effect = bindings[:"$effect"]
+    effect = bindings[:"$Effect"]
 
     assert {:ok, false} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -84,8 +88,10 @@ defmodule Examples.ALEffects do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :notify, [], _)
-        fail()
+        ~AL"""
+        new effect #{arguments: [], operation: notify, provider: example_effect} _.
+        fail.
+        """
       end
 
     refute_receive :effect_ran, 100
@@ -96,16 +102,18 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        vm_set_class(:effect_emitter, :object)
+        ~AL"""
+        vm_set_class effect_emitter object.
 
-        defmethod(:effect_emitter, :emit, [_self, effect]) do
-          emit_effect(:example_effect, :echo, [:from_method], effect)
-        end
+        effect_emitter >> emit
+        | _Self Effect |
+        new effect #{arguments: [from_method], operation: echo, provider: example_effect} Effect.
 
-        send(:effect_emitter, :emit, [effect])
+        emit effect_emitter Effect.
+        """
       end
 
-    effect = bindings[:"$effect"]
+    effect = bindings[:"$Effect"]
 
     assert {:ok, :from_method} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -114,7 +122,9 @@ defmodule Examples.ALEffects do
   example effect_request_must_be_ground_and_durable() do
     {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :echo, [unbound], _)
+        ~AL"""
+        new effect #{arguments: [Unbound], operation: echo, provider: example_effect} _.
+        """
       end
 
     assert ground_message == "effect request must be ground"
@@ -133,10 +143,12 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :wait, [:later], effect)
+        ~AL"""
+        new effect #{arguments: [later], operation: wait, provider: example_effect} Effect.
+        """
       end
 
-    effect = bindings[:"$effect"]
+    effect = bindings[:"$Effect"]
     assert_receive {:effect_pending, context, :later}, 1000
     assert context.effect_id == effect
     assert :pending = effect_status(effect)
@@ -151,18 +163,12 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, state}} =
       run branch: Examples.Support.branch() do
-        new(
-          :effect,
-          %{
-            provider: :example_effect,
-            operation: :echo,
-            arguments: [:initialized]
-          },
-          effect
-        )
+        ~AL"""
+        new effect #{arguments: [initialized], operation: echo, provider: example_effect} Effect.
+        """
       end
 
-    effect = bindings[:"$effect"]
+    effect = bindings[:"$Effect"]
 
     assert {:ok, :initialized} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -187,47 +193,46 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :wait, [:object_effect], effect)
+        ~AL"""
+        new effect #{arguments: [object_effect], operation: wait, provider: example_effect} Effect.
+        """
       end
 
-    effect = bindings[:"$effect"]
+    effect = bindings[:"$Effect"]
     assert_receive {:effect_pending, context, :object_effect}, 1000
 
     {:atomic, {pending, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        class(^effect, :effect)
-
-        get_slots(^effect, %{
-          provider: :example_effect,
-          operation: :wait,
-          arguments: [:object_effect],
-          status: status,
-          outcome: outcome,
-          requested_by: requested_by,
-          completed_by: completed_by
-        })
-
-        class(requested_by, :transaction)
+        ~AL"""
+        class ^effect effect.
+        get_slots ^effect #{
+          arguments: [object_effect],
+          completed_by: CompletedBy,
+          operation: wait,
+          outcome: Outcome,
+          provider: example_effect,
+          requested_by: RequestedBy,
+          status: Status
+        }.
+        class RequestedBy transaction.
+        """
       end
 
-    assert pending[:"$status"] == :pending
-    assert pending[:"$outcome"] == :none
-    assert pending[:"$completed_by"] == :none
+    assert pending[:"$Status"] == :pending
+    assert pending[:"$Outcome"] == :none
+    assert pending[:"$CompletedBy"] == :none
     assert :ok = AL.Edge.complete(context, {:ok, :changed})
 
     {:atomic, {completed, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        get_slots(^effect, %{
-          status: status,
-          outcome: outcome,
-          completed_by: completed_by
-        })
-
-        class(completed_by, :transaction)
+        ~AL"""
+        get_slots ^effect #{completed_by: CompletedBy, outcome: Outcome, status: Status}.
+        class CompletedBy transaction.
+        """
       end
 
-    assert completed[:"$status"] == :completed
-    assert completed[:"$outcome"] == %{status: :ok, value: :changed}
+    assert completed[:"$Status"] == :completed
+    assert completed[:"$Outcome"] == %{status: :ok, value: :changed}
   end
 
   example provider_exception_is_recorded_as_the_effect_outcome() do
@@ -235,10 +240,12 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :raise, [], effect)
+        ~AL"""
+        new effect #{arguments: [], operation: raise, provider: example_effect} Effect.
+        """
       end
 
-    effect = bindings[:"$effect"]
+    effect = bindings[:"$Effect"]
 
     assert {:error, {:effect_exception, "provider failed"}} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -249,12 +256,14 @@ defmodule Examples.ALEffects do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        emit_effect(:example_effect, :echo, [:first], first)
-        emit_effect(:example_effect, :echo, [:second], second)
+        ~AL"""
+        new effect #{arguments: [first], operation: echo, provider: example_effect} First.
+        new effect #{arguments: [second], operation: echo, provider: example_effect} Second.
+        """
       end
 
-    first = bindings[:"$first"]
-    second = bindings[:"$second"]
+    first = bindings[:"$First"]
+    second = bindings[:"$Second"]
     assert first != second
 
     assert {:ok, :first} =
@@ -272,7 +281,9 @@ defmodule Examples.ALEffects do
     try do
       {:atomic, {_bindings, _constraints, state}} =
         run branch: Examples.Support.branch() do
-          emit_effect(:example_effect, :notify, [], _)
+          ~AL"""
+          new effect #{arguments: [], operation: notify, provider: example_effect} _.
+          """
         end
 
       {:atomic, commands} =
@@ -302,7 +313,9 @@ defmodule Examples.ALEffects do
     try do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
-          emit_effect(:example_effect, :notify, [], _)
+          ~AL"""
+          new effect #{arguments: [], operation: notify, provider: example_effect} _.
+          """
         end
 
       child = AL.Branch.fork(:tip, parent)
@@ -312,10 +325,12 @@ defmodule Examples.ALEffects do
 
         {:atomic, {bindings, _constraints, _state}} =
           run branch: child.id do
-            emit_effect(:example_effect, :branch, [], effect)
+            ~AL"""
+            new effect #{arguments: [], operation: branch, provider: example_effect} Effect.
+            """
           end
 
-        effect = bindings[:"$effect"]
+        effect = bindings[:"$Effect"]
         assert {:ok, child_id} = AL.await_effect(effect, branch: child.id, timeout: 1000)
         assert child_id == child.id
       after
@@ -334,10 +349,12 @@ defmodule Examples.ALEffects do
   defp effect_status(effect) do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        get(^effect, :status, status)
+        ~AL"""
+        get ^effect status Status.
+        """
       end
 
-    bindings[:"$status"]
+    bindings[:"$Status"]
   end
 
   defp temporary_path do

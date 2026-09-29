@@ -1,5 +1,1 @@
-Package {
-  #name : :swaps,
-  #version : 28,
-  #deps : []
-}
+defpackage swaps #{deps: [], version: 28}.

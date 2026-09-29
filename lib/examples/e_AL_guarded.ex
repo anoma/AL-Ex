@@ -10,11 +10,11 @@ defmodule Examples.ALGuarded do
 
   example bindings_return_under_the_cap() do
     branch = AL.Branch.fork()
-    goal = AL.ast_to_pattern(quote do: x = 42)
 
-    {:atomic, {bindings, _constraints, nil}} = AL.eval([goal], nil, branch, heap: 2_000_000)
+    {:atomic, {bindings, _constraints, nil}} =
+      AL.eval_source("X = 42.", branch, heap: 2_000_000)
 
-    assert AL.Var.deref(bindings, :"$x") == 42
+    assert AL.Var.deref(bindings, :"$X") == 42
     AL.Branch.discard(branch)
     bindings
   end
@@ -24,16 +24,17 @@ defmodule Examples.ALGuarded do
 
     {:atomic, _} =
       run branch: branch.id do
-        vm_set_class(:capped, :object)
+        ~AL"""
+        vm_set_class capped object.
 
-        defmethod(:capped, :grow, [self, xs]) do
-          concat(xs, xs, doubled)
-          grow(self, doubled)
-        end
+        capped >> grow
+        | Self Xs |
+        concat Xs Xs Doubled,
+        grow Self Doubled.
+        """
       end
 
-    goal = AL.ast_to_pattern(quote do: grow(:capped, [1, 2, 3, 4]))
-    {:error, message} = AL.eval([goal], nil, branch, heap: 2_000_000)
+    {:error, message} = AL.eval_source("grow capped [1, 2, 3, 4].", branch, heap: 2_000_000)
 
     assert message =~ "exceeded"
     AL.Branch.discard(branch)

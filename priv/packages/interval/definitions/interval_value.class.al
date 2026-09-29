@@ -1,47 +1,39 @@
-Class {
-  #name : :interval_value,
-  #superclass : [:value],
-  #metaclass : :class,
-  #ivars : [:lo, :hi]
-}
+@interval_value
+#{super: value, ivars: [#{name: lo}, #{name: hi}]}.
 
-:interval_value >> :init, [self, args, new] [
-  get_slots(args, %{lo: lo, hi: hi})
+interval_value >> init
+| Self Args New |
+get_slots Args #{hi: Hi, lo: Lo},
+Lo > Hi -> New = #{class: interval_value, hi: empty, lo: empty} ; New = #{class: interval_value, hi: Hi, lo: Lo}.
 
-  implies do
-    [lo > hi] -> new = %{lo: :empty, class: :interval_value, hi: :empty}
-    :else -> new = %{lo: lo, class: :interval_value, hi: hi}
-  end
-]
+interval_value >> elem
+| Self X |
+get Self lo Lo,
+not {Lo == empty},
+get Self hi Hi,
+Lo <= X,
+X <= Hi.
 
-:interval_value >> :elem, [self, x] [
-  get(self, :lo, lo)
-  not [lo == :empty]
-  get(self, :hi, hi)
-  lo <= x
-  x <= hi
-]
+interval_value >> intersection
+| Self _Other New |
+get Self lo empty,
+New = #{class: interval_value, hi: empty, lo: empty}.
 
-:interval_value >> :intersection, [self, _other, new] [
-  get(self, :lo, :empty)
-  new = %{lo: :empty, class: :interval_value, hi: :empty}
-]
+interval_value >> intersection
+| Self Other New |
+get Self lo Lo,
+not {Lo == empty},
+get Other lo empty,
+New = #{class: interval_value, hi: empty, lo: empty}.
 
-:interval_value >> :intersection, [self, other, new] [
-  get(self, :lo, lo)
-  not [lo == :empty]
-  get(other, :lo, :empty)
-  new = %{lo: :empty, class: :interval_value, hi: :empty}
-]
-
-:interval_value >> :intersection, [self, other, new] [
-  get(self, :lo, lo1)
-  not [lo1 == :empty]
-  get(other, :lo, lo2)
-  not [lo2 == :empty]
-  get(self, :hi, hi1)
-  get(other, :hi, hi2)
-  sort([lo1, lo2], [_, lo])
-  sort([hi1, hi2], [hi, _])
-  new(:interval_value, %{lo: lo, hi: hi}, new)
-]
+interval_value >> intersection
+| Self Other New |
+get Self lo Lo1,
+not {Lo1 == empty},
+get Other lo Lo2,
+not {Lo2 == empty},
+get Self hi Hi1,
+get Other hi Hi2,
+sort [Lo1, Lo2] [_, Lo],
+sort [Hi1, Hi2] [Hi, _],
+new interval_value #{hi: Hi, lo: Lo} New.

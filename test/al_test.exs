@@ -217,3 +217,7 @@ end
 defmodule ALGtBridgeTest do
   use ExExample.ExUnit, for: Examples.ALGtBridge
 end
+
+defmodule ALSyntaxTest do
+  use ExExample.ExUnit, for: Examples.ALSyntax
+end

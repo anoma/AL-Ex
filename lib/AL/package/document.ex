@@ -1,10 +1,8 @@
 defmodule AL.Package.Document do
   @moduledoc "The safe, literal manifest for one portable AL package bundle."
 
-  @fields [:name, :version, :deps]
-
-  @enforce_keys @fields
-  defstruct @fields
+  @enforce_keys [:name, :version, :deps]
+  defstruct [:name, :version, :deps]
 
   @type dependency() :: atom() | {atom(), term()}
   @type t() :: %__MODULE__{
@@ -17,20 +15,23 @@ defmodule AL.Package.Document do
 
   @spec render(t()) :: String.t()
   def render(%__MODULE__{} = document) do
-    entries =
-      Enum.map_join(@fields, ",\n", fn field ->
-        "  ##{field} : #{literal(Map.fetch!(document, field))}"
+    deps =
+      Enum.map(document.deps, fn
+        {name, requirement} -> [name, requirement]
+        name -> name
       end)
 
-    "Package {\n" <> entries <> "\n}\n"
+    "defpackage " <>
+      AL.Syntax.Printer.term(document.name) <>
+      " " <> AL.Syntax.Printer.term(%{version: document.version, deps: deps}) <> ".\n"
   end
 
   @spec parse(String.t()) :: {:ok, t()} | {:error, parse_error()}
   def parse(text) when is_binary(text) do
-    with {:ok, body} <- body(text),
-         {:ok, metadata} <- literal_metadata(body),
-         :ok <- fields(metadata),
-         document <- struct!(__MODULE__, metadata),
+    with {:ok, name, options} <- read(text),
+         :ok <- fields(options),
+         :ok <- ground(options),
+         document = %__MODULE__{name: name, version: options.version, deps: deps(options.deps)},
          :ok <- validate(document) do
       {:ok, document}
     end
@@ -38,60 +39,36 @@ defmodule AL.Package.Document do
 
   def parse(_text), do: invalid("document must be text")
 
-  defp body(text) do
-    text = String.trim(text)
-
-    case text do
-      "Package {" <> rest ->
-        with {:ok, closing} <- AL.Source.Scanner.close_index(rest, 0, ?{, ?}),
-             "" <-
-               rest |> binary_part(closing + 1, byte_size(rest) - closing - 1) |> String.trim() do
-          {:ok, rest |> binary_part(0, closing) |> String.trim("\n")}
-        else
-          :error -> invalid("header is not terminated by a closing brace")
-          _ -> invalid("unexpected content after the package header")
-        end
-
-      _ ->
-        invalid("expected a Package header")
+  defp read(text) do
+    case AL.Syntax.package(text) do
+      {:ok, name, options} -> {:ok, name, options}
+      {:error, message} -> invalid(message)
     end
   end
 
-  defp literal_metadata(body) do
-    normalized =
-      body
-      |> String.split("\n")
-      |> Enum.map_join("\n", &Regex.replace(~r/^(\s*)#(\w+)\s*:/, &1, "\\1\\2:"))
-
-    with {:ok, quoted} <- Code.string_to_quoted("[\n" <> normalized <> "\n]"),
-         true <- Macro.quoted_literal?(quoted),
-         {metadata, []} when is_list(metadata) <- Code.eval_quoted(quoted),
-         true <- Keyword.keyword?(metadata) do
-      {:ok, metadata}
-    else
-      {:error, reason} -> invalid("invalid header metadata: #{inspect(reason)}")
-      _ -> invalid("header metadata must be a literal keyword list")
-    end
+  defp fields(options) do
+    if Enum.sort(Map.keys(options)) == [:deps, :version],
+      do: :ok,
+      else: invalid("a manifest declares exactly version: and deps:")
   end
 
-  defp fields(metadata) do
-    keys = Keyword.keys(metadata)
-
-    cond do
-      length(keys) != length(Enum.uniq(keys)) ->
-        invalid("header metadata contains duplicate fields")
-
-      MapSet.new(keys) != MapSet.new(@fields) ->
-        invalid("header fields must be exactly #{inspect(@fields)}")
-
-      true ->
-        :ok
-    end
+  defp ground(options) do
+    if AL.Goal.reduce(options, false, &(&2 or AL.Var.var?(&1))),
+      do: invalid("a manifest cannot hold variables"),
+      else: :ok
   end
+
+  defp deps(deps) when is_list(deps) do
+    Enum.map(deps, fn
+      [name, requirement] -> {name, requirement}
+      name -> name
+    end)
+  end
+
+  defp deps(deps), do: deps
 
   defp validate(%__MODULE__{} = document) do
-    with :ok <- atom(document.name, "name must be an atom"),
-         :ok <- positive_integer(document.version, "version must be a positive integer"),
+    with :ok <- positive_integer(document.version, "version must be a positive integer"),
          :ok <- dependencies(document.deps) do
       :ok
     end
@@ -100,7 +77,7 @@ defmodule AL.Package.Document do
   defp dependencies(value) when is_list(value) do
     cond do
       not Enum.all?(value, &valid_dependency?/1) ->
-        invalid("deps must contain package names or {name, requirement} pairs")
+        invalid("deps must contain package names or [name, requirement] pairs")
 
       duplicated?(Enum.map(value, &dependency_name/1)) ->
         invalid("dependency names must be unique")
@@ -123,14 +100,8 @@ defmodule AL.Package.Document do
 
   defp duplicated?(values), do: length(values) != length(Enum.uniq(values))
 
-  defp atom(value, _message) when is_atom(value), do: :ok
-  defp atom(_value, message), do: invalid(message)
-
   defp positive_integer(value, _message) when is_integer(value) and value > 0, do: :ok
   defp positive_integer(_value, message), do: invalid(message)
-
-  defp literal(value),
-    do: inspect(value, pretty: true, width: 98, limit: :infinity, printable_limit: :infinity)
 
   defp invalid(message), do: {:error, {:invalid_package_document, message}}
 end

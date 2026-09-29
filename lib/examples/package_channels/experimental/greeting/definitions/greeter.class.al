@@ -1,10 +1,6 @@
-Class {
-  #name : :greeter,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : []
-}
+@greeter
+#{super: object}.
 
-:greeter >> :greeting, [_self, :howdy] [
-  pass
-]
+greeter >> greeting
+| _Self howdy |
+pass.

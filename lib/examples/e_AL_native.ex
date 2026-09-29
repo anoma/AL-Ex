@@ -42,10 +42,12 @@ defmodule Examples.ALNative do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        al_native_gcd(12, 8, result)
+        ~AL"""
+        al_native_gcd 12 8 Result.
+        """
       end
 
-    assert Map.get(bindings, :"$result") == 4
+    assert Map.get(bindings, :"$Result") == 4
 
     AL.Native.retract(method_id, branch: @examples_branch)
     :ok
@@ -65,7 +67,9 @@ defmodule Examples.ALNative do
 
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        al_native_missing_demo(12, 8, result)
+        ~AL"""
+        al_native_missing_demo 12 8 Result.
+        """
       end
 
     assert match?({:native_missing, ^method_id, {Integer, :gcd, 2}}, reason.reason)
@@ -92,10 +96,12 @@ defmodule Examples.ALNative do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        al_native_idempotent(9, 6, result)
+        ~AL"""
+        al_native_idempotent 9 6 Result.
+        """
       end
 
-    assert Map.get(bindings, :"$result") == 3
+    assert Map.get(bindings, :"$Result") == 3
 
     AL.Native.retract(method_id, branch: @examples_branch)
     :ok
@@ -138,12 +144,12 @@ defmodule Examples.ALNative do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(d, all) do
-          al_native_divisors(6, d)
-        end
+        ~AL"""
+        findall D All {al_native_divisors 6 D}.
+        """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$all")) == [1, 2, 3, 6]
+    assert Enum.sort(Map.get(bindings, :"$All")) == [1, 2, 3, 6]
 
     AL.Native.retract(method_id, branch: @examples_branch)
     :ok

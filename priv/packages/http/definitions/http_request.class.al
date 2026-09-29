@@ -1,39 +1,25 @@
-Class {
-  #name : :http_request,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [:method, :url, :headers, :body, :timeout]
-}
+@http_request
+#{
+  super: object,
+  ivars: [
+    #{name: method},
+    #{name: url},
+    #{name: headers},
+    #{name: body},
+    #{name: timeout}
+  ]
+}.
 
-:http_request >> :init, [self, args, self] [
-  get_slots(args, %{
-    method: method,
-    url: url,
-    headers: headers,
-    body: body,
-    timeout: timeout
-  })
-  set_slots(self, %{
-    method: method,
-    url: url,
-    headers: headers,
-    body: body,
-    timeout: timeout
-  })
-]
+http_request >> init
+| Self Args Self |
+get_slots Args #{body: Body, headers: Headers, method: Method, timeout: Timeout, url: Url},
+set_slots Self #{body: Body, headers: Headers, method: Method, timeout: Timeout, url: Url}.
 
-:http_request >> :execute, [self, response] [
-  get_slots(self, %{
-    method: method,
-    url: url,
-    headers: headers,
-    body: body,
-    timeout: timeout
-  })
-  emit_effect(
-    :http,
-    :execute,
-    [method, url, headers, body, timeout],
-    response
-  )
-]
+http_request >> execute
+| Self Response |
+get_slots Self #{body: Body, headers: Headers, method: Method, timeout: Timeout, url: Url},
+new effect #{
+  arguments: [Method, Url, Headers, Body, Timeout],
+  operation: execute,
+  provider: http
+} Response.

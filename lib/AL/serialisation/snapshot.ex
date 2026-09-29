@@ -1,6 +1,6 @@
 defmodule AL.Serialisation.Snapshot do
   @moduledoc """
-  A consistent snapshot of AL definitions on one branch, as Tonel documents.
+  A consistent snapshot of AL definitions on one branch, as definition documents.
 
   Documents are the portable projection used for rendering and for comparing a
   file against the store. Method identity and clause heads are read from the
@@ -113,7 +113,7 @@ defmodule AL.Serialisation.Snapshot do
        ) do
     method_id
     |> clause_rows(branch)
-    |> Enum.map(fn {:oapply, ^method_id, clause, _seq, _tx, :open, _head, _body} ->
+    |> Enum.map(fn {:oapply, ^method_id, clause, _seq, _tx, :open, head, body} ->
       %{text: source} =
         AL.Source.method_clause_source_in_transaction(
           owner,
@@ -124,7 +124,9 @@ defmodule AL.Serialisation.Snapshot do
         )
 
       {:ok, declaration, text} =
-        AL.Source.split_clause_source(source)
+        with :error <- AL.Source.split_clause_source(source) do
+          AL.Source.split_clause_source(AL.Source.defmethod_source(owner, selector, head, body))
+        end
 
       %Method{selector: selector, declaration: declaration, body: canonical_body(text)}
     end)
@@ -170,7 +172,7 @@ defmodule AL.Serialisation.Snapshot do
           if line == "" do
             ""
           else
-            "  " <> String.slice(line, indentation, String.length(line) - indentation)
+            String.slice(line, indentation, String.length(line) - indentation)
           end
         end)
     end

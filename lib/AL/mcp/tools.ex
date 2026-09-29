@@ -100,7 +100,11 @@ defmodule AL.MCP.Tools do
       "inputSchema" =>
         object_schema(
           %{
-            "source" => %{"type" => "string", "description" => "Complete AL source input"},
+            "source" => %{
+              "type" => "string",
+              "description" =>
+                "Complete AL source input, each top-level goal ending in a full stop, e.g. new point \#{x: 1} P."
+            },
             "branch" => branch_schema(),
             "maxLength" => max_length_schema()
           },
@@ -119,7 +123,11 @@ defmodule AL.MCP.Tools do
       "inputSchema" =>
         object_schema(
           %{
-            "source" => %{"type" => "string", "description" => "Complete AL source input"},
+            "source" => %{
+              "type" => "string",
+              "description" =>
+                "Complete AL source input, each top-level goal ending in a full stop, e.g. new point \#{x: 1} P."
+            },
             "branch" => branch_schema(),
             "maxLength" => max_length_schema()
           },

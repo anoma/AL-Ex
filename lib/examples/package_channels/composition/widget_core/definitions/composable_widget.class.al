@@ -1,10 +1,6 @@
-Class {
-  #name : :composable_widget,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : []
-}
+@composable_widget
+#{super: object}.
 
-:composable_widget >> :package_origin, [_self, :widget_core] [
-  pass()
-]
+composable_widget >> package_origin
+| _Self widget_core |
+pass.

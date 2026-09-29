@@ -1,5 +1,1 @@
-Package {
-  #name : :sockets,
-  #version : 9,
-  #deps : []
-}
+defpackage sockets #{deps: [], version: 9}.

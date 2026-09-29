@@ -10,78 +10,92 @@ defmodule Examples.ALUsers do
   example owner_is_a_slot() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:user, %{name: :alice}, alice)
-        new(:owned, %{owner: alice, data: %{label: :thing}}, obj)
-        get(obj, :owner, owner)
-        class(obj, c)
+        ~AL"""
+        new user #{name: alice} Alice.
+        new owned #{data: #{label: thing}, owner: Alice} Obj.
+        get Obj owner Owner.
+        class Obj C.
+        """
       end
 
-    assert Map.get(b, :"$owner") == Map.get(b, :"$alice")
-    assert Map.get(b, :"$c") == :owned
+    assert Map.get(b, :"$Owner") == Map.get(b, :"$Alice")
+    assert Map.get(b, :"$C") == :owned
     :ok
   end
 
   example owned_subclasses_apply_their_declared_ivar_specs() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :owned_ivar_probe,
-          super: :owned,
-          ivars: [%{name: :items, type: :list, default: []}] do
-        end
+        ~AL"""
+        @owned_ivar_probe
+        #{super: owned, ivars: [#{default: [], name: items, type: list}]}.
+        """
       end
 
     {:atomic, {creation_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:owned_ivar_probe, %{}, object)
+        ~AL"""
+        new owned_ivar_probe #{} Object.
+        """
       end
 
-    object = Map.fetch!(creation_bindings, :"$object")
+    object = Map.fetch!(creation_bindings, :"$Object")
 
     {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([key, value], slots) do
-          slot(^object, key, value)
-        end
+        ~AL"""
+        findall [Key, Value] Slots {slot ^object Key Value}.
+        """
       end
 
-    assert Map.get(slot_bindings, :"$slots") == [[:items, []]]
+    assert Map.get(slot_bindings, :"$Slots") == [[:items, []]]
 
     {:atomic, {get_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        get(^object, :items, items)
+        ~AL"""
+        get ^object items Items.
+        """
       end
 
-    assert Map.get(get_bindings, :"$items") == []
+    assert Map.get(get_bindings, :"$Items") == []
     :ok
   end
 
   example owner_gated_update() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:user, %{name: :bob}, bob)
-        new(:user, %{name: :charlie}, charlie)
-        new(:owned, %{owner: charlie, data: %{label: :secret}}, obj)
+        ~AL"""
+        new user #{name: bob} Bob.
+        new user #{name: charlie} Charlie.
+        new owned #{data: #{label: secret}, owner: Charlie} Obj.
+        """
       end
 
-    charlie = Map.get(b, :"$charlie")
-    bob = Map.get(b, :"$bob")
-    obj = Map.get(b, :"$obj")
+    charlie = Map.get(b, :"$Charlie")
+    bob = Map.get(b, :"$Bob")
+    obj = Map.get(b, :"$Obj")
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        update(^obj, ^charlie, [%{data: %{label: :updated}}])
+        ~AL"""
+        update ^obj ^charlie [#{data: #{label: updated}}].
+        """
       end
 
     {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        get(^obj, :data, d)
+        ~AL"""
+        get ^obj data D.
+        """
       end
 
-    assert Map.get(b2, :"$d") == %{label: :updated}
+    assert Map.get(b2, :"$D") == %{label: :updated}
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        update(^obj, ^bob, [%{data: %{label: :hacked}}])
+        ~AL"""
+        update ^obj ^bob [#{data: #{label: hacked}}].
+        """
       end
 
     :ok
@@ -92,23 +106,29 @@ defmodule Examples.ALUsers do
   example owner_gate_rejects_unbound_caller() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:user, %{name: :dana}, dana)
-        new(:owned, %{owner: dana, data: %{label: :guarded}}, obj)
+        ~AL"""
+        new user #{name: dana} Dana.
+        new owned #{data: #{label: guarded}, owner: Dana} Obj.
+        """
       end
 
-    obj = Map.get(b, :"$obj")
+    obj = Map.get(b, :"$Obj")
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        update(^obj, caller, [%{data: %{label: :leaked}}])
+        ~AL"""
+        update ^obj Caller [#{data: #{label: leaked}}].
+        """
       end
 
     {:atomic, {b2, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        get(^obj, :data, d)
+        ~AL"""
+        get ^obj data D.
+        """
       end
 
-    assert Map.get(b2, :"$d") == %{label: :guarded}
+    assert Map.get(b2, :"$D") == %{label: :guarded}
     :ok
   end
 end

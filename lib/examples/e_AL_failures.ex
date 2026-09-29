@@ -14,14 +14,19 @@ defmodule Examples.ALFailures do
   example unknown_selector_reports_does_not_understand() do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        defclass :failgreeter, super: :value do
-          defmethod(:init, [self, _, self])
+        ~AL"""
+        @failgreeter
+        #{super: value}.
 
-          defmethod(:greet, [self, _name])
-        end
+        failgreeter >> init
+        | Self _ Self |.
 
-        new(:failgreeter, g)
-        greett(g, :world)
+        failgreeter >> greet
+        | Self _Name |.
+
+        new failgreeter G.
+        greett G world.
+        """
       end
 
     assert match?(
@@ -41,7 +46,9 @@ defmodule Examples.ALFailures do
   example plain_failure_trace_omits_backtracks() do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        class(:no_such_object_al_failures, c)
+        ~AL"""
+        class no_such_object_al_failures C.
+        """
       end
 
     refute :backtrack in reason.trace
@@ -51,16 +58,20 @@ defmodule Examples.ALFailures do
   example unmatched_clause_body_names_the_actual_call() do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        defclass :failbody, super: :value do
-          defmethod(:init, [self, _, self])
+        ~AL"""
+        @failbody
+        #{super: value}.
 
-          defmethod(:trigger, [self]) do
-            fail()
-          end
-        end
+        failbody >> init
+        | Self _ Self |.
 
-        new(:failbody, obj)
-        trigger(obj)
+        failbody >> trigger
+        | Self |
+        fail.
+
+        new failbody Obj.
+        trigger Obj.
+        """
       end
 
     assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
@@ -72,19 +83,25 @@ defmodule Examples.ALFailures do
   example no_trace_preserves_plain_clause_failure_context() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :no_trace_failbody, super: :value do
-          defmethod(:init, [self, _, self])
+        ~AL"""
+        @no_trace_failbody
+        #{super: value}.
 
-          defmethod(:trigger, [self]) do
-            fail()
-          end
-        end
+        no_trace_failbody >> init
+        | Self _ Self |.
+
+        no_trace_failbody >> trigger
+        | Self |
+        fail.
+        """
       end
 
     {:aborted, reason} =
       run branch: Examples.Support.branch(), trace_mode: :no_trace do
-        new(:no_trace_failbody, obj)
-        trigger(obj)
+        ~AL"""
+        new no_trace_failbody Obj.
+        trigger Obj.
+        """
       end
 
     assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
@@ -102,17 +119,19 @@ defmodule Examples.ALFailures do
   example set_slot_domain_violation_survives_backtracking_search() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :failure_domain_probe,
-          super: :object,
-          ivars: [%{name: :state, domain: ["on", "off"]}] do
-        end
+        ~AL"""
+        @failure_domain_probe
+        #{super: object, ivars: [#{domain: ["on", "off"], name: state}]}.
 
-        new(:failure_domain_probe, %{name: :failure_domain_instance, state: "on"}, _)
+        new failure_domain_probe #{name: failure_domain_instance, state: "on"} _.
+        """
       end
 
     {:aborted, reason} =
       run branch: Examples.Support.branch(), trace_mode: :no_trace do
-        set_slot(:failure_domain_instance, :state, :sideways)
+        ~AL"""
+        set_slot failure_domain_instance state sideways.
+        """
       end
 
     assert match?({:domain_violated, :sideways, ["on", "off"]}, reason.reason)
@@ -126,37 +145,45 @@ defmodule Examples.ALFailures do
   example label_of_an_unconstrained_var_is_blamed_over_the_search_that_ran_out() do
     {:aborted, reason} =
       run branch: Examples.Support.branch(), trace_mode: :no_trace do
-        member([1, 2, 3], m)
-        label(x)
+        ~AL"""
+        member [1, 2, 3] M.
+        label X.
+        """
       end
 
-    assert reason.reason == {:label_unconstrained, :"$x"}
+    assert reason.reason == {:label_unconstrained, :"$X"}
     assert reason.message =~ "nothing to enumerate"
     refute reason.message =~ "member"
 
     {:aborted, traced} =
       run branch: Examples.Support.branch() do
-        member([1, 2, 3], m)
-        label(x)
+        ~AL"""
+        member [1, 2, 3] M.
+        label X.
+        """
       end
 
-    assert traced.reason == {:label_unconstrained, :"$x"}
+    assert traced.reason == {:label_unconstrained, :"$X"}
 
     {:aborted, aliased} =
       run branch: Examples.Support.branch() do
-        hd([x, 7], v)
-        label(x)
+        ~AL"""
+        hd [X, 7] V.
+        label X.
+        """
       end
 
-    assert aliased.reason == {:label_unconstrained, :"$x"}
-    assert aliased.message =~ "label(:\"$x\")"
+    assert aliased.reason == {:label_unconstrained, :"$X"}
+    assert aliased.message =~ "label(:\"$X\")"
     :ok
   end
 
   example no_trace_preserves_does_not_understand_errors() do
     {:aborted, reason} =
       run branch: Examples.Support.branch(), trace_mode: :no_trace do
-        greett(1, :world)
+        ~AL"""
+        greett 1 world.
+        """
       end
 
     assert match?({:does_not_understand, 1, :greett, 1, _}, reason.reason)
@@ -173,8 +200,10 @@ defmodule Examples.ALFailures do
   example failed_run_exposes_the_final_state() do
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        dif(x, 1)
-        x = 1
+        ~AL"""
+        dif X 1.
+        X = 1.
+        """
       end
 
     assert %AL{} = reason.state
@@ -187,8 +216,10 @@ defmodule Examples.ALFailures do
   example unify_failure_names_the_violated_constraint() do
     {:aborted, dif_reason} =
       run branch: Examples.Support.branch() do
-        dif(x, 1)
-        x = 1
+        ~AL"""
+        dif X 1.
+        X = 1.
+        """
       end
 
     assert match?({:constraint_violated, {:dif, _, _}}, dif_reason.reason)
@@ -196,8 +227,10 @@ defmodule Examples.ALFailures do
 
     {:aborted, isa_reason} =
       run branch: Examples.Support.branch() do
-        isa(y, :number)
-        y = :not_a_number
+        ~AL"""
+        isa Y number.
+        Y = not_a_number.
+        """
       end
 
     assert match?({:constraint_violated, {:isa, _, :number}}, isa_reason.reason)
@@ -207,7 +240,9 @@ defmodule Examples.ALFailures do
     # generic message — this isn't claiming a constraint caused it
     {:aborted, plain_reason} =
       run branch: Examples.Support.branch() do
-        1 = 2
+        ~AL"""
+        1 = 2.
+        """
       end
 
     refute match?({:constraint_violated, _}, plain_reason.reason)
@@ -218,14 +253,19 @@ defmodule Examples.ALFailures do
   example custom_dnu_is_not_reported_as_failure() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :failquiet, super: :value do
-          defmethod(:init, [self, _, self])
+        ~AL"""
+        @failquiet
+        #{super: value}.
 
-          defmethod(:does_not_understand, [self, _m, _a])
-        end
+        failquiet >> init
+        | Self _ Self |.
 
-        new(:failquiet, q)
-        anything(q, :x)
+        failquiet >> does_not_understand
+        | Self _M _A |.
+
+        new failquiet Q.
+        anything Q x.
+        """
       end
 
     :ok

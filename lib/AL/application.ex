@@ -41,9 +41,7 @@ defmodule AL.Application do
 
     programs =
       AL.TransactionProgram.configured()
-      |> Enum.reject(fn module ->
-        Code.ensure_loaded!(module)
-        program = module.__program__()
+      |> Enum.reject(fn program ->
         AL.TransactionProgram.current?(program.name, program.version)
       end)
 
@@ -55,22 +53,24 @@ defmodule AL.Application do
 
   defp install_startup(programs, packages_pending?) do
     ready_programs =
-      Enum.filter(programs, fn module ->
-        Enum.all?(module.__program__().deps, &dependency_installed?/1)
+      Enum.filter(programs, fn program ->
+        Enum.all?(program.deps, &dependency_installed?/1)
       end)
 
     packages_ready? = packages_pending? and AL.Package.system_available?()
 
     if ready_programs == [] and not packages_ready? do
-      program_names = Enum.map(programs, & &1.__program__().name)
+      program_names = Enum.map(programs, & &1.name)
       package_names = AL.Package.configured_environment()
 
       raise "AL startup dependencies cannot be satisfied: programs #{inspect(program_names)}, packages #{inspect(package_names)}"
     end
 
-    Enum.each(ready_programs, fn module ->
-      program = module.__program__()
-      :ok = AL.TransactionProgram.ensure_current(program.name, program.version, &module.install/0)
+    Enum.each(ready_programs, fn program ->
+      :ok =
+        AL.TransactionProgram.ensure_current(program.name, program.version, fn ->
+          AL.TransactionProgram.install(program)
+        end)
     end)
 
     if packages_ready? do

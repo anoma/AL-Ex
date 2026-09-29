@@ -19,12 +19,14 @@ defmodule Examples.ALClauses do
   example reflected_clause_body_executes() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        method(:list, :reverse, m)
-        clause(m, [[h | t], out], body)
-        call([[h | t], out], body, [[1, 2, 3], result])
+        ~AL"""
+        method list reverse M.
+        clause M [[H . T], Out] Body.
+        call [[H . T], Out] Body [[1, 2, 3], Result].
+        """
       end
 
-    assert Map.get(b, :"$result") == [3, 2, 1]
+    assert Map.get(b, :"$Result") == [3, 2, 1]
     b
   end
 
@@ -34,21 +36,25 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+        ~AL"""
+        vm_set_class ^c object.
 
-        defmethod(^c, :tag, [self, :first])
+        ^c >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
+        ^c >> tag
+        | Self second |.
+        """
       end
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(t, ts) do
-          tag(^c, t)
-        end
+        ~AL"""
+        findall T Ts {tag ^c T}.
+        """
       end
 
-    assert Map.get(b, :"$ts") == [:first, :second]
+    assert Map.get(b, :"$Ts") == [:first, :second]
     :ok
   end
 
@@ -67,23 +73,27 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: base.id do
-        vm_set_class(^c, :object)
+        ~AL"""
+        vm_set_class ^c object.
 
-        defmethod(^c, :tag, [self, :first])
+        ^c >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
+        ^c >> tag
+        | Self second |.
+        """
       end
 
     tip = AL.Branch.fork(:tip, base)
 
     {:atomic, {b, _constraints, _}} =
       run branch: tip.id do
-        findall(t, ts) do
-          tag(^c, t)
-        end
+        ~AL"""
+        findall T Ts {tag ^c T}.
+        """
       end
 
-    assert Map.get(b, :"$ts") == [:first, :second]
+    assert Map.get(b, :"$Ts") == [:first, :second]
 
     AL.Branch.discard(tip)
     AL.Branch.discard(base)
@@ -97,38 +107,42 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+        ~AL"""
+        vm_set_class ^c object.
 
-        defmethod(^c, :tag, [self, :first])
+        ^c >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
+        ^c >> tag
+        | Self second |.
+        """
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-        vm_retract_oapply(id, _)
+        ~AL"""
+        method ^c tag Id.
+        vm_retract_oapply Id _.
+        """
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-
-        vm_set_oapply(id, [self, :second]) do
-        end
-
-        vm_set_oapply(id, [self, :first]) do
-        end
+        ~AL"""
+        method ^c tag Id.
+        vm_set_oapply Id [Self, second] {}.
+        vm_set_oapply Id [Self, first] {}.
+        """
       end
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(t, ts) do
-          tag(^c, t)
-        end
+        ~AL"""
+        findall T Ts {tag ^c T}.
+        """
       end
 
-    assert Map.get(b, :"$ts") == [:second, :first]
+    assert Map.get(b, :"$Ts") == [:second, :first]
     :ok
   end
 
@@ -144,23 +158,26 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
-        defmethod(^c, :tag, [self, :first])
+        ~AL"""
+        vm_set_class ^c object.
+
+        ^c >> tag
+        | Self first |.
+        """
       end
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-        clause(id, seq_before, [_self, :first], _)
-        vm_retract_oapply(id, [_self, :first])
-
-        vm_set_oapply(id, [self, :second]) do
-        end
-
-        clause(id, seq_after, [_self, :second], _)
+        ~AL"""
+        method ^c tag Id.
+        clause Id SeqBefore [_Self, first] _.
+        vm_retract_oapply Id [_Self, first].
+        vm_set_oapply Id [Self, second] {}.
+        clause Id SeqAfter [_Self, second] _.
+        """
       end
 
-    assert Map.get(b, :"$seq_after") > Map.get(b, :"$seq_before")
+    assert Map.get(b, :"$SeqAfter") > Map.get(b, :"$SeqBefore")
     :ok
   end
 
@@ -171,23 +188,26 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+        ~AL"""
+        vm_set_class ^c object.
 
-        defmethod(^c, :tag, [self, :first])
+        ^c >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
+        ^c >> tag
+        | Self second |.
+        """
       end
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-
-        findall(s, seqs) do
-          clause(id, s, h, body)
-        end
+        ~AL"""
+        method ^c tag Id.
+        findall S Seqs {clause Id S H Body}.
+        """
       end
 
-    assert Map.get(b, :"$seqs") == [0, 1]
+    assert Map.get(b, :"$Seqs") == [0, 1]
     :ok
   end
 
@@ -199,38 +219,42 @@ defmodule Examples.ALClauses do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+        ~AL"""
+        vm_set_class ^c object.
 
-        defmethod(^c, :tag, [self, :first])
+        ^c >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
+        ^c >> tag
+        | Self second |.
+        """
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-        vm_retract_oapply(id, _)
+        ~AL"""
+        method ^c tag Id.
+        vm_retract_oapply Id _.
+        """
       end
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-
-        vm_set_oapply(id, 1, [self, :first]) do
-        end
-
-        vm_set_oapply(id, 0, [self, :second]) do
-        end
+        ~AL"""
+        method ^c tag Id.
+        vm_set_oapply Id 1 [Self, first] {}.
+        vm_set_oapply Id 0 [Self, second] {}.
+        """
       end
 
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(t, ts) do
-          tag(^c, t)
-        end
+        ~AL"""
+        findall T Ts {tag ^c T}.
+        """
       end
 
-    assert Map.get(b, :"$ts") == [:second, :first]
+    assert Map.get(b, :"$Ts") == [:second, :first]
     :ok
   end
 
@@ -242,12 +266,12 @@ defmodule Examples.ALClauses do
   example clause_read_does_not_capture_query_vars() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(head, heads) do
-          clause(:defmethod, head, body)
-        end
+        ~AL"""
+        findall Head Heads {clause defmethod Head Body}.
+        """
       end
 
-    assert Map.get(b, :"$heads") != []
+    assert Map.get(b, :"$Heads") != []
     :ok
   end
 
@@ -275,51 +299,55 @@ defmodule Examples.ALClauses do
   example defmethod_stores_clause_with_improper_list_arg() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_class(:cons_arg_test, :object)
+        ~AL"""
+        vm_set_class cons_arg_test object.
 
-        defmethod(:cons_arg_test, :wrap, [self, h, t, out]) do
-          out = [h | t]
-        end
+        cons_arg_test >> wrap
+        | Self H T Out |
+        Out = [H . T].
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        wrap(:cons_arg_test, 1, [2, 3], out)
+        ~AL"""
+        wrap cons_arg_test 1 [2, 3] Out.
+        """
       end
 
-    assert Map.get(bindings, :"$out") == [1, 2, 3]
+    assert Map.get(bindings, :"$Out") == [1, 2, 3]
     :ok
   end
 
   defp at_clause_arities() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        method(:list, :at, id)
-
-        findall(head, heads) do
-          clause(id, head, body)
-        end
+        ~AL"""
+        method list at Id.
+        findall Head Heads {clause Id Head Body}.
+        """
       end
 
-    Enum.map(Map.get(b, :"$heads"), &length/1)
+    Enum.map(Map.get(b, :"$Heads"), &length/1)
   end
 
   defp swap_first_two_at_clauses() do
     {:atomic, {b, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        method(:list, :at, id)
-
-        findall([head, body], clauses) do
-          clause(id, head, body)
-        end
+        ~AL"""
+        method list at Id.
+        findall [Head, Body] Clauses {clause Id Head Body}.
+        """
       end
 
-    [x, y, z] = Map.get(b, :"$clauses")
+    [x, y, z] = Map.get(b, :"$Clauses")
     reordered = [y, x, z]
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        reorder_clauses(:list, :at, _, ^reordered)
+        ~AL"""
+        reorder_clauses list at _ ^reordered.
+        """
       end
   end
 end

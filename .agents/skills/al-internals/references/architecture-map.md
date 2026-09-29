@@ -7,7 +7,8 @@ reconstructing cross-module contracts from individual call sites.
 
 ```text
 AL source text
-  -> AL.Source.Parser parses, captures exact definition ranges, and lowers
+  -> AL.Syntax reads AL source, captures exact definition ranges, and compiles
+     straight to AL.Goal structs
   -> AL.Source prepares retry-stable source metadata
   -> AL.eval_program opens one Mnesia transaction and creates AL state
   -> AL.interp / AL.Interp.* execute goals and choicepoints
@@ -43,17 +44,17 @@ history, but it does not replace the command that produced it.
 | Area | Start with | Continue into |
 |---|---|---|
 | Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/interp/`, `lib/AL/trace/domino.ex` |
-| Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/lowering.ex`, `lib/AL/interp/store.ex` |
+| Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/syntax.ex`, `lib/AL/interp/store.ex` |
 | Dispatch and method order | `lib/AL/dispatch/dispatch.ex` | `lib/AL/dispatch/`, `lib/AL/cache/` |
 | Variables and constraints | `lib/AL/var/var.ex` | `lib/AL/var/`, relation handlers |
 | Durable writes and replay | `lib/AL/command_log/command.ex` | hydration modules, `lib/AL/view/object.ex` |
 | Branch creation and isolation | `lib/AL/branch.ex` | command/view table naming and copying |
-| Source parsing and capture | `lib/AL/source/parser.ex` | `lib/AL/view/source.ex`, `source_store.ex` |
+| Source reading, capture and printing | `lib/AL/syntax.ex` | `lib/AL/syntax/printer.ex`, `lib/AL/view/source.ex`, `source_store.ex` |
 | Definition serialisation codec | `lib/AL/serialisation/document.ex` | `serialisation/layout.ex`, `serialisation/snapshot.ex`, `serialisation/sync.ex` |
 | Filesystem synchronization | `lib/AL/serialisation.ex` | file-system dependency and application supervision |
 | GT inspection | `lib/AL/gt_bridge.ex` | `lib/AL/view/` |
-| Bootstrap language behavior | `lib/AL/transaction_program/bootstrap.ex` | transaction program modules and `al-practices` |
-| Package object protocol | `lib/AL/transaction_program/package_system.ex` | `lib/examples/e_AL_packages.ex` |
+| Bootstrap language behavior | `priv/programs/bootstrap.al` | `lib/AL/transaction_program.ex` and `al-practices` |
+| Package object protocol | `priv/programs/package_system.al` | `lib/examples/e_AL_packages.ex` |
 | Host package discovery | `lib/AL/package/discovery.ex` | package catalog/channel/provider structs and document codecs |
 | Package resolution | `lib/AL/package/resolver.ex` | the AL package resolver object, build specs, and content addresses |
 | Package orchestration and import | `lib/AL/package.ex` | catalog registration, realisation, activation, and the package object protocol |
@@ -63,7 +64,8 @@ history, but it does not replace the command that produced it.
 Follow one mutation from syntax to replay before changing it:
 
 1. `AL.Goal.*` defines the runtime shape.
-2. `AL.Lowering` maps AL syntax to that goal.
+2. `AL.Syntax` compiles AL source to that goal and `AL.Syntax.Printer` prints it
+   back.
 3. `AL.Interp.Store` validates durable values and performs the write.
 4. `AL.Command` records the operation and transaction identity.
 5. `AL.Object` updates or closes the matching projected fact.
@@ -123,7 +125,7 @@ revision is an optimistic concurrency check against its snapshot.
 
 ## Fast inspection routes
 
-- Find a goal: search its struct in `goal.ex`, then its lowering and `interp`
+- Find a goal: search its struct in `goal.ex`, then its `AL.Syntax` compile clause and `interp`
   clauses.
 - Find a durable operation: search the operation atom in `AL.Command`,
   `AL.Object`, hydration, and cache invalidation.

@@ -6,13 +6,12 @@ defmodule AL.Source.Ref do
           capture_id: capture_id(),
           tx_id: non_neg_integer() | nil,
           kind: :defmethod | :defclass,
-          range: AL.Source.Parser.Capture.source_range(),
-          authored_as: :standalone | :nested,
+          range: AL.Syntax.Capture.source_range(),
           context: map() | nil
         }
 
-  @enforce_keys [:capture_id, :kind, :range, :authored_as]
-  defstruct [:capture_id, :tx_id, :kind, :range, :authored_as, :context]
+  @enforce_keys [:capture_id, :kind, :range]
+  defstruct [:capture_id, :tx_id, :kind, :range, :context]
 end
 
 defmodule AL.Source.Evaluation do

@@ -19,7 +19,9 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          vm_format("~a~%", ["hello"])
+          ~AL"""
+          vm_format "~a~%" ["hello"].
+          """
         end
       end)
 
@@ -31,7 +33,9 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          vm_format("~a~%", [:on])
+          ~AL"""
+          vm_format "~a~%" [on].
+          """
         end
       end)
 
@@ -43,8 +47,10 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          x = 2 + 2
-          vm_format("x is ~d~%", [x])
+          ~AL"""
+          X = 2 + 2.
+          vm_format "x is ~d~%" [X].
+          """
         end
       end)
 
@@ -56,7 +62,9 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          vm_format("~a plus ~a is ~d~%", [2, 2, 4])
+          ~AL"""
+          vm_format "~a plus ~a is ~d~%" [2, 2, 4].
+          """
         end
       end)
 
@@ -68,7 +76,9 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          vm_format("100~~", [])
+          ~AL"""
+          vm_format "100~~" [].
+          """
         end
       end)
 
@@ -80,14 +90,17 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          defclass :format_o_print_object_class, super: :object do
-            defmethod(:print_object, [self, text]) do
-              text = "a shiny thing"
-            end
-          end
+          ~AL"""
+          @format_o_print_object_class
+          #{super: object}.
 
-          new(:format_o_print_object_class, obj)
-          vm_format("~o~%", [obj])
+          format_o_print_object_class >> print_object
+          | Self Text |
+          Text = "a shiny thing".
+
+          new format_o_print_object_class Obj.
+          vm_format "~o~%" [Obj].
+          """
         end
       end)
 
@@ -99,11 +112,13 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          defclass :format_o_default_class, super: :object do
-          end
+          ~AL"""
+          @format_o_default_class
+          #{super: object}.
 
-          new(:format_o_default_class, obj)
-          vm_format("~o~%", [obj])
+          new format_o_default_class Obj.
+          vm_format "~o~%" [Obj].
+          """
         end
       end)
 
@@ -115,15 +130,18 @@ defmodule Examples.ALFormat do
     output =
       capture_io(fn ->
         run branch: Examples.Support.branch() do
-          defclass :format_o_multi_class, super: :object do
-            defmethod(:print_object, [self, text]) do
-              text = "widget"
-            end
-          end
+          ~AL"""
+          @format_o_multi_class
+          #{super: object}.
 
-          new(:format_o_multi_class, a)
-          new(:format_o_multi_class, b)
-          vm_format("~o and ~o~%", [a, b])
+          format_o_multi_class >> print_object
+          | Self Text |
+          Text = "widget".
+
+          new format_o_multi_class A.
+          new format_o_multi_class B.
+          vm_format "~o and ~o~%" [A, B].
+          """
         end
       end)
 
@@ -134,13 +152,16 @@ defmodule Examples.ALFormat do
   example format_o_fails_when_print_object_has_no_matching_clause() do
     {:aborted, _reason} =
       run branch: Examples.Support.branch() do
-        defclass :format_o_no_match_class, super: :object do
-          defmethod(:print_object, [:definitely_not_self, _text]) do
-          end
-        end
+        ~AL"""
+        @format_o_no_match_class
+        #{super: object}.
 
-        new(:format_o_no_match_class, obj)
-        vm_format("~o~%", [obj])
+        format_o_no_match_class >> print_object
+        | definitely_not_self _Text |.
+
+        new format_o_no_match_class Obj.
+        vm_format "~o~%" [Obj].
+        """
       end
 
     :ok

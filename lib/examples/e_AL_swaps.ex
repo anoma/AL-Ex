@@ -8,24 +8,27 @@ defmodule Examples.ALSwaps do
   example a_trader_and_liquidity_provider_constrain_one_quote() do
     {:atomic, {_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:eth, %{amount: 10}, eth_reserve)
-        new(:usd, %{amount: 2000}, usd_reserve)
-        new(:reserves, %{x: eth_reserve, y: usd_reserve}, reserves)
-        new(:pool, %{name: :provider_pool, reserves: reserves}, pool)
+        ~AL"""
+        new eth #{amount: 10} EthReserve.
+        new usd #{amount: 2000} UsdReserve.
+        new reserves #{x: EthReserve, y: UsdReserve} Reserves.
+        new pool #{name: provider_pool, reserves: Reserves} Pool.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:eth, %{amount: 1}, input)
-        new(:usd, output)
-        new(:swap, %{input: input, output: output}, trade)
-
-        output_amount(trade, dollars_received)
-        dollars_received >= 60
-        quote(trade, :provider_pool)
+        ~AL"""
+        new eth #{amount: 1} Input.
+        new usd Output.
+        new swap #{input: Input, output: Output} Trade.
+        output_amount Trade DollarsReceived.
+        DollarsReceived >= 60.
+        quote Trade provider_pool.
+        """
       end
 
-    assert bindings[:"$dollars_received"] > 60
+    assert bindings[:"$DollarsReceived"] > 60
   end
 
   example the_same_transaction_constraints_solve_for_input() do
@@ -33,58 +36,60 @@ defmodule Examples.ALSwaps do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:usd, output)
-        new(:eth, input)
-        new(:swap, %{input: input, output: output}, trade)
-
-        findall(trade, trades) do
-          output_amount(trade, dollars_received)
-          input_amount(trade, eth_required)
-          dollars_received >= 60
-          eth_required < 5
-          quote(trade, :provider_pool)
-          label(dollars_received)
-        end
+        ~AL"""
+        new usd Output.
+        new eth Input.
+        new swap #{input: Input, output: Output} Trade.
+        findall Trade Trades {
+          output_amount Trade DollarsReceived,
+          input_amount Trade EthRequired,
+          DollarsReceived >= 60,
+          EthRequired < 5,
+          quote Trade provider_pool,
+          label DollarsReceived
+        }.
+        """
       end
 
-    assert length(bindings[:"$trades"]) == 4
+    assert length(bindings[:"$Trades"]) == 4
   end
 
   example find_all_pools_offering_at_least_two_dollars_per_eth() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        new(:eth, %{amount: 100}, low_price_eth)
-        new(:usd, %{amount: 200}, low_price_usd)
-        new(:reserves, %{x: low_price_eth, y: low_price_usd}, low_price_reserves)
-        new(:pool, %{name: :low_price_pool, reserves: low_price_reserves}, _low_price_pool)
-
-        new(:eth, %{amount: 100}, good_price_eth)
-        new(:usd, %{amount: 300}, good_price_usd)
-        new(:reserves, %{x: good_price_eth, y: good_price_usd}, good_price_reserves)
-        new(:pool, %{name: :good_price_pool, reserves: good_price_reserves}, _good_price_pool)
-
-        new(:eth, %{amount: 100}, best_price_eth)
-        new(:usd, %{amount: 400}, best_price_usd)
-        new(:reserves, %{x: best_price_eth, y: best_price_usd}, best_price_reserves)
-        new(:pool, %{name: :best_price_pool, reserves: best_price_reserves}, _best_price_pool)
+        ~AL"""
+        new eth #{amount: 100} LowPriceEth.
+        new usd #{amount: 200} LowPriceUsd.
+        new reserves #{x: LowPriceEth, y: LowPriceUsd} LowPriceReserves.
+        new pool #{name: low_price_pool, reserves: LowPriceReserves} _LowPricePool.
+        new eth #{amount: 100} GoodPriceEth.
+        new usd #{amount: 300} GoodPriceUsd.
+        new reserves #{x: GoodPriceEth, y: GoodPriceUsd} GoodPriceReserves.
+        new pool #{name: good_price_pool, reserves: GoodPriceReserves} _GoodPricePool.
+        new eth #{amount: 100} BestPriceEth.
+        new usd #{amount: 400} BestPriceUsd.
+        new reserves #{x: BestPriceEth, y: BestPriceUsd} BestPriceReserves.
+        new pool #{name: best_price_pool, reserves: BestPriceReserves} _BestPricePool.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:eth, %{amount: 25}, input)
-
-        findall([pool, dollars_received], choices) do
-          member([:low_price_pool, :good_price_pool, :best_price_pool], pool)
-          new(:usd, output)
-          new(:swap, %{input: input, output: output}, trade)
-          input_amount(trade, eth_sold)
-          output_amount(trade, dollars_received)
-          dollars_received >= eth_sold * 2
-          quote(trade, pool)
-        end
+        ~AL"""
+        new eth #{amount: 25} Input.
+        findall [Pool, DollarsReceived] Choices {
+          member [low_price_pool, good_price_pool, best_price_pool] Pool,
+          new usd Output,
+          new swap #{input: Input, output: Output} Trade,
+          input_amount Trade EthSold,
+          output_amount Trade DollarsReceived,
+          DollarsReceived >= EthSold * 2,
+          quote Trade Pool
+        }.
+        """
       end
 
-    assert bindings[:"$choices"] == [[:good_price_pool, 60], [:best_price_pool, 80]]
+    assert bindings[:"$Choices"] == [[:good_price_pool, 60], [:best_price_pool, 80]]
     :ok
   end
 
@@ -93,54 +98,47 @@ defmodule Examples.ALSwaps do
 
     {:atomic, {before_stream, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:process, %{name: :swap_observer, pid: ^observer}, _)
+        ~AL"""
+        new process #{name: swap_observer, pid: ^observer} _.
 
-        defclass :observed_buy_limit_order, super: :buy_limit_order do
-          defmethod(:after_fill, [self, trade]) do
-            get(:swap_observer, :pid, process)
-            output_amount(trade, output_amount)
-            message = %{event: :limit_order_filled, order: self, output_amount: output_amount}
-            send_elixir(process, message)
-          end
-        end
+        @observed_buy_limit_order
+        #{super: buy_limit_order}.
 
-        lambda([trade], condition) do
-          new(:usd, %{amount: 175}, input)
-          new(:eth, output)
-          new(:swap, %{input: input, output: output}, trade)
-          output_amount(trade, eth_received)
-          eth_received >= 20
-        end
+        observed_buy_limit_order >> after_fill
+        | Self Trade |
+        get swap_observer pid Process,
+        output_amount Trade OutputAmount,
+        Message = #{event: limit_order_filled, order: Self, output_amount: OutputAmount},
+        send_elixir Process Message.
 
-        new(:eth, %{amount: 100}, eth)
-        new(:usd, %{amount: 1_000}, usd)
-        new(:reserves, %{x: eth, y: usd}, reserves)
-        new(:pool, %{name: :streamed_pool, reserves: reserves}, pool)
-
-        new(
-          :observed_buy_limit_order,
-          %{name: :limit_order, pool: pool, condition: condition},
-          order
-        )
-
-        findall(trade, ready_before) do
-          ready(order, trade)
-        end
-
-        findall(open_order, open_orders) do
-          open_limit_order(pool, open_order)
-        end
+        lambda [Trade] Condition {
+          new usd #{amount: 175} Input,
+          new eth Output,
+          new swap #{input: Input, output: Output} Trade,
+          output_amount Trade EthReceived,
+          EthReceived >= 20
+        }.
+        new eth #{amount: 100} Eth.
+        new usd #{amount: 1000} Usd.
+        new reserves #{x: Eth, y: Usd} Reserves.
+        new pool #{name: streamed_pool, reserves: Reserves} Pool.
+        new observed_buy_limit_order #{condition: Condition, name: limit_order, pool: Pool} Order.
+        findall Trade ReadyBefore {ready Order Trade}.
+        findall OpenOrder OpenOrders {open_limit_order Pool OpenOrder}.
+        """
       end
 
-    assert before_stream[:"$ready_before"] == []
-    assert before_stream[:"$open_orders"] == [:limit_order]
+    assert before_stream[:"$ReadyBefore"] == []
+    assert before_stream[:"$OpenOrders"] == [:limit_order]
 
     {:atomic, {_bindings, _constraints, streamed}} =
       run branch: Examples.Support.branch() do
-        new(:eth, %{amount: 100}, eth)
-        new(:usd, %{amount: 700}, usd)
-        new(:reserves, %{x: eth, y: usd}, reserves)
-        stream(:streamed_pool, reserves)
+        ~AL"""
+        new eth #{amount: 100} Eth.
+        new usd #{amount: 700} Usd.
+        new reserves #{x: Eth, y: Usd} Reserves.
+        stream streamed_pool Reserves.
+        """
       end
 
     assert_receive %{
@@ -152,14 +150,16 @@ defmodule Examples.ALSwaps do
 
     {:atomic, {filled, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        get(:limit_order, :status, :filled)
-        get(:limit_order, :filled_swap, trade)
-        output_amount(trade, eth_received)
-        get(:streamed_pool, :limit_orders, standing_orders)
+        ~AL"""
+        get limit_order status filled.
+        get limit_order filled_swap Trade.
+        output_amount Trade EthReceived.
+        get streamed_pool limit_orders StandingOrders.
+        """
       end
 
-    assert filled[:"$eth_received"] == 20
-    assert filled[:"$standing_orders"] == []
+    assert filled[:"$EthReceived"] == 20
+    assert filled[:"$StandingOrders"] == []
     %{pool: :streamed_pool, streamed_at: transaction_end(streamed)}
   end
 
@@ -168,47 +168,45 @@ defmodule Examples.ALSwaps do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        lambda([trade], condition) do
-          new(:usd, %{amount: 175}, input)
-          new(:eth, output)
-          new(:swap, %{input: input, output: output}, trade)
-          output_amount(trade, eth_received)
-          eth_received >= 21
-        end
-
-        new(
-          :buy_limit_order,
-          %{name: :historical_order, pool: :streamed_pool, condition: condition},
-          _order
-        )
+        ~AL"""
+        lambda [Trade] Condition {
+          new usd #{amount: 175} Input,
+          new eth Output,
+          new swap #{input: Input, output: Output} Trade,
+          output_amount Trade EthReceived,
+          EthReceived >= 21
+        }.
+        new buy_limit_order #{condition: Condition, name: historical_order, pool: streamed_pool} _Order.
+        """
       end
 
     {:atomic, {past, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(trade, old_answers) do
-          would_have_filled_at(:historical_order, ^yesterday, trade)
-        end
+        ~AL"""
+        findall Trade OldAnswers {would_have_filled_at historical_order ^yesterday Trade}.
+        """
       end
 
-    assert past[:"$old_answers"] == []
+    assert past[:"$OldAnswers"] == []
 
     {:atomic, {changed, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        lambda([trade], new_condition) do
-          new(:usd, %{amount: 175}, input)
-          new(:eth, output)
-          new(:swap, %{input: input, output: output}, trade)
-          output_amount(trade, eth_received)
-          eth_received >= 20
-        end
-
-        change_condition(:historical_order, new_condition)
-        would_have_filled_at(:historical_order, ^yesterday, trade)
-        output_amount(trade, eth_received)
-        label(eth_received)
+        ~AL"""
+        lambda [Trade] NewCondition {
+          new usd #{amount: 175} Input,
+          new eth Output,
+          new swap #{input: Input, output: Output} Trade,
+          output_amount Trade EthReceived,
+          EthReceived >= 20
+        }.
+        change_condition historical_order NewCondition.
+        would_have_filled_at historical_order ^yesterday Trade.
+        output_amount Trade EthReceived.
+        label EthReceived.
+        """
       end
 
-    assert changed[:"$eth_received"] == 20
+    assert changed[:"$EthReceived"] == 20
     :ok
   end
 

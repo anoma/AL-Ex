@@ -8,46 +8,32 @@ defmodule Examples.ALPendingLinks do
   example pending_link_model() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :pending_value,
-          super: :value,
-          ivars: [%{name: :tag, domain: [:only]}] do
-        end
+        ~AL"""
+        @pending_value
+        #{super: value, ivars: [#{domain: [only], name: tag}]}.
 
-        defclass :pending_unique_parent, super: :object do
-        end
+        @pending_unique_parent
+        #{super: object}.
 
-        defclass :pending_unique_child, super: :pending_unique_parent do
-        end
+        @pending_unique_child
+        #{super: pending_unique_parent}.
 
-        defclass :pending_shared_parent, super: :object do
-        end
+        @pending_shared_parent
+        #{super: object}.
 
-        defclass :pending_shared_child_a, super: :pending_shared_parent do
-        end
+        @pending_shared_child_a
+        #{super: pending_shared_parent}.
 
-        defclass :pending_shared_child_b, super: :pending_shared_parent do
-        end
+        @pending_shared_child_b
+        #{super: pending_shared_parent}.
 
-        defclass :pending_record, super: :object, ivars: [:pending_tag] do
-        end
+        @pending_record
+        #{super: object, ivars: [#{name: pending_tag}]}.
 
-        new(
-          :pending_record,
-          %{name: :pending_unique_record, pending_tag: :unique_value},
-          _
-        )
-
-        new(
-          :pending_record,
-          %{name: :pending_shared_record_a, pending_tag: :shared_value},
-          _
-        )
-
-        new(
-          :pending_record,
-          %{name: :pending_shared_record_b, pending_tag: :shared_value},
-          _
-        )
+        new pending_record #{name: pending_unique_record, pending_tag: unique_value} _.
+        new pending_record #{name: pending_shared_record_a, pending_tag: shared_value} _.
+        new pending_record #{name: pending_shared_record_b, pending_tag: shared_value} _.
+        """
       end
 
     :ok
@@ -58,13 +44,15 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        class(object, exact_class)
-        exact_class = :pending_value
-        label(object)
+        ~AL"""
+        class Object ExactClass.
+        ExactClass = pending_value.
+        label Object.
+        """
       end
 
-    assert bindings[:"$object"] == %{class: :pending_value, tag: :only}
-    assert bindings[:"$exact_class"] == :pending_value
+    assert bindings[:"$Object"] == %{class: :pending_value, tag: :only}
+    assert bindings[:"$ExactClass"] == :pending_value
   end
 
   example labeling_the_class_side_does_not_force_the_object_side() do
@@ -72,12 +60,14 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        class(object, exact_class)
-        label(exact_class)
-        exact_class = :pending_value
+        ~AL"""
+        class Object ExactClass.
+        label ExactClass.
+        ExactClass = pending_value.
+        """
       end
 
-    object = bindings[:"$object"]
+    object = bindings[:"$Object"]
 
     assert AL.Var.var?(object)
     assert constraints[object].class == [:pending_value]
@@ -88,13 +78,15 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        class(object, exact_class)
-        label(exact_class)
-        exact_class = :pending_value
-        label(object)
+        ~AL"""
+        class Object ExactClass.
+        label ExactClass.
+        ExactClass = pending_value.
+        label Object.
+        """
       end
 
-    assert bindings[:"$object"] == %{class: :pending_value, tag: :only}
+    assert bindings[:"$Object"] == %{class: :pending_value, tag: :only}
   end
 
   example a_known_subclass_determines_its_direct_superclass() do
@@ -102,11 +94,13 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        super(subclass, superclass)
-        subclass = :pending_unique_child
+        ~AL"""
+        super Subclass Superclass.
+        Subclass = pending_unique_child.
+        """
       end
 
-    assert bindings[:"$superclass"] == :pending_unique_parent
+    assert bindings[:"$Superclass"] == :pending_unique_parent
   end
 
   example a_superclass_with_one_child_determines_that_child() do
@@ -114,11 +108,13 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        super(subclass, superclass)
-        superclass = :pending_unique_parent
+        ~AL"""
+        super Subclass Superclass.
+        Superclass = pending_unique_parent.
+        """
       end
 
-    assert bindings[:"$subclass"] == :pending_unique_child
+    assert bindings[:"$Subclass"] == :pending_unique_child
   end
 
   example an_ambiguous_superclass_leaves_its_child_symbolic() do
@@ -126,11 +122,13 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        super(subclass, superclass)
-        superclass = :pending_shared_parent
+        ~AL"""
+        super Subclass Superclass.
+        Superclass = pending_shared_parent.
+        """
       end
 
-    subclass = bindings[:"$subclass"]
+    subclass = bindings[:"$Subclass"]
 
     assert AL.Var.var?(subclass)
     assert constraints[subclass].super == :pending_shared_parent
@@ -141,14 +139,16 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(subclass, subclasses) do
-          super(subclass, superclass)
-          superclass = :pending_shared_parent
-          label(subclass)
-        end
+        ~AL"""
+        findall Subclass Subclasses {
+          super Subclass Superclass,
+          Superclass = pending_shared_parent,
+          label Subclass
+        }.
+        """
       end
 
-    assert MapSet.new(bindings[:"$subclasses"]) ==
+    assert MapSet.new(bindings[:"$Subclasses"]) ==
              MapSet.new([:pending_shared_child_a, :pending_shared_child_b])
   end
 
@@ -157,13 +157,12 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(superclass, superclasses) do
-          super(subclass, superclass)
-          label(superclass)
-        end
+        ~AL"""
+        findall Superclass Superclasses {super Subclass Superclass, label Superclass}.
+        """
       end
 
-    assert Enum.count(bindings[:"$superclasses"], &(&1 == :pending_shared_parent)) == 1
+    assert Enum.count(bindings[:"$Superclasses"], &(&1 == :pending_shared_parent)) == 1
   end
 
   example labeling_an_impossible_super_relation_fails() do
@@ -171,9 +170,11 @@ defmodule Examples.ALPendingLinks do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        super(subclass, superclass)
-        subclass = :not_a_registered_class
-        label(superclass)
+        ~AL"""
+        super Subclass Superclass.
+        Subclass = not_a_registered_class.
+        label Superclass.
+        """
       end
 
     :ok
@@ -184,11 +185,13 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        slot(object, :pending_tag, value)
-        object = :pending_unique_record
+        ~AL"""
+        slot Object pending_tag Value.
+        Object = pending_unique_record.
+        """
       end
 
-    assert bindings[:"$value"] == :unique_value
+    assert bindings[:"$Value"] == :unique_value
   end
 
   example a_unique_slot_value_determines_its_object() do
@@ -196,11 +199,13 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        slot(object, :pending_tag, value)
-        value = :unique_value
+        ~AL"""
+        slot Object pending_tag Value.
+        Value = unique_value.
+        """
       end
 
-    assert bindings[:"$object"] == :pending_unique_record
+    assert bindings[:"$Object"] == :pending_unique_record
   end
 
   example an_ambiguous_slot_value_leaves_its_object_symbolic() do
@@ -208,11 +213,13 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        slot(object, :pending_tag, value)
-        value = :shared_value
+        ~AL"""
+        slot Object pending_tag Value.
+        Value = shared_value.
+        """
       end
 
-    object = bindings[:"$object"]
+    object = bindings[:"$Object"]
 
     assert AL.Var.var?(object)
     assert constraints[object].slots.pending_tag == :shared_value
@@ -223,14 +230,12 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(object, objects) do
-          slot(object, :pending_tag, value)
-          value = :shared_value
-          label(object)
-        end
+        ~AL"""
+        findall Object Objects {slot Object pending_tag Value, Value = shared_value, label Object}.
+        """
       end
 
-    assert MapSet.new(bindings[:"$objects"]) ==
+    assert MapSet.new(bindings[:"$Objects"]) ==
              MapSet.new([:pending_shared_record_a, :pending_shared_record_b])
   end
 
@@ -239,13 +244,12 @@ defmodule Examples.ALPendingLinks do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(value, values) do
-          slot(object, :pending_tag, value)
-          label(value)
-        end
+        ~AL"""
+        findall Value Values {slot Object pending_tag Value, label Value}.
+        """
       end
 
-    assert Enum.count(bindings[:"$values"], &(&1 == :shared_value)) == 1
+    assert Enum.count(bindings[:"$Values"], &(&1 == :shared_value)) == 1
   end
 
   example labeling_an_impossible_slot_relation_fails() do
@@ -253,8 +257,10 @@ defmodule Examples.ALPendingLinks do
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        slot(object, :missing_pending_tag, value)
-        label(object)
+        ~AL"""
+        slot Object missing_pending_tag Value.
+        label Object.
+        """
       end
 
     :ok

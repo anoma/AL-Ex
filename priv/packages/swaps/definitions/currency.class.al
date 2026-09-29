@@ -1,29 +1,25 @@
-Class {
-  #name : :currency,
-  #superclass : [:value],
-  #metaclass : :class,
-  #ivars : [%{name: :amount, type: :number}]
-}
+@currency
+#{super: value, ivars: [#{name: amount, type: number}]}.
 
-:currency >> :amount, [self, amount] [
-  get(self, :amount, amount)
-]
+currency >> amount
+| Self Amount |
+get Self amount Amount.
 
-:currency >> :plus, [self, other, total] [
-  class(self, currency_class)
-  isa(other, currency_class)
-  amount(self, balance_amount)
-  amount(other, deposit_amount)
-  total_amount = balance_amount + deposit_amount
-  put(self, :amount, total_amount, total)
-]
+currency >> plus
+| Self Other Total |
+class Self CurrencyClass,
+isa Other CurrencyClass,
+amount Self BalanceAmount,
+amount Other DepositAmount,
+TotalAmount = BalanceAmount + DepositAmount,
+put Self amount TotalAmount Total.
 
-:currency >> :minus, [self, other, remainder] [
-  class(self, currency_class)
-  isa(other, currency_class)
-  amount(self, balance_amount)
-  amount(other, withdrawal_amount)
-  remaining_amount = balance_amount - withdrawal_amount
-  remaining_amount > 0
-  put(self, :amount, remaining_amount, remainder)
-]
+currency >> minus
+| Self Other Remainder |
+class Self CurrencyClass,
+isa Other CurrencyClass,
+amount Self BalanceAmount,
+amount Other WithdrawalAmount,
+RemainingAmount = BalanceAmount - WithdrawalAmount,
+RemainingAmount > 0,
+put Self amount RemainingAmount Remainder.

@@ -44,7 +44,7 @@ each other at all, only on the command log itself:
   else either derives from or reacts to. Depends on nothing else here.
 - **Views** (`AL.Object`, `AL.SourceStore`, `AL.Source` — `lib/AL/view/`) —
   materialised projections rebuilt by replaying the command log
-  (`hydrate_since`/`hydrate_event`), plus `AL.Source`'s inverse-lowering
+  (`hydrate_since`/`hydrate_event`), plus `AL.Source`'s decompilation
   decompiler over that projection. Depend on the command log for what to
   project; nothing else depends on them *existing* — a view can always be
   rebuilt from the log alone.
@@ -83,9 +83,10 @@ also starts/stops the Outbox per branch.
 ## Architecture (lib/AL)
 
 - **`AL` (lib/AL.ex)** — the interpreter's core stepping engine:
-  - `run do … end` → `AL.Lowering.ast_to_pattern` lowers surface syntax to
-    `goal()` tuples → `eval/3` runs them in `:mnesia.transaction`. `run branch: b
-    do … end` targets fork `b`; bare `run` uses `AL.Branch.head()`.
+  - `run do ~AL"""…""" end` → `AL.Syntax` compiles the AL source to
+    `AL.Goal` structs at compile time → `eval_captured` runs them in
+    `:mnesia.transaction`. `run branch: b do … end` targets fork `b`; bare `run`
+    uses `AL.Branch.head()`.
   - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, trace, …}`.
     `continue/1` drives goals, `backtrack/1` pops the stack. Success →
     `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, reason}`.
@@ -94,8 +95,8 @@ also starts/stops the Outbox per branch.
     itself only keeps the goals with no better-named home: `Eq`/`Equal`/
     `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Not`/`Call`/
     `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
-    primitive `OApply` cases (`map_get`, `map_put`, `fresh_id`,
-    `current_tx`) and `OApply`'s own general clause (method dispatch — see
+    primitive `OApply` cases (`vm_map_get`, `vm_map_put`, `vm_fresh_id`,
+    `vm_current_tx`) and `OApply`'s own general clause (method dispatch — see
     below). `oapply` expands a method head into its body **bidirectionally**:
     freshen the clause's vars by scope, unify head with call args into the
     *shared* binding map, run the body; a continuation resumes the caller with
@@ -123,9 +124,17 @@ also starts/stops the Outbox per branch.
   - Object creation is **three-phase**: `construct` (ephemeral object, e.g.
     `%{class: self}`) → `allocate` (persist / give identity) → `init` (setup).
     `new` on `:class` chains all three (AL's take on ObjVLisp allocate/initialize).
-- **`AL.Lowering` (lib/AL/lowering.ex)** — `ast_to_pattern/1`: a pure, stateless
-  tree transform from the `run`/`defmethod` surface syntax to `AL.Goal` structs.
-  No interpreter state, doesn't call `interp`/dispatch.
+- **`AL.Syntax` (lib/AL/syntax.ex)** — the only AL reader: a pure lexer,
+  precedence parser and compiler from AL source straight to `AL.Goal` structs,
+  plus exact definition ranges for source retention. No interpreter state.
+  The grammar it implements is written out in `lib/AL/syntax.bnf`. The
+  reader groups a source's `owner >> sel` clauses and emits `clear_method`
+  before each group's first clause, so a source defines each method it
+  mentions (Prolog reconsult); `clear_method` (bootstrap) retracts the
+  method's clauses and keeps its id. The printer hides a `clear_method` that
+  opens a group, so printing and reading stay exact inverses.
+  `AL.Syntax.Printer` is its inverse (goals → AL source), used by every
+  decompiled view.
 - **`AL.Dispatch` (lib/AL/dispatch/dispatch.ex)** — resolves a `send` into a
   concrete method application: candidate generation (generative/durable legs),
   the selector query, grounded application (`do_send`/`run_providers`), and DNU.
@@ -209,16 +218,16 @@ also starts/stops the Outbox per branch.
   `AL.Command`/`AL.Object`/`AL.Branch` *are* the append-only substrate
   (`lib/AL/command_log/`, `lib/AL/view/`, `lib/AL/branch.ex` respectively) —
   nothing else in the interpreter reaches into Mnesia directly.
-- **`AL.TransactionProgram` (lib/AL/transaction_program.ex)** — `defprogram` executes
-  AL code and creates a durable execution receipt; dependency-ordered, reversible
-  `uninstall`. `bootstrap` is foundational (class/object/method machinery
-  **and** the list protocol). The bundled transaction programs live alongside it in
-  `lib/AL/transaction_program/`.
-- **Package protocol (`lib/AL/transaction_program/package_system.ex`)** —
+- **`AL.TransactionProgram` (lib/AL/transaction_program.ex)** — loads
+  `priv/programs/<name>.al` (first form `defprogram name #{version: V,
+  deps: [...]}.`), executes it, and creates a durable execution receipt;
+  dependency-ordered, reversible `uninstall`. `bootstrap` is foundational
+  (class/object/method machinery **and** the list protocol).
+- **Package protocol (`priv/programs/package_system.al`)** —
   `:package` is the metaclass of package classes and `:package_build` supplies
   their instances' common build protocol. Package metadata and builds are
   durable branch state. `AL.Package.import/2` validates and atomically imports a
-  portable manifest plus Tonel-like definition documents into an explicit branch;
+  portable manifest plus AL definition documents into an explicit branch;
   export and live package projection are not implemented yet.
 - **`AL.Outbox` (lib/AL/outbox.ex)** — async. `send_async`/`send_elixir` and
   effects only write commands inside the transaction; after commit the outbox
@@ -278,7 +287,7 @@ open (for value-leg-style clause matching, e.g. `:number`'s `factorial`,
 `:letter_chain`'s literal clauses) or grounds it to a real constructed map
 (e.g. `:interval`, `:square`) depends entirely on whether the class's own
 `:init` discards the constructed scaffold or builds something real — `:value`'s
-default `:init` (bootstrap.ex) is what makes the "stays open" case happen, not
+default `:init` (`priv/programs/bootstrap.al`) is what makes the "stays open" case happen, not
 a VM-level branch. A class opts into being a generative candidate at all just
 by declaring `super: :value` (`generative_descendants/1` scans exactly that).
 - **Durable** — real identity; must retrieve an existing object
@@ -310,11 +319,13 @@ grounds `self` to one of the class's own literals is accepted by
 `AL.Var.isa?/3` as membership evidence, so it doesn't self-violate the
 constraint it's the proof of.
 
-1. **Lowering (`AL.Lowering.ast_to_pattern`).** `send(recv, sel, args)` and implicit
-   `sel(recv, …)` (any atom head with ≥1 arg) become `{:send, recv, sel, args}`.
-   Direct VM ops never become sends: arithmetic (`+ - * / **`) and
-   `@oapply_primitives` (`map_get`, `map_put`, `lookup`, `fresh_id`,
-   `current_tx`) lower to `{:oapply, …}`; zero-arg `foo()` → `{:oapply, foo, []}`.
+1. **Compilation (`AL.Syntax`).** `send Recv Sel Args` and implicit
+   `sel Recv …` (any non-reserved atom followed by at least one argument) become
+   `%Goal.Send{}`. Direct VM ops never become sends: arithmetic (`+ - * / **`)
+   and the `vm_*` primitives (`vm_map_get`, `vm_map_put`, `vm_fresh_id`,
+   `vm_current_tx`, …) compile to `%Goal.OApply{}`; a bare `foo` in goal
+   position, or `(foo)` in a term position →
+   `%Goal.OApply{method_id: :foo, args: []}`.
 2. **Pre-substitution.** `continue` substitutes the goal against bindings before
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
 3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
@@ -497,7 +508,9 @@ returns `nil` (no diagnosis) rather than guessing. Example:
 
 ## Adding a goal
 
-1. `ast_to_pattern/1` clause (surface syntax → goal tuple) in lib/AL/lowering.ex.
+1. A compile clause in `AL.Syntax` (call → goal struct), the matching print
+   clause in `AL.Syntax.Printer`, and the name in `@special` if it is a reserved
+   form.
 2. Add it to the `goal()` typespec.
 3. `interp/2` clause, in whichever module owns that goal's concern — a plain
    mutation goes in `AL.Interp.Store`, a plain scan in `AL.Interp.Relations`, a choicepoint-
@@ -537,7 +550,7 @@ diff/merge and valid-time queries are unbuilt.
   (`:object`'s own recursive method), not `AL.fan_out/3` — `fan_out` builds
   every alternative eagerly, catastrophic for a wide domain (`between` only
   computes what backtracking actually visits). `factorial`/`fibonacci`
-  (`bootstrap.ex`) collapse to one relational clause each on top of this: the
+  (`priv/programs/bootstrap.al`) collapse to one relational clause each on top of this: the
   inequalities are real invariants posted while `n` may be open, `vm_label(n)`
   is the single point concreteness gets forced either way. `fibonacci`'s bound
   (`n <= x + 1`) needs `x` wrapped in `implies`, relying on
@@ -561,18 +574,19 @@ diff/merge and valid-time queries are unbuilt.
   elsewhere in AL (`examine(:two, info)` returns nothing on an
   `in_domain`-only symbol). Examples in `e_AL_in_domain.ex`.
 
-- **Ivar specs** — `defclass`'s `ivars:` can carry a per-ivar `domain:`/`type:`
-  spec (`ivars: [%{name: :suit, domain: [:hearts, ...]}]`, mixable with bare-name
-  ivars), and `:value`'s default `:init` wires checking + generation from it
-  automatically. `domain:` posts `in_domain`; `type:` attaches `isa` so
+- **Ivar specs** — a class's `ivars:` is a list of maps, each with a `name:`
+  and optionally `domain:`/`type:`/`default:`/`storage:`
+  (`ivars: [#{name: suit, domain: [hearts, ...]}]`). A bare name is rejected by
+  `allocate_class` and by the definition document reader. `:value`'s default
+  `:init` wires checking + generation from it automatically. `domain:` posts `in_domain`; `type:` attaches `isa` so
   `vm_label`'s class-`:domain`-method fallback can generate a value. Zero VM
   changes — `ivars` was already opaque class metadata. New helper methods
   live on `:object`, not `:map` (a classed map dispatches via its own
   `:class` field, never through `:map`). `ivars: []` (every pre-existing
-  value class) keeps the old default-`:init` behavior untouched. Rich ivar
-  entries are maps and bare entries are atoms. Explicitly deferred:
+  value class) keeps the old default-`:init` behavior untouched. Explicitly
+  deferred:
   numeric-range generation, durable
-  (`:object`-super) classes. Demo in `lib/AL/transaction_program/blackjack.ex`'s `:card`.
+  (`:object`-super) classes. Demo in `priv/packages/blackjack/definitions/card.class.al`.
 
 - **Dispatch legs converged to one domain-constraint mechanism** —
   mechanically done, semantically still in progress. Every leg (generative,

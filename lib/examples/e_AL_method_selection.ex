@@ -8,40 +8,57 @@ defmodule Examples.ALMethodSelection do
   example selection_model() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :selection_parent, super: :object do
-          defmethod(:selection_describe, [_self, :parent])
-          defmethod(:selection_route, [_self, :ordinary, :parent])
-          defmethod(:selection_identify, [_self, :class_instance])
-        end
+        ~AL"""
+        @selection_parent
+        #{super: object}.
 
-        defclass :selection_override, super: :selection_parent do
-          defmethod(:selection_describe, [_self, :override])
-          defmethod(:selection_route, [_self, :special, :override])
-        end
+        selection_parent >> selection_describe
+        | _Self parent |.
 
-        defclass :selection_inheritor, super: :selection_parent do
-        end
+        selection_parent >> selection_route
+        | _Self ordinary parent |.
 
-        defclass :selection_left, super: :object do
-          defmethod(:selection_left_mark, [_self, :left])
-        end
+        selection_parent >> selection_identify
+        | _Self class_instance |.
 
-        defclass :selection_right, super: :object do
-          defmethod(:selection_right_mark, [_self, :right])
-        end
+        @selection_override
+        #{super: selection_parent}.
 
-        defclass :selection_both, super: [:selection_left, :selection_right] do
-        end
+        selection_override >> selection_describe
+        | _Self override |.
 
-        new(:selection_parent, %{name: :selection_parent_object}, _)
-        new(:selection_override, %{name: :selection_override_object}, _)
-        new(:selection_inheritor, %{name: :selection_inheritor_object}, _)
-        new(:selection_left, %{name: :selection_left_object}, _)
-        new(:selection_right, %{name: :selection_right_object}, _)
-        new(:selection_both, %{name: :selection_both_object}, _)
+        selection_override >> selection_route
+        | _Self special override |.
 
-        vm_set_class(:selection_singleton, :object)
-        defmethod(:selection_singleton, :selection_identify, [_self, :singleton])
+        @selection_inheritor
+        #{super: selection_parent}.
+
+        @selection_left
+        #{super: object}.
+
+        selection_left >> selection_left_mark
+        | _Self left |.
+
+        @selection_right
+        #{super: object}.
+
+        selection_right >> selection_right_mark
+        | _Self right |.
+
+        @selection_both
+        #{super: [selection_left, selection_right]}.
+
+        new selection_parent #{name: selection_parent_object} _.
+        new selection_override #{name: selection_override_object} _.
+        new selection_inheritor #{name: selection_inheritor_object} _.
+        new selection_left #{name: selection_left_object} _.
+        new selection_right #{name: selection_right_object} _.
+        new selection_both #{name: selection_both_object} _.
+        vm_set_class selection_singleton object.
+
+        selection_singleton >> selection_identify
+        | _Self singleton |.
+        """
       end
 
     :ok
@@ -52,14 +69,16 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        selection_describe(:selection_parent_object, parent)
-        selection_describe(:selection_override_object, override)
-        selection_describe(:selection_inheritor_object, inherited)
+        ~AL"""
+        selection_describe selection_parent_object Parent.
+        selection_describe selection_override_object Override.
+        selection_describe selection_inheritor_object Inherited.
+        """
       end
 
-    assert bindings[:"$parent"] == :parent
-    assert bindings[:"$override"] == :override
-    assert bindings[:"$inherited"] == :parent
+    assert bindings[:"$Parent"] == :parent
+    assert bindings[:"$Override"] == :override
+    assert bindings[:"$Inherited"] == :parent
   end
 
   example open_dispatch_partitions_objects_by_effective_provider() do
@@ -67,13 +86,12 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([receiver, result], answers) do
-          selection_describe(receiver, result)
-          label(receiver)
-        end
+        ~AL"""
+        findall [Receiver, Result] Answers {selection_describe Receiver Result, label Receiver}.
+        """
       end
 
-    assert MapSet.new(bindings[:"$answers"]) ==
+    assert MapSet.new(bindings[:"$Answers"]) ==
              MapSet.new([
                [:selection_parent_object, :parent],
                [:selection_override_object, :override],
@@ -86,19 +104,14 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(result, exact_results) do
-          class(exact, :selection_parent)
-          selection_describe(exact, result)
-        end
-
-        findall(result, isa_results) do
-          isa(inherited, :selection_parent)
-          selection_describe(inherited, result)
-        end
+        ~AL"""
+        findall Result ExactResults {class Exact selection_parent, selection_describe Exact Result}.
+        findall Result IsaResults {isa Inherited selection_parent, selection_describe Inherited Result}.
+        """
       end
 
-    assert bindings[:"$exact_results"] == [:parent]
-    assert MapSet.new(bindings[:"$isa_results"]) == MapSet.new([:parent, :override])
+    assert bindings[:"$ExactResults"] == [:parent]
+    assert MapSet.new(bindings[:"$IsaResults"]) == MapSet.new([:parent, :override])
   end
 
   example a_later_exact_receiver_binding_reselects_the_effective_method() do
@@ -106,12 +119,14 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        selection_describe(receiver, result)
-        receiver = :selection_override_object
+        ~AL"""
+        selection_describe Receiver Result.
+        Receiver = selection_override_object.
+        """
       end
 
-    assert bindings[:"$receiver"] == :selection_override_object
-    assert bindings[:"$result"] == :override
+    assert bindings[:"$Receiver"] == :selection_override_object
+    assert bindings[:"$Result"] == :override
   end
 
   example multiple_selector_constraints_intersect_at_a_common_class() do
@@ -119,12 +134,14 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        selection_left_mark(receiver, :left)
-        selection_right_mark(receiver, :right)
-        label(receiver)
+        ~AL"""
+        selection_left_mark Receiver left.
+        selection_right_mark Receiver right.
+        label Receiver.
+        """
       end
 
-    assert bindings[:"$receiver"] == :selection_both_object
+    assert bindings[:"$Receiver"] == :selection_both_object
   end
 
   example repeated_selection_of_one_selector_cannot_change_provider() do
@@ -132,14 +149,16 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(receiver, receivers) do
-          selection_describe(receiver, :parent)
-          selection_describe(receiver, :override)
-          label(receiver)
-        end
+        ~AL"""
+        findall Receiver Receivers {
+          selection_describe Receiver parent,
+          selection_describe Receiver override,
+          label Receiver
+        }.
+        """
       end
 
-    assert bindings[:"$receivers"] == []
+    assert bindings[:"$Receivers"] == []
   end
 
   example a_nearer_method_binding_owns_its_whole_clause_region() do
@@ -147,7 +166,9 @@ defmodule Examples.ALMethodSelection do
 
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        selection_route(:selection_override_object, :ordinary, :parent)
+        ~AL"""
+        selection_route selection_override_object ordinary parent.
+        """
       end
 
     assert match?(
@@ -159,13 +180,12 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(receiver, receivers) do
-          selection_route(receiver, :ordinary, :parent)
-          label(receiver)
-        end
+        ~AL"""
+        findall Receiver Receivers {selection_route Receiver ordinary parent, label Receiver}.
+        """
       end
 
-    assert MapSet.new(bindings[:"$receivers"]) ==
+    assert MapSet.new(bindings[:"$Receivers"]) ==
              MapSet.new([:selection_parent_object, :selection_inheritor_object])
   end
 
@@ -174,13 +194,12 @@ defmodule Examples.ALMethodSelection do
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([receiver, result], answers) do
-          selection_identify(receiver, result)
-          label(receiver)
-        end
+        ~AL"""
+        findall [Receiver, Result] Answers {selection_identify Receiver Result, label Receiver}.
+        """
       end
 
-    assert MapSet.new(bindings[:"$answers"]) ==
+    assert MapSet.new(bindings[:"$Answers"]) ==
              MapSet.new([
                [:selection_parent_object, :class_instance],
                [:selection_override_object, :class_instance],

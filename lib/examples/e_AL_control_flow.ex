@@ -1,7 +1,7 @@
 defmodule Examples.ALControlFlow do
   @moduledoc """
   I provide examples for AL's choicepoint-stack control goals: `cut`,
-  `implies` (if-then-else with a soft cut), and `call` (direct lambda
+  `C -> T ; E` (if-then-else with a soft cut), and `call` (direct lambda
   application).
   """
 
@@ -18,8 +18,10 @@ defmodule Examples.ALControlFlow do
   example cut() do
     {:atomic, {_bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
-        class(object, class)
-        cut
+        ~AL"""
+        class Object Class.
+        cut.
+        """
       end
 
     assert result.choicepoint_stack == [{:mark, 0}]
@@ -38,85 +40,72 @@ defmodule Examples.ALControlFlow do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        vm_set_method(^chooser_cut, :pick, ^cut_impl)
-        vm_set_class(^cut_impl, :behaviour)
-
-        vm_set_oapply(^cut_impl, [self, :a]) do
-          cut
-        end
-
-        vm_set_oapply(^cut_impl, [self, :b]) do
-        end
-
-        vm_set_method(^chooser_plain, :pick, ^plain_impl)
-        vm_set_class(^plain_impl, :behaviour)
-
-        vm_set_oapply(^plain_impl, [self, :a]) do
-        end
-
-        vm_set_oapply(^plain_impl, [self, :b]) do
-        end
+        ~AL"""
+        vm_set_method ^chooser_cut pick ^cut_impl.
+        vm_set_class ^cut_impl behaviour.
+        vm_set_oapply ^cut_impl [Self, a] {cut}.
+        vm_set_oapply ^cut_impl [Self, b] {}.
+        vm_set_method ^chooser_plain pick ^plain_impl.
+        vm_set_class ^plain_impl behaviour.
+        vm_set_oapply ^plain_impl [Self, a] {}.
+        vm_set_oapply ^plain_impl [Self, b] {}.
+        """
       end
 
     {:atomic, {cut_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, xs) do
-          pick(^chooser_cut, x)
-        end
+        ~AL"""
+        findall X Xs {pick ^chooser_cut X}.
+        """
       end
 
     {:atomic, {plain_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(x, xs) do
-          pick(^chooser_plain, x)
-        end
+        ~AL"""
+        findall X Xs {pick ^chooser_plain X}.
+        """
       end
 
     # the cut in the first clause prunes the second; without it, both are found
-    assert Map.get(cut_bindings, :"$xs") == [:a]
-    assert Enum.sort(Map.get(plain_bindings, :"$xs")) == [:a, :b]
+    assert Map.get(cut_bindings, :"$Xs") == [:a]
+    assert Enum.sort(Map.get(plain_bindings, :"$Xs")) == [:a, :b]
     :ok
   end
 
   example implies_block_runs_then() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        implies do
-          [class(:object, c)] -> out = :then_ran
-          :else -> out = :else_ran
-        end
+        ~AL"""
+        class object C -> Out = then_ran ; Out = else_ran.
+        """
       end
 
-    assert Map.get(bindings, :"$out") == :then_ran
+    assert Map.get(bindings, :"$Out") == :then_ran
     :ok
   end
 
   example implies_block_runs_else() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        implies do
-          [class(:nonexistent_xyz, c)] -> out = :then_ran
-          :else -> out = :else_ran
-        end
+        ~AL"""
+        class nonexistent_xyz C -> Out = then_ran ; Out = else_ran.
+        """
       end
 
-    assert Map.get(bindings, :"$out") == :else_ran
+    assert Map.get(bindings, :"$Out") == :else_ran
     :ok
   end
 
   example implies_block_multiway() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_set_class(:branch_pick, :widget)
-
-        implies do
-          [class(:branch_pick, :gadget)] -> out = :first
-          [class(:branch_pick, :widget)] -> out = :second
-          :else -> out = :none
-        end
+        ~AL"""
+        vm_set_class branch_pick widget.
+        class branch_pick gadget -> Out = first ; class branch_pick widget -> Out = second ; Out = none.
+        """
       end
 
-    assert Map.get(bindings, :"$out") == :second
+    assert Map.get(bindings, :"$Out") == :second
     :ok
   end
 
@@ -125,28 +114,26 @@ defmodule Examples.ALControlFlow do
   example if_then_else_commits_to_first_condition_solution() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        vm_set_super(:ite_test, :s1)
-        vm_set_super(:ite_test, :s2)
-
-        findall(r, results) do
-          implies do
-            [super(:ite_test, x)] -> r = x
-            :else -> r = :none
-          end
-        end
+        ~AL"""
+        vm_set_super ite_test s1.
+        vm_set_super ite_test s2.
+        findall R Results {super ite_test X -> R = X ; R = none}.
+        """
       end
 
-    assert length(Map.get(bindings, :"$results")) == 1
+    assert length(Map.get(bindings, :"$Results")) == 1
     :ok
   end
 
   example call_lambda() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        call([x, result], [result = x], [:hello, out])
+        ~AL"""
+        call [X, Result] {Result = X} [hello, Out].
+        """
       end
 
-    assert Map.get(bindings, :"$out") == :hello
+    assert Map.get(bindings, :"$Out") == :hello
     :ok
   end
 
@@ -155,26 +142,26 @@ defmodule Examples.ALControlFlow do
   example pass_succeeds_without_changing_bindings() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        out = :hello
-        pass
+        ~AL"""
+        Out = hello.
+        pass.
+        """
       end
 
-    assert Map.get(bindings, :"$out") == :hello
+    assert Map.get(bindings, :"$Out") == :hello
     :ok
   end
 
   example pass_as_an_implies_branch() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        implies do
-          [class(:object, c)] -> pass
-          :else -> out = :else_ran
-        end
-
-        out = :then_ran_and_passed
+        ~AL"""
+        class object C -> pass ; Out = else_ran.
+        Out = then_ran_and_passed.
+        """
       end
 
-    assert Map.get(bindings, :"$out") == :then_ran_and_passed
+    assert Map.get(bindings, :"$Out") == :then_ran_and_passed
     :ok
   end
 end

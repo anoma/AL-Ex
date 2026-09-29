@@ -1,7 +1,3 @@
-Extension {
-  #name : :map
-}
-
-:map >> :map_insert, [self, k, new_self] [
-  put(self, k, true, new_self)
-]
+map >> map_insert
+| Self K NewSelf |
+put Self K true NewSelf.

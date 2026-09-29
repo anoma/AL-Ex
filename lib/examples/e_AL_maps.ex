@@ -12,7 +12,9 @@ defmodule Examples.ALMaps do
   example map_get_fails_on_non_map() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        vm_map_get(:not_a_map, :k, v)
+        ~AL"""
+        vm_map_get not_a_map k V.
+        """
       end
 
     :ok
@@ -21,7 +23,9 @@ defmodule Examples.ALMaps do
   example map_put_fails_on_non_map() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        vm_map_put(:not_a_map, :k, :v, out)
+        ~AL"""
+        vm_map_put not_a_map k v Out.
+        """
       end
 
     :ok
@@ -32,14 +36,16 @@ defmodule Examples.ALMaps do
   example map_get() do
     {:atomic, {bindings, _constraints, program_state}} =
       run branch: Examples.Support.branch() do
-        get(%{a: 3, b: 4, c: 3}, k, 3)
+        ~AL"""
+        get #{a: 3, b: 4, c: 3} K 3.
+        """
       end
 
-    assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
+    assert Map.get(bindings, :"$K") == :c or Map.get(bindings, :"$K") == :a
 
     {:atomic, {bindings, _constraints, program_state}} = next_solution(program_state)
 
-    assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
+    assert Map.get(bindings, :"$K") == :c or Map.get(bindings, :"$K") == :a
 
     program_state
   end
@@ -47,22 +53,26 @@ defmodule Examples.ALMaps do
   example map_get_with_default() do
     {:atomic, {bindings, _constraints, _}} =
       run do
-        get(%{present: 7}, :present, :fallback, present)
-        get(%{present: 7}, :missing, :fallback, missing)
+        ~AL"""
+        get #{present: 7} present fallback Present.
+        get #{present: 7} missing fallback Missing.
+        """
       end
 
-    assert bindings[:"$present"] == 7
-    assert bindings[:"$missing"] == :fallback
+    assert bindings[:"$Present"] == 7
+    assert bindings[:"$Missing"] == :fallback
     :ok
   end
 
   example map_put() do
     {:atomic, {bindings, _constraints, program_state}} =
       run branch: Examples.Support.branch() do
-        put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
+        ~AL"""
+        put #{a: 3, b: 4, c: 3} c 4 M2.
+        """
       end
 
-    assert bindings |> Map.get(:"$m2") |> Map.get(:c) == 4
+    assert bindings |> Map.get(:"$M2") |> Map.get(:c) == 4
 
     program_state
   end
@@ -70,12 +80,14 @@ defmodule Examples.ALMaps do
   example map_put_new() do
     {:atomic, {bindings, _constraints, _}} =
       run do
-        put_new(%{present: 7}, :present, :fallback, preserved)
-        put_new(%{present: 7}, :missing, :fallback, extended)
+        ~AL"""
+        put_new #{present: 7} present fallback Preserved.
+        put_new #{present: 7} missing fallback Extended.
+        """
       end
 
-    assert bindings[:"$preserved"] == %{present: 7}
-    assert bindings[:"$extended"] == %{present: 7, missing: :fallback}
+    assert bindings[:"$Preserved"] == %{present: 7}
+    assert bindings[:"$Extended"] == %{present: 7, missing: :fallback}
     :ok
   end
 end
