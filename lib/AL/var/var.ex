@@ -769,8 +769,8 @@ defmodule AL.Var do
     if not var?(class) and not isa?(term, class, branch), do: class
   end
 
-  # `:number`/`:list`/`:map` are decidable from `term`'s own shape — no
-  # lookup. A value class beyond those three is provable by matching one of
+  # `:number`/`:list`/`:map`/`:string` are decidable from `term`'s own shape —
+  # no lookup. A value class beyond those four is provable by matching one of
   # its own clause heads in the self position (`AL.Dispatch.value_member?/3`)
   # — `:letter_chain`'s bare-atom `:a`/`:b` were never durably classified,
   # matching one of its own clauses is the only evidence of membership there

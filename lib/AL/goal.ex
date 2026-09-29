@@ -53,6 +53,8 @@ defmodule AL.Goal do
           | AL.Goal.Not.t()
           | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
+          | AL.Goal.Variant.t()
+          | AL.Goal.StringCodes.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
@@ -294,6 +296,16 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Variant do
+    field(:a, AL.Var.t())
+    field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: StringCodes do
+    field(:string, AL.Var.t())
+    field(:codes, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Dif do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
@@ -481,6 +493,8 @@ defmodule AL.Goal do
     {Not, :not, [condition: :goals]},
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
+    {Variant, :variant, [a: :term, b: :term]},
+    {StringCodes, :string_codes, [string: :term, codes: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {Either, :either, [left: :term, right: :term]},
     {AllDif, :all_dif, [vars: :term]},
