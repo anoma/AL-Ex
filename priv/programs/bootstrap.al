@@ -1,4 +1,4 @@
-defprogram bootstrap #{deps: [], version: 25}.
+defprogram bootstrap #{deps: [], version: 26}.
 
 vm_set_class class class.
 vm_set_class object class.
@@ -557,6 +557,36 @@ vm_format "~a~%" [Text].
 
 new class #{ivars: [], name: number, super: value} _.
 
+new class #{ivars: [], name: string, super: value} _.
+
+string >> concat
+| Self Other Whole |
+string_codes Whole WholeCodes,
+string_codes Self SelfCodes,
+string_codes Other OtherCodes,
+concat SelfCodes OtherCodes WholeCodes.
+
+string >> length
+| Self N |
+string_codes Self Codes,
+length Codes N.
+
+string >> split
+| Self Separator Parts |
+string_codes Separator SeparatorCodes,
+ground Self,
+string_codes Self Codes,
+split Codes SeparatorCodes PartCodes,
+strings_codes Parts PartCodes.
+
+string >> split
+| Self Separator Parts |
+string_codes Separator SeparatorCodes,
+not {ground Self},
+strings_codes Parts PartCodes,
+split Codes SeparatorCodes PartCodes,
+string_codes Self Codes.
+
 number >> factorial
 | 1 1 |.
 
@@ -678,6 +708,32 @@ list >> concat
 list >> concat
 | [Fh . Ft] Second [Fh . Inner] |
 concat Ft Second Inner.
+
+list >> contains
+| Self Sublist |
+concat _Prefix Suffix Self,
+concat Sublist _Rest Suffix.
+
+list >> split
+| Self [Separator . Separators] [Self] |
+not {contains Self [Separator . Separators]}.
+
+list >> split
+| Self [Separator . Separators] [Part . Parts] |
+concat Part Separated Self,
+concat [Separator . Separators] Rest Separated,
+concat Part [Separator . Separators] ThroughSeparator,
+concat BeforeLast [_Last] ThroughSeparator,
+not {contains BeforeLast [Separator . Separators]},
+split Rest [Separator . Separators] Parts.
+
+list >> strings_codes
+| [] [] |.
+
+list >> strings_codes
+| [String . Strings] [Codes . Rest] |
+string_codes String Codes,
+strings_codes Strings Rest.
 
 vm_set_method list member list_member.
 vm_set_class list_member behaviour.

@@ -82,6 +82,7 @@ defmodule AL.Dispatch do
       is_map(term) -> [Map.get(term, :class, :map)]
       is_list(term) -> [:list]
       is_number(term) -> [:number]
+      is_binary(term) -> [:string]
       true -> []
     end
   end
@@ -544,6 +545,7 @@ defmodule AL.Dispatch do
   defp resolution_key(self) when is_list(self), do: {:instance, :list}
   defp resolution_key(self) when is_map(self), do: {:instance, Map.get(self, :class, :map)}
   defp resolution_key(self) when is_number(self), do: {:instance, :number}
+  defp resolution_key(self) when is_binary(self), do: {:instance, :string}
   defp resolution_key(self), do: self
 
   def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)

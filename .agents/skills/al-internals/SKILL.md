@@ -104,6 +104,11 @@ generative/durable/domain dispatch convergence specifically, read
 
 ## Change discipline
 
+- Never add a new VM goal, `vm_*` operation, native, or other interpreter
+  primitive without the user's explicit permission. An approved design that
+  mentions a primitive is not permission to add it. Stop, explain what the
+  primitive is and why it seems needed, list alternatives that reuse existing
+  goals or AL code, and wait for a yes.
 - Add or change a goal: update the struct/type, its surface call in
   `AL.Goal`'s `@calls` table (which both `AL.Syntax` and
   `AL.Syntax.Printer` read), interpreter handler, stored representation if
