@@ -10,6 +10,9 @@ append-only Mnesia command log. Runtime objects and retained source are
 projections of that history. Preserve that separation whenever changing the
 VM or its tools.
 
+When working on a problem, instead of rushing to finish, help to develop the
+model so that the problem can be solved nicely and cleanly by a human.
+
 When the implementation being changed is itself written in AL—especially
 `priv/programs/bootstrap.al` or `priv/programs/package_system.al`—also read `al-practices` and its
 relational-object programming reference. Do not replace a relational protocol

@@ -1,4 +1,4 @@
-defprogram bootstrap #{deps => [], version => 27}.
+defprogram bootstrap #{deps => [], version => 37}.
 
 vm_set_class class class.
 vm_set_class object class.
@@ -635,6 +635,103 @@ not (ground Self),
 strings_codes Parts PartCodes,
 split Codes SeparatorCodes PartCodes,
 string_codes Self Codes.
+
+@grammar #{super => object}.
+
+grammar >> parse
+| Self Rule Text Value |
+string_codes Text Codes,
+send Self Rule [Codes, [], Value].
+
+grammar >> text
+| _Self Text Input Rest |
+string_codes Text Codes,
+concat Codes Rest Input.
+
+grammar >> word
+| Self Input Rest Word |
+atom_string Word Text,
+string_codes Text [First . More],
+word_code Self Input After First,
+zero_or_more Self After Rest word_code More.
+
+grammar >> word_code
+| _Self [Code . Rest] Rest Code |
+>= Code 97,
+<= Code 122.
+
+grammar >> run_pattern
+| Self Pattern Input Rest Value |
+class Pattern string,
+atom_string Value Pattern,
+text Self Pattern Input Rest.
+
+grammar >> run_pattern
+| Self Pattern Input Rest Value |
+atom Pattern,
+send Self Pattern [Input, Rest, Value].
+
+grammar >> match_pattern
+| Self Pattern Input Rest |
+class Pattern string,
+text Self Pattern Input Rest.
+
+grammar >> match_pattern
+| Self Pattern Input Rest |
+atom Pattern,
+send Self Pattern [Input, Rest].
+
+grammar >> match_pattern
+| Self Pattern Input Rest |
+functor Pattern Rule Args,
+atom Rule,
+concat [Input, Rest] Args CallArgs,
+send Self Rule CallArgs.
+
+grammar >> zero_or_more
+| _Self Rest Rest _Pattern [] |.
+
+grammar >> zero_or_more
+| Self Input Rest Pattern [Value . Values] |
+run_pattern Self Pattern Input After Value,
+dif Input After,
+zero_or_more Self After Rest Pattern Values.
+
+grammar >> sequence
+| _Self [] Rest Rest |.
+
+grammar >> sequence
+| Self [Pattern . Patterns] Input Rest |
+match_pattern Self Pattern Input After,
+sequence Self Patterns After Rest.
+
+grammar >> sequence
+| _Self [] Rest Rest [] |.
+
+grammar >> sequence
+| Self [Pattern] Input Rest Value |
+run_pattern Self Pattern Input Rest Value.
+
+grammar >> sequence
+| Self [Pattern, NextPattern . Patterns] Input Rest [Value . Values] |
+run_pattern Self Pattern Input After Value,
+sequence Self [NextPattern . Patterns] After Rest Values.
+
+grammar >> defrule
+| Self RuleName Patterns |
+atom RuleName,
+defmethod Self RuleName [Grammar, Input, Rest, Values] {
+  sequence Grammar Patterns Input Rest Values
+}.
+
+grammar >> defrule
+| Self Head Patterns |
+functor Head RuleName Args,
+atom RuleName,
+concat [Grammar, Input, Rest] Args MethodHead,
+defmethod Self RuleName MethodHead {
+  sequence Grammar Patterns Input Rest
+}.
 
 number >> factorial
 | 1 1 |.

@@ -7,6 +7,43 @@ defmodule Examples.ALPackages do
 
   alias AL.Package.Document
 
+  example package_activation_is_an_al_protocol() do
+    branch = Examples.Support.isolated_branch()
+
+    try do
+      {:atomic, {%{:"$Build" => build}, _constraints, _state}} =
+        run branch: branch.id do
+          ~AL"""
+          new package #{name => managed_package, open_build => true} managed_package.
+          installed_package package_manager managed_package.
+          active_package package_manager managed_package Build.
+          """
+        end
+
+      {:atomic, _} =
+        run branch: branch.id do
+          ~AL"""
+          deactivate managed_package.
+          """
+        end
+
+      refute AL.Package.active?(:managed_package, branch)
+
+      {:atomic, _} =
+        run branch: branch.id do
+          ~AL"""
+          activate_build managed_package ^build.
+          active_package package_manager managed_package ^build.
+          """
+        end
+
+      assert AL.Package.active_build(:managed_package, branch) == build
+      :ok
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
   example packages_extend_runtime_classes_without_owning_them() do
     branch = AL.Branch.fork(0, AL.Branch.main())
     previous = AL.Branch.head()
@@ -79,6 +116,13 @@ defmodule Examples.ALPackages do
         build_version Build 1.
         build_digest Build _.
         build_status Build complete.
+        available_package package_manager Channel interval Provider.
+        channel_name Channel builtin.
+        provider_version Provider 1.
+        findall Package Packages {
+          available_package package_manager _Channel Package _Provider
+        }.
+        member Packages interval.
         """
       end
 
@@ -564,6 +608,61 @@ defmodule Examples.ALPackages do
                AL.Package.activate(experimental_realisation, branch: branch, replace: true)
 
       assert welcome_parts(branch) == [:howdy, :bang]
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+    end
+  end
+
+  example a_channel_lists_only_providers_from_its_current_revision() do
+    branch = AL.Branch.fork(0, AL.Branch.main())
+    previous = AL.Branch.head()
+    AL.Branch.checkout(branch)
+
+    try do
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
+               ])
+
+      stable = Path.expand("package_channels/stable", __DIR__)
+      experimental = Path.expand("package_channels/experimental", __DIR__)
+
+      assert {:ok, stable_catalog} = AL.Package.discover([{:changing, stable}], branch: branch)
+      old_provider = Enum.find(stable_catalog.providers, &(&1.document.name == :greeting)).id
+
+      assert {:ok, current_catalog} =
+               AL.Package.discover([{:changing, experimental}], branch: branch)
+
+      current_provider = Enum.find(current_catalog.providers, &(&1.document.name == :greeting)).id
+      refute old_provider == current_provider
+
+      {:atomic, {bindings, _constraints, _state}} =
+        AL.run branch: branch.id do
+          ~AL"""
+          registered_channel package_manager Channel.
+          channel_name Channel changing.
+          registered_provider package_manager Channel ^old_provider.
+          available_package Channel greeting ^current_provider.
+          findall [Package, Provider] Available {
+            available_package Channel Package Provider
+          }.
+          findall Provider Providers {
+            available_package package_manager Channel greeting Provider
+          }.
+          """
+        end
+
+      assert bindings[:"$Providers"] == [current_provider]
+
+      expected =
+        Enum.map(current_catalog.providers, fn provider ->
+          [provider.document.name, provider.id]
+        end)
+
+      assert MapSet.new(bindings[:"$Available"]) == MapSet.new(expected)
       :ok
     after
       AL.Branch.checkout(previous)

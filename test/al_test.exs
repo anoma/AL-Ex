@@ -134,6 +134,10 @@ defmodule ALStringsTest do
   use AL.ExampleCase, for: Examples.ALStrings, async: true
 end
 
+defmodule ALDCGTest do
+  use AL.ExampleCase, for: Examples.ALDCG, async: true
+end
+
 defmodule ALFunctorTest do
   use AL.ExampleCase, for: Examples.ALFunctor, async: true
 end

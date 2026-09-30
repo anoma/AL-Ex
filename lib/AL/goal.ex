@@ -58,6 +58,8 @@ defmodule AL.Goal do
           | AL.Goal.Equal.t()
           | AL.Goal.Variant.t()
           | AL.Goal.StringCodes.t()
+          | AL.Goal.AtomString.t()
+          | AL.Goal.Atom.t()
           | AL.Goal.Functor.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
@@ -332,6 +334,15 @@ defmodule AL.Goal do
     field(:codes, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: AtomString do
+    field(:atom, AL.Var.t())
+    field(:string, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Atom do
+    field(:term, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Dif do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
@@ -527,6 +538,8 @@ defmodule AL.Goal do
     {Equal, :equal, [a: :term, b: :term]},
     {Variant, :variant, [a: :term, b: :term]},
     {StringCodes, :string_codes, [string: :term, codes: :term]},
+    {AtomString, :atom_string, [atom: :term, string: :term]},
+    {Atom, :atom, [term: :term]},
     {Functor, :functor, [term: :term, name: :term, args: :term]},
     {BranchEdge, :branch_edge, [parent: :term, child: :term]},
     {BranchMeta, :branch_meta, [branch: :term, key: :term, value: :term]},
@@ -569,6 +582,8 @@ defmodule AL.Goal do
     {:dif, Dif, [:a, :b], %{}},
     {:variant, Variant, [:a, :b], %{}},
     {:string_codes, StringCodes, [:string, :codes], %{}},
+    {:atom_string, AtomString, [:atom, :string], %{}},
+    {:atom, Atom, [:term], %{}},
     {:functor, Functor, [:term, :name, :args], %{}},
     {:isa, Isa, [:object, :class], %{}},
     {:in_domain, InDomain, [:var, :values], %{}},

@@ -53,6 +53,44 @@ defmodule Examples.ALEffects do
     end
   end
 
+  example file_write_and_list_are_os_effects() do
+    path = temporary_path()
+    directory = Path.dirname(path)
+
+    try do
+      {:atomic, {bindings, _constraints, _state}} =
+        run branch: Examples.Support.branch() do
+          ~AL"""
+          new effect #{arguments => [^path, "bundle source"], operation => write, provider => file} Write.
+          """
+        end
+
+      assert {:ok, ^path} =
+               AL.await_effect(bindings[:"$Write"],
+                 branch: Examples.Support.branch(),
+                 timeout: 1000
+               )
+
+      {:atomic, {bindings, _constraints, _state}} =
+        run branch: Examples.Support.branch() do
+          ~AL"""
+          new effect #{arguments => [^directory], operation => list, provider => file} List.
+          """
+        end
+
+      assert {:ok, entries} =
+               AL.await_effect(bindings[:"$List"],
+                 branch: Examples.Support.branch(),
+                 timeout: 1000
+               )
+
+      assert Path.basename(path) in entries
+      assert File.read!(path) == "bundle source"
+    after
+      File.rm(path)
+    end
+  end
+
   example effect_runs_after_commit_and_records_its_outcome_in_a_new_transaction() do
     observe_effects()
 

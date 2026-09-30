@@ -48,6 +48,46 @@ defmodule Examples.ALStrings do
     assert Map.get(bindings, :"$Built") == "hi"
   end
 
+  example atom_string_relates_atoms_and_strings() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        atom_string Atom "hello".
+        atom_string world Text.
+        atom_string world "world".
+        """
+      end
+
+    assert Map.get(bindings, :"$Atom") == :hello
+    assert Map.get(bindings, :"$Text") == "world"
+  end
+
+  example atom_string_waits_for_a_known_side() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        atom_string Atom Text.
+        = Text "ready".
+        """
+      end
+
+    assert Map.get(bindings, :"$Atom") == :ready
+  end
+
+  example atom_recognizes_atoms_without_binding_variables() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        atom hello.
+        not (atom "hello").
+        not (atom 42).
+        not (atom Unknown).
+        """
+      end
+
+    :ok
+  end
+
   example string_codes_binds_open_codes_from_a_string() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do

@@ -1489,6 +1489,26 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.AtomString{atom: atom, string: string} = goal, state) do
+    cond do
+      is_atom(atom) and not AL.Var.var?(atom) ->
+        put_bindings(state, unify(state, Atom.to_string(atom), string), [string])
+
+      AL.Var.var?(atom) and is_binary(string) and String.valid?(string) ->
+        put_bindings(state, unify(state, atom, String.to_atom(string)), [atom])
+
+      AL.Var.var?(atom) and AL.Var.var?(string) ->
+        suspend(state, [atom, string], goal)
+
+      true ->
+        backtrack(state)
+    end
+  end
+
+  def interp(%Goal.Atom{term: term}, state) do
+    if is_atom(term) and not AL.Var.var?(term), do: state, else: backtrack(state)
+  end
+
   # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
   # AL.Var.bind/4 rechecks on each future bind.
   def interp(%Goal.Dif{a: a, b: b}, state) do

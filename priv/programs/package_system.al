@@ -1,4 +1,33 @@
-defprogram package_system #{deps => [bootstrap], version => 14}.
+defprogram package_system #{deps => [bootstrap], version => 17}.
+
+@package_manager #{super => object, metaclass => object}.
+
+package_manager >> registered_channel
+| _Self Channel |
+class Channel channel,
+label Channel.
+
+package_manager >> registered_provider
+| Self Channel Provider |
+registered_channel Self Channel,
+class Provider package_provider,
+label Provider,
+provider_channel Provider Channel.
+
+package_manager >> available_package
+| Self Channel Package Provider |
+registered_channel Self Channel,
+available_package Channel Package Provider.
+
+package_manager >> installed_package
+| _Self Package |
+class Package package,
+label Package.
+
+package_manager >> active_package
+| Self Package Build |
+installed_package Self Package,
+active_build Package Build.
 
 @channel
 #{
@@ -17,6 +46,15 @@ get Self location Location.
 channel >> channel_revision
 | Self Revision |
 get Self revision Revision.
+
+channel >> available_package
+| Self Package Provider |
+class Provider package_provider,
+label Provider,
+provider_channel Provider Self,
+channel_revision Self Revision,
+provider_channel_revision Provider Revision,
+provides Provider Package.
 
 @package_provider
 #{
@@ -221,6 +259,15 @@ set_slot Self active_build OpenBuild.
 package >> active_build
 | Self Build |
 get Self active_build Build.
+
+package >> activate_build
+| Self Build |
+build_package Build Self,
+set_slot Self active_build Build.
+
+package >> deactivate
+| Self |
+vm_retract_slot Self active_build.
 
 package >> build
 | Self Specification Build |

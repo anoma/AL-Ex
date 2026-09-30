@@ -9,6 +9,9 @@ AL is an object-oriented logic language. A good AL method states a relation and
 lets unification, constraints, clause choice, backtracking, and object dispatch
 do the work. Do not translate an imperative Elixir algorithm line by line.
 
+When working on a problem, instead of rushing to finish, help to develop the
+model so that the problem can be solved nicely and cleanly by a human.
+
 For any nontrivial AL method, class, collection protocol, or refactor, read
 [references/relational-object-programming.md](references/relational-object-programming.md).
 For tests, Mnesia isolation, tracing, bootstrap reloads, or async examples, read

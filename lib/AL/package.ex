@@ -1465,14 +1465,14 @@ defmodule AL.Package do
       |> Map.keys()
       |> Enum.reject(&Map.has_key?(final, &1))
       |> Enum.sort_by(&:erlang.term_to_binary/1)
-      |> Enum.map(&{"vm_retract_slot #{literal(&1)} active_build.", nil})
+      |> Enum.map(&{"deactivate #{literal(&1)}.", nil})
 
     changed =
       final
       |> Enum.reject(fn {package, build} -> Map.get(current, package) == build end)
       |> Enum.sort_by(fn {package, _build} -> :erlang.term_to_binary(package) end)
       |> Enum.map(fn {package, build} ->
-        {"vm_set_slot #{literal(package)} active_build #{literal(build)}.", nil}
+        {"activate_build #{literal(package)} #{literal(build)}.", nil}
       end)
 
     removed ++ changed
