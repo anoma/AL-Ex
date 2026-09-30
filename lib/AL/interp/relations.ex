@@ -217,6 +217,25 @@ defmodule AL.Interp.Relations do
     scan_relation(state, rows, {transaction, time, operation})
   end
 
+  def interp(%Goal.BranchEdge{parent: parent, child: child}, state),
+    do: scan_relation(state, AL.Branch.edges(), {parent, child})
+
+  def interp(%Goal.BranchMeta{branch: branch, key: key, value: value}, state) do
+    branch = AL.Var.deref(store(state), branch)
+
+    ids =
+      cond do
+        AL.Var.var?(branch) -> AL.Branch.ids()
+        AL.Branch.registered?(branch) -> [branch]
+        true -> []
+      end
+
+    scan_relation(state, Enum.flat_map(ids, &branch_meta_rows/1), {branch, key, value})
+  end
+
+  def interp(%Goal.CurrentBranch{branch: branch}, state),
+    do: AL.put_bindings(state, AL.unify(state, branch, state.branch.id), [branch])
+
   def interp(%Goal.TransactionSource{tx: tx, text: text, origin: origin}, state) do
     rows =
       if AL.Var.var?(tx) do
@@ -538,6 +557,19 @@ defmodule AL.Interp.Relations do
   # pattern, wake on it, backtrack through every row that matched
   # (`AL.fan_out/3`). `GetOapply` doesn't fit — it standardizes each row apart
   # first — so it stays a clause of its own above.
+  defp branch_meta_rows(id) do
+    branch = %AL.Branch{id: id}
+
+    fork_point =
+      case AL.Command.fork_point(branch) do
+        :absent -> []
+        point -> [{id, :fork_point, point}]
+      end
+
+    head = if id == :main, do: [{id, :head, AL.Branch.head().id}], else: []
+    [{id, :system_time, AL.Command.system_time(branch)} | fork_point] ++ head
+  end
+
   defp scan_relation(state, rows, pattern) do
     AL.fan_out(state, rows, fn row -> {AL.unify(state, row, pattern), [pattern]} end)
   end

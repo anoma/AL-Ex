@@ -35,7 +35,7 @@ defmodule Examples.ALHTTP do
       assert %{name: "x-al-example", value: "yes"} in result.headers
       assert result.body == "hello"
 
-      context = %{effect_id: response, branch: %AL.Branch{id: :examples}}
+      context = %{effect_id: response, branch: %AL.Branch{id: Examples.Support.branch()}}
 
       assert {:error, _reason} =
                AL.Edge.complete(

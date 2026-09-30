@@ -70,7 +70,7 @@ defmodule Examples.ALEffects do
 
     {:atomic, commands} =
       :mnesia.transaction(fn ->
-        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: :examples})
+        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: Examples.Support.branch()})
       end)
 
     assert Enum.any?(commands, fn
@@ -128,7 +128,7 @@ defmodule Examples.ALEffects do
       end
 
     assert ground_message == "effect request must be ground"
-    branch = %AL.Branch{id: :examples}
+    branch = %AL.Branch{id: Examples.Support.branch()}
 
     {:aborted, {%ArgumentError{message: durable_message}, _stacktrace}} =
       :mnesia.transaction(fn ->
@@ -175,7 +175,7 @@ defmodule Examples.ALEffects do
 
     {:atomic, commands} =
       :mnesia.transaction(fn ->
-        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: :examples})
+        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: Examples.Support.branch()})
       end)
 
     assert Enum.any?(commands, fn
@@ -275,7 +275,7 @@ defmodule Examples.ALEffects do
 
   example hydrating_the_command_log_does_not_repeat_effects() do
     observe_effects()
-    branch = %AL.Branch{id: :examples}
+    branch = %AL.Branch{id: Examples.Support.branch()}
     :ok = AL.Outbox.stop(branch)
 
     try do
@@ -307,7 +307,7 @@ defmodule Examples.ALEffects do
 
   example fork_does_not_replay_parent_effects_and_runs_new_effects() do
     observe_effects()
-    parent = %AL.Branch{id: :examples}
+    parent = %AL.Branch{id: Examples.Support.branch()}
     :ok = AL.Outbox.stop(parent)
 
     try do

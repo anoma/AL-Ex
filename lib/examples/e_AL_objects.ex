@@ -264,7 +264,9 @@ defmodule Examples.ALObjects do
       end
 
     {:atomic, [{:slots, :slot_test, slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:slot_test, %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Object.read_slots(:slot_test, %AL.Branch{id: Examples.Support.branch()})
+      end)
 
     assert slots == %{a: 99, b: 2}
     slots

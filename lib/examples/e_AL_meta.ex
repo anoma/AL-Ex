@@ -78,10 +78,14 @@ defmodule Examples.ALMeta do
       end
 
     {:atomic, [{:slots, :class, class_slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:class, %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Object.read_slots(:class, %AL.Branch{id: Examples.Support.branch()})
+      end)
 
     {:atomic, [{:slots, :behaviour, behaviour_slots}]} =
-      :mnesia.transaction(fn -> AL.Object.read_slots(:behaviour, %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Object.read_slots(:behaviour, %AL.Branch{id: Examples.Support.branch()})
+      end)
 
     assert Map.get(class_slots, :forall_visited) == true
     assert Map.get(behaviour_slots, :forall_visited) == true

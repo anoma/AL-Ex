@@ -172,7 +172,7 @@ defmodule Examples.ALSourceInput do
     """
 
     assert {:atomic, {bindings, _constraints, nil}} =
-             AL.eval_source(source, AL.Branch.head(), heap: 2_000_000)
+             AL.eval_source(source, %AL.Branch{id: Examples.Support.branch()}, heap: 2_000_000)
 
     assert Map.fetch!(bindings, :"$Result") == :ok
     :ok

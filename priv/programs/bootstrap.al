@@ -1,4 +1,4 @@
-defprogram bootstrap #{deps => [], version => 26}.
+defprogram bootstrap #{deps => [], version => 27}.
 
 vm_set_class class class.
 vm_set_class object class.
@@ -554,6 +554,57 @@ source Self Text,
 vm_format "~a~%" [Text].
 
 new class #{ivars => [], name => number, super => value} _.
+
+@branch #{super => object}.
+
+branch >> parent
+| Self Parent |
+vm_branch Parent Self.
+
+branch >> child
+| Self Child |
+vm_branch Self Child.
+
+branch >> fork_point
+| Self Point |
+vm_branch_meta Self fork_point Point.
+
+branch >> system_time
+| Self Time |
+vm_branch_meta Self system_time Time.
+
+branch >> current
+| Self |
+vm_current_branch Self.
+
+branch >> checked_out
+| Self |
+vm_branch_meta main head Self.
+
+branch >> fork
+| Self At Effect |
+ground Self,
+new effect #{arguments => [Self, At], operation => fork, provider => branch} Effect.
+
+branch >> reset
+| Self Effect |
+ground Self,
+new effect #{arguments => [Self], operation => reset, provider => branch} Effect.
+
+branch >> reset_to
+| Self At Effect |
+ground Self,
+new effect #{arguments => [Self, At], operation => reset_to, provider => branch} Effect.
+
+branch >> discard
+| Self Effect |
+ground Self,
+new effect #{arguments => [Self], operation => discard, provider => branch} Effect.
+
+branch >> checkout
+| Self Effect |
+ground Self,
+new effect #{arguments => [Self], operation => checkout, provider => branch} Effect.
 
 new class #{ivars => [], name => string, super => value} _.
 

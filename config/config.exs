@@ -38,7 +38,7 @@ config :al,
     {:tcp_socket, :decode_term, AL.ExternalTerm, :decode, 2}
   ]
 
-config :al, edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP]
+config :al, edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP, AL.Edge.Branch]
 
 config :al, AL.MCP,
   enabled: true,

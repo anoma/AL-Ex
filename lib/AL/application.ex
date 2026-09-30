@@ -32,9 +32,11 @@ defmodule AL.Application do
     main_time = AL.Command.system_time(AL.Branch.main())
     bootstrap()
 
-    if AL.Command.system_time(AL.Branch.main()) == main_time,
-      do: AL.Branch.ensure_examples(),
-      else: AL.Branch.rebase_examples()
+    if Application.get_env(:al, :create_examples_branch, true) do
+      if AL.Command.system_time(AL.Branch.main()) == main_time,
+        do: AL.Branch.ensure_examples(),
+        else: AL.Branch.reset_examples_to(:tip)
+    end
 
     AL.Serialisation.start_all()
 

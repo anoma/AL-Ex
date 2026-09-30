@@ -1,235 +1,235 @@
 defmodule AlBootstrapTest do
-  use ExExample.ExUnit, for: Examples.ALBootstrap
+  use AL.ExampleCase, for: Examples.ALBootstrap, async: true
 end
 
 defmodule AlObjectsTest do
-  use ExExample.ExUnit, for: Examples.ALObjects
+  use AL.ExampleCase, for: Examples.ALObjects, async: false
 end
 
 defmodule AlSlotHistoryTest do
-  use ExExample.ExUnit, for: Examples.ALSlotHistory
+  use AL.ExampleCase, for: Examples.ALSlotHistory, async: true
 end
 
 defmodule AlSoaSlotsTest do
-  use ExExample.ExUnit, for: Examples.ALSoaSlots
+  use AL.ExampleCase, for: Examples.ALSoaSlots, async: true
 end
 
 defmodule AlStorageTest do
-  use ExExample.ExUnit, for: Examples.ALStorage
+  use AL.ExampleCase, for: Examples.ALStorage, async: true
 end
 
 defmodule AlFormatTest do
-  use ExExample.ExUnit, for: Examples.ALFormat
+  use AL.ExampleCase, for: Examples.ALFormat, async: true
 end
 
 defmodule ALTasksTest do
-  use ExExample.ExUnit, for: Examples.ALTasks
+  use AL.ExampleCase, for: Examples.ALTasks, async: true
 end
 
 defmodule ALEffectsTest do
-  use ExExample.ExUnit, for: Examples.ALEffects
+  use AL.ExampleCase, for: Examples.ALEffects, async: true
 end
 
 defmodule ALFileWatchTest do
-  use ExExample.ExUnit, for: Examples.ALFileWatch
+  use AL.ExampleCase, for: Examples.ALFileWatch, async: true
 end
 
 defmodule ALPeerTest do
-  use ExExample.ExUnit, for: Examples.ALPeer
+  use AL.ExampleCase, for: Examples.ALPeer, async: true
 end
 
 defmodule ALHTTPTest do
-  use ExExample.ExUnit, for: Examples.ALHTTP
+  use AL.ExampleCase, for: Examples.ALHTTP, async: true
 end
 
 defmodule ALArithmeticTest do
-  use ExExample.ExUnit, for: Examples.ALArithmetic
+  use AL.ExampleCase, for: Examples.ALArithmetic, async: true
 end
 
 defmodule ALNumbersTest do
-  use ExExample.ExUnit, for: Examples.ALNumbers
+  use AL.ExampleCase, for: Examples.ALNumbers, async: true
 end
 
 defmodule ALNativeTest do
-  use ExExample.ExUnit, for: Examples.ALNative
+  use AL.ExampleCase, for: Examples.ALNative, async: false
 end
 
 defmodule ALListsTest do
-  use ExExample.ExUnit, for: Examples.ALLists
+  use AL.ExampleCase, for: Examples.ALLists, async: true
 end
 
 defmodule ALGenerativeTest do
-  use ExExample.ExUnit, for: Examples.ALGenerative
+  use AL.ExampleCase, for: Examples.ALGenerative, async: true
 end
 
 defmodule ALMethodSelectionTest do
-  use ExExample.ExUnit, for: Examples.ALMethodSelection
+  use AL.ExampleCase, for: Examples.ALMethodSelection, async: true
 end
 
 defmodule ALResidualConstraintsTest do
-  use ExExample.ExUnit, for: Examples.ALResidualConstraints
+  use AL.ExampleCase, for: Examples.ALResidualConstraints, async: true
 end
 
 defmodule ALObjectLabelingTest do
-  use ExExample.ExUnit, for: Examples.ALObjectLabeling
+  use AL.ExampleCase, for: Examples.ALObjectLabeling, async: true
 end
 
 defmodule ALBranchTest do
-  use ExExample.ExUnit, for: Examples.ALBranch
+  use AL.ExampleCase, for: Examples.ALBranch, async: false
 end
 
 defmodule ALGenserverTest do
-  use ExExample.ExUnit, for: Examples.ALGenserver
+  use AL.ExampleCase, for: Examples.ALGenserver, async: true
 end
 
 defmodule ALConstraintsTest do
-  use ExExample.ExUnit, for: Examples.ALConstraints
+  use AL.ExampleCase, for: Examples.ALConstraints, async: true
 end
 
 defmodule ALTraceTest do
-  use ExExample.ExUnit, for: Examples.ALTrace
+  use AL.ExampleCase, for: Examples.ALTrace, async: true
 end
 
 defmodule ALUsersTest do
-  use ExExample.ExUnit, for: Examples.ALUsers
+  use AL.ExampleCase, for: Examples.ALUsers, async: true
 end
 
 defmodule ALClausesTest do
-  use ExExample.ExUnit, for: Examples.ALClauses
+  use AL.ExampleCase, for: Examples.ALClauses, async: false
 end
 
 defmodule ALMetaTest do
-  use ExExample.ExUnit, for: Examples.ALMeta
+  use AL.ExampleCase, for: Examples.ALMeta, async: true
 end
 
 defmodule ALFailuresTest do
-  use ExExample.ExUnit, for: Examples.ALFailures
+  use AL.ExampleCase, for: Examples.ALFailures, async: true
 end
 
 defmodule ALIntervalTest do
-  use ExExample.ExUnit, for: Examples.ALInterval
+  use AL.ExampleCase, for: Examples.ALInterval, async: true
 end
 
 defmodule ALMapsetTest do
-  use ExExample.ExUnit, for: Examples.ALMapset
+  use AL.ExampleCase, for: Examples.ALMapset, async: true
 end
 
 defmodule ALCategoriesTest do
-  use ExExample.ExUnit, for: Examples.ALCategories
+  use AL.ExampleCase, for: Examples.ALCategories, async: true
 end
 
 defmodule ALDefclassTest do
-  use ExExample.ExUnit, for: Examples.ALDefclass
+  use AL.ExampleCase, for: Examples.ALDefclass, async: true
 end
 
 defmodule ALDifTest do
-  use ExExample.ExUnit, for: Examples.ALDif
+  use AL.ExampleCase, for: Examples.ALDif, async: true
 end
 
 defmodule ALVariantTest do
-  use ExExample.ExUnit, for: Examples.ALVariant
+  use AL.ExampleCase, for: Examples.ALVariant, async: true
 end
 
 defmodule ALStringsTest do
-  use ExExample.ExUnit, for: Examples.ALStrings
+  use AL.ExampleCase, for: Examples.ALStrings, async: true
 end
 
 defmodule ALFunctorTest do
-  use ExExample.ExUnit, for: Examples.ALFunctor
+  use AL.ExampleCase, for: Examples.ALFunctor, async: true
 end
 
 defmodule ALNinetyNineTest do
-  use ExExample.ExUnit, for: Examples.ALNinetyNine
+  use AL.ExampleCase, for: Examples.ALNinetyNine, async: true
 end
 
 defmodule ALSourceTest do
-  use ExExample.ExUnit, for: Examples.ALSource
+  use AL.ExampleCase, for: Examples.ALSource, async: false
 end
 
 defmodule ALSourceInputTest do
-  use ExExample.ExUnit, for: Examples.ALSourceInput
+  use AL.ExampleCase, for: Examples.ALSourceInput, async: true
 end
 
 defmodule ALFreezeTest do
-  use ExExample.ExUnit, for: Examples.ALFreeze
+  use AL.ExampleCase, for: Examples.ALFreeze, async: true
 end
 
 defmodule ALVarTest do
-  use ExExample.ExUnit, for: Examples.ALVar
+  use AL.ExampleCase, for: Examples.ALVar, async: true
 end
 
 defmodule ALVarSubstrateTest do
-  use ExExample.ExUnit, for: Examples.ALVarSubstrate
+  use AL.ExampleCase, for: Examples.ALVarSubstrate, async: true
 end
 
 defmodule ALFresheningTest do
-  use ExExample.ExUnit, for: Examples.ALFreshening
+  use AL.ExampleCase, for: Examples.ALFreshening, async: false
 end
 
 defmodule ALGuardedTest do
-  use ExExample.ExUnit, for: Examples.ALGuarded
+  use AL.ExampleCase, for: Examples.ALGuarded, async: false
 end
 
 defmodule ALBoundsTest do
-  use ExExample.ExUnit, for: Examples.ALBounds
+  use AL.ExampleCase, for: Examples.ALBounds, async: true
 end
 
 defmodule ALSudokuTest do
-  use ExExample.ExUnit, for: Examples.ALSudoku
+  use AL.ExampleCase, for: Examples.ALSudoku, async: true
 end
 
 defmodule ALInDomainTest do
-  use ExExample.ExUnit, for: Examples.ALInDomain
+  use AL.ExampleCase, for: Examples.ALInDomain, async: true
 end
 
 defmodule ALBlackjackTest do
-  use ExExample.ExUnit, for: Examples.ALBlackjack
+  use AL.ExampleCase, for: Examples.ALBlackjack, async: true
 end
 
 defmodule ALSwapsTest do
-  use ExExample.ExUnit, for: Examples.ALSwaps
+  use AL.ExampleCase, for: Examples.ALSwaps, async: true
 end
 
 defmodule ALMapsTest do
-  use ExExample.ExUnit, for: Examples.ALMaps
+  use AL.ExampleCase, for: Examples.ALMaps, async: false
 end
 
 defmodule ALControlFlowTest do
-  use ExExample.ExUnit, for: Examples.ALControlFlow
+  use AL.ExampleCase, for: Examples.ALControlFlow, async: true
 end
 
 defmodule ALAnonymousMethodsTest do
-  use ExExample.ExUnit, for: Examples.ALAnonymousMethods
+  use AL.ExampleCase, for: Examples.ALAnonymousMethods, async: true
 end
 
 defmodule ALTransactionsTest do
-  use ExExample.ExUnit, for: Examples.ALTransactions
+  use AL.ExampleCase, for: Examples.ALTransactions, async: true
 end
 
 defmodule ALOutputBindingsTest do
-  use ExExample.ExUnit, for: Examples.ALOutputBindings
+  use AL.ExampleCase, for: Examples.ALOutputBindings, async: true
 end
 
 defmodule ALPendingLinksTest do
-  use ExExample.ExUnit, for: Examples.ALPendingLinks
+  use AL.ExampleCase, for: Examples.ALPendingLinks, async: true
 end
 
 defmodule ALTransactionProgramsTest do
-  use ExExample.ExUnit, for: Examples.ALTransactionPrograms
+  use AL.ExampleCase, for: Examples.ALTransactionPrograms, async: false
 end
 
 defmodule ALPackagesTest do
-  use ExExample.ExUnit, for: Examples.ALPackages
+  use AL.ExampleCase, for: Examples.ALPackages, async: false
 end
 
 defmodule ALMnesiaTest do
-  use ExExample.ExUnit, for: Examples.ALMnesia
+  use AL.ExampleCase, for: Examples.ALMnesia, async: true
 end
 
 defmodule ALGtBridgeTest do
-  use ExExample.ExUnit, for: Examples.ALGtBridge
+  use AL.ExampleCase, for: Examples.ALGtBridge, async: false
 end
 
 defmodule ALSyntaxTest do
-  use ExExample.ExUnit, for: Examples.ALSyntax
+  use AL.ExampleCase, for: Examples.ALSyntax, async: true
 end

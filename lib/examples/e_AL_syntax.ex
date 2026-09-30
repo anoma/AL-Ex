@@ -221,7 +221,8 @@ defmodule Examples.ALSyntax do
           AL.Var.var("object"),
           AL.Var.var("seq"),
           AL.Var.var("head"),
-          AL.Var.var("body")
+          AL.Var.var("body"),
+          AL.Branch.main()
         )
       end)
 

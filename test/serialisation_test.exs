@@ -1,12 +1,12 @@
 defmodule ALSerialisationTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
   alias AL.Serialisation.Document
   alias AL.Serialisation.Document.Method
 
   test "projects one table-derived document per owner and preserves method text" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_definition")
 
@@ -41,7 +41,7 @@ defmodule ALSerialisationTest do
   end
 
   test "reserialising unchanged definitions leaves their files untouched" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_untouched")
 
@@ -62,7 +62,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a non-class method owner is serialised as an extension document" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     owner = fresh_id("serialisation_extension")
 
@@ -84,7 +84,7 @@ defmodule ALSerialisationTest do
   end
 
   test "editing retained method source replaces clauses and preserves method identity" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_method_edit")
 
@@ -124,7 +124,7 @@ defmodule ALSerialisationTest do
   end
 
   test "removing a method record retracts its binding and clauses" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_method_remove")
 
@@ -152,7 +152,7 @@ defmodule ALSerialisationTest do
   end
 
   test "renaming a method record retracts the old binding and its clauses" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_method_rename")
 
@@ -193,7 +193,7 @@ defmodule ALSerialisationTest do
   end
 
   test "editing class metadata changes live facts without recreating method objects" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_class_edit")
 
@@ -223,7 +223,7 @@ defmodule ALSerialisationTest do
   end
 
   test "rewriting a document without semantic changes creates no transaction" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_noop")
 
@@ -247,7 +247,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a revision-zero class document creates a new class" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_new_class")
 
@@ -278,7 +278,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a class comment and body comments survive regeneration" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_comment")
 
@@ -320,7 +320,7 @@ defmodule ALSerialisationTest do
   end
 
   test "deleting a class document deletes the live class" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_delete_class")
 
@@ -342,7 +342,7 @@ defmodule ALSerialisationTest do
   end
 
   test "overwrites offline definition edits before watching live edits" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline")
 
@@ -385,7 +385,7 @@ defmodule ALSerialisationTest do
   end
 
   test "restores an offline definition deletion from the store on restart" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline_delete")
 
@@ -412,7 +412,7 @@ defmodule ALSerialisationTest do
   end
 
   test "startup removes offline definition additions without creating transactions" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline_added")
 
@@ -446,7 +446,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a stale offline document is regenerated from the authoritative store" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_stale")
 
@@ -474,7 +474,7 @@ defmodule ALSerialisationTest do
   end
 
   test "an offline deletion is regenerated from the latest store state" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_stale_delete")
 
@@ -536,7 +536,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a malformed serialisation index is repaired instead of crashing startup" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
 
     try do

@@ -45,7 +45,9 @@ defmodule Examples.ALTransactions do
       end
 
     {:atomic, commands} =
-      :mnesia.transaction(fn -> AL.Command.commands_since(0, %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Command.commands_since(0, %AL.Branch{id: Examples.Support.branch()})
+      end)
 
     tx_of = fn obj ->
       Enum.find_value(commands, fn

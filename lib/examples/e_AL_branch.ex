@@ -52,7 +52,94 @@ defmodule Examples.ALBranch do
     :ok
   end
 
-  example reset_and_rebase_move_a_fork_along_its_parent() do
+  example branches_are_objects_you_can_query() do
+    parent = Examples.Support.isolated_branch()
+    child = AL.Branch.fork(:tip, parent)
+    at_fork = AL.Command.fork_point(child)
+    parent_id = parent.id
+    child_id = child.id
+
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: parent.id do
+        ~AL"""
+        class ^child_id Class.
+        parent ^child_id Parent.
+        child ^parent_id Child.
+        fork_point ^child_id Point.
+        current Here.
+        findall B Branches {class B branch, label B}.
+        """
+      end
+
+    assert Map.get(bindings, :"$Class") == :branch
+    assert Map.get(bindings, :"$Parent") == parent_id
+    assert Map.get(bindings, :"$Child") == child_id
+    assert Map.get(bindings, :"$Point") == at_fork
+    assert Map.get(bindings, :"$Here") == parent_id
+    assert Enum.all?([:main, parent_id, child_id], &(&1 in Map.get(bindings, :"$Branches")))
+
+    AL.Branch.discard(child)
+    AL.Branch.discard(parent)
+    :ok
+  end
+
+  example branches_fork_and_discard_through_effects() do
+    parent = Examples.Support.isolated_branch()
+    parent_id = parent.id
+    pid = self()
+
+    report = fn event, goals ->
+      {:atomic, _} =
+        AL.eval_source(
+          """
+          #{goals}
+          await Effect [Outcome] {
+            get branch_effect_observer pid Observer,
+            send_elixir Observer \#{event => #{event}, outcome => Outcome}
+          }.
+          """,
+          parent
+        )
+    end
+
+    try do
+      {:atomic, _} =
+        run branch: parent.id do
+          ~AL"""
+          new process #{name => branch_effect_observer, pid => ^pid} _.
+          """
+        end
+
+      report.("forked", "fork #{parent_id} tip Effect.")
+      assert_receive %{event: :forked, outcome: %{status: :ok, value: child_id}}, 2_000
+      assert %AL.Branch{id: child_id} in AL.Branch.list()
+
+      {:atomic, {bindings, _constraints, _state}} =
+        run branch: parent.id do
+          ~AL"""
+          parent ^child_id Parent.
+          """
+        end
+
+      assert Map.get(bindings, :"$Parent") == parent_id
+
+      report.("discarded", "discard #{child_id} Effect.")
+      assert_receive %{event: :discarded, outcome: %{status: :ok, value: ^child_id}}, 2_000
+      refute %AL.Branch{id: child_id} in AL.Branch.list()
+
+      report.("main_discarded", "discard main Effect.")
+      assert_receive %{event: :main_discarded, outcome: %{status: :error}}, 2_000
+
+      report.("own_reset", "reset #{parent_id} Effect.")
+      assert_receive %{event: :own_reset, outcome: %{status: :error}}, 2_000
+    after
+      AL.Branch.discard(parent)
+    end
+
+    :ok
+  end
+
+  example reset_and_reset_to_shift_a_fork_along_its_parent() do
     parent = Examples.Support.isolated_branch()
     at_fork = AL.Command.system_time(parent)
     child = AL.Branch.fork(:tip, parent)
@@ -92,7 +179,8 @@ defmodule Examples.ALBranch do
         """
       end
 
-    child = AL.Branch.rebase(child, :tip)
+    grandchild = AL.Branch.fork(:tip, child)
+    child = AL.Branch.reset_to(child, :tip)
 
     {:atomic, _} =
       run branch: child.id do
@@ -101,6 +189,10 @@ defmodule Examples.ALBranch do
         """
       end
 
+    assert {:branch, child, grandchild} in AL.Branch.branch_graph()
+    assert {:branch, parent, child} in AL.Branch.branch_graph()
+
+    AL.Branch.discard(grandchild)
     AL.Branch.discard(child)
     AL.Branch.discard(parent)
     :ok

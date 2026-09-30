@@ -35,6 +35,9 @@ defmodule AL.Goal do
           | AL.Goal.GetSuper.t()
           | AL.Goal.GetMethod.t()
           | AL.Goal.GetCommand.t()
+          | AL.Goal.BranchEdge.t()
+          | AL.Goal.BranchMeta.t()
+          | AL.Goal.CurrentBranch.t()
           | AL.Goal.GetOapply.t()
           | AL.Goal.MethodSource.t()
           | AL.Goal.TransactionSource.t()
@@ -179,6 +182,21 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:name, AL.Var.t())
     field(:id, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: BranchEdge do
+    field(:parent, AL.Var.t())
+    field(:child, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: BranchMeta do
+    field(:branch, AL.Var.t())
+    field(:key, AL.Var.t())
+    field(:value, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: CurrentBranch do
+    field(:branch, AL.Var.t())
   end
 
   typedstruct enforce: true, module: GetCommand do
@@ -510,6 +528,9 @@ defmodule AL.Goal do
     {Variant, :variant, [a: :term, b: :term]},
     {StringCodes, :string_codes, [string: :term, codes: :term]},
     {Functor, :functor, [term: :term, name: :term, args: :term]},
+    {BranchEdge, :branch_edge, [parent: :term, child: :term]},
+    {BranchMeta, :branch_meta, [branch: :term, key: :term, value: :term]},
+    {CurrentBranch, :current_branch, [branch: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
     {FloorDivide, :floor_divide, [dividend: :term, divisor: :term, quotient: :term]},
     {Either, :either, [left: :term, right: :term]},
@@ -555,6 +576,9 @@ defmodule AL.Goal do
     {:floor_divide, FloorDivide, [:dividend, :divisor, :quotient], %{}},
     {:vm_assert_valid_clause_self, AssertValidClauseSelf, [:class, :head], %{}},
     {:vm_command, GetCommand, [:transaction, :time, :operation], %{}},
+    {:vm_branch, BranchEdge, [:parent, :child], %{}},
+    {:vm_branch_meta, BranchMeta, [:branch, :key, :value], %{}},
+    {:vm_current_branch, CurrentBranch, [:branch], %{}},
     {:vm_transaction_source, TransactionSource, [:tx, :text, :origin], %{}},
     {:vm_method_source, MethodSource, [:object, :seq, :text, :provenance], %{}},
     {:vm_set_class, SetClass, [:object, :class], %{}},

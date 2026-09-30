@@ -491,7 +491,10 @@ defmodule AL.Syntax.Printer do
 
   defp variable(var) do
     name = var |> Atom.to_string() |> String.trim_leading("$")
-    if name =~ ~r/^[A-Z_]/, do: name, else: camelize(name)
+
+    if match?(<<c, _::binary>> when c in ?A..?Z or c == ?_, name),
+      do: name,
+      else: camelize(name)
   end
 
   @spec camelize(String.t()) :: String.t()
@@ -511,10 +514,21 @@ defmodule AL.Syntax.Printer do
   defp atom(atom) do
     text = Atom.to_string(atom)
 
-    if text =~ ~r/^[a-z][a-zA-Z0-9_]*$/ or atom in @operators,
+    if plain_atom?(text) or atom in @operators,
       do: text,
       else: "'" <> (text |> String.replace("\\", "\\\\") |> String.replace("'", "\\'")) <> "'"
   end
+
+  defp plain_atom?(<<c, rest::binary>>) when c in ?a..?z, do: name_chars?(rest)
+  defp plain_atom?(_text), do: false
+
+  defp name_chars?(<<>>), do: true
+
+  defp name_chars?(<<c, rest::binary>>)
+       when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_,
+       do: name_chars?(rest)
+
+  defp name_chars?(_text), do: false
 
   defp literal(term), do: inspect(term, limit: :infinity, printable_limit: :infinity)
 end

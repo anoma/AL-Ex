@@ -69,7 +69,6 @@ defmodule AL.Syntax do
     {:right, [";"]},
     {:none, ["->"]}
   ]
-  @operators ["==", "<=", ">=", "**", "=", "<", ">", "+", "-", "*", "/"]
   @primitives [
     :vm_map_get,
     :vm_map_put,
@@ -103,21 +102,6 @@ defmodule AL.Syntax do
              :vm_oapply,
              :vm_set_oapply
            ] ++ @primitives ++ AL.Goal.call_names()
-  @symbols [">>", "->", "=>"]
-  @singles [
-    "@",
-    "(",
-    ")",
-    "[",
-    "]",
-    "{",
-    "}",
-    ",",
-    "|",
-    ".",
-    ";",
-    "^"
-  ]
   @argument_starts ["[", "\#{", "{", "(", "^"]
 
   defguardp goal_body(node)
@@ -385,124 +369,161 @@ defmodule AL.Syntax do
   defp range_error(message, %{line: line, column: column}),
     do: {:error, %Error{phase: :range, message: message, line: line, column: column, token: nil}}
 
-  defp tokens(text) do
-    text
-    |> String.graphemes()
-    |> Enum.map_reduce({1, 1}, fn grapheme, {line, column} ->
-      next = if grapheme in ["\n", "\r\n"], do: {line + 1, 1}, else: {line, column + 1}
-      {{grapheme, line, column}, next}
-    end)
-    |> elem(0)
-    |> lex([])
+  defp tokens(text), do: lex(text, 1, 1, [])
+
+  defp lex(<<>>, _line, _column, tokens), do: {:ok, Enum.reverse(tokens)}
+  defp lex(<<"\r\n", rest::binary>>, line, _column, tokens), do: lex(rest, line + 1, 1, tokens)
+  defp lex(<<"\n", rest::binary>>, line, _column, tokens), do: lex(rest, line + 1, 1, tokens)
+
+  defp lex(<<c, rest::binary>>, line, column, tokens) when c in [?\s, ?\t, ?\r, ?\v, ?\f],
+    do: lex(rest, line, column + 1, tokens)
+
+  defp lex(<<"\#{", rest::binary>>, line, column, tokens),
+    do: punct(rest, "\#{", line, column, tokens)
+
+  defp lex(<<"#", rest::binary>>, line, column, tokens) do
+    {text, rest} = comment_text(rest, 0)
+    stop = column + 1 + String.length(text)
+    token = {:comment, text, position(line, column), position(line, stop)}
+    lex(rest, line, stop, [token | tokens])
   end
 
-  defp lex([], tokens), do: {:ok, Enum.reverse(tokens)}
+  defp lex(<<quote, rest::binary>>, line, column, tokens) when quote in [?", ?'] do
+    start = position(line, column)
 
-  defp lex([{grapheme, line, column} | rest] = chars, tokens) do
-    cond do
-      String.trim(grapheme) == "" ->
-        lex(rest, tokens)
-
-      grapheme == "#" and match?([{"{", _, _} | _], rest) ->
-        lex(tl(rest), [
-          {:punct, "\#{", position(line, column), position(line, column + 2)} | tokens
-        ])
-
-      grapheme == "#" ->
-        {text, rest} = take_while(rest, &(&1 not in ["\n", "\r\n"]))
-
-        lex(rest, [
-          {:comment, text, position(line, column),
-           position(line, column + 1 + String.length(text))}
-          | tokens
-        ])
-
-      grapheme == "\"" ->
-        with {:ok, raw, stop, rest} <- take_quoted(rest, "\"", "\"", position(line, column)),
-             {:ok, string} <- literal(raw, &is_binary/1, position(line, column)) do
-          lex(rest, [{:string, string, position(line, column), stop} | tokens])
-        end
-
-      grapheme == "'" ->
-        with {:ok, raw, stop, rest} <- take_quoted(rest, "'", "'", position(line, column)),
-             {:ok, atom} <- quoted_atom(raw, position(line, column)) do
-          lex(rest, [{:atom, atom, position(line, column), stop} | tokens])
-        end
-
-      grapheme =~ ~r/^[0-9]$/ ->
-        {digits, rest} = take_number(chars)
-
-        with {:ok, number} <- number(digits, position(line, column)) do
-          stop = position(line, column + String.length(digits))
-          lex(rest, [{:number, number, position(line, column), stop} | tokens])
-        end
-
-      grapheme =~ ~r/^[A-Za-z_]$/ ->
-        {name, rest} = take_while(chars, &(&1 =~ ~r/^[A-Za-z0-9_]$/))
-        start = position(line, column)
-        stop = position(line, column + String.length(name))
-
-        if name =~ ~r/^[A-Z_]/,
-          do: lex(rest, [{:var, String.to_atom(name), start, stop} | tokens]),
-          else: lex(rest, [{:atom, String.to_atom(name), start, stop} | tokens])
-
-      true ->
-        symbol(chars, tokens)
+    with {:ok, raw, stop_line, stop_column, rest} <-
+           quoted(rest, quote, <<quote>>, line, column + 1, start),
+         {:ok, value} <- quoted_value(quote, raw, start) do
+      kind = if quote == ?", do: :string, else: :atom
+      token = {kind, value, start, position(stop_line, stop_column)}
+      lex(rest, stop_line, stop_column, [token | tokens])
     end
   end
 
-  defp symbol([{_, line, column} | _] = chars, tokens) do
-    two = chars |> Enum.take(2) |> Enum.map_join(&elem(&1, 0))
-    one = chars |> hd() |> elem(0)
+  defp lex(<<c, _::binary>> = text, line, column, tokens) when c in ?0..?9 do
+    {digits, rest} = number_text(text)
 
-    operator = Enum.find(@operators, &String.starts_with?(two, &1))
-
-    cond do
-      two in @symbols ->
-        lex(Enum.drop(chars, 2), [
-          {:punct, two, position(line, column), position(line, column + 2)} | tokens
-        ])
-
-      operator ->
-        width = String.length(operator)
-
-        lex(Enum.drop(chars, width), [
-          {:atom, String.to_atom(operator), position(line, column),
-           position(line, column + width)}
-          | tokens
-        ])
-
-      one in @singles ->
-        lex(tl(chars), [
-          {:punct, one, position(line, column), position(line, column + 1)} | tokens
-        ])
-
-      true ->
-        error(:parse, "unexpected #{one}", position(line, column))
+    with {:ok, number} <- number(digits, position(line, column)) do
+      stop = column + byte_size(digits)
+      token = {:number, number, position(line, column), position(line, stop)}
+      lex(rest, line, stop, [token | tokens])
     end
   end
 
-  defp take_while(chars, keep?) do
-    {taken, rest} = Enum.split_while(chars, fn {grapheme, _, _} -> keep?.(grapheme) end)
-    {Enum.map_join(taken, &elem(&1, 0)), rest}
+  defp lex(<<c, _::binary>> = text, line, column, tokens)
+       when c in ?a..?z or c in ?A..?Z or c == ?_ do
+    {name, rest} = span(text, &name_char?/1)
+    stop = column + byte_size(name)
+    kind = if c in ?a..?z, do: :atom, else: :var
+    token = {kind, String.to_atom(name), position(line, column), position(line, stop)}
+    lex(rest, line, stop, [token | tokens])
   end
 
-  defp take_number(chars) do
-    {integer, rest} = take_while(chars, &(&1 =~ ~r/^[0-9_]$/))
+  defp lex(<<two::binary-size(2), rest::binary>>, line, column, tokens)
+       when two in [">>", "->", "=>"],
+       do: punct(rest, two, line, column, tokens)
+
+  defp lex(<<two::binary-size(2), rest::binary>>, line, column, tokens)
+       when two in ["==", "<=", ">=", "**"],
+       do: operator(rest, two, line, column, tokens)
+
+  defp lex(<<one, rest::binary>>, line, column, tokens) when one in ~c"=<>+-*/",
+    do: operator(rest, <<one>>, line, column, tokens)
+
+  defp lex(<<one, rest::binary>>, line, column, tokens) when one in ~c"@()[]{},|.;^",
+    do: punct(rest, <<one>>, line, column, tokens)
+
+  defp lex(text, line, column, tokens) do
+    {grapheme, rest} = String.next_grapheme(text)
+
+    if String.trim(grapheme) == "",
+      do: lex(rest, line, column + 1, tokens),
+      else: error(:parse, "unexpected #{grapheme}", position(line, column))
+  end
+
+  defp punct(rest, text, line, column, tokens) do
+    stop = column + String.length(text)
+    lex(rest, line, stop, [{:punct, text, position(line, column), position(line, stop)} | tokens])
+  end
+
+  defp operator(rest, text, line, column, tokens) do
+    stop = column + byte_size(text)
+    token = {:atom, String.to_atom(text), position(line, column), position(line, stop)}
+    lex(rest, line, stop, [token | tokens])
+  end
+
+  defp comment_text(text, size) do
+    case text do
+      <<_::binary-size(size), "\r\n", _::binary>> -> split_at(text, size)
+      <<_::binary-size(size), "\n", _::binary>> -> split_at(text, size)
+      <<_::binary-size(size)>> -> split_at(text, size)
+      _ -> comment_text(text, size + 1)
+    end
+  end
+
+  defp quoted(<<"\\", rest::binary>>, quote, raw, line, column, start) do
+    case String.next_grapheme(rest) do
+      {escaped, rest} when escaped in ["\n", "\r\n"] ->
+        quoted(rest, quote, raw <> "\\" <> escaped, line + 1, 1, start)
+
+      {escaped, rest} ->
+        quoted(rest, quote, raw <> "\\" <> escaped, line, column + 2, start)
+
+      nil ->
+        error(:parse, "missing closing quote", start)
+    end
+  end
+
+  defp quoted(<<quote, rest::binary>>, quote, raw, line, column, _start),
+    do: {:ok, raw <> <<quote>>, line, column + 1, rest}
+
+  defp quoted(<<"\r\n", rest::binary>>, quote, raw, line, _column, start),
+    do: quoted(rest, quote, raw <> "\r\n", line + 1, 1, start)
+
+  defp quoted(<<"\n", rest::binary>>, quote, raw, line, _column, start),
+    do: quoted(rest, quote, raw <> "\n", line + 1, 1, start)
+
+  defp quoted(<<>>, _quote, _raw, _line, _column, start),
+    do: error(:parse, "missing closing quote", start)
+
+  defp quoted(text, quote, raw, line, column, start) do
+    {grapheme, rest} = String.next_grapheme(text)
+    quoted(rest, quote, raw <> grapheme, line, column + 1, start)
+  end
+
+  defp quoted_value(?", raw, start), do: literal(raw, &is_binary/1, start)
+  defp quoted_value(?', raw, start), do: quoted_atom(raw, start)
+
+  defp number_text(text) do
+    {integer, rest} = span(text, &(&1 in ?0..?9 or &1 == ?_))
 
     case rest do
-      [{".", _, _}, {digit, _, _} | _] ->
-        if digit =~ ~r/^[0-9]$/ do
-          {fraction, rest} = take_while(tl(rest), &(&1 =~ ~r/^[0-9_eE]$/))
-          {integer <> "." <> fraction, rest}
-        else
-          {integer, rest}
-        end
+      <<".", d, _::binary>> when d in ?0..?9 ->
+        <<".", after_dot::binary>> = rest
+        {fraction, rest} = span(after_dot, &(&1 in ?0..?9 or &1 in [?_, ?e, ?E]))
+        {integer <> "." <> fraction, rest}
 
       _ ->
         {integer, rest}
     end
   end
+
+  defp name_char?(c), do: c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c == ?_
+
+  defp span(text, keep?), do: split_at(text, span_size(text, keep?, 0))
+
+  defp span_size(text, keep?, size) do
+    case text do
+      <<_::binary-size(size), c, _::binary>> ->
+        if keep?.(c), do: span_size(text, keep?, size + 1), else: size
+
+      _ ->
+        size
+    end
+  end
+
+  defp split_at(text, size),
+    do: {binary_part(text, 0, size), binary_part(text, size, byte_size(text) - size)}
 
   defp number(digits, start) do
     case Code.string_to_quoted(digits) do
@@ -510,20 +531,6 @@ defmodule AL.Syntax do
       _ -> error(:parse, "invalid number #{digits}", start)
     end
   end
-
-  defp take_quoted(chars, close, open, start), do: take_quoted(chars, close, open, open, start)
-
-  defp take_quoted([{"\\", _, _}, {escaped, _, _} | rest], close, open, raw, start),
-    do: take_quoted(rest, close, open, raw <> "\\" <> escaped, start)
-
-  defp take_quoted([{close, line, column} | rest], close, _open, raw, _start),
-    do: {:ok, raw <> close, position(line, column + 1), rest}
-
-  defp take_quoted([{grapheme, _, _} | rest], close, open, raw, start),
-    do: take_quoted(rest, close, open, raw <> grapheme, start)
-
-  defp take_quoted([], _close, _open, _raw, start),
-    do: error(:parse, "missing closing quote", start)
 
   defp quoted_atom("'" <> raw, start) do
     body = String.slice(raw, 0..-2//1)

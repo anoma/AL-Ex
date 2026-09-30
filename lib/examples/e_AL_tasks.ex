@@ -41,7 +41,7 @@ defmodule Examples.ALTasks do
   defp processed?(object) do
     {:atomic, results} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_slots(object, :"$slots", %AL.Branch{id: :examples})
+        AL.Object.scan_slots(object, :"$slots", %AL.Branch{id: Examples.Support.branch()})
       end)
 
     Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
@@ -62,7 +62,7 @@ defmodule Examples.ALTasks do
 
     {:atomic, commands} =
       :mnesia.transaction(fn ->
-        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: :examples})
+        AL.Command.commands_for_transaction(state.tx_id, %AL.Branch{id: Examples.Support.branch()})
       end)
 
     assert Enum.count(commands, fn

@@ -60,6 +60,15 @@ defmodule AL.Branch do
     create_fork(%__MODULE__{id: :"fork_#{System.unique_integer([:positive])}"}, at, from)
   end
 
+  @spec fork_stable(t()) :: t()
+  def fork_stable(from = %__MODULE__{}) do
+    unless from == main() or from in list() do
+      raise ArgumentError, "cannot fork from unknown branch #{inspect(from)}"
+    end
+
+    create_fork(%__MODULE__{id: :"fork_#{System.unique_integer([:positive])}"}, :tip, from, :copy)
+  end
+
   @doc """
   Fork an empty branch and install all configured transaction programs and package
   bundles fresh from current source, independent of anything else `:main` holds.
@@ -98,10 +107,10 @@ defmodule AL.Branch do
     if examples() in list(), do: reset(examples()), else: ensure_examples()
   end
 
-  @doc "Rebase `:examples` onto `:main`'s tip. Boot calls this after installing new source."
-  @spec rebase_examples() :: t()
-  def rebase_examples() do
-    if examples() in list(), do: rebase(examples(), :tip), else: ensure_examples()
+  @doc "Reset `:examples` to a point of `:main`. Boot resets it to `:tip` after installing new source."
+  @spec reset_examples_to(non_neg_integer() | :tip) :: t()
+  def reset_examples_to(at) do
+    if examples() in list(), do: reset_to(examples(), at), else: ensure_examples()
   end
 
   @doc """
@@ -109,22 +118,22 @@ defmodule AL.Branch do
   fork its parent again at the recorded point.
   """
   @spec reset(t()) :: t()
-  def reset(branch), do: rebase(branch, AL.Command.fork_point(branch))
+  def reset(branch), do: reset_to(branch, AL.Command.fork_point(branch))
 
   @doc """
-  Rebase a fork onto another point of its parent, dropping everything written
-  on it since it was forked.
+  Reset a fork to another point of its parent, dropping everything written on
+  it since it was forked. Its place in the lineage, children included, stays.
   """
-  @spec rebase(t(), non_neg_integer() | :tip) :: t()
-  def rebase(%__MODULE__{id: id} = branch, at) when id != :main do
+  @spec reset_to(t(), non_neg_integer() | :tip) :: t()
+  def reset_to(%__MODULE__{id: id} = branch, at) when id != :main do
     {:atomic, parent} = :mnesia.transaction(fn -> parent_of(id) end)
-    discard(branch)
+    drop(branch)
     create_fork(branch, at, %__MODULE__{id: parent})
   end
 
   defp examples(), do: %__MODULE__{id: :examples}
 
-  defp create_fork(branch, at, from) do
+  defp create_fork(branch, at, from, projection \\ :replay) do
     command_cutoff = at_time(from, at)
     AL.Command.create_tables(branch)
     AL.Command.copy_prefix(from, branch, command_cutoff)
@@ -133,7 +142,21 @@ defmodule AL.Branch do
     AL.SourceStore.copy_prefix(from, branch, command_cutoff)
     AL.Object.create_tables(branch)
     AL.ResolutionCache.create_tables(branch)
-    AL.Object.hydrate_since(0, branch)
+
+    case projection do
+      :replay ->
+        AL.Object.hydrate_since(0, branch)
+
+      :copy ->
+        {:atomic, :ok} = AL.Object.copy_projection(from, branch)
+
+        if AL.Command.system_time(from) != command_cutoff do
+          AL.Object.drop_tables(branch)
+          AL.Object.create_tables(branch)
+          AL.Object.hydrate_since(0, branch)
+        end
+    end
+
     register(branch, from)
     AL.Outbox.start(branch)
     AL.Serialisation.start(branch)
@@ -145,6 +168,10 @@ defmodule AL.Branch do
   def discard(branch) do
     unregister(branch)
     if stored_head() == branch, do: set_head(main())
+    drop(branch)
+  end
+
+  defp drop(branch) do
     AL.Serialisation.stop(branch)
     AL.Outbox.stop(branch)
     AL.Object.drop_tables(branch)
@@ -194,6 +221,23 @@ defmodule AL.Branch do
 
     Enum.map(children, &%__MODULE__{id: &1})
   end
+
+  @doc "Every registered branch id, `:main` first. Reads inside the caller's transaction."
+  @spec ids() :: [atom()]
+  def ids(), do: [:main | Enum.map(edges(), &elem(&1, 1))]
+
+  @doc "Whether `id` names a registered branch. Reads inside the caller's transaction."
+  @spec registered?(term()) :: boolean()
+  def registered?(:main), do: true
+
+  def registered?(id) when is_atom(id),
+    do: :mnesia.select(:branch, [{{:branch, :"$1", id}, [], [:"$1"]}]) != []
+
+  def registered?(_id), do: false
+
+  @doc "Lineage as `{parent, child}` id pairs. Reads inside the caller's transaction."
+  @spec edges() :: [{atom(), atom()}]
+  def edges(), do: :mnesia.select(:branch, [{{:branch, :"$1", :"$2"}, [], [{{:"$1", :"$2"}}]}])
 
   @doc "The lineage as `{:branch, parent, child}` edges."
   @spec branch_graph() :: [{:branch, t(), t()}]

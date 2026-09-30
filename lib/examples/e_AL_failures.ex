@@ -208,7 +208,7 @@ defmodule Examples.ALFailures do
 
     assert %AL{} = reason.state
     assert reason.state.active_choicepoint.store == nil
-    assert reason.state.branch.id == :examples
+    assert reason.state.branch.id == Examples.Support.branch()
   end
 
   # constraint-rejected unify looks identical to a plain mismatch in the trace
