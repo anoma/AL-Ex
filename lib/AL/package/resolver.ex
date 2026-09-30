@@ -51,11 +51,13 @@ defmodule AL.Package.Resolver do
 
     result =
       AL.run branch: branch.id do
-        resolve(:package_resolver, ^provider_ids, ^al_requested, solution)
+        ~AL"""
+        resolve package_resolver ^provider_ids ^al_requested Solution.
+        """
       end
 
     case result do
-      {:atomic, {%{:"$solution" => solution}, _constraints, _state}} ->
+      {:atomic, {%{:"$Solution" => solution}, _constraints, _state}} ->
         validate_resolution(solution, catalog, requested)
 
       {:aborted, _reason} ->

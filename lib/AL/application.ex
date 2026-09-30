@@ -29,23 +29,25 @@ defmodule AL.Application do
     register_edge_providers()
     AL.Outbox.start_all()
 
+    main_time = AL.Command.system_time(AL.Branch.main())
     bootstrap()
-    AL.Branch.ensure_examples()
+
+    if Application.get_env(:al, :create_examples_branch, true) do
+      if AL.Command.system_time(AL.Branch.main()) == main_time,
+        do: AL.Branch.ensure_examples(),
+        else: AL.Branch.reset_examples_to(:tip)
+    end
+
     AL.Serialisation.start_all()
 
     {:ok, pid}
   end
 
   def bootstrap() do
-    packages_pending? = not AL.Package.system_available?()
+    programs = Enum.reject(AL.TransactionProgram.configured(), &AL.TransactionProgram.current?/1)
 
-    programs =
-      AL.TransactionProgram.configured()
-      |> Enum.reject(fn module ->
-        Code.ensure_loaded!(module)
-        program = module.__program__()
-        AL.TransactionProgram.current?(program.name, program.version)
-      end)
+    packages_pending? =
+      not (AL.Package.system_available?() and AL.Package.configured_current?())
 
     :ok = install_startup(programs, packages_pending?)
     register_natives()
@@ -55,22 +57,21 @@ defmodule AL.Application do
 
   defp install_startup(programs, packages_pending?) do
     ready_programs =
-      Enum.filter(programs, fn module ->
-        Enum.all?(module.__program__().deps, &dependency_installed?/1)
+      Enum.filter(programs, fn program ->
+        Enum.all?(program.deps, &dependency_installed?/1)
       end)
 
     packages_ready? = packages_pending? and AL.Package.system_available?()
 
     if ready_programs == [] and not packages_ready? do
-      program_names = Enum.map(programs, & &1.__program__().name)
+      program_names = Enum.map(programs, & &1.name)
       package_names = AL.Package.configured_environment()
 
       raise "AL startup dependencies cannot be satisfied: programs #{inspect(program_names)}, packages #{inspect(package_names)}"
     end
 
-    Enum.each(ready_programs, fn module ->
-      program = module.__program__()
-      :ok = AL.TransactionProgram.ensure_current(program.name, program.version, &module.install/0)
+    Enum.each(ready_programs, fn program ->
+      :ok = AL.TransactionProgram.ensure_current(program)
     end)
 
     if packages_ready? do

@@ -34,20 +34,20 @@ defmodule Examples.ALNative do
   use AL
   import ExUnit.Assertions
 
-  @examples_branch %AL.Branch{id: :examples}
-
   example native_method_runs_and_produces_a_result() do
     {:ok, method_id} =
-      AL.Native.register(:number, :al_native_gcd, Integer, :gcd, 2, branch: @examples_branch)
+      AL.Native.register(:number, :al_native_gcd, Integer, :gcd, 2, branch: examples_branch())
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        al_native_gcd(12, 8, result)
+        ~AL"""
+        al_native_gcd 12 8 Result.
+        """
       end
 
-    assert Map.get(bindings, :"$result") == 4
+    assert Map.get(bindings, :"$Result") == 4
 
-    AL.Native.retract(method_id, branch: @examples_branch)
+    AL.Native.retract(method_id, branch: examples_branch())
     :ok
   end
 
@@ -58,21 +58,23 @@ defmodule Examples.ALNative do
   example missing_native_implementation_is_a_named_diagnostic() do
     {:ok, method_id} =
       AL.Native.register(:number, :al_native_missing_demo, Integer, :gcd, 2,
-        branch: @examples_branch
+        branch: examples_branch()
       )
 
     AL.Native.Registry.delete(method_id)
 
     {:aborted, reason} =
       run branch: Examples.Support.branch() do
-        al_native_missing_demo(12, 8, result)
+        ~AL"""
+        al_native_missing_demo 12 8 Result.
+        """
       end
 
     assert match?({:native_missing, ^method_id, {Integer, :gcd, 2}}, reason.reason)
     assert reason.message =~ "declared native"
     assert reason.message =~ "not registered in this image"
 
-    AL.Native.retract(method_id, branch: @examples_branch)
+    AL.Native.retract(method_id, branch: examples_branch())
     :ok
   end
 
@@ -82,34 +84,38 @@ defmodule Examples.ALNative do
   example re_registering_the_same_binding_is_idempotent() do
     {:ok, method_id} =
       AL.Native.register(:number, :al_native_idempotent, Integer, :gcd, 2,
-        branch: @examples_branch
+        branch: examples_branch()
       )
 
     {:ok, ^method_id} =
       AL.Native.register(:number, :al_native_idempotent, Integer, :gcd, 2,
-        branch: @examples_branch
+        branch: examples_branch()
       )
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        al_native_idempotent(9, 6, result)
+        ~AL"""
+        al_native_idempotent 9 6 Result.
+        """
       end
 
-    assert Map.get(bindings, :"$result") == 3
+    assert Map.get(bindings, :"$Result") == 3
 
-    AL.Native.retract(method_id, branch: @examples_branch)
+    AL.Native.retract(method_id, branch: examples_branch())
     :ok
   end
 
   example conflicting_registration_is_rejected() do
     {:ok, method_id} =
-      AL.Native.register(:number, :al_native_conflict, Integer, :gcd, 2, branch: @examples_branch)
+      AL.Native.register(:number, :al_native_conflict, Integer, :gcd, 2,
+        branch: examples_branch()
+      )
 
     assert_raise RuntimeError, ~r/refusing to register/, fn ->
-      AL.Native.register(:number, :al_native_conflict, Kernel, :max, 2, branch: @examples_branch)
+      AL.Native.register(:number, :al_native_conflict, Kernel, :max, 2, branch: examples_branch())
     end
 
-    AL.Native.retract(method_id, branch: @examples_branch)
+    AL.Native.retract(method_id, branch: examples_branch())
     :ok
   end
 
@@ -118,7 +124,7 @@ defmodule Examples.ALNative do
   # a jet would do -- out of scope, rejected unless force: true.
   example native_over_existing_interpreted_clauses_is_rejected_without_force() do
     assert_raise RuntimeError, ~r/already has real interpreted clauses/, fn ->
-      AL.Native.register(:number, :factorial, Integer, :gcd, 2, branch: @examples_branch)
+      AL.Native.register(:number, :factorial, Integer, :gcd, 2, branch: examples_branch())
     end
 
     :ok
@@ -133,19 +139,21 @@ defmodule Examples.ALNative do
         :divisors,
         2,
         style: :raw,
-        branch: @examples_branch
+        branch: examples_branch()
       )
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(d, all) do
-          al_native_divisors(6, d)
-        end
+        ~AL"""
+        findall D All (al_native_divisors 6 D).
+        """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$all")) == [1, 2, 3, 6]
+    assert Enum.sort(Map.get(bindings, :"$All")) == [1, 2, 3, 6]
 
-    AL.Native.retract(method_id, branch: @examples_branch)
+    AL.Native.retract(method_id, branch: examples_branch())
     :ok
   end
+
+  defp examples_branch(), do: %AL.Branch{id: Examples.Support.branch()}
 end

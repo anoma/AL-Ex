@@ -31,7 +31,7 @@ class-membership predicate.
   e.g. `:number`/`:letter_chain`) or comes back a real constructed map (e.g.
   `:interval`/`:mapset`) is entirely up to whether the class's own `:init`
   discards the constructed scaffold or keeps it — `:value`'s default
-  `:init` (bootstrap.ex) is what makes the "stays open" case happen, not a
+  `:init` (`priv/programs/bootstrap.al`) is what makes the "stays open" case happen, not a
   VM-level branch. This replaced what used to be two parallel
   candidate-builders, two parallel descendant scans, and two
   `ResolutionCache` relations (now one `generative_descendants/1`, since
@@ -91,7 +91,7 @@ class-membership predicate.
   rejects the combination at *classification* time (`vm_set_class`, via
   `AL.Dispatch.value_member?/3`), and `Goal.AssertValidClauseSelf` (native
   check, `AL.Interp.Store`, called only from `:defmethod`'s own accretion
-  body in `bootstrap.ex`) rejects it even earlier, at *definition* time — a
+  body in `priv/programs/bootstrap.al`) rejects it even earlier, at *definition* time — a
   `super: :value` class can no longer define a clause with a bare atom as
   its self-pattern at all, so the ambiguous atom is never created in the
   first place. Neither is a general-purpose primitive; both are narrowly
@@ -118,7 +118,7 @@ class-membership predicate.
   intentional. Supers/inheritance (`vm_set_super`) stay a free-form,
   unrestricted DAG — this only constrains an object's own class row, not
   its ancestry. Building this surfaced a real, previously-unresolved bug:
-  `AL.TransactionProgram`'s `defprogram` macro creates a durable receipt object via
+  `AL.TransactionProgram` creates a durable receipt object via
   `new(:program_execution, %{name: ...}, _)`, and `:object`'s default `:allocate`
   uses `args[:name]` as the durable identity — so a transaction program whose main
   class shares its own name (a natural, common pattern) durably classifies

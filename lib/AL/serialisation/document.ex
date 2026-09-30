@@ -12,13 +12,13 @@ defmodule AL.Serialisation.Document.Method do
 end
 
 defmodule AL.Serialisation.Document do
-  @moduledoc """
-  Encodes one AL definition owner as a Tonel document.
+  @moduledoc ~S"""
+  Encodes one AL definition owner as an AL source file.
 
-  The owner prefix and the type definition are generated. Everything a body can
-  depend on is authored text: the declaration right of `>>` carries the selector
-  and head, and the body is verbatim between brackets. Clause order is file
-  order.
+  A file holds leading `#` comment lines, then `@name #{...}.` for a class or
+  `@+name #{super => [...]}.` for an extension of a class owned elsewhere, then
+  the owner's method clauses. Each clause keeps its authored declaration and
+  body text. Clause order is file order.
   """
 
   alias AL.Serialisation.Document.Method
@@ -39,128 +39,94 @@ defmodule AL.Serialisation.Document do
 
   @type parse_error() :: {:invalid_document, String.t()}
 
+  @class_options [:super, :metaclass, :ivars]
+
   @spec render(t()) :: String.t()
   def render(%__MODULE__{} = document) do
-    [render_comment(document.comment), render_type(document)]
+    [render_comment(document.comment), render_header(document)]
     |> Enum.reject(&is_nil/1)
-    |> Kernel.++(Enum.map(document.methods, &render_method(document.owner, &1)))
+    |> Kernel.++(
+      Enum.map(document.methods, fn method ->
+        AL.Syntax.method_text(literal(document.owner), method.declaration, method.body)
+      end)
+    )
     |> Enum.join("\n\n")
   end
 
   @spec parse(String.t()) :: {:ok, t()} | {:error, parse_error()}
   def parse(text) when is_binary(text) do
-    with {:ok, comment, rest} <- take_comment(text),
-         {:ok, type, metadata, rest} <- take_header(rest),
-         {:ok, document} <- document(type, metadata, comment),
-         {:ok, methods} <- take_methods(document.owner, rest, []) do
-      {:ok, %{document | methods: methods}}
+    with {:ok, parsed} <- read(text),
+         {:ok, document} <- document(parsed.header, parsed.methods, parsed.comment),
+         :ok <- same_owner(document.owner, parsed.methods) do
+      {:ok,
+       %{
+         document
+         | methods:
+             Enum.map(parsed.methods, fn method ->
+               %Method{
+                 selector: method.selector,
+                 declaration: method.declaration,
+                 body: method.body
+               }
+             end)
+       }}
     end
   end
 
   def parse(_text), do: invalid("document must be text")
 
+  defp read(text) do
+    case AL.Syntax.document(text) do
+      {:ok, parsed} -> {:ok, parsed}
+      {:error, message} -> invalid(message)
+    end
+  end
+
   defp render_comment(nil), do: nil
-  defp render_comment(comment), do: "\"\n" <> comment <> "\n\""
 
-  defp render_type(%__MODULE__{kind: :class} = document) do
-    render_metadata("Class",
-      name: document.owner,
-      superclass: document.supers,
-      metaclass: document.metaclass,
-      ivars: document.ivars
-    )
-  end
-
-  defp render_type(%__MODULE__{kind: :extension} = document) do
-    metadata = [name: document.owner]
-
-    metadata =
-      if document.supers == [], do: metadata, else: metadata ++ [superclass: document.supers]
-
-    render_metadata("Extension", metadata)
-  end
-
-  defp render_method(owner, %Method{} = method),
-    do: "#{literal(owner)} >> #{method.declaration} [\n" <> method.body <> "\n]"
-
-  defp render_metadata(name, metadata) do
-    entries =
-      Enum.map_join(metadata, ",\n", fn {key, value} -> "  ##{key} : #{literal(value)}" end)
-
-    name <> " {\n" <> entries <> "\n}"
-  end
-
-  defp literal(value),
-    do: inspect(value, pretty: false, limit: :infinity, printable_limit: :infinity)
-
-  defp take_comment("\"\n" <> rest) do
-    case scan_comment(rest, []) do
-      {:ok, comment, rest} -> {:ok, comment, String.trim_leading(rest, "\n")}
-      :error -> invalid("class comment is not terminated by a lone quote")
-    end
-  end
-
-  defp take_comment(text), do: {:ok, nil, text}
-
-  defp scan_comment(text, lines) do
-    case String.split(text, "\n", parts: 2) do
-      ["\"", rest] -> {:ok, Enum.reverse(lines) |> Enum.join("\n"), rest}
-      ["\""] -> {:ok, Enum.reverse(lines) |> Enum.join("\n"), ""}
-      [line, rest] -> scan_comment(rest, [line | lines])
-      [_line] -> :error
-    end
-  end
-
-  defp take_header(text) do
-    with {:ok, name, after_open} <- header_start(text),
-         {:ok, closing} <- AL.Source.Scanner.close_index(after_open, 0, ?{, ?}) do
-      body = binary_part(after_open, 0, closing) |> String.trim("\n")
-      rest = binary_part(after_open, closing + 1, byte_size(after_open) - closing - 1)
-
-      case literal_metadata(body) do
-        {:ok, metadata} -> {:ok, name, metadata, rest}
-        {:error, reason} -> invalid(reason)
-      end
-    else
-      :error -> invalid("header is not terminated by a closing brace")
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp header_start("Class {" <> rest), do: {:ok, "Class", rest}
-  defp header_start("Class{" <> rest), do: {:ok, "Class", rest}
-  defp header_start("Extension {" <> rest), do: {:ok, "Extension", rest}
-  defp header_start("Extension{" <> rest), do: {:ok, "Extension", rest}
-  defp header_start("{" <> rest), do: {:ok, nil, rest}
-  defp header_start(_text), do: invalid("expected a Class or Extension header")
-
-  defp literal_metadata(body) do
-    normalized =
-      body
+  defp render_comment(comment),
+    do:
+      comment
       |> String.split("\n")
-      |> Enum.map_join("\n", &Regex.replace(~r/^(\s*)#(\w+)\s*:/, &1, "\\1\\2:"))
+      |> Enum.map_join("\n", fn
+        "" -> "#"
+        line -> "# " <> line
+      end)
 
-    with {:ok, quoted} <- Code.string_to_quoted("[\n" <> normalized <> "\n]"),
-         true <- Macro.quoted_literal?(quoted),
-         {metadata, []} when is_list(metadata) <- Code.eval_quoted(quoted),
-         true <- Keyword.keyword?(metadata) do
-      {:ok, metadata}
-    else
-      {:error, reason} -> {:error, "invalid header metadata: #{inspect(reason)}"}
-      _ -> {:error, "header metadata must be a literal keyword list"}
-    end
+  defp render_header(%__MODULE__{kind: :class} = document) do
+    super =
+      case document.supers do
+        [super] -> super
+        supers -> supers
+      end
+
+    AL.Syntax.Printer.goal(%AL.Goal.OApply{
+      method_id: :defclass,
+      args: [document.owner, document.metaclass, super, document.ivars, []]
+    }) <> "."
   end
 
-  defp document("Class", metadata, comment) do
-    with {:ok, owner} <- required(metadata, :name),
-         {:ok, metaclass} <- required(metadata, :metaclass),
-         {:ok, supers} <- list(metadata, :superclass),
-         {:ok, ivars} <- list(metadata, :ivars) do
+  defp render_header(%__MODULE__{kind: :extension, supers: []}), do: nil
+
+  defp render_header(%__MODULE__{kind: :extension} = document),
+    do:
+      AL.Syntax.Printer.goal(%AL.Goal.OApply{
+        method_id: :extend_class,
+        args: [document.owner, document.supers]
+      }) <> "."
+
+  defp literal(term), do: AL.Syntax.Printer.term(term)
+
+  defp document(%{kind: :class, name: owner, options: options}, _methods, comment) do
+    with :ok <- known_options(options, @class_options),
+         {:ok, supers} <- supers(options),
+         {:ok, ivars} <- ivars(options),
+         :ok <- ground(options) do
       {:ok,
        %__MODULE__{
          kind: :class,
          owner: owner,
-         metaclass: metaclass,
+         metaclass: Map.get(options, :metaclass, :class),
          supers: supers,
          ivars: ivars,
          comment: comment,
@@ -169,117 +135,65 @@ defmodule AL.Serialisation.Document do
     end
   end
 
-  defp document("Extension", metadata, comment) do
-    with {:ok, owner} <- required(metadata, :name),
-         {:ok, supers} <- optional_list(metadata, :superclass, []) do
-      {:ok,
-       %__MODULE__{
-         kind: :extension,
-         owner: owner,
-         metaclass: nil,
-         supers: supers,
-         ivars: [],
-         comment: comment,
-         methods: []
-       }}
+  defp document(%{kind: :extension, name: owner, options: options}, _methods, comment) do
+    with :ok <- known_options(options, [:super]),
+         {:ok, supers} <- supers(options),
+         :ok <- ground(options) do
+      {:ok, extension(owner, supers, comment)}
     end
   end
 
-  defp document(_name, _metadata, _comment),
-    do: invalid("document must start with Class or Extension")
+  defp document(nil, [%{owner: owner} | _], comment), do: {:ok, extension(owner, [], comment)}
+  defp document(nil, [], _comment), do: invalid("a definition needs a declaration or a method")
 
-  defp take_methods(owner, text, methods) do
-    trimmed = String.trim_leading(text, "\n")
+  defp extension(owner, supers, comment),
+    do: %__MODULE__{
+      kind: :extension,
+      owner: owner,
+      metaclass: nil,
+      supers: supers,
+      ivars: [],
+      comment: comment,
+      methods: []
+    }
 
-    if String.trim(trimmed) == "" do
-      {:ok, Enum.reverse(methods)}
-    else
-      with {:ok, rest} <- take_method_metadata(trimmed),
-           {:ok, method, rest} <- take_method(owner, rest) do
-        take_methods(owner, rest, [method | methods])
-      end
+  defp same_owner(owner, methods) do
+    case Enum.find(methods, &(&1.owner != owner)) do
+      nil ->
+        :ok
+
+      method ->
+        invalid("#{literal(method.owner)} >> #{method.selector} is not #{literal(owner)}'s")
     end
   end
 
-  defp take_method_metadata("{" <> _ = text) do
-    case take_header(text) do
-      {:ok, nil, _metadata, rest} ->
-        {:ok, String.trim_leading(rest, "\n")}
-
-      {:ok, name, _metadata, _rest} ->
-        invalid("unexpected #{name} header after the document header")
-
-      error ->
-        error
+  defp known_options(options, known) do
+    case Map.keys(options) -- known do
+      [] -> :ok
+      unknown -> invalid("unknown declaration options #{literal(unknown)}")
     end
   end
 
-  defp take_method_metadata(text), do: {:ok, text}
-
-  defp take_method(owner, text) do
-    with {:ok, line, rest} <- take_line(text),
-         {:ok, declaration} <- declaration(owner, line),
-         {:ok, selector} <- selector(declaration),
-         {:ok, body, rest} <- AL.Serialisation.Document.Scanner.scan(rest) do
-      {:ok, %Method{selector: selector, declaration: declaration, body: body}, rest}
+  defp supers(options) do
+    case Map.get(options, :super, []) do
+      supers when is_list(supers) -> {:ok, supers}
+      super when is_atom(super) -> {:ok, [super]}
+      _other -> invalid("super must be a class or a list of classes")
     end
   end
 
-  defp take_line(text) do
-    case String.split(text, "\n", parts: 2) do
-      [line, rest] -> {:ok, line, rest}
-      [_line] -> invalid("method declaration must be followed by a body")
-    end
+  defp ivars(options) do
+    ivars = Map.get(options, :ivars, [])
+
+    if is_list(ivars) and Enum.all?(ivars, &match?(%{name: _}, &1)),
+      do: {:ok, ivars},
+      else: invalid("ivars must be a list of maps with a name")
   end
 
-  defp declaration(owner, line) do
-    prefix = "#{literal(owner)} >> "
-
-    cond do
-      not String.starts_with?(line, prefix) ->
-        invalid("method declaration must start with #{String.trim_trailing(prefix)}")
-
-      not String.ends_with?(line, " [") ->
-        invalid("method declaration must end with an opening bracket")
-
-      true ->
-        {:ok,
-         line
-         |> binary_part(byte_size(prefix), byte_size(line) - byte_size(prefix))
-         |> binary_part(0, byte_size(line) - byte_size(prefix) - 2)}
-    end
-  end
-
-  defp selector(declaration) do
-    case Code.string_to_quoted("{" <> declaration <> "}") do
-      {:ok, {selector, _head}} -> {:ok, selector}
-      {:ok, {:{}, _meta, [selector | _rest]}} -> {:ok, selector}
-      _ -> invalid("method declaration must be a selector and a head")
-    end
-  end
-
-  defp required(metadata, key) do
-    case Keyword.fetch(metadata, key) do
-      {:ok, value} -> {:ok, value}
-      :error -> invalid("missing #{key} metadata")
-    end
-  end
-
-  defp list(metadata, key) do
-    with {:ok, value} <- required(metadata, key), true <- is_list(value) do
-      {:ok, value}
-    else
-      false -> invalid("#{key} metadata must be a list")
-      error -> error
-    end
-  end
-
-  defp optional_list(metadata, key, default) do
-    case Keyword.fetch(metadata, key) do
-      {:ok, value} when is_list(value) -> {:ok, value}
-      {:ok, _value} -> invalid("#{key} metadata must be a list")
-      :error -> {:ok, default}
-    end
+  defp ground(options) do
+    if AL.Goal.reduce(options, false, &(&2 or AL.Var.var?(&1))),
+      do: invalid("a declaration cannot hold variables"),
+      else: :ok
   end
 
   defp invalid(message), do: {:error, {:invalid_document, message}}

@@ -12,21 +12,16 @@ defmodule Examples.ALHTTP do
     try do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
-          new(:process, %{name: :http_get_observer, pid: ^pid}, _)
-
-          new(
-            :http_request,
-            %{method: :get, url: ^url, headers: [], body: "", timeout: 1000},
-            request
-          )
-
-          execute(request, response)
-
-          await(response, [outcome]) do
-            get(:http_get_observer, :pid, observer)
-            event = %{event: :http_result, response: response, outcome: outcome}
-            send_elixir(observer, event)
-          end
+          ~AL"""
+          new process #{name => http_get_observer, pid => ^pid} _.
+          new http_request #{body => "", headers => [], method => get, timeout => 1000, url => ^url} Request.
+          execute Request Response.
+          await Response [Outcome] {
+            get http_get_observer pid Observer,
+            = Event #{event => http_result, outcome => Outcome, response => Response},
+            send_elixir Observer Event
+          }.
+          """
         end
 
       assert_receive %{
@@ -40,7 +35,7 @@ defmodule Examples.ALHTTP do
       assert %{name: "x-al-example", value: "yes"} in result.headers
       assert result.body == "hello"
 
-      context = %{effect_id: response, branch: %AL.Branch{id: :examples}}
+      context = %{effect_id: response, branch: %AL.Branch{id: Examples.Support.branch()}}
 
       assert {:error, _reason} =
                AL.Edge.complete(
@@ -61,28 +56,23 @@ defmodule Examples.ALHTTP do
     try do
       {:atomic, _} =
         run branch: Examples.Support.branch() do
-          new(:process, %{name: :http_post_observer, pid: ^pid}, _)
-
-          new(
-            :http_request,
-            %{
-              name: :http_post_request,
-              method: :post,
-              url: ^url,
-              headers: [%{name: "content-type", value: "text/plain"}],
-              body: "payload",
-              timeout: 1000
-            },
-            request
-          )
-
-          execute(request, response)
-
-          await(response, [outcome]) do
-            get(:http_post_observer, :pid, observer)
-            event = %{event: :http_post_result, outcome: outcome}
-            send_elixir(observer, event)
-          end
+          ~AL"""
+          new process #{name => http_post_observer, pid => ^pid} _.
+          new http_request #{
+            body => "payload",
+            headers => [#{name => "content-type", value => "text/plain"}],
+            method => post,
+            name => http_post_request,
+            timeout => 1000,
+            url => ^url
+          } Request.
+          execute Request Response.
+          await Response [Outcome] {
+            get http_post_observer pid Observer,
+            = Event #{event => http_post_result, outcome => Outcome},
+            send_elixir Observer Event
+          }.
+          """
         end
 
       assert_receive %{event: :http_post_result, outcome: %{status: :ok, value: result}}, 1_000
@@ -101,21 +91,16 @@ defmodule Examples.ALHTTP do
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        new(:process, %{name: :http_failure_observer, pid: ^pid}, _)
-
-        new(
-          :http_request,
-          %{method: :get, url: ^url, headers: [], body: "", timeout: 1000},
-          request
-        )
-
-        execute(request, response)
-
-        await(response, [outcome]) do
-          get(:http_failure_observer, :pid, observer)
-          event = %{event: :http_failure, outcome: outcome}
-          send_elixir(observer, event)
-        end
+        ~AL"""
+        new process #{name => http_failure_observer, pid => ^pid} _.
+        new http_request #{body => "", headers => [], method => get, timeout => 1000, url => ^url} Request.
+        execute Request Response.
+        await Response [Outcome] {
+          get http_failure_observer pid Observer,
+          = Event #{event => http_failure, outcome => Outcome},
+          send_elixir Observer Event
+        }.
+        """
       end
 
     assert_receive %{event: :http_failure, outcome: %{status: :error, reason: error}}, 1_000

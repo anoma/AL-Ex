@@ -1,5 +1,1 @@
-Package {
-  #name : :peers,
-  #version : 5,
-  #deps : [:sockets]
-}
+defpackage peers #{deps => [sockets], version => 5}.

@@ -11,45 +11,51 @@ defmodule Examples.ALArithmetic do
   example arithmetic() do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
-        a = 123 + 5 - 3
-        f = 10000 - 3
-        a = 122 + 3
-        1_000_122 = 122 + 1_000_000
-        b = a + 12
-        c = b ** 2 + 1
-        d = c / 3
-        e = c * 3 + 2
-        e = 5 - e + 2 * e - 5
-        g = -7
-        h = +7
+        ~AL"""
+        = A (- (+ 123 5) 3).
+        = F (- 10000 3).
+        = A (+ 122 3).
+        = 1000122 (+ 122 1000000).
+        = B (+ A 12).
+        = C (+ (** B 2) 1).
+        = D (/ C 3).
+        = E (+ (* C 3) 2).
+        = E (- (+ (- 5 E) (* 2 E)) 5).
+        = G -7.
+        = H 7.
+        """
       end
 
-    assert Map.get(bindings, :"$a") == 125
-    assert Map.get(bindings, :"$f") == 9997
-    assert Map.get(bindings, :"$b") == 137
-    assert Map.get(bindings, :"$c") == 18770
-    assert Map.get(bindings, :"$d") == 6256
-    assert Map.get(bindings, :"$e") == 56312
-    assert Map.get(bindings, :"$g") == -7
-    assert Map.get(bindings, :"$h") == 7
+    assert Map.get(bindings, :"$A") == 125
+    assert Map.get(bindings, :"$F") == 9997
+    assert Map.get(bindings, :"$B") == 137
+    assert Map.get(bindings, :"$C") == 18770
+    assert Map.get(bindings, :"$D") == 6256
+    assert Map.get(bindings, :"$E") == 56312
+    assert Map.get(bindings, :"$G") == -7
+    assert Map.get(bindings, :"$H") == 7
     result
   end
 
   example eq_over_an_open_operand_posts_a_constraint() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        x = y + 1
-        y = 4
+        ~AL"""
+        = X (+ Y 1).
+        = Y 4.
+        """
       end
 
-    assert Map.get(bindings, :"$x") == 5
+    assert Map.get(bindings, :"$X") == 5
     :ok
   end
 
   example eq_fails_on_division_by_zero() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        x = 1 / 0
+        ~AL"""
+        = X (/ 1 0).
+        """
       end
 
     :ok
@@ -58,19 +64,23 @@ defmodule Examples.ALArithmetic do
   example remainder() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        a = rem(7, 2)
-        b = rem(10, 5)
+        ~AL"""
+        = A (rem 7 2).
+        = B (rem 10 5).
+        """
       end
 
-    assert Map.get(bindings, :"$a") == 1
-    assert Map.get(bindings, :"$b") == 0
+    assert Map.get(bindings, :"$A") == 1
+    assert Map.get(bindings, :"$B") == 0
     :ok
   end
 
   example rem_by_zero_fails_gracefully() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        x = rem(1, 0)
+        ~AL"""
+        = X (rem 1 0).
+        """
       end
 
     :ok
@@ -79,23 +89,27 @@ defmodule Examples.ALArithmetic do
   example comparison_succeeds_when_true() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        x = 5
-        x > 3
-        x >= 5
-        x < 10
-        x <= 5
+        ~AL"""
+        = X 5.
+        > X 3.
+        >= X 5.
+        < X 10.
+        <= X 5.
+        """
       end
 
-    assert Map.get(bindings, :"$x") == 5
+    assert Map.get(bindings, :"$X") == 5
     :ok
   end
 
   example comparison_evaluates_expression_operands() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        10 > 2 + 3
-        2 + 3 <= 5
-        2 ** 3 >= 8
+        ~AL"""
+        > 10 (+ 2 3).
+        <= (+ 2 3) 5.
+        >= (** 2 3) 8.
+        """
       end
 
     :ok
@@ -104,7 +118,9 @@ defmodule Examples.ALArithmetic do
   example comparison_fails_when_false() do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        3 > 5
+        ~AL"""
+        > 3 5.
+        """
       end
 
     :ok
@@ -116,14 +132,18 @@ defmodule Examples.ALArithmetic do
   example comparison_narrows_rather_than_failing_on_unbound() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        y > 1
+        ~AL"""
+        > Y 1.
+        """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$y"))
+    assert AL.Var.var?(Map.get(bindings, :"$Y"))
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
-        y > :not_a_number
+        ~AL"""
+        > Y not_a_number.
+        """
       end
 
     :ok

@@ -1,11 +1,11 @@
 defmodule Examples.ALSudoku do
   @moduledoc """
   I provide examples for `:sudoku package`'s `:sudoku_puzzle` class:
-  `new(:sudoku_puzzle, %{givens: rows}, puzzle)` builds the cell grid and posts
+  `new sudoku_puzzle \#{givens => Rows} Puzzle` builds the cell grid and posts
   every row/column/3x3-box `all_dif` (pairwise `dif`, no dedicated global
-  all-different propagator) plus each cell's `[1,9]` domain; `solve(puzzle,
-  solved)` runs `label` per row to search the remainder. `puzzle` is a
-  `:value` instance (`%{class: :sudoku_puzzle, rows: ...}`), not a durable object —
+  all-different propagator) plus each cell's `[1,9]` domain; `solve Puzzle
+  Solved` runs `label` per row to search the remainder. `Puzzle` is a
+  `value` instance (`\#{class => sudoku_puzzle, rows => ...}`), not a durable object —
   a puzzle is scratch, and being a map means it already carries its own
   printable/reified form, nothing separate to build for that. Sudoku
   doesn't need `=`'s arithmetic propagation at all (no sums or products
@@ -48,11 +48,13 @@ defmodule Examples.ALSudoku do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
-        solve(puzzle, solved)
+        ~AL"""
+        new sudoku_puzzle #{givens => ^givens} Puzzle.
+        solve Puzzle Solved.
+        """
       end
 
-    assert Map.get(bindings, :"$solved") == @solved
+    assert Map.get(bindings, :"$Solved") == @solved
     :ok
   end
 
@@ -76,11 +78,13 @@ defmodule Examples.ALSudoku do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
-        solve(puzzle, solved)
+        ~AL"""
+        new sudoku_puzzle #{givens => ^givens} Puzzle.
+        solve Puzzle Solved.
+        """
       end
 
-    assert Map.get(bindings, :"$solved") == [
+    assert Map.get(bindings, :"$Solved") == [
              [8, 6, 7, 9, 1, 2, 3, 4, 5],
              [9, 1, 5, 4, 3, 8, 6, 7, 2],
              [4, 3, 2, 6, 7, 5, 8, 9, 1],
@@ -114,11 +118,13 @@ defmodule Examples.ALSudoku do
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
-        new(:sudoku_puzzle, %{givens: ^givens}, puzzle)
-        solve(puzzle, solved)
+        ~AL"""
+        new sudoku_puzzle #{givens => ^givens} Puzzle.
+        solve Puzzle Solved.
+        """
       end
 
-    assert Map.get(bindings, :"$solved") == [
+    assert Map.get(bindings, :"$Solved") == [
              [9, 8, 7, 6, 5, 4, 3, 2, 1],
              [2, 4, 6, 1, 7, 3, 9, 8, 5],
              [3, 5, 1, 9, 2, 8, 7, 4, 6],
@@ -152,7 +158,9 @@ defmodule Examples.ALSudoku do
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
-        new(:sudoku_puzzle, %{givens: ^givens}, _puzzle)
+        ~AL"""
+        new sudoku_puzzle #{givens => ^givens} _Puzzle.
+        """
       end
 
     :ok

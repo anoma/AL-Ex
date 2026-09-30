@@ -8,11 +8,13 @@ defmodule Examples.ALResidualConstraints do
   example result_separates_bindings_from_constraints() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        in_domain(value, [1, 2, 3])
-        dif(value, 2)
+        ~AL"""
+        in_domain Value [1, 2, 3].
+        dif Value 2.
+        """
       end
 
-    value = bindings[:"$value"]
+    value = bindings[:"$Value"]
     assert AL.Var.var?(value)
     assert Enum.sort(constraints[value].domain) == [1, 2, 3]
     assert constraints[value].dif == [2]
@@ -22,14 +24,16 @@ defmodule Examples.ALResidualConstraints do
   example aliasing_merges_constraint_sets_before_projection() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        in_domain(left, [1, 2, 3])
-        dif(left, 3)
-        in_domain(right, [2, 3, 4])
-        left = right
+        ~AL"""
+        in_domain Left [1, 2, 3].
+        dif Left 3.
+        in_domain Right [2, 3, 4].
+        = Left Right.
+        """
       end
 
-    representative = bindings[:"$left"]
-    assert bindings[:"$right"] == representative
+    representative = bindings[:"$Left"]
+    assert bindings[:"$Right"] == representative
     assert Enum.sort(constraints[representative].domain) == [2, 3]
     assert constraints[representative].dif == [3]
   end
@@ -37,18 +41,22 @@ defmodule Examples.ALResidualConstraints do
   example isa_and_explicit_domains_narrow_independently_of_posting_order() do
     {:atomic, {first_bindings, first_constraints, _}} =
       run branch: Examples.Support.branch() do
-        isa(value, :number)
-        in_domain(value, [1, :not_a_number, 2])
+        ~AL"""
+        isa Value number.
+        in_domain Value [1, not_a_number, 2].
+        """
       end
 
     {:atomic, {second_bindings, second_constraints, _}} =
       run branch: Examples.Support.branch() do
-        in_domain(value, [1, :not_a_number, 2])
-        isa(value, :number)
+        ~AL"""
+        in_domain Value [1, not_a_number, 2].
+        isa Value number.
+        """
       end
 
-    first = first_bindings[:"$value"]
-    second = second_bindings[:"$value"]
+    first = first_bindings[:"$Value"]
+    second = second_bindings[:"$Value"]
 
     assert Enum.sort(first_constraints[first].domain) == [1, 2]
     assert Enum.sort(second_constraints[second].domain) == [1, 2]
@@ -59,37 +67,38 @@ defmodule Examples.ALResidualConstraints do
   example grounding_removes_satisfied_residual_constraints() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        in_domain(value, [1, 2])
-        dif(value, 2)
-        value = 1
+        ~AL"""
+        in_domain Value [1, 2].
+        dif Value 2.
+        = Value 1.
+        """
       end
 
-    assert bindings[:"$value"] == 1
+    assert bindings[:"$Value"] == 1
     assert constraints == %{}
   end
 
   example failed_alternatives_do_not_leak_constraints() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        alternative(
-          [in_domain(value, [1, 2]), value = 9],
-          [in_domain(value, [3, 4])]
-        )
+        ~AL"""
+        {in_domain Value [1, 2], = Value 9} ; in_domain Value [3, 4].
+        """
       end
 
-    value = bindings[:"$value"]
+    value = bindings[:"$Value"]
     assert Enum.sort(constraints[value].domain) == [3, 4]
   end
 
   example findall_copies_each_answers_constraint_graph() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall(value, values) do
-          alternative([in_domain(value, [1, 2])], [in_domain(value, [3, 4])])
-        end
+        ~AL"""
+        findall Value Values (in_domain Value [1, 2] ; in_domain Value [3, 4]).
+        """
       end
 
-    [first, second] = bindings[:"$values"]
+    [first, second] = bindings[:"$Values"]
     refute first == second
 
     domains =
@@ -103,14 +112,12 @@ defmodule Examples.ALResidualConstraints do
   example copied_arithmetic_relations_reference_the_collected_variables() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        findall([left, right], answers) do
-          left > 0
-          right > 0
-          left + right = 10
-        end
+        ~AL"""
+        findall [Left, Right] Answers {> Left 0, > Right 0, = (+ Left Right) 10}.
+        """
       end
 
-    [[left, right]] = bindings[:"$answers"]
+    [[left, right]] = bindings[:"$Answers"]
     [relation] = constraints.relations
 
     assert relation.op == :=
@@ -122,19 +129,20 @@ defmodule Examples.ALResidualConstraints do
   example residual_dispatch_and_slot_constraints_share_one_graph() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :constraint_record,
-          super: :value,
-          ivars: [%{name: :kind, domain: [:a, :b]}],
-          redef: true do
-          defmethod(:constraint_probe, [_self, :ok])
-        end
+        ~AL"""
+        @constraint_record
+        #{super => value, ivars => [#{domain => [a, b], name => kind}]}.
 
-        constraint_probe(record, :ok)
-        get(record, :kind, kind)
+        constraint_record >> constraint_probe
+        | _Self ok |.
+
+        constraint_probe Record ok.
+        get Record kind Kind.
+        """
       end
 
-    record = bindings[:"$record"]
-    kind = bindings[:"$kind"]
+    record = bindings[:"$Record"]
+    kind = bindings[:"$Kind"]
 
     assert constraints[record].slots.kind == kind
 
@@ -150,11 +158,13 @@ defmodule Examples.ALResidualConstraints do
   example open_class_relations_are_public_constraints() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        class(object, exact_class)
+        ~AL"""
+        class Object ExactClass.
+        """
       end
 
-    object = bindings[:"$object"]
-    exact_class = bindings[:"$exact_class"]
+    object = bindings[:"$Object"]
+    exact_class = bindings[:"$ExactClass"]
 
     assert constraints[object].class == [exact_class]
     refute Map.has_key?(constraints, exact_class)
@@ -163,11 +173,13 @@ defmodule Examples.ALResidualConstraints do
   example open_isa_relations_are_public_constraints() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        isa(object, ancestor)
+        ~AL"""
+        isa Object Ancestor.
+        """
       end
 
-    object = bindings[:"$object"]
-    ancestor = bindings[:"$ancestor"]
+    object = bindings[:"$Object"]
+    ancestor = bindings[:"$Ancestor"]
 
     assert constraints[object].isa == [ancestor]
     refute Map.has_key?(constraints, ancestor)
@@ -176,11 +188,13 @@ defmodule Examples.ALResidualConstraints do
   example open_super_relations_are_visible_from_both_sides() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        super(subclass, superclass)
+        ~AL"""
+        super Subclass Superclass.
+        """
       end
 
-    subclass = bindings[:"$subclass"]
-    superclass = bindings[:"$superclass"]
+    subclass = bindings[:"$Subclass"]
+    superclass = bindings[:"$Superclass"]
 
     assert constraints[subclass].super == superclass
     assert constraints[superclass].subclass == subclass
@@ -189,11 +203,13 @@ defmodule Examples.ALResidualConstraints do
   example open_slot_relations_include_the_value_in_the_constraint_graph() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do
-        slot(object, :title, value)
+        ~AL"""
+        slot Object title Value.
+        """
       end
 
-    object = bindings[:"$object"]
-    value = bindings[:"$value"]
+    object = bindings[:"$Object"]
+    value = bindings[:"$Value"]
 
     assert constraints[object].slots.title == value
     assert constraints[value].slot_of.title == object

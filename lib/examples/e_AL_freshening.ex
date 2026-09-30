@@ -14,22 +14,27 @@ defmodule Examples.ALFreshening do
 
     {:atomic, _} =
       run branch: branch.id do
-        vm_set_class(:depth, :object)
+        ~AL"""
+        vm_set_class depth object.
 
-        defmethod(:depth, :down, [_self, 0])
+        depth >> down
+        | _Self 0 |.
 
-        defmethod(:depth, :down, [self, n]) do
-          n > 0
-          next = n - 1
-          down(self, next)
-        end
+        depth >> down
+        | Self N |
+        > N 0,
+        = Next (- N 1),
+        down Self Next.
+        """
       end
 
     before = :erlang.system_info(:atom_count)
 
     {:atomic, _} =
       run branch: branch.id do
-        down(:depth, 5000)
+        ~AL"""
+        down depth 5000.
+        """
       end
 
     minted = :erlang.system_info(:atom_count) - before

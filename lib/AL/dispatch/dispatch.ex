@@ -10,8 +10,6 @@ defmodule AL.Dispatch do
 
   alias AL.Goal
 
-  @primitive_methods [:map_get, :map_put, :gensym, :fresh_id]
-
   # A variable receiver or selector makes the send a query. Only a fully
   # ground send is directed and uses `on_miss`. `:"$_"` is the wildcard.
   def dispatch(self, method, args, state, on_miss) do
@@ -84,6 +82,7 @@ defmodule AL.Dispatch do
       is_map(term) -> [Map.get(term, :class, :map)]
       is_list(term) -> [:list]
       is_number(term) -> [:number]
+      is_binary(term) -> [:string]
       true -> []
     end
   end
@@ -304,7 +303,6 @@ defmodule AL.Dispatch do
   end
 
   defp ivar_name(%{name: name}), do: name
-  defp ivar_name(name), do: name
 
   # elixir port of bootstrap.ex's collect_ivar_specs/find_ivar_spec, for
   # AL.ResolutionCache. self's own classes come from a plain scan_class
@@ -486,7 +484,7 @@ defmodule AL.Dispatch do
       ) do
     if has_matching_clause?(id, call_args, state.active_choicepoint.store, state.branch) do
       state =
-        if id in @primitive_methods or native_bound?(id, state.branch),
+        if native_bound?(id, state.branch),
           do: state,
           else: %AL{state | pending_cursor: {self, selector, rest, method_scope}}
 
@@ -547,6 +545,7 @@ defmodule AL.Dispatch do
   defp resolution_key(self) when is_list(self), do: {:instance, :list}
   defp resolution_key(self) when is_map(self), do: {:instance, Map.get(self, :class, :map)}
   defp resolution_key(self) when is_number(self), do: {:instance, :number}
+  defp resolution_key(self) when is_binary(self), do: {:instance, :string}
   defp resolution_key(self), do: self
 
   def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)
@@ -611,8 +610,7 @@ defmodule AL.Dispatch do
   end
 
   defp has_matching_clause?(id, call_args, store, branch) do
-    id in @primitive_methods or native_bound?(id, branch) or
-      any_clause_matches?(id, call_args, store, branch)
+    native_bound?(id, branch) or any_clause_matches?(id, call_args, store, branch)
   end
 
   # True whenever a durable :native fact exists for `id`, regardless of

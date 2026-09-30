@@ -13,7 +13,9 @@ defmodule Examples.ALStorage do
   example durable_identities_are_atoms() do
     result =
       run branch: Examples.Support.branch() do
-        vm_set_class([:not, :an_identity], :object)
+        ~AL"""
+        vm_set_class [not, an_identity] object.
+        """
       end
 
     assert {:aborted, reason} = result
@@ -26,29 +28,32 @@ defmodule Examples.ALStorage do
   example set_slot_and_get_route_by_declared_storage() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :storage_probe,
-          super: :object,
-          ivars: [:regulators, %{name: :concentration, storage: :soa}] do
-        end
+        ~AL"""
+        @storage_probe
+        #{
+          super => object,
+          ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
+        }.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:storage_probe, obj)
-        set_slot(obj, :regulators, [:geneA])
-        set_slot(obj, :concentration, 5)
-
-        get(obj, :regulators, regulators)
-        get(obj, :concentration, concentration)
-
-        slot(obj, :regulators, regulators_direct)
-        slot(obj, :concentration, concentration_direct, :soa)
+        ~AL"""
+        new storage_probe Obj.
+        set_slot Obj regulators [geneA].
+        set_slot Obj concentration 5.
+        get Obj regulators Regulators.
+        get Obj concentration Concentration.
+        slot Obj regulators RegulatorsDirect.
+        slot Obj concentration ConcentrationDirect soa.
+        """
       end
 
-    assert Map.get(bindings, :"$regulators") == [:geneA]
-    assert Map.get(bindings, :"$concentration") == 5
-    assert Map.get(bindings, :"$regulators_direct") == [:geneA]
-    assert Map.get(bindings, :"$concentration_direct") == 5
+    assert Map.get(bindings, :"$Regulators") == [:geneA]
+    assert Map.get(bindings, :"$Concentration") == 5
+    assert Map.get(bindings, :"$RegulatorsDirect") == [:geneA]
+    assert Map.get(bindings, :"$ConcentrationDirect") == 5
     :ok
   end
 
@@ -59,28 +64,29 @@ defmodule Examples.ALStorage do
   example construction_routes_a_storage_soa_ivar_to_soa() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :storage_probe_construction,
-          super: :object,
-          ivars: [:regulators, %{name: :concentration, storage: :soa}] do
-        end
+        ~AL"""
+        @storage_probe_construction
+        #{
+          super => object,
+          ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
+        }.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:storage_probe_construction, %{regulators: [:geneA], concentration: 5}, obj)
-
-        slot(obj, :regulators, regulators_direct)
-        slot(obj, :concentration, concentration_direct, :soa)
-
-        findall([k, v], all_slots) do
-          slot(obj, k, v)
-        end
+        ~AL"""
+        new storage_probe_construction #{concentration => 5, regulators => [geneA]} Obj.
+        slot Obj regulators RegulatorsDirect.
+        slot Obj concentration ConcentrationDirect soa.
+        findall [K, V] AllSlots (slot Obj K V).
+        """
       end
 
-    assert Map.get(bindings, :"$regulators_direct") == [:geneA]
-    assert Map.get(bindings, :"$concentration_direct") == 5
+    assert Map.get(bindings, :"$RegulatorsDirect") == [:geneA]
+    assert Map.get(bindings, :"$ConcentrationDirect") == 5
     # `concentration` never enters the `slots` map at all -- only `regulators` does.
-    assert Map.get(bindings, :"$all_slots") == [[:regulators, [:geneA]]]
+    assert Map.get(bindings, :"$AllSlots") == [[:regulators, [:geneA]]]
     :ok
   end
 
@@ -91,25 +97,29 @@ defmodule Examples.ALStorage do
   example an_unrelated_slot_write_never_disturbs_a_storage_soa_slot() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :storage_probe_independence,
-          super: :object,
-          ivars: [:regulators, %{name: :concentration, storage: :soa}] do
-        end
+        ~AL"""
+        @storage_probe_independence
+        #{
+          super => object,
+          ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
+        }.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:storage_probe_independence, obj)
-        set_slot(obj, :concentration, 5)
-        set_slot(obj, :regulators, [:geneA])
-        set_slot(obj, :regulators, [:geneA, :geneB])
-
-        get(obj, :concentration, concentration)
-        get(obj, :regulators, regulators)
+        ~AL"""
+        new storage_probe_independence Obj.
+        set_slot Obj concentration 5.
+        set_slot Obj regulators [geneA].
+        set_slot Obj regulators [geneA, geneB].
+        get Obj concentration Concentration.
+        get Obj regulators Regulators.
+        """
       end
 
-    assert Map.get(bindings, :"$concentration") == 5
-    assert Map.get(bindings, :"$regulators") == [:geneA, :geneB]
+    assert Map.get(bindings, :"$Concentration") == 5
+    assert Map.get(bindings, :"$Regulators") == [:geneA, :geneB]
     :ok
   end
 end

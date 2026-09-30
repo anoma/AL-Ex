@@ -12,7 +12,7 @@ defmodule AL.SourceStore do
   }
 
   @type origin() :: %{optional(atom()) => term(), kind: atom()}
-  @type source_range() :: AL.Source.Parser.Capture.source_range()
+  @type source_range() :: AL.Syntax.Capture.source_range()
   @type source_text_record() :: {:source_text, non_neg_integer(), String.t(), origin()}
   @type source_span_record() ::
           {:source_span, non_neg_integer(), non_neg_integer(), :defmethod | :defclass,

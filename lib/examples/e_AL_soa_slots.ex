@@ -13,18 +13,22 @@ defmodule Examples.ALSoaSlots do
   example vm_get_slot_soa_finds_a_value_written_via_set_slot() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :soa_slot_probe, super: :object, ivars: [%{name: :level, storage: :soa}] do
-        end
+        ~AL"""
+        @soa_slot_probe
+        #{super => object, ivars => [#{name => level, storage => soa}]}.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:soa_slot_probe, obj)
-        set_slot(obj, :level, 1)
-        slot(obj, :level, v, :soa)
+        ~AL"""
+        new soa_slot_probe Obj.
+        set_slot Obj level 1.
+        slot Obj level V soa.
+        """
       end
 
-    assert Map.get(bindings, :"$v") == 1
+    assert Map.get(bindings, :"$V") == 1
     :ok
   end
 
@@ -32,21 +36,23 @@ defmodule Examples.ALSoaSlots do
   example a_second_set_slot_supersedes_the_first_for_the_same_key() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :soa_slot_probe_resets,
-          super: :object,
-          ivars: [%{name: :level, storage: :soa}] do
-        end
+        ~AL"""
+        @soa_slot_probe_resets
+        #{super => object, ivars => [#{name => level, storage => soa}]}.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:soa_slot_probe_resets, obj)
-        set_slot(obj, :level, 1)
-        set_slot(obj, :level, 2)
-        slot(obj, :level, v, :soa)
+        ~AL"""
+        new soa_slot_probe_resets Obj.
+        set_slot Obj level 1.
+        set_slot Obj level 2.
+        slot Obj level V soa.
+        """
       end
 
-    assert Map.get(bindings, :"$v") == 2
+    assert Map.get(bindings, :"$V") == 2
     :ok
   end
 
@@ -57,31 +63,30 @@ defmodule Examples.ALSoaSlots do
   example vm_get_slot_soa_finds_the_value_across_many_objects() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do
-        defclass :soa_slot_probe_many,
-          super: :object,
-          ivars: [%{name: :soa_slot_probe_many_level, storage: :soa}] do
-        end
+        ~AL"""
+        @soa_slot_probe_many
+        #{super => object, ivars => [#{name => soa_slot_probe_many_level, storage => soa}]}.
+        """
       end
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        new(:soa_slot_probe_many, obj1)
-        new(:soa_slot_probe_many, obj2)
-        set_slot(obj1, :soa_slot_probe_many_level, 1)
-        set_slot(obj2, :soa_slot_probe_many_level, 2)
-
-        findall([o, v], results) do
-          slot(o, :soa_slot_probe_many_level, v, :soa)
-        end
+        ~AL"""
+        new soa_slot_probe_many Obj1.
+        new soa_slot_probe_many Obj2.
+        set_slot Obj1 soa_slot_probe_many_level 1.
+        set_slot Obj2 soa_slot_probe_many_level 2.
+        findall [O, V] Results (slot O soa_slot_probe_many_level V soa).
+        """
       end
 
     expected =
       Enum.sort([
-        [Map.get(bindings, :"$obj1"), 1],
-        [Map.get(bindings, :"$obj2"), 2]
+        [Map.get(bindings, :"$Obj1"), 1],
+        [Map.get(bindings, :"$Obj2"), 2]
       ])
 
-    assert Enum.sort(Map.get(bindings, :"$results")) == expected
+    assert Enum.sort(Map.get(bindings, :"$Results")) == expected
     :ok
   end
 end

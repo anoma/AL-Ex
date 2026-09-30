@@ -1,22 +1,22 @@
 defmodule ALSerialisationTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
   alias AL.Serialisation.Document
   alias AL.Serialisation.Document.Method
 
   test "projects one table-derived document per owner and preserves method text" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_definition")
 
     source = """
-    defclass #{inspect(class)}, super: :object do
-      defmethod(:ping, [self, :pong]) do
-        # retained exactly
-        self = self
-      end
-    end
+    @#{al(class)} \#{super => object}.
+
+    #{al(class)} >> ping
+    | Self pong |
+      # retained exactly
+      = Self Self.
     """
 
     try do
@@ -32,8 +32,29 @@ defmodule ALSerialisationTest do
       assert document.supers == [:object]
       assert document.ivars == []
       assert [%Method{selector: :ping} = method] = document.methods
-      assert method.declaration == ":ping, [self, :pong]"
-      assert method.body == "  # retained exactly\n  self = self"
+      assert method.declaration == "ping\n| Self pong |"
+      assert method.body == "# retained exactly\n= Self Self"
+    after
+      AL.Branch.discard(branch)
+      File.rm_rf!(root)
+    end
+  end
+
+  test "reserialising unchanged definitions leaves their files untouched" do
+    branch = AL.TestBranch.fork()
+    root = temporary_root()
+    class = fresh_id("serialisation_untouched")
+
+    try do
+      assert {:atomic, _} =
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
+
+      assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
+      path = AL.Serialisation.definition_path(root, branch, class)
+      %File.Stat{inode: inode, mtime: mtime} = File.stat!(path, time: :posix)
+
+      assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
+      assert %File.Stat{inode: ^inode, mtime: ^mtime} = File.stat!(path, time: :posix)
     after
       AL.Branch.discard(branch)
       File.rm_rf!(root)
@@ -41,13 +62,13 @@ defmodule ALSerialisationTest do
   end
 
   test "a non-class method owner is serialised as an extension document" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     owner = fresh_id("serialisation_extension")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defmethod(#{inspect(owner)}, :ping, [self])\n", branch)
+               AL.eval_source("#{al(owner)} >> ping\n| Self |.\n", branch)
 
       assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
 
@@ -63,15 +84,15 @@ defmodule ALSerialisationTest do
   end
 
   test "editing retained method source replaces clauses and preserves method identity" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_method_edit")
 
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "defclass #{inspect(class)}, super: :object do\n" <>
-                   "  defmethod(:pick, [self, :old])\nend\n",
+                 "@#{al(class)} \#{super => object}.\n\n" <>
+                   "#{al(class)} >> pick\n| Self old |.\n",
                  branch
                )
 
@@ -82,11 +103,11 @@ defmodule ALSerialisationTest do
 
       document = read_document(path)
       [method] = Enum.filter(document.methods, &(&1.selector == :pick))
-      edited = "  # file edit\n  pass"
+      edited = "# file edit\npass"
 
       write_document(path, %{
         document
-        | methods: [%{method | declaration: ":pick, [self, :edited]", body: edited}]
+        | methods: [%{method | declaration: "pick\n| Self edited |", body: edited}]
       })
 
       assert eventually(fn -> clause_values(id, branch) == [:edited] end)
@@ -103,15 +124,15 @@ defmodule ALSerialisationTest do
   end
 
   test "removing a method record retracts its binding and clauses" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_method_remove")
 
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "defclass #{inspect(class)}, super: :object do\n" <>
-                   "  defmethod(:pick, [self, :old])\nend\n",
+                 "@#{al(class)} \#{super => object}.\n\n" <>
+                   "#{al(class)} >> pick\n| Self old |.\n",
                  branch
                )
 
@@ -131,15 +152,15 @@ defmodule ALSerialisationTest do
   end
 
   test "renaming a method record retracts the old binding and its clauses" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_method_rename")
 
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "defclass #{inspect(class)}, super: :object do\n" <>
-                   "  defmethod(:old_name, [self, :old])\nend\n",
+                 "@#{al(class)} \#{super => object}.\n\n" <>
+                   "#{al(class)} >> old_name\n| Self old |.\n",
                  branch
                )
 
@@ -153,7 +174,7 @@ defmodule ALSerialisationTest do
       replacement = %{
         method
         | selector: :new_name,
-          declaration: ":new_name, [self, :new]",
+          declaration: "new_name\n| Self new |",
           body: ""
       }
 
@@ -172,15 +193,15 @@ defmodule ALSerialisationTest do
   end
 
   test "editing class metadata changes live facts without recreating method objects" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_class_edit")
 
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "defclass #{inspect(class)}, super: :object do\n" <>
-                   "  defmethod(:ping, [self])\nend\n",
+                 "@#{al(class)} \#{super => object}.\n\n" <>
+                   "#{al(class)} >> ping\n| Self |.\n",
                  branch
                )
 
@@ -189,7 +210,7 @@ defmodule ALSerialisationTest do
       path = AL.Serialisation.definition_path(root, branch, class)
       assert eventually(fn -> File.exists?(path) end)
       document = read_document(path)
-      write_document(path, %{document | supers: [:value], ivars: [:rank]})
+      write_document(path, %{document | supers: [:value], ivars: [%{name: :rank}]})
 
       assert eventually(fn -> live_supers(class, branch) == [:value] end)
       assert eventually(fn -> class_ivar_names(class, branch) == [:rank] end)
@@ -202,13 +223,13 @@ defmodule ALSerialisationTest do
   end
 
   test "rewriting a document without semantic changes creates no transaction" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_noop")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -226,7 +247,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a revision-zero class document creates a new class" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_new_class")
 
@@ -235,7 +256,7 @@ defmodule ALSerialisationTest do
       owner: class,
       metaclass: :class,
       supers: [:object],
-      ivars: [:name],
+      ivars: [%{name: :name}],
       comment: nil,
       methods: []
     }
@@ -257,13 +278,13 @@ defmodule ALSerialisationTest do
   end
 
   test "a class comment and body comments survive regeneration" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_comment")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -271,14 +292,14 @@ defmodule ALSerialisationTest do
       assert eventually(fn -> AL.Serialisation.quiescent?(branch) end)
 
       document = read_document(path)
-      body = "  # a comment inside the body\n\n  self = self"
-      canonical = "  # a comment inside the body\n  self = self"
+      body = "  # a comment inside the body\n\n  = Self Self"
+      canonical = "# a comment inside the body\n= Self Self"
 
       authored = %{
         document
         | comment: "What this class is for.\nOn two lines.",
           methods: [
-            %Method{selector: :ping, declaration: ":ping, [self]", body: body}
+            %Method{selector: :ping, declaration: "ping\n| Self |", body: body}
           ]
       }
 
@@ -290,8 +311,6 @@ defmodule ALSerialisationTest do
       assert regenerated.comment == "What this class is for.\nOn two lines."
       assert File.read!(path) =~ "# a comment inside the body"
 
-      # Comments survive because they are stored goals; blank lines do not,
-      # because a regenerated document is canonical.
       assert [%Method{body: ^canonical}] = regenerated.methods
     after
       AL.Serialisation.stop(branch)
@@ -301,13 +320,13 @@ defmodule ALSerialisationTest do
   end
 
   test "deleting a class document deletes the live class" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_delete_class")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -323,15 +342,15 @@ defmodule ALSerialisationTest do
   end
 
   test "overwrites offline definition edits before watching live edits" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline")
 
     try do
       assert {:atomic, _} =
                AL.eval_source(
-                 "defclass #{inspect(class)}, super: :object do\n" <>
-                   "  defmethod(:pick, [self, :old])\nend\n",
+                 "@#{al(class)} \#{super => object}.\n\n" <>
+                   "#{al(class)} >> pick\n| Self old |.\n",
                  branch
                )
 
@@ -344,7 +363,7 @@ defmodule ALSerialisationTest do
 
       document = read_document(path)
       [method] = document.methods
-      edited = ":pick, [self, :offline]"
+      edited = "pick\n| Self offline |"
       write_document(path, %{document | methods: [%{method | declaration: edited, body: ""}]})
 
       assert :ok = AL.Serialisation.start(branch, root)
@@ -352,12 +371,12 @@ defmodule ALSerialisationTest do
       assert clause_values(id, branch) == [:old]
       assert File.read!(path) == rendered_document(class, branch)
       assert source_count(branch) == before
-      refute retained_source?(branch, edited)
+      refute retained_source?(branch, "| Self offline |")
 
-      live = ":pick, [self, :live]"
+      live = "pick\n| Self live |"
       write_document(path, %{document | methods: [%{method | declaration: live, body: ""}]})
       assert eventually(fn -> clause_values(id, branch) == [:live] end)
-      assert eventually(fn -> retained_source?(branch, live) end)
+      assert eventually(fn -> retained_source?(branch, "| Self live |") end)
     after
       AL.Serialisation.stop(branch)
       AL.Branch.discard(branch)
@@ -366,13 +385,13 @@ defmodule ALSerialisationTest do
   end
 
   test "restores an offline definition deletion from the store on restart" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline_delete")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -393,7 +412,7 @@ defmodule ALSerialisationTest do
   end
 
   test "startup removes offline definition additions without creating transactions" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_offline_added")
 
@@ -427,13 +446,13 @@ defmodule ALSerialisationTest do
   end
 
   test "a stale offline document is regenerated from the authoritative store" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_stale")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
@@ -441,7 +460,7 @@ defmodule ALSerialisationTest do
       stale = read_document(path)
       AL.Serialisation.stop(branch)
 
-      assert {:atomic, _} = AL.eval_source("vm_set_super(#{inspect(class)}, :value)\n", branch)
+      assert {:atomic, _} = AL.eval_source("vm_set_super #{al(class)} value.\n", branch)
       write_document(path, %{stale | supers: [:program_execution]})
 
       capture_log(fn -> assert :ok = AL.Serialisation.start(branch, root) end)
@@ -455,20 +474,20 @@ defmodule ALSerialisationTest do
   end
 
   test "an offline deletion is regenerated from the latest store state" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
     class = fresh_id("serialisation_stale_delete")
 
     try do
       assert {:atomic, _} =
-               AL.eval_source("defclass #{inspect(class)}, super: :object do\nend\n", branch)
+               AL.eval_source("@#{al(class)} \#{super => object}.\n", branch)
 
       assert :ok = AL.Serialisation.start(branch, root)
       path = AL.Serialisation.definition_path(root, branch, class)
       assert eventually(fn -> File.exists?(path) end)
       AL.Serialisation.stop(branch)
 
-      assert {:atomic, _} = AL.eval_source("vm_set_super(#{inspect(class)}, :value)\n", branch)
+      assert {:atomic, _} = AL.eval_source("vm_set_super #{al(class)} value.\n", branch)
       File.rm!(path)
 
       capture_log(fn -> assert :ok = AL.Serialisation.start(branch, root) end)
@@ -485,7 +504,7 @@ defmodule ALSerialisationTest do
   test "startup repairs a changed transaction file from retained source" do
     branch = AL.Branch.fork(0, AL.Branch.main())
     root = temporary_root()
-    source = "vm_set_class(:serialisation_repair, :object)\n"
+    source = "vm_set_class serialisation_repair object.\n"
 
     try do
       {:atomic, {_, _constraints, state}} = AL.eval_source(source, branch)
@@ -517,7 +536,7 @@ defmodule ALSerialisationTest do
   end
 
   test "a malformed serialisation index is repaired instead of crashing startup" do
-    branch = AL.Branch.fork()
+    branch = AL.TestBranch.fork()
     root = temporary_root()
 
     try do
@@ -554,8 +573,8 @@ defmodule ALSerialisationTest do
   test "serialises retained and failed transactions in branch order" do
     branch = AL.Branch.fork(0, AL.Branch.main())
     root = temporary_root()
-    first = "vm_set_class(:serialisation_first, :object)\n"
-    failed = "vm_set_class(:serialisation_failed, :object)\nfail()\n"
+    first = "vm_set_class serialisation_first object.\n"
+    failed = "vm_set_class serialisation_failed object.\nfail.\n"
 
     try do
       assert {:atomic, _} = AL.eval_source(first, branch)
@@ -568,6 +587,8 @@ defmodule ALSerialisationTest do
       File.rm_rf!(root)
     end
   end
+
+  defp al(term), do: AL.Syntax.Printer.term(term)
 
   defp rendered_document(owner, branch) do
     {:ok, snapshot} = AL.Serialisation.Snapshot.capture(branch)
@@ -632,10 +653,7 @@ defmodule ALSerialisationTest do
 
     case rows do
       [{:slots, ^class, %{ivars: ivars}}] ->
-        Enum.map(ivars, fn
-          {name, _opts} -> name
-          name -> name
-        end)
+        Enum.map(ivars, & &1.name)
 
       _ ->
         []

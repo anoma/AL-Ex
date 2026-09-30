@@ -57,7 +57,6 @@ defmodule AL do
   defdelegate notrace(), to: AL.Trace
   defdelegate tracepoints(), to: AL.Trace
 
-  defdelegate ast_to_pattern(ast), to: AL.Lowering
   defdelegate await_effect(effect, options \\ []), to: AL.Edge, as: :await
 
   @doc """
@@ -73,6 +72,8 @@ defmodule AL do
 
   `trace_mode` is a compatibility alias and cannot be combined with `trace`.
   """
+  defmacro sigil_AL({:<<>>, _meta, [text]}, []) when is_binary(text), do: text
+
   defmacro run(opts \\ [], do: program) do
     trace_opts = Keyword.take(opts, [:trace, :trace_mode])
 
@@ -83,13 +84,29 @@ defmodule AL do
         quote do: AL.Branch.head()
       end
 
-    case captured_source(program, __CALLER__) do
-      {:ok, result, source_text, retained_text, origin} ->
+    case program do
+      {:sigil_AL, meta, [{:<<>>, _, [text]}, []]} when is_binary(text) ->
+        source_run(text, meta, branch_ast, trace_opts, __CALLER__)
+
+      _program ->
+        raise CompileError,
+          file: __CALLER__.file,
+          line: __CALLER__.line,
+          description: ~s(AL.run takes AL source: run do ~AL"""...""" end)
+    end
+  end
+
+  defp source_run(text, meta, branch_ast, trace_opts, caller) do
+    first_line = meta[:line] + if(meta[:delimiter] == ~s("""), do: 1, else: 0)
+
+    case AL.Syntax.parse(text, pins: true) do
+      {:ok, result} ->
+        origin = %{kind: :al_run, file: Path.relative_to_cwd(caller.file), line: first_line}
+
         quote do
           AL.eval_captured(
             unquote(Macro.escape(result, unquote: true)),
-            unquote(source_text),
-            unquote(retained_text),
+            unquote(text),
             unquote(Macro.escape(origin)),
             nil,
             unquote(branch_ast),
@@ -97,41 +114,12 @@ defmodule AL do
           )
         end
 
-      :error ->
-        goals =
-          case ast_to_pattern(program) do
-            list when is_list(list) -> list
-            goal -> [goal]
-          end
-
-        escaped = Macro.escape(goals, unquote: true)
-
-        quote do: AL.eval(unquote(escaped), nil, unquote(branch_ast), unquote(trace_opts))
+      {:error, error} ->
+        raise CompileError,
+          file: caller.file,
+          line: first_line + (error.line || 1) - 1,
+          description: "AL: " <> Exception.message(error)
     end
-  end
-
-  # Best-effort compile-time source capture for `AL.run`: reads the caller's
-  # own file, extracts the run body range, and asks the parser to extract the
-  # same capture tree it would from that text at runtime. A missing readable
-  # file or a generated body falls back to evaluation without retention.
-  @spec captured_source(Macro.t(), Macro.Env.t()) ::
-          {:ok, AL.Source.Parser.Result.t(), String.t(), String.t(), AL.SourceStore.origin()}
-          | :error
-  defp captured_source(program, caller) do
-    with file when is_binary(file) <- caller.file,
-         true <- File.exists?(file),
-         {:ok, text} <- File.read(file),
-         {:ok, %AL.Source.Parser.Result{} = result} <-
-           AL.Source.Parser.capture(program, text),
-         {:ok, range} <- AL.Source.Parser.run_range(text, caller.line, Map.get(caller, :column)),
-         {:ok, retained_text} <- AL.Source.Parser.slice(text, range) do
-      {:ok, result, text, retained_text,
-       %{kind: :al_run, file: Path.relative_to_cwd(file), line: caller.line, range: range}}
-    else
-      _ -> :error
-    end
-  rescue
-    _ -> :error
   end
 
   @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
@@ -143,18 +131,17 @@ defmodule AL do
   @spec eval_source(String.t(), AL.Branch.t(), keyword()) ::
           {:atomic, {AL.Var.store(), map(), t() | nil}}
           | {:aborted, term()}
-          | {:error, String.t() | AL.Source.Parser.Error.t()}
+          | {:error, String.t() | AL.Syntax.Error.t()}
   def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
-    with {:ok, result} <- AL.Source.Parser.parse(text),
-         {:ok, source} <- AL.Source.prepare(result, text) do
+    with {:ok, result} <- AL.Syntax.parse(text),
+         {:ok, source} <- AL.Source.prepare(result, %{kind: :eval_source, label: nil}, text) do
       eval_program(source.program, nil, branch, opts, source)
     end
   end
 
   @doc false
   @spec eval_captured(
-          AL.Source.Parser.Result.t(),
-          String.t(),
+          AL.Syntax.Result.t(),
           String.t(),
           AL.SourceStore.origin(),
           AL.Var.store() | nil,
@@ -164,15 +151,12 @@ defmodule AL do
           {:atomic, {AL.Var.store(), map(), t() | nil}}
           | {:aborted, term()}
           | {:error, term()}
-  def eval_captured(result, source_text, retained_text, origin, initial_store, branch, opts) do
-    case AL.Source.prepare(result, source_text, origin, retained_text) do
+  def eval_captured(result, text, origin, initial_store, branch, opts) do
+    case AL.Source.prepare(result, origin, text) do
       {:ok, source} -> eval_program(source.program, initial_store, branch, opts, source)
       {:error, _error} -> eval_program(result.program, initial_store, branch, opts, nil)
     end
   end
-
-  def eval_captured(result, text, origin, initial_store, branch, opts),
-    do: eval_captured(result, text, text, origin, initial_store, branch, opts)
 
   @doc """
   Runs a goal list in a Mnesia transaction. Returns
@@ -823,6 +807,7 @@ defmodule AL do
   end
 
   defp constraint_goal?(%Goal.Compare{}), do: true
+  defp constraint_goal?(%Goal.FloorDivide{}), do: true
 
   defp constraint_goal?(%Goal.Eq{a: a, b: b}),
     do: AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b)
@@ -1091,19 +1076,22 @@ defmodule AL do
   def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetCommand{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.BranchEdge{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.BranchMeta{} = g, state), do: AL.Interp.Relations.interp(g, state)
+  def interp(%Goal.CurrentBranch{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.TransactionSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
   def interp(%Goal.MethodSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
   def interp(%Goal.GetSlotAt{} = g, state), do: AL.Interp.Relations.interp(g, state)
 
-  def interp(%Goal.OApply{method_id: :fresh_id, args: [result]}, state),
+  def interp(%Goal.OApply{method_id: :vm_fresh_id, args: [result]}, state),
     do: put_bindings(state, unify(state, result, AL.Command.fresh_id(state.branch)), [result])
 
-  def interp(%Goal.OApply{method_id: :current_tx, args: [result]}, state),
+  def interp(%Goal.OApply{method_id: :vm_current_tx, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.tx_id), [result])
 
-  def interp(%Goal.OApply{method_id: :transaction_object, args: [result]}, state),
+  def interp(%Goal.OApply{method_id: :vm_transaction_object, args: [result]}, state),
     do: put_bindings(state, unify(state, result, state.transaction_object), [result])
 
   def interp(%Goal.OApply{method_id: :spawn_transaction, args: [goals]}, state) do
@@ -1114,43 +1102,10 @@ defmodule AL do
     schedule_future_transaction(state, :waiting, effect, head, goals)
   end
 
-  def interp(
-        %Goal.OApply{
-          method_id: :source_method_parts,
-          args: [entry, method, head, body, source_kind, capture_id]
-        },
-        state
-      ) do
-    case entry do
-      [entry_method, entry_head, entry_body] ->
-        result =
-          unify(
-            state,
-            {method, head, body, source_kind},
-            {entry_method, entry_head, entry_body, :plain}
-          )
-
-        put_bindings(state, result, [method, head, body, source_kind])
-
-      {:al_source_method, entry_capture_id, entry_method, entry_head, entry_body} ->
-        result =
-          unify(
-            state,
-            {method, head, body, source_kind, capture_id},
-            {entry_method, entry_head, entry_body, :retained, entry_capture_id}
-          )
-
-        put_bindings(state, result, [method, head, body, source_kind, capture_id])
-
-      _other ->
-        backtrack(state)
-    end
-  end
-
-  def interp(%Goal.OApply{method_id: :map_get, args: [m, _k, _v]}, state) when not is_map(m),
+  def interp(%Goal.OApply{method_id: :vm_map_get, args: [m, _k, _v]}, state) when not is_map(m),
     do: backtrack(state)
 
-  def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
+  def interp(%Goal.OApply{method_id: :vm_map_get, args: [m, k_pattern, v_pattern]}, state) do
     if ground?(k_pattern) do
       case Map.fetch(m, k_pattern) do
         {:ok, v} ->
@@ -1169,11 +1124,11 @@ defmodule AL do
     end
   end
 
-  def interp(%Goal.OApply{method_id: :map_put, args: [m1, _k, _v, _m2]}, state)
+  def interp(%Goal.OApply{method_id: :vm_map_put, args: [m1, _k, _v, _m2]}, state)
       when not is_map(m1),
       do: backtrack(state)
 
-  def interp(%Goal.OApply{method_id: :map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
+  def interp(%Goal.OApply{method_id: :vm_map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
     do: put_bindings(state, unify(state, m2, Map.put(m1, k_pattern, v_pattern)), [m2])
 
   # cached: AL.ResolutionCache.fetch_ivar_specs, see AL.Dispatch. self must
@@ -1181,8 +1136,8 @@ defmodule AL do
   # wildcard (to_mnesia_pattern treats an open var as "match anything"),
   # scanning every object's class instead of just this one and corrupting
   # the resolved spec list. Backtrack rather than guess, same as
-  # `:map_get`'s `when not is_map(m)` guard above.
-  def interp(%Goal.OApply{method_id: :cached_ivar_specs, args: [self, result]}, state) do
+  # `:vm_map_get`'s `when not is_map(m)` guard above.
+  def interp(%Goal.OApply{method_id: :vm_cached_ivar_specs, args: [self, result]}, state) do
     self_ground = AL.Var.deref(store(state), self)
 
     if AL.Var.var?(self_ground) do
@@ -1193,7 +1148,7 @@ defmodule AL do
     end
   end
 
-  def interp(%Goal.OApply{method_id: :cached_find_ivar_spec, args: [self, key, result]}, state) do
+  def interp(%Goal.OApply{method_id: :vm_cached_find_ivar_spec, args: [self, key, result]}, state) do
     self_ground = AL.Var.deref(store(state), self)
     key_ground = AL.Var.deref(store(state), key)
 
@@ -1494,6 +1449,46 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
+    if AL.Var.var?(term) do
+      with true <- is_atom(name) and not AL.Var.var?(name) and proper_list?(args),
+           %_{} = goal <- Goal.from_call_form(name, args) do
+        put_bindings(state, unify(state, term, goal), [term])
+      else
+        _ -> backtrack(state)
+      end
+    else
+      case Goal.call_form(term) do
+        {term_name, term_args} ->
+          put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
+
+        nil ->
+          backtrack(state)
+      end
+    end
+  end
+
+  def interp(%Goal.Variant{a: a, b: b}, state) do
+    if variant_renaming(a, b, {%{}, %{}}), do: state, else: backtrack(state)
+  end
+
+  def interp(%Goal.StringCodes{string: string, codes: codes} = goal, state) do
+    cond do
+      is_binary(string) and String.valid?(string) ->
+        put_bindings(state, unify(state, String.to_charlist(string), codes), [codes])
+
+      AL.Var.var?(string) ->
+        case code_list(codes, []) do
+          {:ok, list} -> put_bindings(state, unify(state, string, List.to_string(list)), [string])
+          {:open, var} -> suspend(state, [string, var], goal)
+          :error -> backtrack(state)
+        end
+
+      true ->
+        backtrack(state)
+    end
+  end
+
   # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
   # AL.Var.bind/4 rechecks on each future bind.
   def interp(%Goal.Dif{a: a, b: b}, state) do
@@ -1556,6 +1551,16 @@ defmodule AL do
           nil -> backtrack(state)
           new_store -> put_bindings(state, new_store, [a, b])
         end
+    end
+  end
+
+  def interp(
+        %Goal.FloorDivide{dividend: dividend, divisor: divisor, quotient: quotient},
+        state
+      ) do
+    case AL.Var.Bounds.floor_divide(store(state), dividend, divisor, quotient, state.branch) do
+      nil -> backtrack(state)
+      new_store -> put_bindings(state, new_store, [dividend, divisor, quotient])
     end
   end
 
@@ -1904,6 +1909,82 @@ defmodule AL do
   defp format_decimal(term), do: inspect(term)
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | rest]), do: proper_list?(rest)
+  defp proper_list?(_term), do: false
+
+  defp code_list([], codes), do: {:ok, Enum.reverse(codes)}
+
+  defp code_list([code | rest], codes) do
+    cond do
+      AL.Var.var?(code) -> {:open, code}
+      codepoint?(code) -> code_list(rest, [code | codes])
+      true -> :error
+    end
+  end
+
+  defp code_list(rest, _codes) do
+    if AL.Var.var?(rest), do: {:open, rest}, else: :error
+  end
+
+  defp codepoint?(code),
+    do: is_integer(code) and code in 0..0x10FFFF and code not in 0xD800..0xDFFF
+
+  defp suspend(state, vars, goal) do
+    choice = state.active_choicepoint
+
+    suspensions =
+      Enum.reduce(vars, choice.suspensions, fn var, suspensions ->
+        Map.update(suspensions, var, [goal], &(&1 ++ [goal]))
+      end)
+
+    %AL{state | active_choicepoint: %AL.Choicepoint{choice | suspensions: suspensions}}
+  end
+
+  defp variant_renaming(a, b, renaming) do
+    case {AL.Var.var?(a), AL.Var.var?(b)} do
+      {true, true} -> rename_variant(a, b, renaming)
+      {false, false} -> variant_structure(a, b, renaming)
+      _ -> nil
+    end
+  end
+
+  defp rename_variant(:"$_", _b, renaming), do: renaming
+  defp rename_variant(_a, :"$_", renaming), do: renaming
+
+  defp rename_variant(a, b, {forward, backward} = renaming) do
+    case {Map.fetch(forward, a), Map.fetch(backward, b)} do
+      {{:ok, ^b}, {:ok, ^a}} -> renaming
+      {:error, :error} -> {Map.put(forward, a, b), Map.put(backward, b, a)}
+      _ -> nil
+    end
+  end
+
+  defp variant_structure([ha | ta], [hb | tb], renaming) do
+    with renaming when not is_nil(renaming) <- variant_renaming(ha, hb, renaming) do
+      variant_renaming(ta, tb, renaming)
+    end
+  end
+
+  defp variant_structure(a, b, renaming)
+       when is_tuple(a) and is_tuple(b) and tuple_size(a) == tuple_size(b),
+       do: variant_renaming(Tuple.to_list(a), Tuple.to_list(b), renaming)
+
+  defp variant_structure(a, b, renaming)
+       when is_map(a) and is_map(b) and map_size(a) == map_size(b) do
+    if Enum.sort(Map.keys(a)) == Enum.sort(Map.keys(b)) do
+      Enum.reduce_while(Map.keys(a), renaming, fn key, renaming ->
+        case variant_renaming(Map.fetch!(a, key), Map.fetch!(b, key), renaming) do
+          nil -> {:halt, nil}
+          renaming -> {:cont, renaming}
+        end
+      end)
+    end
+  end
+
+  defp variant_structure(a, a, renaming), do: renaming
+  defp variant_structure(_a, _b, _renaming), do: nil
 
   defp schedule_future_transaction(state, status, effect, head, goals) do
     future = AL.Var.var("future_transaction_#{fresh_scope()}")

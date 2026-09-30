@@ -12,10 +12,9 @@ defmodule ALPackageImportTest do
     AL.Branch.checkout(branch)
 
     :ok =
-      AL.TransactionProgram.install_all([
-        AL.TransactionProgram.Bootstrap,
-        AL.TransactionProgram.PackageSystem
-      ])
+      AL.TransactionProgram.install_all(
+        Enum.map([:bootstrap, :package_system], &AL.TransactionProgram.load/1)
+      )
 
     root = Path.join(System.tmp_dir!(), "al_package_import_#{System.unique_integer([:positive])}")
 
@@ -42,24 +41,26 @@ defmodule ALPackageImportTest do
 
     result =
       AL.run branch: branch.id do
-        class(:fixture, :package)
-        super(:fixture, :package_build)
-        active_build(:fixture, ^build)
-        class(:fixture_value, :class)
-        new(:fixture_value, fixture_value)
-        value(fixture_value, :ok)
-        class(^build, :fixture)
-        build_package(^build, :fixture)
-        build_version(^build, 1)
-        dependency_builds(^build, [])
-        build_digest(^build, _)
-        build_provider(^build, ^provider)
-        build_status(^build, :complete)
-        class(^provider, :package_provider)
-        provides(^provider, :fixture)
-        provider_version(^provider, 1)
-        provider_requirements(^provider, [])
-        provider_source(^provider, _)
+        ~AL"""
+        class fixture package.
+        super fixture package_build.
+        active_build fixture ^build.
+        class fixture_value class.
+        new fixture_value FixtureValue.
+        value FixtureValue ok.
+        class ^build fixture.
+        build_package ^build fixture.
+        build_version ^build 1.
+        dependency_builds ^build [].
+        build_digest ^build _.
+        build_provider ^build ^provider.
+        build_status ^build complete.
+        class ^provider package_provider.
+        provides ^provider fixture.
+        provider_version ^provider 1.
+        provider_requirements ^provider [].
+        provider_source ^provider _.
+        """
       end
 
     assert {:atomic, _} = result
@@ -67,7 +68,8 @@ defmodule ALPackageImportTest do
     assert {:atomic, [_]} =
              :mnesia.transaction(fn ->
                Enum.filter(AL.SourceStore.texts(branch), fn {:source_text, _tx, source, origin} ->
-                 source =~ "defmethod(:fixture_value" and origin.kind == :package_activation
+                 source =~ "fixture_value >> value\n| _Self ok |" and
+                   origin.kind == :package_activation
                end)
              end)
 
@@ -173,20 +175,19 @@ defmodule ALPackageImportTest do
 
     result =
       AL.run branch: branch.id do
-        class(:application_value, :class)
-        class(:dependency_value, :class)
-        active_build(:application_package, ^application_build)
-        active_build(:dependency, ^dependency_build)
-
-        dependency_builds(^application_build, [
-          %{package: :dependency, build: ^dependency_build}
-        ])
+        ~AL"""
+        class application_value class.
+        class dependency_value class.
+        active_build application_package ^application_build.
+        active_build dependency ^dependency_build.
+        dependency_builds ^application_build [#{build => ^dependency_build, package => dependency}].
+        """
       end
 
     assert {:atomic, _} = result
   end
 
-  test "startup reuses its active graph until an explicit channel update", %{
+  test "startup keeps its active graph until the channel content changes", %{
     branch: branch,
     root: root
   } do
@@ -208,16 +209,16 @@ defmodule ALPackageImportTest do
     first_build = AL.Package.active_build(:configured_fixture, branch)
     assert first_build
 
-    definition
-    |> File.read!()
-    |> String.replace("[_self, :ok]", "[_self, :changed]")
-    |> then(&File.write!(definition, &1))
-
     assert :ok = AL.Package.ensure_configured(branch: branch)
     assert AL.Package.active_build(:configured_fixture, branch) == first_build
     assert length(AL.Package.builds(:configured_fixture, branch)) == 1
 
-    assert :ok = AL.Package.update_configured(branch: branch)
+    definition
+    |> File.read!()
+    |> String.replace("| _Self ok |", "| _Self changed |")
+    |> then(&File.write!(definition, &1))
+
+    assert :ok = AL.Package.ensure_configured(branch: branch)
     second_build = AL.Package.active_build(:configured_fixture, branch)
     assert second_build != first_build
     assert length(AL.Package.builds(:configured_fixture, branch)) == 2
@@ -225,8 +226,10 @@ defmodule ALPackageImportTest do
 
     result =
       AL.run branch: branch.id do
-        new(:configured_value, configured_value)
-        value(configured_value, :changed)
+        ~AL"""
+        new configured_value ConfiguredValue.
+        value ConfiguredValue changed.
+        """
       end
 
     assert {:atomic, _} = result
@@ -275,15 +278,17 @@ defmodule ALPackageImportTest do
 
     result =
       AL.run branch: branch.id do
-        build_provider(^first_build, ^first_provider_id)
-        provider_channel(^first_provider_id, first_channel)
-        provider_channel(^second_provider_id, second_channel)
-        provides(^first_provider_id, :shared)
-        provides(^second_provider_id, :shared)
+        ~AL"""
+        build_provider ^first_build ^first_provider_id.
+        provider_channel ^first_provider_id FirstChannel.
+        provider_channel ^second_provider_id SecondChannel.
+        provides ^first_provider_id shared.
+        provides ^second_provider_id shared.
+        """
       end
 
     assert {:atomic, {bindings, _constraints, _}} = result
-    assert bindings[:"$first_channel"] != bindings[:"$second_channel"]
+    assert bindings[:"$FirstChannel"] != bindings[:"$SecondChannel"]
   end
 
   test "rejects dependency cycles", %{root: root} do
@@ -339,34 +344,40 @@ defmodule ALPackageImportTest do
 
     result =
       AL.run branch: branch.id do
-        class(:users, :package)
-        class(^users_build, :users)
-        class(:user, :class)
-        class(:owned, :class)
-        class(:elixir_process, :package)
-        class(^elixir_process_build, :elixir_process)
-        class(:process, :class)
-        method(:owned, :update, _)
-        method(:owned, :may, _)
-        method(:process, :allocate, _)
-        method(:process, :init, _)
+        ~AL"""
+        class users package.
+        class ^users_build users.
+        class user class.
+        class owned class.
+        class elixir_process package.
+        class ^elixir_process_build elixir_process.
+        class process class.
+        method owned update _.
+        method owned may _.
+        method process allocate _.
+        method process init _.
+        """
       end
 
     assert {:atomic, _} = result
 
     creation =
       AL.run branch: branch.id do
-        new(:user, %{name: :dana}, dana)
-        new(:owned, %{owner: dana, data: :guarded}, owned)
+        ~AL"""
+        new user #{name => dana} Dana.
+        new owned #{data => guarded, owner => Dana} Owned.
+        """
       end
 
     assert {:atomic, {bindings, _constraints, _}} = creation
 
-    owned = Map.fetch!(bindings, :"$owned")
+    owned = Map.fetch!(bindings, :"$Owned")
 
     rejected =
       AL.run branch: branch.id do
-        update(^owned, caller, [%{data: :leaked}])
+        ~AL"""
+        update ^owned Caller [#{data => leaked}].
+        """
       end
 
     assert {:aborted, _} = rejected
@@ -408,40 +419,38 @@ defmodule ALPackageImportTest do
     write_bundle(root, :legacy, [])
     write_definition(root, :legacy_value)
 
-    Code.compile_string("""
-    defmodule Examples.LegacyPackageFixture do
-      use AL.TransactionProgram
+    program =
+      AL.TransactionProgram.from_source(
+        """
+        defprogram legacy \#{version => 1, deps => [bootstrap]}.
 
-      defprogram :legacy, version: 1, deps: [:bootstrap] do
-        defclass :legacy_value, super: :object do
-          defmethod(:value, [_self, :ok])
-        end
+        @legacy_value \#{super => object}.
+
+        legacy_value >> value
+        | _Self ok |.
+        """,
+        %{kind: :transaction_program, file: "legacy.al"}
+      )
+
+    assert {:atomic, _} = AL.TransactionProgram.install(program)
+    assert AL.TransactionProgram.installed?(:legacy, branch)
+
+    assert {:ok, %{package: :legacy}} = AL.Package.import(root, branch: branch)
+
+    refute AL.TransactionProgram.installed?(:legacy, branch)
+    assert AL.Package.installed?(:legacy, branch)
+
+    result =
+      AL.run branch: branch.id do
+        ~AL"""
+        class legacy package.
+        class legacy_value class.
+        new legacy_value LegacyValue.
+        value LegacyValue ok.
+        """
       end
-    end
-    """)
 
-    try do
-      assert {:atomic, _} = apply(Examples.LegacyPackageFixture, :install, [])
-      assert AL.TransactionProgram.installed?(:legacy, branch)
-
-      assert {:ok, %{package: :legacy}} = AL.Package.import(root, branch: branch)
-
-      refute AL.TransactionProgram.installed?(:legacy, branch)
-      assert AL.Package.installed?(:legacy, branch)
-
-      result =
-        AL.run branch: branch.id do
-          class(:legacy, :package)
-          class(:legacy_value, :class)
-          new(:legacy_value, legacy_value)
-          value(legacy_value, :ok)
-        end
-
-      assert {:atomic, _} = result
-    after
-      :code.purge(Examples.LegacyPackageFixture)
-      :code.delete(Examples.LegacyPackageFixture)
-    end
+    assert {:atomic, _} = result
   end
 
   defp write_bundle(root, name, deps) do
@@ -457,16 +466,11 @@ defmodule ALPackageImportTest do
     path = Path.join(root, "definitions/#{owner}.class.al")
 
     File.write!(path, """
-    Class {
-      #name : #{inspect(owner)},
-      #superclass : [:object],
-      #metaclass : :class,
-      #ivars : []
-    }
+    @#{owner} \#{super => object}.
 
-    #{inspect(owner)} >> :value, [_self, :ok] [
-      pass
-    ]
+    #{owner} >> value
+    | _Self ok |
+      pass.
     """)
 
     path

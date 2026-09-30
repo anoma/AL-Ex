@@ -60,12 +60,19 @@ defmodule AL.Branch do
     create_fork(%__MODULE__{id: :"fork_#{System.unique_integer([:positive])}"}, at, from)
   end
 
+  @spec fork_stable(t()) :: t()
+  def fork_stable(from = %__MODULE__{}) do
+    unless from == main() or from in list() do
+      raise ArgumentError, "cannot fork from unknown branch #{inspect(from)}"
+    end
+
+    create_fork(%__MODULE__{id: :"fork_#{System.unique_integer([:positive])}"}, :tip, from, :copy)
+  end
+
   @doc """
   Fork an empty branch and install all configured transaction programs and package
-  bundles fresh from current source — decoupled from `:main`'s own install state,
-  which is sticky by name and can be stale across sessions.
-  Non-destructive; doesn't touch `:main` or HEAD. Use to verify a source
-  change without `mix al.reset`.
+  bundles fresh from current source, independent of anything else `:main` holds.
+  Non-destructive; doesn't touch `:main` or HEAD.
 
       branch = AL.Branch.fork_fresh()
       run branch: branch.id do ... end
@@ -85,48 +92,71 @@ defmodule AL.Branch do
   end
 
   @doc """
-  Ensure an `:examples` branch exists — created once, from whatever `:main`
-  has installed at the time, then left alone. A shared, persistent branch
-  like `:main` itself, not a per-boot reset: with the store shared across
-  concurrently running processes (see `AL.Command.setup/0`), discarding and
-  recreating it on every boot would race with whichever other node is
-  currently using it. Called at every `AL.Application.start/2`, so this has
-  to be safe for a joiner to call too — see `reset_examples/0` for the
-  destructive, explicit-opt-in version `test/test_helper.exs` uses.
+  Ensure an `:examples` branch exists, forking it from `:main`'s tip when it
+  doesn't. Left alone when it already exists, so a joiner can call this safely
+  at boot.
   """
   @spec ensure_examples() :: t()
   def ensure_examples() do
-    if %__MODULE__{id: :examples} in list(),
-      do: %__MODULE__{id: :examples},
-      else: fork_fresh(main(), :examples)
+    if examples() in list(), do: examples(), else: create_fork(examples(), :tip, main())
+  end
+
+  @doc "Reset `:examples` to its fork point. `test/test_helper.exs` calls this for a clean slate."
+  @spec reset_examples() :: t()
+  def reset_examples() do
+    if examples() in list(), do: reset(examples()), else: ensure_examples()
+  end
+
+  @doc "Reset `:examples` to a point of `:main`. Boot resets it to `:tip` after installing new source."
+  @spec reset_examples_to(non_neg_integer() | :tip) :: t()
+  def reset_examples_to(at) do
+    if examples() in list(), do: reset_to(examples(), at), else: ensure_examples()
   end
 
   @doc """
-  Discard and recreate `:examples` fresh from `:main`'s current install —
-  the old `ensure_examples/0` behaviour, split out because it's no longer
-  safe to run on every app boot (a joiner discarding a branch another live
-  node is using). `mix test` wants it though: every example's `defclass`
-  assumes a clean slate each run, not whatever an earlier run (or another
-  session) left behind. `test/test_helper.exs` calls this once, explicitly,
-  rather than it happening implicitly for every process that starts the
-  app — a deliberate "I'm about to run the suite, reset the shared examples
-  branch" action, not an accident of booting.
+  Reset a fork to its fork point: drop everything written on it since, and
+  fork its parent again at the recorded point.
   """
-  @spec reset_examples() :: t()
-  def reset_examples() do
-    if %__MODULE__{id: :examples} in list(), do: discard(%__MODULE__{id: :examples})
-    fork_fresh(main(), :examples)
+  @spec reset(t()) :: t()
+  def reset(branch), do: reset_to(branch, AL.Command.fork_point(branch))
+
+  @doc """
+  Reset a fork to another point of its parent, dropping everything written on
+  it since it was forked. Its place in the lineage, children included, stays.
+  """
+  @spec reset_to(t(), non_neg_integer() | :tip) :: t()
+  def reset_to(%__MODULE__{id: id} = branch, at) when id != :main do
+    {:atomic, parent} = :mnesia.transaction(fn -> parent_of(id) end)
+    drop(branch)
+    create_fork(branch, at, %__MODULE__{id: parent})
   end
 
-  defp create_fork(branch, at, from) do
+  defp examples(), do: %__MODULE__{id: :examples}
+
+  defp create_fork(branch, at, from, projection \\ :replay) do
     command_cutoff = at_time(from, at)
     AL.Command.create_tables(branch)
     AL.Command.copy_prefix(from, branch, command_cutoff)
+    AL.Command.record_fork_point(branch, fork_count(from, at))
     AL.SourceStore.create_tables(branch)
     AL.SourceStore.copy_prefix(from, branch, command_cutoff)
     AL.Object.create_tables(branch)
     AL.ResolutionCache.create_tables(branch)
-    AL.Object.hydrate_since(0, branch)
+
+    case projection do
+      :replay ->
+        AL.Object.hydrate_since(0, branch)
+
+      :copy ->
+        {:atomic, :ok} = AL.Object.copy_projection(from, branch)
+
+        if AL.Command.system_time(from) != command_cutoff do
+          AL.Object.drop_tables(branch)
+          AL.Object.create_tables(branch)
+          AL.Object.hydrate_since(0, branch)
+        end
+    end
+
     register(branch, from)
     AL.Outbox.start(branch)
     AL.Serialisation.start(branch)
@@ -138,6 +168,10 @@ defmodule AL.Branch do
   def discard(branch) do
     unregister(branch)
     if stored_head() == branch, do: set_head(main())
+    drop(branch)
+  end
+
+  defp drop(branch) do
     AL.Serialisation.stop(branch)
     AL.Outbox.stop(branch)
     AL.Object.drop_tables(branch)
@@ -188,6 +222,23 @@ defmodule AL.Branch do
     Enum.map(children, &%__MODULE__{id: &1})
   end
 
+  @doc "Every registered branch id, `:main` first. Reads inside the caller's transaction."
+  @spec ids() :: [atom()]
+  def ids(), do: [:main | Enum.map(edges(), &elem(&1, 1))]
+
+  @doc "Whether `id` names a registered branch. Reads inside the caller's transaction."
+  @spec registered?(term()) :: boolean()
+  def registered?(:main), do: true
+
+  def registered?(id) when is_atom(id),
+    do: :mnesia.select(:branch, [{{:branch, :"$1", id}, [], [:"$1"]}]) != []
+
+  def registered?(_id), do: false
+
+  @doc "Lineage as `{parent, child}` id pairs. Reads inside the caller's transaction."
+  @spec edges() :: [{atom(), atom()}]
+  def edges(), do: :mnesia.select(:branch, [{{:branch, :"$1", :"$2"}, [], [{{:"$1", :"$2"}}]}])
+
   @doc "The lineage as `{:branch, parent, child}` edges."
   @spec branch_graph() :: [{:branch, t(), t()}]
   def branch_graph() do
@@ -214,6 +265,9 @@ defmodule AL.Branch do
   @spec at_time(AL.Branch.t(), non_neg_integer() | :tip) :: integer() | :absent
   defp at_time(branch, :tip), do: AL.Command.system_time(branch)
   defp at_time(_branch, t) when is_integer(t), do: t - 1
+
+  defp fork_count(branch, :tip), do: AL.Command.system_time(branch)
+  defp fork_count(_branch, t) when is_integer(t), do: t
 
   @spec stored_head() :: t()
   defp stored_head() do

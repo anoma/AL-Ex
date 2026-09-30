@@ -14,17 +14,19 @@ defmodule Examples.ALSlotHistory do
   example slot_history_finds_every_value_a_slot_has_held() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :history_probe, super: :object, ivars: [:count] do
-        end
+        ~AL"""
+        @history_probe
+        #{super => object, ivars => [#{name => count}]}.
 
-        new(:history_probe, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :count, 2)
-        set_slot(obj, :count, 3)
-        slot_history(obj, :count, values)
+        new history_probe Obj.
+        set_slot Obj count 1.
+        set_slot Obj count 2.
+        set_slot Obj count 3.
+        slot_history Obj count Values.
+        """
       end
 
-    assert Map.get(bindings, :"$values") == [1, 2, 3]
+    assert Map.get(bindings, :"$Values") == [1, 2, 3]
     :ok
   end
 
@@ -36,17 +38,19 @@ defmodule Examples.ALSlotHistory do
   example slot_history_collapses_repeats_from_unrelated_key_changes() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :history_probe_unrelated, super: :object, ivars: [:count, :other] do
-        end
+        ~AL"""
+        @history_probe_unrelated
+        #{super => object, ivars => [#{name => count}, #{name => other}]}.
 
-        new(:history_probe_unrelated, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :other, :a)
-        set_slot(obj, :other, :b)
-        slot_history(obj, :count, values)
+        new history_probe_unrelated Obj.
+        set_slot Obj count 1.
+        set_slot Obj other a.
+        set_slot Obj other b.
+        slot_history Obj count Values.
+        """
       end
 
-    assert Map.get(bindings, :"$values") == [1]
+    assert Map.get(bindings, :"$Values") == [1]
     :ok
   end
 
@@ -65,20 +69,21 @@ defmodule Examples.ALSlotHistory do
   example slot_at_ground_time_finds_the_value_in_effect_at_the_boundary() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
-        defclass :clp_boundary_probe, super: :object, ivars: [:count] do
-        end
+        ~AL"""
+        @clp_boundary_probe
+        #{super => object, ivars => [#{name => count}]}.
 
-        new(:clp_boundary_probe, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :count, 2)
-
-        vm_slot_at(obj, :count, 1, t1)
-        label(t1)
-        boundary = t1 + 1
-        vm_slot_at(obj, :count, v_at_boundary, boundary)
+        new clp_boundary_probe Obj.
+        set_slot Obj count 1.
+        set_slot Obj count 2.
+        vm_slot_at Obj count 1 T1.
+        label T1.
+        = Boundary (+ T1 1).
+        vm_slot_at Obj count VAtBoundary Boundary.
+        """
       end
 
-    assert Map.get(bindings, :"$v_at_boundary") == 2
+    assert Map.get(bindings, :"$VAtBoundary") == 2
     :ok
   end
 
@@ -96,16 +101,17 @@ defmodule Examples.ALSlotHistory do
   example slot_at_open_time_posts_a_real_upper_bound() do
     result =
       run branch: Examples.Support.branch() do
-        defclass :clp_upper_bound_probe, super: :object, ivars: [:count] do
-        end
+        ~AL"""
+        @clp_upper_bound_probe
+        #{super => object, ivars => [#{name => count}]}.
 
-        new(:clp_upper_bound_probe, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :count, 2)
-
-        vm_slot_at(obj, :count, 1, t)
-        vm_slot_at(obj, :count, 2, t2)
-        t >= t2
+        new clp_upper_bound_probe Obj.
+        set_slot Obj count 1.
+        set_slot Obj count 2.
+        vm_slot_at Obj count 1 T.
+        vm_slot_at Obj count 2 T2.
+        >= T T2.
+        """
       end
 
     assert {:aborted, _} = result

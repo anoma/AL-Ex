@@ -58,6 +58,27 @@ defmodule AL.Object do
     :ok
   end
 
+  @spec copy_projection(AL.Branch.t(), AL.Branch.t()) :: {:atomic, :ok} | {:aborted, term()}
+  def copy_projection(source, destination) do
+    :mnesia.transaction(fn ->
+      for relation <- Map.keys(@relations) do
+        source_table = table(relation, source)
+        destination_table = table(relation, destination)
+
+        :mnesia.foldl(
+          fn row, :ok ->
+            :mnesia.write(destination_table, row, :write)
+            :ok
+          end,
+          :ok,
+          source_table
+        )
+      end
+
+      :ok
+    end)
+  end
+
   defp create_table(relation, branch) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
     opts = if branch.id == :main, do: opts, else: [{:record_name, relation} | opts]
@@ -81,13 +102,29 @@ defmodule AL.Object do
     seq_var = fresh_wildcard("seq")
     tx_from_var = fresh_wildcard("tx_from")
 
-    :mnesia.select(table(:soa, branch), [
+    select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
          {:soa, self_pattern, :class, seq_var, tx_from_var, :open, class_pattern}
        ), [], [:"$_"]}
     ])
     |> Enum.sort_by(fn {:soa, _o, :class, seq, tx_from, :open, _c} -> {seq, tx_from} end)
     |> Enum.map(fn {:soa, o, :class, seq, _tx_from, :open, c} -> {:class, o, seq, c} end)
+    |> Kernel.++(branch_classes(self_pattern, class_pattern))
+  end
+
+  defp branch_classes(self_pattern, class_pattern) do
+    if AL.Var.var?(class_pattern) or class_pattern == :branch do
+      ids =
+        cond do
+          AL.Var.var?(self_pattern) -> AL.Branch.ids()
+          AL.Branch.registered?(self_pattern) -> [self_pattern]
+          true -> []
+        end
+
+      Enum.map(ids, &{:class, &1, 0, :branch})
+    else
+      []
+    end
   end
 
   @spec scan_super(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [super_record()]
@@ -95,7 +132,7 @@ defmodule AL.Object do
     seq_var = fresh_wildcard("seq")
     tx_from_var = fresh_wildcard("tx_from")
 
-    :mnesia.select(table(:soa, branch), [
+    select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
          {:soa, self_pattern, :super, seq_var, tx_from_var, :open, super_pattern}
        ), [], [:"$_"]}
@@ -106,10 +143,41 @@ defmodule AL.Object do
 
   defp fresh_wildcard(name), do: AL.Var.var("#{name}_#{AL.fresh_scope()}")
 
+  defp select(table, [{head, _guards, _body}] = spec) do
+    key = elem(head, 1)
+
+    if pattern_ground?(key),
+      do: table |> :mnesia.read(key) |> :ets.match_spec_run(:ets.match_spec_compile(spec)),
+      else: :mnesia.select(table, spec)
+  end
+
+  defp pattern_ground?(:_), do: false
+
+  defp pattern_ground?(atom) when is_atom(atom), do: not match_variable?(atom)
+
+  defp pattern_ground?([head | tail]), do: pattern_ground?(head) and pattern_ground?(tail)
+  defp pattern_ground?(tuple) when is_tuple(tuple), do: pattern_ground?(Tuple.to_list(tuple))
+
+  defp pattern_ground?(map) when is_map(map),
+    do: map |> Map.to_list() |> pattern_ground?()
+
+  defp pattern_ground?(_term), do: true
+
+  defp match_variable?(atom) do
+    case Atom.to_string(atom) do
+      "$" <> digits when digits != "" -> digits?(digits)
+      _ -> false
+    end
+  end
+
+  defp digits?(<<>>), do: true
+  defp digits?(<<c, rest::binary>>) when c in ?0..?9, do: digits?(rest)
+  defp digits?(_text), do: false
+
   # raw tag :aos, projected tag stays :slots (external callers match on it)
   @spec scan_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [slots_record()]
   def scan_slots(self_pattern, slots_pattern, branch \\ AL.Branch.head()) do
-    :mnesia.select(table(:aos, branch), [
+    select(table(:aos, branch), [
       {AL.Var.to_mnesia_pattern({:aos, self_pattern, :"$tx_from", :open, slots_pattern}), [],
        [:"$_"]}
     ])
@@ -149,7 +217,7 @@ defmodule AL.Object do
     seq_var = fresh_wildcard("seq")
     tx_from_var = fresh_wildcard("tx_from")
 
-    :mnesia.select(table(:soa, branch), [
+    select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
          {:soa, self_pattern, {:method, method_name_pattern}, seq_var, tx_from_var, :open,
           method_id_pattern}
@@ -177,7 +245,7 @@ defmodule AL.Object do
     seq_var = fresh_wildcard("seq")
     tx_from_var = fresh_wildcard("tx_from")
 
-    :mnesia.select(table(:soa, branch), [
+    select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
          {:soa, self_pattern, seq_pattern, seq_var, tx_from_var, :open,
           {head_pattern, body_pattern}}
@@ -192,7 +260,7 @@ defmodule AL.Object do
     seq_var = fresh_wildcard("seq")
     tx_from_var = fresh_wildcard("tx_from")
 
-    :mnesia.select(table(:soa, branch), [
+    select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
          {:soa, object_pattern, :native, seq_var, tx_from_var, :open, mfa_pattern}
        ), [], [:"$_"]}
@@ -238,7 +306,7 @@ defmodule AL.Object do
     pattern =
       {:soa, object, :class, fresh_wildcard("seq"), fresh_wildcard("tx_from"), tx_to, class}
 
-    :mnesia.select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
     |> Enum.map(fn {:soa, o, :class, seq, tx_from, tx_to, c} ->
       {:class, o, seq, tx_from, tx_to, c}
     end)
@@ -250,7 +318,7 @@ defmodule AL.Object do
       {:soa, object, {:method, method}, fresh_wildcard("seq"), fresh_wildcard("tx_from"), tx_to,
        method_id}
 
-    :mnesia.select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
     |> Enum.map(fn {:soa, o, {:method, name}, seq, tx_from, tx_to, id} ->
       {:method, o, name, seq, tx_from, tx_to, id}
     end)
@@ -262,7 +330,7 @@ defmodule AL.Object do
       {:soa, object, clause_seq, fresh_wildcard("seq"), fresh_wildcard("tx_from"), tx_to,
        {head, body}}
 
-    :mnesia.select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    select(table(:soa, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
     |> Enum.map(fn {:soa, o, key, seq, tx_from, tx_to, {h, b}} ->
       {:oapply, o, key, seq, tx_from, tx_to, h, b}
     end)
@@ -273,7 +341,7 @@ defmodule AL.Object do
 
   @spec scan_soa_slot(AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [soa_slot_record()]
   def scan_soa_slot(object_pattern, key_pattern, value_pattern, branch \\ AL.Branch.head()) do
-    :mnesia.select(table(:soa, branch), [
+    select(table(:soa, branch), [
       {AL.Var.to_mnesia_pattern(
          {:soa, object_pattern, key_pattern, fresh_wildcard("seq"), fresh_wildcard("tx_from"),
           :open, value_pattern}
@@ -336,7 +404,7 @@ defmodule AL.Object do
   end
 
   defp open_rows(relation, pattern, branch) do
-    :mnesia.select(table(relation, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
+    select(table(relation, branch), [{AL.Var.to_mnesia_pattern(pattern), [], [:"$_"]}])
   end
 
   defp wildcard?(term), do: is_atom(term) and AL.Var.var?(term)

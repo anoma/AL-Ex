@@ -1,5 +1,1 @@
-Package {
-  #name : :elixir_process,
-  #version : 1,
-  #deps : []
-}
+defpackage elixir_process #{deps => [], version => 1}.

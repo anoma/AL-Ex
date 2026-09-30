@@ -2,9 +2,10 @@ defmodule AL.Serialisation.Sync do
   @moduledoc """
   Calculates the AL transaction represented by definition-document edits.
 
-  Planning is pure and needs no store-local identity. A selector's clauses are
-  retracted by enumerating `clause` at run time, which leaves the method
-  binding in place so `defmethod` reuses its existing method id.
+  Planning is pure and needs no store-local identity. A changed selector's
+  clauses are written together, so reading them clears the method's earlier
+  clauses and keeps its method id. A removed selector's clauses are retracted
+  by enumerating `clause` at run time.
   """
 
   alias AL.Serialisation.Document
@@ -48,7 +49,7 @@ defmodule AL.Serialisation.Sync do
     |> Enum.flat_map(&List.wrap(Map.get(snapshot.documents, &1)))
     |> Enum.flat_map(fn
       %Document{kind: :class} = document ->
-        [{"delete_class(#{literal(document.owner)})", nil}]
+        [{"delete_class #{literal(document.owner)}.", nil}]
 
       %Document{kind: :extension} = document ->
         metadata_chunks(document, %{document | supers: []}) ++
@@ -67,9 +68,9 @@ defmodule AL.Serialisation.Sync do
 
   defp metadata_chunks(nil, %Document{kind: :class} = document) do
     operations =
-      ["vm_set_class(#{literal(document.owner)}, #{literal(document.metaclass)})"] ++
-        Enum.map(document.supers, &"vm_set_super(#{literal(document.owner)}, #{literal(&1)})") ++
-        ["vm_set_slot(#{literal(document.owner)}, :ivars, #{literal(document.ivars)})"] ++
+      ["vm_set_class #{literal(document.owner)} #{literal(document.metaclass)}."] ++
+        Enum.map(document.supers, &"vm_set_super #{literal(document.owner)} #{literal(&1)}.") ++
+        ["vm_set_slot #{literal(document.owner)} ivars #{literal(document.ivars)}."] ++
         comment_operations(document)
 
     [{Enum.join(operations, "\n"), nil}]
@@ -77,7 +78,7 @@ defmodule AL.Serialisation.Sync do
 
   defp metadata_chunks(nil, %Document{kind: :extension} = document) do
     operations =
-      Enum.map(document.supers, &"vm_set_super(#{literal(document.owner)}, #{literal(&1)})")
+      Enum.map(document.supers, &"vm_set_super #{literal(document.owner)} #{literal(&1)}.")
 
     if operations == [], do: [], else: [{Enum.join(operations, "\n"), nil}]
   end
@@ -88,8 +89,8 @@ defmodule AL.Serialisation.Sync do
         []
       else
         [
-          "vm_retract_class(#{literal(new.owner)}, #{literal(old.metaclass)})",
-          "vm_set_class(#{literal(new.owner)}, #{literal(new.metaclass)})"
+          "vm_retract_class #{literal(new.owner)} #{literal(old.metaclass)}.",
+          "vm_set_class #{literal(new.owner)} #{literal(new.metaclass)}."
         ]
       end
 
@@ -97,14 +98,14 @@ defmodule AL.Serialisation.Sync do
       if old.supers == new.supers do
         []
       else
-        Enum.map(old.supers, &"vm_retract_super(#{literal(new.owner)}, #{literal(&1)})") ++
-          Enum.map(new.supers, &"vm_set_super(#{literal(new.owner)}, #{literal(&1)})")
+        Enum.map(old.supers, &"vm_retract_super #{literal(new.owner)} #{literal(&1)}.") ++
+          Enum.map(new.supers, &"vm_set_super #{literal(new.owner)} #{literal(&1)}.")
       end
 
     ivar_operations =
       if old.ivars == new.ivars,
         do: [],
-        else: ["vm_set_slot(#{literal(new.owner)}, :ivars, #{literal(new.ivars)})"]
+        else: ["vm_set_slot #{literal(new.owner)} ivars #{literal(new.ivars)}."]
 
     comment_operations =
       if old.comment == new.comment, do: [], else: comment_operations(new)
@@ -114,7 +115,7 @@ defmodule AL.Serialisation.Sync do
            (old.supers != new.supers or old.ivars != new.ivars) do
         old_spec = %{supers: old.supers, ivars: old.ivars}
         new_spec = %{supers: new.supers, ivars: new.ivars}
-        ["class_redefined(#{literal(new.owner)}, #{literal(old_spec)}, #{literal(new_spec)})"]
+        ["class_redefined #{literal(new.owner)} #{literal(old_spec)} #{literal(new_spec)}."]
       else
         []
       end
@@ -128,7 +129,7 @@ defmodule AL.Serialisation.Sync do
   defp comment_operations(%Document{comment: nil}), do: []
 
   defp comment_operations(%Document{} = document),
-    do: ["vm_set_slot(#{literal(document.owner)}, :comment, #{literal(document.comment)})"]
+    do: ["vm_set_slot #{literal(document.owner)} comment #{literal(document.comment)}."]
 
   defp method_chunks(old, new) do
     old_methods = groups(old)
@@ -143,10 +144,9 @@ defmodule AL.Serialisation.Sync do
 
     Enum.map(removed, &{remove_method(new.owner, &1), nil}) ++
       Enum.flat_map(changed, fn selector ->
-        [{retract_clauses(new.owner, selector), nil}] ++
-          Enum.map(Map.fetch!(new_methods, selector), fn clause ->
-            {definition(new.owner, clause), {new.owner, selector}}
-          end)
+        Enum.map(Map.fetch!(new_methods, selector), fn clause ->
+          {definition(new.owner, clause), {new.owner, selector}}
+        end)
       end)
   end
 
@@ -163,25 +163,17 @@ defmodule AL.Serialisation.Sync do
     do: methods |> Enum.map(& &1.selector) |> Enum.uniq()
 
   defp definition(owner, {declaration, body}),
-    do: "defmethod(#{literal(owner)}, #{declaration}) do\n#{body}\nend"
+    do: AL.Syntax.method_text(literal(owner), declaration, body)
 
   defp retract_clauses(owner, selector) do
     scope = scope(owner, selector)
 
     """
-    findall(id_#{scope}, ids_#{scope}) do
-      method(#{literal(owner)}, #{literal(selector)}, id_#{scope})
-    end
-
-    forall(member(ids_#{scope}, id_#{scope})) do
-      findall([head_#{scope}, body_#{scope}], clauses_#{scope}) do
-        clause(id_#{scope}, head_#{scope}, body_#{scope})
-      end
-
-      forall(member(clauses_#{scope}, [head_#{scope}, body_#{scope}])) do
-        vm_retract_oapply(id_#{scope}, head_#{scope})
-      end
-    end\
+    findall Id_#{scope} Ids_#{scope} {method #{literal(owner)} #{literal(selector)} Id_#{scope}}.
+    forall {member Ids_#{scope} Id_#{scope}} {
+      findall [Head_#{scope}, Body_#{scope}] Clauses_#{scope} {clause Id_#{scope} Head_#{scope} Body_#{scope}},
+      forall {member Clauses_#{scope} [Head_#{scope}, Body_#{scope}]} {vm_retract_oapply Id_#{scope} Head_#{scope}}
+    }.\
     """
   end
 
@@ -191,10 +183,9 @@ defmodule AL.Serialisation.Sync do
     retract_clauses(owner, selector) <>
       """
 
-
-      forall(member(ids_#{scope}, id_#{scope})) do
-        vm_retract_method(#{literal(owner)}, #{literal(selector)}, id_#{scope})
-      end\
+      forall {member Ids_#{scope} Id_#{scope}} {
+        vm_retract_method #{literal(owner)} #{literal(selector)} Id_#{scope}
+      }.\
       """
   end
 
@@ -207,7 +198,5 @@ defmodule AL.Serialisation.Sync do
     "serialisation_#{encoded}"
   end
 
-  defp literal(term),
-    do:
-      inspect(term, pretty: true, limit: :infinity, printable_limit: :infinity, width: :infinity)
+  defp literal(term), do: AL.Syntax.Printer.term(term)
 end

@@ -42,7 +42,9 @@ Tracing uses composable flags:
 
 ```elixir
 run trace: [:domino, :vm] do
-  goals()
+  ~AL"""
+  goals.
+  """
 end
 ```
 

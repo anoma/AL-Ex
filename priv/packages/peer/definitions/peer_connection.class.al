@@ -1,9 +1,2 @@
-Class {
-  #name : :peer_connection,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [
-    :socket,
-    %{name: :state, default: :connecting}
-  ]
-}
+@peer_connection
+#{super => object, ivars => [#{name => socket}, #{default => connecting, name => state}]}.

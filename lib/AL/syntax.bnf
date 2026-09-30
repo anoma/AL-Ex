@@ -1,0 +1,25 @@
+<program>     ::= <item>*
+<item>        ::= <declaration> | <method> | <goals> "."
+<declaration> ::= "@" ["+"] <name> <map> "."
+<method>      ::= <name> ">>" <atom> "|" <argument>* ["." <argument>] "|" [<goals>] "."
+<name>        ::= <atom> | <variable> | <pin>
+
+<goals>       ::= <goal> ("," <goal>)*
+<goal>        ::= <conditional> [";" <goal>]
+<conditional> ::= <call> ["->" <call>]
+<call>        ::= <atom> <argument>+ | <argument>
+
+<argument>    ::= <variable> | <atom> | <number> | <string> | <pin>
+                | <list> | <map> | <block> | "(" <goal> ")"
+<pin>         ::= "^" (<atom> | <variable>)
+<list>        ::= "[" [<goal> ("," <goal>)* ["." <goal>]] "]"
+<map>         ::= "#{" [<entry> ("," <entry>)*] "}"
+<entry>       ::= <goal> "=>" <goal>
+<block>       ::= "{" [<goals>] "}"
+
+<variable>    ::= /[A-Z_][A-Za-z0-9_]*/
+<atom>        ::= /[a-z][A-Za-z0-9_]*/ | /'([^'\\]|\\.)*'/ | <operator>
+<operator>    ::= "==" | "<=" | ">=" | "**" | "=" | "<" | ">" | "+" | "-" | "*" | "/"
+<number>      ::= /-?[0-9][0-9_]*(\.[0-9][0-9_eE]*)?/
+<string>      ::= /"([^"\\]|\\.)*"/
+<comment>     ::= /#([^{].*)?$/

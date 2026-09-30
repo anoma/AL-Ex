@@ -1,13 +1,11 @@
 defmodule AL.Source do
   @moduledoc """
-  I render AL goal patterns back into AL source the inverse of `AL.ast_to_pattern/1`.
+  I render stored AL goals back into AL source, the inverse of `AL.Syntax`.
 
   Vars are freshened per call scope, so a stored clause carries `{:"$fresh",
   base, scope}` wrappers rather than the bare name it was authored with.
   Printing peels those back to `base` and only appends a numeric suffix when
   two distinct vars land on the same name.
-
-  Goals I don't recognise render as `RAW(<term>)` so there is something to see
   """
 
   @doc """
@@ -158,118 +156,26 @@ defmodule AL.Source do
     Enum.reverse(rows)
   end
 
-  @doc "Source for one clause as `defmethod(class, name, head) do body end`."
-  @spec defmethod_source(atom(), atom(), term(), [AL.Goal.stored()]) :: String.t()
+  @doc "Source for one clause as `class >> name | Head | Body`."
+  @spec defmethod_source(term(), term(), term(), [AL.Goal.stored()]) :: String.t()
   def defmethod_source(class, name, head, body) do
     {head, body} = rename({head, body})
-
-    {:defmethod, [], [pat(class), pat(name), pat(head), [do: goals(body)]]}
-    |> Macro.to_string()
-    |> restore_comments()
+    AL.Syntax.Printer.defmethod(class, name, head, body)
   end
 
-  @doc "Source for a body as a do-block."
+  @doc "Source for a body as AL goals, one per line."
   @spec body_source([AL.Goal.stored()]) :: String.t()
-  def body_source(body) do
-    body
-    |> rename()
-    |> goals()
-    |> Macro.to_string()
-    |> restore_comments()
-  end
+  def body_source(body), do: body |> rename() |> AL.Syntax.Printer.body()
 
-  # A comment is not an AST node, so it renders through a placeholder call and
-  # becomes a real `#` line here.
-  @comment_placeholder :__al_comment__
-
-  defp restore_comments(text) do
-    if String.contains?(text, Atom.to_string(@comment_placeholder)) do
-      text
-      |> String.split("\n")
-      |> Enum.map_join("\n", &restore_comment_line/1)
-    else
-      text
-    end
-  end
-
-  defp restore_comment_line(line) do
-    with %{"indent" => indent, "argument" => argument} <-
-           Regex.named_captures(
-             ~r/^(?<indent>\s*)#{@comment_placeholder}\((?<argument>.*)\)$/,
-             line
-           ),
-         {:ok, text} when is_binary(text) <- Code.string_to_quoted(argument) do
-      indent <> "#" <> text
-    else
-      _ -> line
-    end
-  end
-
-  @doc """
-  Split a retained clause into its Tonel declaration and verbatim body.
-
-  Scans rather than parses: a decompiled body can contain `RAW(...)` terms that
-  are not valid source, and those still have to be sliced.
-  """
+  @doc "Split a retained clause into its declaration and verbatim body."
   @spec split_clause_source(String.t()) :: {:ok, String.t(), String.t()} | :error
-  def split_clause_source(text) when is_binary(text) do
-    with {:ok, open} <- open_paren(text),
-         {:ok, close} <- AL.Source.Scanner.close_index(text, open + 1, ?(, ?)) do
-      arguments = binary_part(text, open + 1, close - open - 1)
-      {:ok, declaration(arguments), body(text, close + 1)}
-    else
-      _ -> :error
-    end
-  end
-
-  def split_clause_source(_text), do: :error
-
-  defp open_paren(text) do
-    trimmed = String.trim_leading(text)
-
-    if String.starts_with?(trimmed, "defmethod") do
-      case :binary.match(text, "(") do
-        {index, _length} -> {:ok, index}
-        :nomatch -> :error
-      end
-    else
-      :error
-    end
-  end
-
-  defp declaration(arguments) do
-    case AL.Source.Scanner.top_level_commas(arguments) do
-      [first | rest] when rest != [] ->
-        arguments
-        |> binary_part(first + 1, byte_size(arguments) - first - 1)
-        |> String.trim()
-
-      _ ->
-        String.trim(arguments)
-    end
-  end
-
-  defp body(text, index) do
-    rest = binary_part(text, index, byte_size(text) - index)
-    trimmed = String.trim_trailing(rest)
-
-    with true <- String.ends_with?(trimmed, "end"),
-         {do_index, _length} <- :binary.match(trimmed, "do") do
-      trimmed
-      |> binary_part(do_index + 2, byte_size(trimmed) - do_index - 5)
-      |> String.trim_leading("\n")
-      |> String.trim_trailing()
-    else
-      _ -> ""
-    end
-  end
+  defdelegate split_clause_source(text), to: AL.Syntax, as: :split_clause
 
   @type display_source() :: %{
           text: String.t(),
           start_line: pos_integer(),
           provenance: :retained | :decompiled,
           origin: AL.SourceStore.origin() | nil,
-          authored_as: :standalone | :nested | nil,
           diagnostic: term() | nil
         }
 
@@ -314,7 +220,6 @@ defmodule AL.Source do
         start_line: 1,
         provenance: :decompiled,
         origin: nil,
-        authored_as: nil,
         diagnostic: diagnostic
       }
     end
@@ -323,26 +228,16 @@ defmodule AL.Source do
       :absent ->
         fallback.(nil)
 
-      {:source_span, ^command_t, tx_id, :defmethod, range, context} ->
+      {:source_span, ^command_t, tx_id, :defmethod, range, _context} ->
         case AL.SourceStore.text(tx_id, branch) do
           {:source_text, ^tx_id, text, origin} ->
-            case AL.Source.Parser.slice(text, range, origin) do
+            case AL.Syntax.slice(text, range) do
               {:ok, source} ->
-                display_range =
-                  case Map.get(origin, :range) do
-                    %{start: _start, stop: _stop} = container ->
-                      AL.Source.Parser.rebase_range(range, container)
-
-                    _ ->
-                      range
-                  end
-
                 %{
                   text: source,
-                  start_line: display_range.start.line,
+                  start_line: range.start.line,
                   provenance: :retained,
                   origin: origin,
-                  authored_as: Map.get(context, :authored_as),
                   diagnostic: nil
                 }
 
@@ -360,17 +255,9 @@ defmodule AL.Source do
   end
 
   @doc "Prepare a parsed program with retry-stable source capture identities."
-  @spec prepare(AL.Source.Parser.Result.t(), String.t()) ::
-          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
-  def prepare(result, text), do: prepare(result, text, %{kind: :eval_source, label: nil}, text)
-
-  @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin()) ::
-          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
-  def prepare(result, text, origin), do: prepare(result, text, origin, text)
-
-  @spec prepare(AL.Source.Parser.Result.t(), String.t(), AL.SourceStore.origin(), String.t()) ::
-          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Source.Parser.Error.t()}
-  def prepare(result, _text, origin, retained_text) do
+  @spec prepare(AL.Syntax.Result.t(), AL.SourceStore.origin(), String.t()) ::
+          {:ok, AL.Source.Evaluation.t()} | {:error, AL.Syntax.Error.t()}
+  def prepare(result, origin, text) do
     evaluation_ref = make_ref()
 
     try do
@@ -386,7 +273,7 @@ defmodule AL.Source do
 
       {:ok,
        %AL.Source.Evaluation{
-         text: retained_text,
+         text: text,
          origin: origin,
          program: program,
          refs: refs
@@ -394,8 +281,8 @@ defmodule AL.Source do
     rescue
       error ->
         {:error,
-         %AL.Source.Parser.Error{
-           phase: :lowering,
+         %AL.Syntax.Error{
+           phase: :compile,
            message: Exception.message(error),
            line: nil,
            column: nil,
@@ -481,69 +368,23 @@ defmodule AL.Source do
   end
 
   defp prepare_capture(goal, capture, capture_id, refs) do
-    ref = %AL.Source.Ref{
-      capture_id: capture_id,
-      kind: capture.kind,
-      range: capture.range,
-      authored_as: capture.authored_as
-    }
+    ref = %AL.Source.Ref{capture_id: capture_id, kind: capture.kind, range: capture.range}
 
     refs = Map.put(refs, capture_id, ref)
-
-    {goal, refs} =
-      case {capture.kind, goal} do
-        {:defclass,
-         %AL.Goal.OApply{
-           method_id: :defclass,
-           args: [name, metaclass, super, ivars, categories, methods, redef]
-         } = class_goal} ->
-          {tagged_methods, refs} = prepare_nested_methods(methods, capture.children, refs)
-
-          {%AL.Goal.OApply{
-             class_goal
-             | args: [name, metaclass, super, ivars, categories, tagged_methods, redef]
-           }, refs}
-
-        _ ->
-          {goal, refs}
-      end
 
     scoped = %AL.Goal.SourceScope{capture_id: capture_id, goals: [goal]}
     {scoped, refs}
   end
 
-  defp prepare_nested_methods(methods, captures, refs) do
-    Enum.reduce(captures, {methods, refs}, fn capture, {methods, refs} ->
-      capture_id = capture_id_for(capture, refs)
-      method_index = List.last(capture.path)
-      [method_name, head, body] = Enum.at(methods, method_index)
-      tagged = {:al_source_method, capture_id, method_name, head, body}
-
-      ref = %AL.Source.Ref{
-        capture_id: capture_id,
-        kind: :defmethod,
-        range: capture.range,
-        authored_as: :nested
-      }
-
-      {List.replace_at(methods, method_index, tagged), Map.put(refs, capture_id, ref)}
-    end)
-  end
-
-  defp capture_id_for(capture, refs) do
-    [{evaluation_ref, _ordinal} | _] = Map.keys(refs)
-    {evaluation_ref, capture.ordinal}
-  end
-
-  defp scope_context(%AL.Source.Ref{kind: :defmethod, authored_as: authored_as}, [
+  defp scope_context(%AL.Source.Ref{kind: :defmethod}, [
          %AL.Goal.OApply{method_id: :defmethod, args: [class, method | _]}
        ]),
-       do: %{class: class, method: method, authored_as: authored_as}
+       do: %{class: class, method: method}
 
-  defp scope_context(%AL.Source.Ref{kind: :defclass, authored_as: authored_as}, [
+  defp scope_context(%AL.Source.Ref{kind: :defclass}, [
          %AL.Goal.OApply{method_id: :defclass, args: [class | _]}
        ]),
-       do: %{class: class, authored_as: authored_as}
+       do: %{class: class}
 
   defp scope_context(ref, goals) do
     :mnesia.abort(%AL.Source.ProvenanceError{
@@ -643,159 +484,4 @@ defmodule AL.Source do
 
   @spec sub(term(), %{optional(atom()) => atom()}) :: term()
   defp sub(term, map), do: AL.Goal.map(term, fn leaf -> Map.get(map, leaf, leaf) end)
-
-  # --- goals -> surface AST ---
-  @spec goals([AL.Goal.stored()]) :: Macro.t()
-  defp goals([]), do: {:__block__, [], []}
-  defp goals([g]), do: goal(g)
-  defp goals(gs), do: {:__block__, [], Enum.map(gs, &goal/1)}
-
-  @spec goal(AL.Goal.stored()) :: Macro.t()
-  defp goal(:cut), do: {:cut, [], []}
-  defp goal(:fail), do: {:fail, [], []}
-  defp goal(:pass), do: {:pass, [], []}
-  defp goal({:print, p}), do: call(:print, [p])
-  defp goal({:not, cond}), do: {:not, [], [Enum.map(cond, &goal/1)]}
-  defp goal({:freeze, v, gs}), do: {:freeze, [], [pat(v), Enum.map(gs, &goal/1)]}
-  defp goal({:gensym, v}), do: call(:gensym, [v])
-  defp goal({:ground, t}), do: call(:ground, [t])
-  defp goal({:var, x}), do: call(:var, [x])
-  defp goal({:dif, a, b}), do: call(:dif, [a, b])
-  defp goal({:isa, object, class}), do: call(:isa, [object, class])
-  defp goal({:in_domain, var, values}), do: call(:in_domain, [var, values])
-  defp goal({:label, term}), do: call(:label, [term])
-  defp goal({:=, a, b}), do: {:=, [], [pat(a), pat(b)]}
-  defp goal({:unify, a, b}), do: goal({:=, a, b})
-  defp goal({:equal, a, b}), do: {:==, [], [pat(a), pat(b)]}
-
-  defp goal({:transaction_source, tx, text, origin}),
-    do: call(:vm_transaction_source, [tx, text, origin])
-
-  defp goal({:get_class, o, c}), do: call(:class, [o, c])
-  defp goal({:get_super, o, s}), do: call(:super, [o, s])
-  defp goal({:set_class, o, c}), do: call(:vm_set_class, [o, c])
-  defp goal({:set_super, o, s}), do: call(:vm_set_super, [o, s])
-  defp goal({:set_slot, o, k, v}), do: call(:vm_set_slot, [o, k, v])
-  defp goal({:get_slot, o, k, v, :auto}), do: call(:slot, [o, k, v])
-  defp goal({:get_slot, o, k, v, store}), do: call(:slot, [o, k, v, store])
-  defp goal({:findall, t, cond, r}), do: {:findall, [], [pat(t), pat(r), [do: goals(cond)]]}
-  defp goal({:retract_class, o, c}), do: call(:vm_retract_class, [o, c])
-  defp goal({:retract_super, o, s}), do: call(:vm_retract_super, [o, s])
-  defp goal({:retract_slot, o, k}), do: call(:vm_retract_slot, [o, k])
-  defp goal({:get_method, o, n, i}), do: call(:method, [o, n, i])
-  defp goal({:get_command, tx, time, operation}), do: call(:vm_command, [tx, time, operation])
-  defp goal({:set_method, o, n, i}), do: call(:vm_set_method, [o, n, i])
-  defp goal({:send_async, o, m, a}), do: call(:send_async, [o, m, a])
-  defp goal({:send_elixir, pid, msg}), do: call(:send_elixir, [pid, msg])
-
-  defp goal({:emit_effect, effect, provider, operation, arguments}),
-    do: call(:vm_emit_effect, [effect, provider, operation, arguments])
-
-  defp goal({:effect, provider, operation, arguments, effect}),
-    do: call(:emit_effect, [provider, operation, arguments, effect])
-
-  defp goal({:oapply, :spawn_transaction, [goals]}),
-    do: {:spawn, [], [[do: goals(goals)]]}
-
-  defp goal({:oapply, :await_effect, [effect, head, goals]}),
-    do: {:await, [], [pat(effect), pat(head), [do: goals(goals)]]}
-
-  defp goal({:oapply, :defmethod, [object, name, head, body]}) when is_list(body),
-    do: {:defmethod, [], [pat(object), pat(name), pat(head), [do: goals(body)]]}
-
-  defp goal({:retract_oapply, o, head}), do: call(:vm_retract_oapply, [o, head])
-  defp goal({:retract_method, o, n, i}), do: call(:vm_retract_method, [o, n, i])
-  defp goal({:get_oapply, o, :"$_", h, b}), do: call(:clause, [o, h, b])
-  defp goal({:get_oapply, o, seq, h, b}), do: call(:clause, [o, seq, h, b])
-  defp goal({:set_oapply, o, :next, h, b}), do: call(:vm_set_oapply, [o, h, b])
-  defp goal({:set_oapply, o, seq, h, b}), do: call(:vm_set_oapply, [o, seq, h, b])
-
-  defp goal({:compare, op, a, b}), do: {op, [], [pat(a), pat(b)]}
-
-  defp goal({:oapply, fun, args}) when is_atom(fun) and is_list(args) do
-    if AL.Var.var?(fun),
-      do: call(:vm_oapply, [fun, args]),
-      else: {AL.Lowering.primitive_surface_name(fun), [], Enum.map(args, &pat/1)}
-  end
-
-  defp goal({:oapply, fun, args}), do: call(:vm_oapply, [fun, args])
-
-  defp goal({:forall, cond, body}),
-    do: {:forall, [], Enum.map(cond, &goal/1) ++ [[do: goals(body)]]}
-
-  defp goal({:or, left, right}),
-    do: {:alternative, [], [Enum.map(left, &goal/1), Enum.map(right, &goal/1)]}
-
-  defp goal({:implies, cond, then_, else_}) do
-    cond_clause = {:->, [], [[Enum.map(cond, &goal/1)], goals(then_)]}
-    else_clause = if else_ == [], do: [], else: [{:->, [], [[:else], goals(else_)]}]
-    {:implies, [], [[do: [cond_clause | else_clause]]]}
-  end
-
-  defp goal({:call, head, body, args}),
-    do:
-      {:call, [],
-       [pat(head), if(is_list(body), do: Enum.map(body, &goal/1), else: pat(body)), pat(args)]}
-
-  defp goal({:call_next_method, self, args}) when is_list(args),
-    do: {:call_next_method, [], [pat(self) | Enum.map(args, &pat/1)]}
-
-  defp goal({:call_next_method, self, args}),
-    do: {:call_next_method, [], [pat(self), pat(args)]}
-
-  # A var in method position can't use the `method`, emit explicit send.
-  defp goal({:send, r, m, args}) do
-    cond do
-      not is_list(args) -> {:send, [], [pat(r), pat(m), pat(args)]}
-      AL.Var.var?(m) -> {:send, [], [pat(r), pat(m), Enum.map(args, &pat/1)]}
-      true -> {m, [], [pat(r) | Enum.map(args, &pat/1)]}
-    end
-  end
-
-  defp goal({:comment, text}), do: {@comment_placeholder, [], [text]}
-
-  defp goal({:either, left, right}), do: {:or, [], [goal(left), goal(right)]}
-
-  defp goal({:all_dif, vars}), do: call(:all_dif, [vars])
-
-  defp goal({:assert_valid_clause_self, class, head}),
-    do: call(:vm_assert_valid_clause_self, [class, head])
-
-  defp goal({:format, control, args}), do: call(:vm_format, [control, args])
-
-  defp goal({:method_source, object, seq, text, provenance}),
-    do: call(:vm_method_source, [object, seq, text, provenance])
-
-  defp goal({:slot_at, object, key, value, t}),
-    do: call(:vm_slot_at, [object, key, value, t])
-
-  defp goal({:source_scope, capture_id, goals}),
-    do: {:vm_source_scope, [], [pat(capture_id), [do: goals(goals)]]}
-
-  defp goal(other), do: {:RAW, [], [Macro.escape(other)]}
-
-  @spec call(atom(), [AL.Var.t()]) :: Macro.t()
-  defp call(name, args), do: {name, [], Enum.map(args, &pat/1)}
-
-  # Patterns inside a goal ---> AST ------------
-  @spec pat(AL.Var.t()) :: Macro.t()
-  defp pat(v) when is_atom(v) do
-    s = Atom.to_string(v)
-
-    if String.starts_with?(s, "$"),
-      do: {s |> String.trim_leading("$") |> String.to_atom(), [], nil},
-      else: v
-  end
-
-  defp pat([]), do: []
-  defp pat([h | t]) when is_list(t), do: [pat(h) | pat(t)]
-  defp pat([h | t]), do: [{:|, [], [pat(h), pat(t)]}]
-  defp pat(m) when is_map(m), do: {:%{}, [], Enum.map(m, fn {k, v} -> {pat(k), pat(v)} end)}
-  defp pat({:oapply, op, args}) when is_list(args), do: {op, [], Enum.map(args, &pat/1)}
-  defp pat({:oapply, op, args}), do: {op, [], [pat(args)]}
-
-  defp pat(tuple) when is_tuple(tuple),
-    do: {:{}, [], tuple |> Tuple.to_list() |> Enum.map(&pat/1)}
-
-  defp pat(x), do: x
 end

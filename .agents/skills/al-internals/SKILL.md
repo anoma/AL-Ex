@@ -11,7 +11,7 @@ projections of that history. Preserve that separation whenever changing the
 VM or its tools.
 
 When the implementation being changed is itself written in AL—especially
-`bootstrap.ex` or `package_system.ex`—also read `al-practices` and its
+`priv/programs/bootstrap.al` or `priv/programs/package_system.al`—also read `al-practices` and its
 relational-object programming reference. Do not replace a relational protocol
 with Elixir-style branching merely because it lives in the bootstrap program.
 
@@ -83,8 +83,11 @@ generative/durable/domain dispatch convergence specifically, read
 
 ## Serialisation boundary
 
-- `AL.Serialisation.Document` owns the Tonel-like file codec. Headers are generated
-  metadata; method bodies contain retained or marked decompiled source.
+- `AL.Serialisation.Document` owns the definition file codec. A file is AL
+  source read by `AL.Syntax.document/1`: leading `#` comment lines, an
+  `@name` class or `@+name` extension declaration generated from live facts,
+  then method clauses whose declarations and bodies are retained or
+  decompiled source.
 - `AL.Serialisation.Layout` owns branch and definition paths. Keep its path
   segments injective and unable to escape the configured root.
 - `AL.Serialisation.Snapshot` captures all live facts needed to render and diff
@@ -101,9 +104,19 @@ generative/durable/domain dispatch convergence specifically, read
 
 ## Change discipline
 
-- Add or change a goal: update the struct/type, lowering, interpreter handler,
-  stored representation if applicable, command log operation, projection, and
-  replay path as one semantic change.
+- Never add a new VM goal, `vm_*` operation, native, or other interpreter
+  primitive without the user's explicit permission. An approved design that
+  mentions a primitive is not permission to add it. Stop, explain what the
+  primitive is and why it seems needed, list alternatives that reuse existing
+  goals or AL code, and wait for a yes.
+- Add or change a goal: update the struct/type, its surface call in
+  `AL.Goal`'s `@calls` table (which both `AL.Syntax` and
+  `AL.Syntax.Printer` read), interpreter handler, stored representation if
+  applicable, command log operation, projection, and replay path as one
+  semantic change.
+- Change the surface syntax: update `AL.Syntax`, `AL.Syntax.Printer`, and
+  `lib/AL/syntax.bnf` together, and keep every installed clause printing and
+  reading back to the same goals.
 - Change the current runtime coherently. Do not add image, replay, command-log,
   stored-state, or old goal-shape compatibility unless the user explicitly asks
   for it. Use a fresh isolated store for verification when old data cannot be
@@ -111,7 +124,7 @@ generative/durable/domain dispatch convergence specifically, read
 - Change dispatch: test bound and unbound receivers, durable and generative
   legs, inheritance ordering, backtracking, cut, DNU, and cache invalidation as
   applicable.
-- Change source retention: test exact slicing, nested shorthand, failed
+- Change source retention: test exact slicing, grouped clauses, failed
   transactions, missing spans, and decompiled fallback.
 - Change source synchronization: test the pure plan first, then watcher and
   restart integration separately.

@@ -694,60 +694,14 @@ defmodule AL.Serialisation do
 
   @doc false
   @spec compile_chunks([Sync.chunk()]) ::
-          {:ok, AL.Source.Parser.Result.t(), String.t()} | {:error, term()}
+          {:ok, AL.Syntax.Result.t(), String.t()} | {:error, term()}
   def compile_chunks(chunks) do
     source = Enum.map_join(chunks, "\n\n", &elem(&1, 0))
 
-    {results, _line} =
-      Enum.map_reduce(chunks, 1, fn {text, _target}, line ->
-        {capture_chunk(text, line, source), line + length(String.split(text, "\n")) + 1}
-      end)
-
-    case combine_captures(results) do
+    case AL.Syntax.parse(source) do
       {:ok, result} -> {:ok, result, source}
-      error -> error
-    end
-  end
-
-  defp capture_chunk(text, line, source) do
-    case AL.Source.Parser.parse_quoted(text, line: line) do
-      {:ok, ast} -> AL.Source.Parser.capture(ast, source)
       {:error, reason} -> {:error, {:invalid_definition_source, reason}}
     end
-  end
-
-  defp combine_captures(results) do
-    Enum.reduce_while(results, {:ok, %AL.Source.Parser.Result{program: [], captures: []}}, fn
-      {:error, reason}, _ ->
-        {:halt, {:error, reason}}
-
-      {:ok, part}, {:ok, combined} ->
-        index = length(combined.program)
-        ordinal = length(flatten_captures(combined.captures))
-        captures = Enum.map(part.captures, &offset_capture(&1, index, ordinal))
-
-        {:cont,
-         {:ok,
-          %{
-            combined
-            | program: combined.program ++ part.program,
-              captures: combined.captures ++ captures
-          }}}
-    end)
-  end
-
-  defp flatten_captures(captures),
-    do: Enum.flat_map(captures, fn capture -> [capture | flatten_captures(capture.children)] end)
-
-  defp offset_capture(capture, index, ordinal) do
-    [first | rest] = capture.path
-
-    %{
-      capture
-      | path: [first + index | rest],
-        ordinal: capture.ordinal + ordinal,
-        children: Enum.map(capture.children, &offset_capture(&1, index, ordinal))
-    }
   end
 
   defp file_fingerprint(path) do
@@ -804,11 +758,15 @@ defmodule AL.Serialisation do
     do: write_file(definition_path(root, branch, owner), text)
 
   defp write_file(path, text) do
-    with :ok <- File.mkdir_p(Path.dirname(path)), {:ok, ^path} <- atomic_write(path, text) do
-      {:ok, path}
+    with :ok <- File.mkdir_p(Path.dirname(path)) do
+      case File.read(path) do
+        {:ok, ^text} -> {:ok, path}
+        {:ok, _other} -> atomic_write(path, text)
+        {:error, :enoent} -> atomic_write(path, text)
+        {:error, reason} -> {:error, {:file_read, path, reason}}
+      end
     else
-      {:error, {:file_write, _path, _reason} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:file_write, path, reason}}
+      {:error, reason} -> {:error, {:file_write, Path.dirname(path), reason}}
     end
   end
 
@@ -833,21 +791,8 @@ defmodule AL.Serialisation do
     end)
   end
 
-  defp write_transaction(root, branch, tx, text) do
-    directory = transactions_dir(root, branch)
-    path = transaction_path(root, branch, tx)
-
-    with :ok <- File.mkdir_p(directory) do
-      case File.read(path) do
-        {:ok, ^text} -> {:ok, path}
-        {:ok, _other} -> atomic_write(path, text)
-        {:error, :enoent} -> atomic_write(path, text)
-        {:error, reason} -> {:error, {:file_read, path, reason}}
-      end
-    else
-      {:error, reason} -> {:error, {:file_write, directory, reason}}
-    end
-  end
+  defp write_transaction(root, branch, tx, text),
+    do: write_file(transaction_path(root, branch, tx), text)
 
   defp atomic_write(path, text) do
     temporary = "#{path}.tmp-#{System.unique_integer([:positive])}"

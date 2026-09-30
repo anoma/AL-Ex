@@ -9,7 +9,7 @@ defmodule AL.TestBranch do
   end
 
   def fork() do
-    AL.Branch.fork(:tip, :persistent_term.get(@key))
+    AL.Branch.fork_stable(:persistent_term.get(@key))
   end
 
   def cleanup() do

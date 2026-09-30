@@ -11,14 +11,18 @@ defmodule AL.GtBridge do
   alias GtBridge.Phlow.ColumnedList
 
   def display_name(self = %AL.Object{}) do
+    id = self.id
+
     result =
       AL.run branch: AL.Object.branch_id(self) do
-        slot(^self.id, :name, name)
+        ~AL"""
+        slot ^id name Name.
+        """
       end
 
     case result do
       {:atomic, {bindings, _constraints, _}} ->
-        case Map.get(bindings, :"$name") do
+        case Map.get(bindings, :"$Name") do
           name when is_binary(name) and name != "" -> name
           name when is_atom(name) and name not in [nil, false] -> Atom.to_string(name)
           _ -> object_label(self.id)
@@ -32,14 +36,18 @@ defmodule AL.GtBridge do
   def object_info(self = %AL.Object{}) do
     branch = AL.Object.branch_id(self)
 
+    id = self.id
+
     result =
       AL.run branch: branch do
-        examine(^self.id, info)
+        ~AL"""
+        examine ^id Info.
+        """
       end
 
     case result do
       {:atomic, {bindings, _constraints, _}} ->
-        info = Map.fetch!(bindings, :"$info")
+        info = Map.fetch!(bindings, :"$Info")
 
         identity = [
           {"Identity", "ID", inspect(self.id), self},
@@ -298,14 +306,18 @@ defmodule AL.GtBridge do
   defp maybe_failure_row(rows, property, value, format), do: rows ++ [{property, format.(value)}]
 
   defview constraint_view(self = %AL.Object{}, builder) do
+    id = self.id
+
     result =
       AL.run branch: AL.Object.branch_id(self) do
-        dependents(^self.id, dependents)
+        ~AL"""
+        dependents ^id Dependents.
+        """
       end
 
     case result do
       {:atomic, {bindings, _constraints, _program_state}} ->
-        dependents = Map.get(bindings, :"$dependents")
+        dependents = Map.get(bindings, :"$Dependents")
 
         builder.mondrian()
         |> Mondrian.title("Constraint Graph")

@@ -35,6 +35,9 @@ defmodule AL.Goal do
           | AL.Goal.GetSuper.t()
           | AL.Goal.GetMethod.t()
           | AL.Goal.GetCommand.t()
+          | AL.Goal.BranchEdge.t()
+          | AL.Goal.BranchMeta.t()
+          | AL.Goal.CurrentBranch.t()
           | AL.Goal.GetOapply.t()
           | AL.Goal.MethodSource.t()
           | AL.Goal.TransactionSource.t()
@@ -53,9 +56,13 @@ defmodule AL.Goal do
           | AL.Goal.Not.t()
           | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
+          | AL.Goal.Variant.t()
+          | AL.Goal.StringCodes.t()
+          | AL.Goal.Functor.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
+          | AL.Goal.FloorDivide.t()
           | AL.Goal.Either.t()
           | AL.Goal.AllDif.t()
           | AL.Goal.InDomain.t()
@@ -177,6 +184,21 @@ defmodule AL.Goal do
     field(:id, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: BranchEdge do
+    field(:parent, AL.Var.t())
+    field(:child, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: BranchMeta do
+    field(:branch, AL.Var.t())
+    field(:key, AL.Var.t())
+    field(:value, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: CurrentBranch do
+    field(:branch, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: GetCommand do
     field(:transaction, AL.Var.t())
     field(:time, AL.Var.t())
@@ -294,6 +316,22 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Variant do
+    field(:a, AL.Var.t())
+    field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Functor do
+    field(:term, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: StringCodes do
+    field(:string, AL.Var.t())
+    field(:codes, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Dif do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
@@ -308,6 +346,12 @@ defmodule AL.Goal do
     field(:op, atom())
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: FloorDivide do
+    field(:dividend, AL.Var.t())
+    field(:divisor, AL.Var.t())
+    field(:quotient, AL.Var.t())
   end
 
   # `left or right` (CLP(FD) `#\/`) — the constraint that *at least one*
@@ -481,7 +525,14 @@ defmodule AL.Goal do
     {Not, :not, [condition: :goals]},
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
+    {Variant, :variant, [a: :term, b: :term]},
+    {StringCodes, :string_codes, [string: :term, codes: :term]},
+    {Functor, :functor, [term: :term, name: :term, args: :term]},
+    {BranchEdge, :branch_edge, [parent: :term, child: :term]},
+    {BranchMeta, :branch_meta, [branch: :term, key: :term, value: :term]},
+    {CurrentBranch, :current_branch, [branch: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
+    {FloorDivide, :floor_divide, [dividend: :term, divisor: :term, quotient: :term]},
     {Either, :either, [left: :term, right: :term]},
     {AllDif, :all_dif, [vars: :term]},
     {Ground, :ground, [term: :term]},
@@ -498,10 +549,152 @@ defmodule AL.Goal do
     {Comment, :comment, [text: :term]}
   ]
 
+  @calls [
+    {:class, GetClass, [:object, :class], %{}},
+    {:super, GetSuper, [:object, :super], %{}},
+    {:method, GetMethod, [:object, :name, :id], %{}},
+    {:clause, GetOapply, [:object, :head, :body], %{seq: :"$_"}},
+    {:clause, GetOapply, [:object, :seq, :head, :body], %{}},
+    {:slot, GetSlots, [:object, :key, :value], %{store: :auto}},
+    {:slot, GetSlots, [:object, :key, :value, :store], %{}},
+    {:send, Send, [:object, :method], %{args: []}},
+    {:send, Send, [:object, :method, :args], %{}},
+    {:send_async, SendAsync, [:object, :method], %{args: []}},
+    {:send_async, SendAsync, [:object, :method, :args], %{}},
+    {:send_elixir, SendElixir, [:pid, :message], %{}},
+    {:gensym, Gensym, [:var], %{}},
+    {:ground, Ground, [:term], %{}},
+    {:label, Label, [:term], %{}},
+    {:var, IsVar, [:term], %{}},
+    {:dif, Dif, [:a, :b], %{}},
+    {:variant, Variant, [:a, :b], %{}},
+    {:string_codes, StringCodes, [:string, :codes], %{}},
+    {:functor, Functor, [:term, :name, :args], %{}},
+    {:isa, Isa, [:object, :class], %{}},
+    {:in_domain, InDomain, [:var, :values], %{}},
+    {:all_dif, AllDif, [:vars], %{}},
+    {:floor_divide, FloorDivide, [:dividend, :divisor, :quotient], %{}},
+    {:vm_assert_valid_clause_self, AssertValidClauseSelf, [:class, :head], %{}},
+    {:vm_command, GetCommand, [:transaction, :time, :operation], %{}},
+    {:vm_branch, BranchEdge, [:parent, :child], %{}},
+    {:vm_branch_meta, BranchMeta, [:branch, :key, :value], %{}},
+    {:vm_current_branch, CurrentBranch, [:branch], %{}},
+    {:vm_transaction_source, TransactionSource, [:tx, :text, :origin], %{}},
+    {:vm_method_source, MethodSource, [:object, :seq, :text, :provenance], %{}},
+    {:vm_set_class, SetClass, [:object, :class], %{}},
+    {:vm_set_super, SetSuper, [:object, :super], %{}},
+    {:vm_set_method, SetMethod, [:object, :name, :id], %{}},
+    {:vm_set_slot, SetSlot, [:object, :key, :value], %{}},
+    {:vm_slot_at, GetSlotAt, [:object, :key, :value, :t], %{}},
+    {:vm_retract_class, RetractClass, [:object, :class], %{}},
+    {:vm_retract_super, RetractSuper, [:object, :super], %{}},
+    {:vm_retract_method, RetractMethod, [:object, :name, :id], %{}},
+    {:vm_retract_oapply, RetractOapply, [:object, :head], %{}},
+    {:vm_retract_slot, RetractSlot, [:object, :key], %{}},
+    {:vm_format, Format, [:control, :args], %{}},
+    {:vm_emit_effect, EmitEffect, [:effect, :provider, :operation, :arguments], %{}}
+  ]
+
+  @call_forms Map.new(@calls, fn {name, module, fields, defaults} ->
+                {{name, length(fields)}, {module, fields, defaults}}
+              end)
+
+  @doc "The names of the calls that read as a goal other than a send."
+  @spec call_names() :: [atom()]
+  def call_names, do: @calls |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+  @doc "The goal an AL call reads as, when its name and arity name one."
+  @spec from_call(atom(), [term()]) :: t() | nil
+  def from_call(name, args) do
+    case Map.fetch(@call_forms, {name, length(args)}) do
+      {:ok, {module, fields, defaults}} ->
+        struct(module, Map.merge(defaults, Map.new(Enum.zip(fields, args))))
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc "The shortest AL call that reads back as this goal."
+  @spec to_call(t()) :: {atom(), [term()]} | nil
+  def to_call(%module{} = goal) do
+    Enum.find_value(@calls, fn {name, call_module, fields, defaults} ->
+      if call_module == module and
+           Enum.all?(defaults, fn {key, value} -> Map.fetch!(goal, key) == value end),
+         do: {name, Enum.map(fields, &Map.fetch!(goal, &1))}
+    end)
+  end
+
+  @arithmetic [:+, :-, :*, :/, :**, :rem]
+  @comparisons [:<, :>, :<=, :>=]
+
+  @doc "The name and arguments a goal is written with, receiver first for a send."
+  @spec call_form(term()) :: {atom(), [term()]} | nil
+  def call_form(%Send{object: object, method: method, args: args}) when is_list(args),
+    do: if(named?(method), do: {method, [object | args]})
+
+  def call_form(%Compare{op: op, a: a, b: b}), do: {op, [a, b]}
+  def call_form(%Either{left: left, right: right}), do: {:or, [left, right]}
+  def call_form(%Eq{a: a, b: b}), do: {:=, [a, b]}
+  def call_form(%Equal{a: a, b: b}), do: {:==, [a, b]}
+  def call_form(%CallNextMethod{self: self, args: args}), do: {:call_next_method, [self | args]}
+  def call_form(%Not{condition: condition}), do: {:not, [condition]}
+  def call_form(%Forall{condition: condition, body: body}), do: {:forall, [condition, body]}
+  def call_form(%Freeze{var: var, goals: goals}), do: {:freeze, [var, goals]}
+
+  def call_form(%Findall{template: template, condition: condition, result: result}),
+    do: {:findall, [template, result, condition]}
+
+  def call_form(%OApply{method_id: method_id, args: args}) when is_list(args) do
+    if named?(method_id) and
+         (method_id in @arithmetic or args == [] or AL.Syntax.primitive?(method_id)),
+       do: {method_id, args}
+  end
+
+  def call_form(goal) when is_struct(goal), do: to_call(goal)
+  def call_form(_term), do: nil
+
+  @doc "The goal written with this name and these arguments."
+  @spec from_call_form(atom(), [term()]) :: t() | nil
+  def from_call_form(op, [a, b]) when op in @comparisons, do: %Compare{op: op, a: a, b: b}
+  def from_call_form(:=, [a, b]), do: %Eq{a: a, b: b}
+  def from_call_form(:==, [a, b]), do: %Equal{a: a, b: b}
+
+  def from_call_form(:or, [left, right]),
+    do: %Either{left: constraint(left), right: constraint(right)}
+
+  def from_call_form(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
+
+  def from_call_form(:call_next_method, [self | args]),
+    do: %CallNextMethod{self: self, args: args}
+
+  def from_call_form(:not, [condition]) when is_list(condition), do: %Not{condition: condition}
+
+  def from_call_form(:forall, [condition, body]) when is_list(condition) and is_list(body),
+    do: %Forall{condition: condition, body: body}
+
+  def from_call_form(:freeze, [var, goals]) when is_list(goals),
+    do: %Freeze{var: var, goals: goals}
+
+  def from_call_form(:findall, [template, result, condition]) when is_list(condition),
+    do: %Findall{template: template, condition: condition, result: result}
+
+  def from_call_form(name, args) do
+    cond do
+      AL.Syntax.primitive?(name) -> %OApply{method_id: name, args: args}
+      goal = from_call(name, args) -> goal
+      args == [] -> %OApply{method_id: name, args: []}
+      true -> %Send{object: hd(args), method: name, args: tl(args)}
+    end
+  end
+
+  defp named?(name), do: is_atom(name) and not AL.Var.var?(name)
+
+  defp constraint(%Eq{a: a, b: b}), do: %Compare{op: :=, a: a, b: b}
+  defp constraint(goal), do: goal
+
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
-  @from_form @forms
-             |> Map.new(fn {mod, tag, fields} -> {tag, {mod, fields}} end)
-             |> Map.put(:unify, {Eq, [a: :term, b: :term]})
+  @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
 
   @type stored() :: tuple() | atom()
 
@@ -565,9 +758,6 @@ defmodule AL.Goal do
 
   defp invalid_storable(%SourceScopeExit{} = exit), do: {exit, :source_scope_exit}
   defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
-
-  defp invalid_storable({:al_source_method, _capture_id, _method, _head, _body} = tagged),
-    do: {tagged, :tagged_source_method}
 
   defp invalid_storable({evaluation_ref, ordinal} = capture_id)
        when is_reference(evaluation_ref) and is_integer(ordinal),
