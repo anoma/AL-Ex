@@ -266,14 +266,15 @@ defmodule AL.Syntax do
 
   defp document_methods(
          text,
-         [{:method, %{owner: {:atom, owner, _, _}} = method} | rest],
+         [
+           {:method, %{owner: {:atom, owner, _, _}, selector: {:atom, selector, _, _}} = method}
+           | rest
+         ],
          methods
        ) do
     with {:ok, declaration} <-
            slice(text, %{start: start(method.selector), stop: method.head_stop}),
          {:ok, body} <- document_body(text, method) do
-      {:atom, selector, _, _} = method.selector
-
       document_methods(text, rest, [
         %{owner: owner, selector: selector, declaration: declaration, body: body} | methods
       ])
@@ -578,20 +579,14 @@ defmodule AL.Syntax do
     end
   end
 
-  defp owner([{kind, _, _, _} = owner, {:punct, ">>", _, _}, {:atom, _, _, _} = selector | rest])
-       when kind in [:atom, :var],
-       do: {:ok, owner, selector, rest}
-
-  defp owner([
-         {:punct, "^", start, _},
-         {kind, name, _, stop},
-         {:punct, ">>", _, _},
-         {:atom, _, _, _} = selector | rest
-       ])
-       when kind in [:atom, :var],
-       do: {:ok, {:pin, name, start, stop}, selector, rest}
-
-  defp owner(_tokens), do: :none
+  defp owner(tokens) do
+    with {:ok, owner, [{:punct, ">>", _, _} | rest]} <- argument(tokens),
+         {:ok, selector, rest} <- argument(rest) do
+      {:ok, owner, selector, rest}
+    else
+      _ -> :none
+    end
+  end
 
   defp goal_clause(tokens, items) do
     with {:ok, goals, rest} <- sequence(tokens, ".") |> at(start_of(tokens)),

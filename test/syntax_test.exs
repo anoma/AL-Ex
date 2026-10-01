@@ -48,6 +48,25 @@ defmodule ALSyntaxReaderTest do
            ] = program
   end
 
+  test "method owner and selector accept argument terms" do
+    source = ~S"""
+    Owner >> Selector | Self | pass.
+    [owner] >> #{name => value} | Arg | pass.
+    """
+
+    {:ok, %{program: program}} = Syntax.parse(source)
+
+    assert [
+             %Goal.OApply{method_id: :clear_method, args: [:"$Owner", :"$Selector"]},
+             %Goal.OApply{method_id: :defmethod, args: [:"$Owner", :"$Selector", [:"$Self"], _]},
+             %Goal.OApply{method_id: :clear_method, args: [[:owner], %{name: :value}]},
+             %Goal.OApply{method_id: :defmethod, args: [[:owner], %{name: :value}, [:"$Arg"], _]}
+           ] = program
+
+    assert {:ok, %{program: ^program}} = Syntax.parse(AL.Syntax.Printer.program(program))
+    assert {:error, _} = Syntax.document("owner >> Selector | Self | pass.")
+  end
+
   test "one source's clauses for a selector define it, and only the first clears it" do
     {:ok, %{program: program}} =
       Syntax.parse(~S"""

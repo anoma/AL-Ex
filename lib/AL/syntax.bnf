@@ -1,7 +1,7 @@
 <program>     ::= <item>*
 <item>        ::= <declaration> | <method> | <goals> "."
 <declaration> ::= "@" ["+"] <name> <map> "."
-<method>      ::= <name> ">>" <atom> "|" <argument>* ["." <argument>] "|" [<goals>] "."
+<method>      ::= <argument> ">>" <argument> "|" <argument>* ["." <argument>] "|" [<goals>] "."
 <name>        ::= <atom> | <variable> | <pin>
 
 <goals>       ::= <goal> ("," <goal>)*

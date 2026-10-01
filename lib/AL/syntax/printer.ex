@@ -59,7 +59,7 @@ defmodule AL.Syntax.Printer do
 
   defp clauses([%Goal.OApply{method_id: id} = goal | rest], defined)
        when id in [:defclass, :extend_class],
-       do: [{:definition, goal(goal, "", @semi) <> "."} | clauses(rest, defined)]
+       do: [{:definition, declaration(goal, "") <> "."} | clauses(rest, defined)]
 
   defp clauses([goal | rest], defined), do: [goal_clause(goal) | clauses(rest, defined)]
 
@@ -73,7 +73,7 @@ defmodule AL.Syntax.Printer do
   def body(goals), do: goals |> lines("") |> Enum.join("\n")
 
   @spec goal(term()) :: String.t()
-  def goal(goal), do: goal(load(goal), "", @semi)
+  def goal(goal), do: declaration(load(goal), "")
 
   @spec term(term()) :: String.t()
   def term(term) when is_tuple(term), do: term(Goal.from_stored(term), "", @semi)
@@ -84,7 +84,7 @@ defmodule AL.Syntax.Printer do
   defp load(goal), do: goal
 
   defp method(owner, selector, head, body, indent) do
-    prefix = term(owner, indent, @primary) <> " >> " <> atom(selector)
+    prefix = term(owner, indent, @primary) <> " >> " <> term(selector, indent, @primary)
 
     header =
       prefix <> "\n" <> indent <> Enum.join(["|" | head_items(head, indent)] ++ ["|"], " ")
@@ -108,6 +108,37 @@ defmodule AL.Syntax.Printer do
 
   defp head_items(tail, indent), do: [".", term(tail, indent, @primary)]
 
+  defp declaration(
+         %Goal.OApply{
+           method_id: :defclass,
+           args: [name, metaclass, super, ivars, categories]
+         },
+         indent
+       ) do
+    options =
+      [
+        super: super,
+        metaclass: metaclass,
+        ivars: ivars,
+        categories: categories
+      ]
+      |> Enum.reject(fn {key, value} -> value == default(key) end)
+      |> Enum.map(fn {key, value} -> "#{atom(key)} => #{term(value, indent <> "  ")}" end)
+
+    "@" <> term(name, indent, @primary) <> "\n" <> indent <> layout("\#{", options, "}", indent)
+  end
+
+  defp declaration(%Goal.OApply{method_id: :extend_class, args: [name, supers]}, indent)
+       when is_list(supers),
+       do:
+         "@+" <>
+           term(name, indent, @primary) <>
+           "\n" <>
+           indent <>
+           layout("\#{", ["super => " <> term(supers, indent <> "  ")], "}", indent)
+
+  defp declaration(goal, indent), do: goal(goal, indent, @semi)
+
   defp goal(goal, indent, context)
        when goal in [:cut, :fail, :pass] or (is_tuple(goal) and not is_struct(goal)),
        do: goal(load(goal), indent, context)
@@ -129,45 +160,6 @@ defmodule AL.Syntax.Printer do
              argument(head, indent),
              goal_group(body, indent)
            ],
-           context
-         )
-
-  defp goal(
-         %Goal.OApply{
-           method_id: :defclass,
-           args: [name, metaclass, super, ivars, categories]
-         },
-         indent,
-         context
-       ) do
-    options =
-      [
-        super: super,
-        metaclass: metaclass,
-        ivars: ivars,
-        categories: categories
-      ]
-      |> Enum.reject(fn {key, value} -> value == default(key) end)
-      |> Enum.map(fn {key, value} -> "#{atom(key)} => #{term(value, indent <> "  ")}" end)
-
-    wrap(
-      "@" <>
-        term(name, indent, @primary) <> "\n" <> indent <> layout("\#{", options, "}", indent),
-      @semi,
-      context
-    )
-  end
-
-  defp goal(%Goal.OApply{method_id: :extend_class, args: [name, supers]}, indent, context)
-       when is_list(supers),
-       do:
-         wrap(
-           "@+" <>
-             term(name, indent, @primary) <>
-             "\n" <>
-             indent <>
-             layout("\#{", ["super => " <> term(supers, indent <> "  ")], "}", indent),
-           @semi,
            context
          )
 
@@ -444,6 +436,13 @@ defmodule AL.Syntax.Printer do
   end
 
   defp term(term, indent, context) when is_struct(term), do: goal(term, indent, context)
+
+  defp term(term, indent, context) when is_tuple(term) do
+    case Goal.from_stored(term) do
+      goal when is_struct(goal) -> goal(goal, indent, context)
+      _ -> raise ArgumentError, "#{inspect(term)} has no AL syntax"
+    end
+  end
 
   defp term(term, indent, _context) when is_map(term) do
     inner = indent <> "  "

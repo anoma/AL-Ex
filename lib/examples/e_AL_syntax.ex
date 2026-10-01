@@ -230,7 +230,7 @@ defmodule Examples.ALSyntax do
       for {:oapply, object, _seq, head, body} <- clauses,
           {head, body} = authored({head, body}),
           text = AL.Syntax.Printer.defmethod(:owner, :selector, head, body),
-          round_trip(text) != {anonymous(head), anonymous(body)},
+          round_trip(text) != {anonymous(AL.Goal.to_stored(head)), anonymous(body)},
           do: {object, text, round_trip(text)}
 
     assert failures == []

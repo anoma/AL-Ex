@@ -994,27 +994,13 @@ defmodule AL do
           wake(%AL.Choicepoint{state.active_choicepoint | store: new_store}, terms)
     }
 
-  # Bindings arrived: only suspensions keyed on a variable the change
-  # touched can resolve, so wake follows the changed terms' variables
-  # down their alias chains instead of scanning everything parked.
   def wake(%AL.Choicepoint{store: nil} = choice, _terms), do: choice
   def wake(%AL.Choicepoint{suspensions: s} = choice, _terms) when s == %{}, do: choice
 
-  def wake(choice, terms) do
-    terms
-    |> Enum.reduce(MapSet.new(), fn t, acc -> MapSet.union(acc, AL.Var.find_vars(t)) end)
-    |> Enum.reduce(choice, fn v, ch -> wake_chain(ch, v) end)
-  end
-
-  defp wake_chain(choice, v) do
-    choice = wake_key(choice, v)
-
-    case Map.get(choice.store, v) do
-      nil -> choice
-      %AL.Var.ConstraintSet{} -> choice
-      ^v -> choice
-      w -> if AL.Var.var?(w), do: wake_chain(choice, w), else: choice
-    end
+  def wake(choice, _terms) do
+    choice.suspensions
+    |> Map.keys()
+    |> Enum.reduce(choice, fn v, ch -> wake_key(ch, v) end)
   end
 
   # A resolved suspension runs in place; one aliased onward re-parks

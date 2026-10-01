@@ -44,7 +44,8 @@ defmodule AL.Application do
   end
 
   def bootstrap() do
-    programs = Enum.reject(AL.TransactionProgram.configured(), &AL.TransactionProgram.current?/1)
+    programs =
+      Enum.reject(AL.TransactionProgram.configured(), &AL.TransactionProgram.installed?(&1.name))
 
     packages_pending? =
       not (AL.Package.system_available?() and AL.Package.configured_current?())
@@ -71,7 +72,7 @@ defmodule AL.Application do
     end
 
     Enum.each(ready_programs, fn program ->
-      :ok = AL.TransactionProgram.ensure_current(program)
+      :ok = AL.TransactionProgram.ensure_installed(program)
     end)
 
     if packages_ready? do

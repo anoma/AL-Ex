@@ -35,6 +35,20 @@ defmodule Examples.ALFreeze do
     :ok
   end
 
+  example a_binding_made_by_propagation_wakes_too() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        freeze C (= Y (+ C 1)).
+        = D (- C 48).
+        = D 7.
+        """
+      end
+
+    assert AL.Var.deref(bindings, :"$Y") == 56
+    :ok
+  end
+
   example a_clause_head_wakes_too() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do

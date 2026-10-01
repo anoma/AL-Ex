@@ -1,4 +1,4 @@
-defprogram bootstrap #{deps => [], version => 37}.
+defprogram bootstrap #{deps => [], version => 38}.
 
 vm_set_class class class.
 vm_set_class object class.
@@ -636,103 +636,6 @@ strings_codes Parts PartCodes,
 split Codes SeparatorCodes PartCodes,
 string_codes Self Codes.
 
-@grammar #{super => object}.
-
-grammar >> parse
-| Self Rule Text Value |
-string_codes Text Codes,
-send Self Rule [Codes, [], Value].
-
-grammar >> text
-| _Self Text Input Rest |
-string_codes Text Codes,
-concat Codes Rest Input.
-
-grammar >> word
-| Self Input Rest Word |
-atom_string Word Text,
-string_codes Text [First . More],
-word_code Self Input After First,
-zero_or_more Self After Rest word_code More.
-
-grammar >> word_code
-| _Self [Code . Rest] Rest Code |
->= Code 97,
-<= Code 122.
-
-grammar >> run_pattern
-| Self Pattern Input Rest Value |
-class Pattern string,
-atom_string Value Pattern,
-text Self Pattern Input Rest.
-
-grammar >> run_pattern
-| Self Pattern Input Rest Value |
-atom Pattern,
-send Self Pattern [Input, Rest, Value].
-
-grammar >> match_pattern
-| Self Pattern Input Rest |
-class Pattern string,
-text Self Pattern Input Rest.
-
-grammar >> match_pattern
-| Self Pattern Input Rest |
-atom Pattern,
-send Self Pattern [Input, Rest].
-
-grammar >> match_pattern
-| Self Pattern Input Rest |
-functor Pattern Rule Args,
-atom Rule,
-concat [Input, Rest] Args CallArgs,
-send Self Rule CallArgs.
-
-grammar >> zero_or_more
-| _Self Rest Rest _Pattern [] |.
-
-grammar >> zero_or_more
-| Self Input Rest Pattern [Value . Values] |
-run_pattern Self Pattern Input After Value,
-dif Input After,
-zero_or_more Self After Rest Pattern Values.
-
-grammar >> sequence
-| _Self [] Rest Rest |.
-
-grammar >> sequence
-| Self [Pattern . Patterns] Input Rest |
-match_pattern Self Pattern Input After,
-sequence Self Patterns After Rest.
-
-grammar >> sequence
-| _Self [] Rest Rest [] |.
-
-grammar >> sequence
-| Self [Pattern] Input Rest Value |
-run_pattern Self Pattern Input Rest Value.
-
-grammar >> sequence
-| Self [Pattern, NextPattern . Patterns] Input Rest [Value . Values] |
-run_pattern Self Pattern Input After Value,
-sequence Self [NextPattern . Patterns] After Rest Values.
-
-grammar >> defrule
-| Self RuleName Patterns |
-atom RuleName,
-defmethod Self RuleName [Grammar, Input, Rest, Values] {
-  sequence Grammar Patterns Input Rest Values
-}.
-
-grammar >> defrule
-| Self Head Patterns |
-functor Head RuleName Args,
-atom RuleName,
-concat [Grammar, Input, Rest] Args MethodHead,
-defmethod Self RuleName MethodHead {
-  sequence Grammar Patterns Input Rest
-}.
-
 number >> factorial
 | 1 1 |.
 
@@ -1199,3 +1102,428 @@ anonymous_method >> run
 get_slots Self #{args => Args, body => Body, head => Head},
 concat Args ProvidedArgs AllArgs,
 call Head Body AllArgs.
+
+@grammar #{super => class}.
+
+@syntax #{super => value, metaclass => grammar}.
+
+syntax >> init
+| Self _Args Self |.
+
+syntax >> text
+| _Self Text Input Rest |
+string_codes Text Codes,
+concat Codes Rest Input.
+
+syntax >> word
+| Self Input Rest Word |
+atom_string Word Text,
+string_codes Text [First . More],
+word_code Self Input After First,
+zero_or_more Self After Rest word_code More.
+
+syntax >> word_code
+| _Self [Code . Rest] Rest Code |
+>= Code 97,
+<= Code 122.
+
+syntax >> variable_word
+| Self Input Rest Name |
+atom_string Name Text,
+string_codes Text [First . More],
+variable_start_code Self Input After First,
+zero_or_more Self After Rest variable_code More.
+
+syntax >> variable_start_code
+| _Self [Code . Rest] Rest Code |
+>= Code 65,
+<= Code 90.
+
+syntax >> variable_start_code
+| _Self [95 . Rest] Rest 95 |.
+
+syntax >> variable_code
+| Self Input Rest Code |
+word_code Self Input Rest Code.
+
+syntax >> variable_code
+| Self Input Rest Code |
+variable_start_code Self Input Rest Code.
+
+syntax >> variable_code
+| _Self [Code . Rest] Rest Code |
+>= Code 48,
+<= Code 57.
+
+syntax >> run_pattern
+| Self Pattern Input Rest Value |
+class Pattern string,
+atom_string Value Pattern,
+text Self Pattern Input Rest.
+
+syntax >> run_pattern
+| Self Pattern Input Rest Value |
+atom Pattern,
+send Self Pattern [Input, Rest, Value].
+
+syntax >> match_pattern
+| Self Pattern Input Rest |
+class Pattern string,
+text Self Pattern Input Rest.
+
+syntax >> match_pattern
+| Self Pattern Input Rest |
+atom Pattern,
+send Self Pattern [Input, Rest].
+
+syntax >> match_pattern
+| Self Pattern Input Rest |
+functor Pattern Rule Args,
+atom Rule,
+concat [Input, Rest] Args CallArgs,
+send Self Rule CallArgs.
+
+syntax >> code
+| _Self [Code . Rest] Rest Code |.
+
+syntax >> known_text
+| _Self Input Input |
+not {var Input}.
+
+syntax >> unknown_text
+| _Self Input Input |
+var Input.
+
+syntax >> unless
+| Self Rest Rest Pattern |
+not {match_pattern Self Pattern Rest _}.
+
+syntax >> within
+| Self Rest Rest Codes Patterns |
+sequence Self Patterns Codes [].
+
+syntax >> where
+| _Self Rest Rest Args Goals |
+call Args Goals Args.
+
+syntax >> zero_or_more
+| _Self Rest Rest _Pattern [] |.
+
+syntax >> zero_or_more
+| Self Input Rest Pattern [Value . Values] |
+run_pattern Self Pattern Input After Value,
+dif Input After,
+zero_or_more Self After Rest Pattern Values.
+
+syntax >> sequence
+| _Self [] Rest Rest |.
+
+syntax >> sequence
+| Self [Pattern . Patterns] Input Rest |
+match_pattern Self Pattern Input After,
+sequence Self Patterns After Rest.
+
+grammar >> parse
+| Self Pattern Text |
+new Self Receiver,
+string_codes Text Codes,
+match_pattern Receiver Pattern Codes [].
+
+grammar >> translate
+| Self Target Pattern Text Translated |
+parse Self Pattern Text,
+parse Target Pattern Translated.
+
+grammar >> defrule
+| Self RuleName Patterns |
+atom RuleName,
+rule_goals Self Grammar Patterns [] Input Rest Body,
+defmethod Self RuleName [Grammar, Input, Rest] Body.
+
+grammar >> defrule
+| Self Head Patterns |
+functor Head RuleName Args,
+atom RuleName,
+rule_goals Self Grammar Patterns Args Input Rest Body,
+concat [Grammar, Input, Rest] Args MethodHead,
+defmethod Self RuleName MethodHead Body.
+
+grammar >> rule_goals
+| _Self _Grammar [] _Args Rest Rest [] |.
+
+grammar >> rule_goals
+| Self Grammar [Pattern . Patterns] Args Input Rest [Goal . Goals] |
+pattern_goal Self Grammar Pattern Args Input After Goal,
+rule_goals Self Grammar Patterns Args After Rest Goals.
+
+grammar >> pattern_goal
+| _Self Grammar next Args Input Rest Goal |
+concat [Grammar, Input, Rest] Args CallArgs,
+functor Goal call_next_method CallArgs.
+
+grammar >> pattern_goal
+| _Self Grammar Pattern _Args Input Rest Goal |
+functor Pattern next NextArgs,
+concat [Grammar, Input, Rest] NextArgs CallArgs,
+functor Goal call_next_method CallArgs.
+
+grammar >> pattern_goal
+| _Self Grammar Pattern _Args Input Rest Goal |
+dif Pattern next,
+not {functor Pattern next _},
+functor Goal match_pattern [Grammar, Pattern, Input, Rest].
+
+@lisp_syntax #{super => syntax, metaclass => grammar}.
+
+defrule lisp_syntax blank [" "].
+defrule lisp_syntax blank ["\n"].
+defrule lisp_syntax blank ["\t"].
+defrule lisp_syntax blank ["\r"].
+defrule lisp_syntax blanks [known_text, blank, blanks].
+defrule lisp_syntax blanks [].
+defrule lisp_syntax gap [unknown_text, " "].
+defrule lisp_syntax gap [known_text, blank, blanks].
+defrule lisp_syntax pad [unknown_text, " "].
+defrule lisp_syntax pad [known_text, gap].
+defrule lisp_syntax pad [known_text].
+defrule lisp_syntax (expr Symbol) [symbol Symbol].
+defrule lisp_syntax (expr Items) [list Items].
+defrule lisp_syntax (list []) ["(", blanks, ")"].
+defrule lisp_syntax (list [First . More])
+  ["(", blanks, expr First, zero_or_more spaced_expr More, blanks, ")"].
+defrule lisp_syntax (spaced_expr Expr) [gap, expr Expr].
+defrule lisp_syntax (symbol Symbol)
+  [where [Symbol, First, More] {atom_string Symbol Text, string_codes Text [First . More]},
+   symbol_code First,
+   zero_or_more symbol_code More].
+defrule lisp_syntax (symbol_code Code)
+  [code Code,
+   where [Code] {dif Code 32, dif Code 9, dif Code 10, dif Code 13, dif Code 40, dif Code 41}].
+
+@list_syntax #{super => lisp_syntax, metaclass => grammar}.
+
+defrule list_syntax (expr [list]) ["[", blanks, "]"].
+defrule list_syntax (expr [list, First . More])
+  ["[", blanks, expr First, zero_or_more comma_expr More, blanks, "]"].
+defrule list_syntax (expr ['list*', First . More])
+  ["[", blanks, expr First, tail_exprs More, blanks, "]"].
+defrule list_syntax (expr Term) [next].
+
+defrule list_syntax (comma_expr Expr) [blanks, ",", pad, expr Expr].
+defrule list_syntax (tail_exprs [Tail]) [pad, ".", pad, expr Tail].
+defrule list_syntax (tail_exprs [Expr . More]) [comma_expr Expr, tail_exprs More].
+
+defrule list_syntax (symbol_code Code)
+  [next, where [Code] {dif Code 44, dif Code 46, dif Code 91, dif Code 93}].
+
+@block_syntax #{super => lisp_syntax, metaclass => grammar}.
+
+defrule block_syntax (expr [block]) ["{", blanks, "}"].
+defrule block_syntax (expr [block, First . More])
+  ["{", blanks, goal First, zero_or_more comma_goal More, blanks, "}"].
+defrule block_syntax (expr Term) [next].
+
+defrule block_syntax (goal [Head . Args]) [expr Head, zero_or_more spaced_expr Args].
+defrule block_syntax (comma_goal Goal) [blanks, ",", pad, goal Goal].
+
+defrule block_syntax (symbol_code Code)
+  [next, where [Code] {dif Code 123, dif Code 125}].
+
+@map_syntax #{super => block_syntax, metaclass => grammar}.
+
+defrule map_syntax (expr [map]) ["\#{", blanks, "}"].
+defrule map_syntax (expr [map, First . More])
+  ["\#{", blanks, entry First, zero_or_more comma_entry More, blanks, "}"].
+defrule map_syntax (expr Term) [next].
+
+defrule map_syntax (entry [Key, Value]) [expr Key, pad, "=>", pad, expr Value].
+defrule map_syntax (comma_entry Entry) [blanks, ",", pad, entry Entry].
+
+@number_syntax #{super => lisp_syntax, metaclass => grammar}.
+
+defrule number_syntax (symbol Number)
+  [where [Number] {isa Number number}, integer Number].
+defrule number_syntax (symbol Atom) [next Atom, unless (integer_name Atom)].
+
+defrule number_syntax (integer_name Name)
+  [where [Name, Codes] {atom_string Name Text, string_codes Text Codes},
+   within Codes [integer _]].
+
+defrule number_syntax (integer Number) [natural Number].
+defrule number_syntax (integer Number)
+  [where [Number, Magnitude] {= Number (- 0 Magnitude), >= Magnitude 1},
+   "-",
+   natural Magnitude].
+defrule number_syntax (natural 0) ["0"].
+defrule number_syntax (natural Number)
+  [digit Digit, where [Digit] {>= Digit 1}, digits Digit Number].
+defrule number_syntax (digits Number Number) [].
+defrule number_syntax (digits Acc Number)
+  [digit Digit,
+   where [Acc, Digit, Next, Number] {= Next (+ (* Acc 10) Digit), <= Next Number},
+   digits Next Number].
+defrule number_syntax (digit Digit)
+  [code Code, where [Code, Digit] {>= Code 48, <= Code 57, = Digit (- Code 48)}].
+
+@variable_syntax #{super => lisp_syntax, metaclass => grammar}.
+
+defrule variable_syntax (symbol [var, Name]) [next Name, variable_name Name].
+defrule variable_syntax (symbol Term) [next Term, unless (variable_name Term)].
+
+defrule variable_syntax (variable_name Name)
+  [where [Name, Codes] {atom_string Name Text, string_codes Text Codes},
+   within Codes [variable_start, zero_or_more code _]].
+
+defrule variable_syntax variable_start
+  [code Code, where [Code] {{>= Code 65, <= Code 90} ; = Code 95}].
+
+@term_syntax #{
+  super => [list_syntax, map_syntax, number_syntax, variable_syntax],
+  metaclass => grammar
+}.
+
+@al_syntax #{super => lisp_syntax, metaclass => grammar}.
+
+al_syntax >> document
+| Self Input Rest [(vm_oapply defclass [Name, class, Super, [], []]) . Methods] |
+sequence Self [
+  blanks,
+  declaration (vm_oapply defclass [Name, class, Super, [], []]),
+  blanks,
+  methods Methods,
+  blanks
+] Input Rest.
+
+al_syntax >> document
+| Self Input Rest [(vm_oapply defmethod [Owner, Selector, Head, Body]) . Methods] |
+sequence Self [
+  blanks,
+  scoped_method (vm_oapply defmethod [Owner, Selector, Head, Body]),
+  blanks,
+  methods Methods,
+  blanks
+] Input Rest.
+
+al_syntax >> declaration
+| Self Input Rest (vm_oapply defclass [Name, class, Super, [], []]) |
+sequence Self [
+  "@",
+  word Name,
+  blanks,
+  "\#{",
+  blanks,
+  "super",
+  blanks,
+  "=>",
+  blanks,
+  word Super,
+  blanks,
+  "}",
+  ".",
+  blanks
+] Input Rest.
+
+al_syntax >> methods
+| _Self Rest Rest [] |.
+
+al_syntax >> methods
+| Self Input Rest [Method . Methods] |
+sequence Self [scoped_method Method, blanks, methods Methods] Input Rest.
+
+al_syntax >> scoped_method
+| Self Input Rest Method |
+sequence Self [method [] _Environment Method] Input Rest.
+
+al_syntax >> method
+| Self Input Rest EnvIn EnvOut (vm_oapply defmethod [Owner, Selector, Head, Body]) |
+sequence Self [
+  argument EnvIn Env1 Owner,
+  blanks,
+  ">>",
+  blanks,
+  argument Env1 Env2 Selector,
+  blanks,
+  "|",
+  blanks,
+  arguments Env2 Env3 Head,
+  blanks,
+  "|",
+  blanks,
+  goals Env3 EnvOut Body,
+  "."
+] Input Rest.
+
+al_syntax >> arguments
+| _Self Rest Rest Env Env [] |.
+
+al_syntax >> arguments
+| Self Input Rest EnvIn EnvOut [Argument . Arguments] |
+sequence Self [argument EnvIn Env1 Argument, more_arguments Env1 EnvOut Arguments] Input Rest.
+
+al_syntax >> more_arguments
+| _Self Rest Rest Env Env [] |.
+
+al_syntax >> more_arguments
+| Self Input Rest EnvIn EnvOut [Argument . Arguments] |
+sequence Self [
+  gap,
+  argument EnvIn Env1 Argument,
+  more_arguments Env1 EnvOut Arguments
+] Input Rest.
+
+al_syntax >> argument
+| Self Input Rest Env Env Atom |
+sequence Self [word Atom] Input Rest.
+
+al_syntax >> argument
+| Self Input Rest EnvIn EnvOut Variable |
+sequence Self [variable_word Name, named_variable EnvIn EnvOut Name Variable] Input Rest.
+
+al_syntax >> named_variable
+| _Self Rest Rest [[Name, Variable] . Env] [[Name, Variable] . Env] Name Variable |.
+
+al_syntax >> named_variable
+| Self Input Rest [[Other, Value] . EnvIn] [[Other, Value] . EnvOut] Name Variable |
+sequence Self [
+  where [Other, Name] {dif Other Name},
+  named_variable EnvIn EnvOut Name Variable
+] Input Rest.
+
+al_syntax >> named_variable
+| _Self Rest Rest [] [[Name, Variable]] Name Variable |.
+
+al_syntax >> goals
+| _Self Rest Rest Env Env [] |.
+
+al_syntax >> goals
+| Self Input Rest EnvIn EnvOut [Goal . Goals] |
+sequence Self [goal EnvIn Env1 Goal, more_goals Env1 EnvOut Goals] Input Rest.
+
+al_syntax >> more_goals
+| _Self Rest Rest Env Env [] |.
+
+al_syntax >> more_goals
+| Self Input Rest EnvIn EnvOut [Goal . Goals] |
+sequence Self [
+  blanks,
+  ",",
+  blanks,
+  goal EnvIn Env1 Goal,
+  more_goals Env1 EnvOut Goals
+] Input Rest.
+
+al_syntax >> goal
+| Self Input Rest EnvIn EnvOut Goal |
+sequence Self [
+  where [Goal, Selector, Args] {functor Goal Selector Args},
+  word Selector,
+  more_arguments EnvIn EnvOut Args
+] Input Rest.
+
+al_syntax >> goal
+| Self Input Rest EnvIn EnvOut Goal |
+sequence Self [
+  word Selector,
+  more_arguments EnvIn EnvOut Args,
+  where [Goal, Selector, Args] {functor Goal Selector Args}
+] Input Rest.

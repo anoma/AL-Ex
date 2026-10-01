@@ -25,7 +25,7 @@ shared `.mnesiastore` to isolate tests.
 
 ## Bootstrap and live stores
 
-Transaction programs are installed by name and version. Source edits do not
+Transaction programs are scripts installed once by name. Source edits do not
 change an already-installed live branch. For current-source verification, use
 the isolated test helper or a fresh fork/install path. Use `mix al.reset` only
 for an intentional whole-store reset coordinated with other users of the
