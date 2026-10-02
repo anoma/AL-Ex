@@ -184,8 +184,10 @@ defmodule AL.Var do
 
       with propagated_store when not is_nil(propagated_store) <-
              propagate(old_constraints, new_store, branch),
+           keyed_store when not is_nil(keyed_store) <-
+             propagate_keys(old_constraints, term, propagated_store, branch),
            linked_store when not is_nil(linked_store) <-
-             propagate_links(old_constraints, term, propagated_store, branch) do
+             propagate_links(old_constraints, term, keyed_store, branch) do
         if violated?(old_constraints, linked_store, term, branch) do
           nil
         else
@@ -194,6 +196,47 @@ defmodule AL.Var do
       else
         nil -> nil
       end
+    end
+  end
+
+  defp propagate_keys(nil, _term, store, _branch), do: store
+
+  defp propagate_keys(%ConstraintSet{keys: keys}, _term, store, _branch) when keys == %{},
+    do: store
+
+  defp propagate_keys(%ConstraintSet{keys: keys}, term, store, branch) do
+    Enum.reduce_while(keys, store, fn {key, value}, acc ->
+      case add_key(acc, term, key, value, branch) do
+        nil -> {:halt, nil}
+        next -> {:cont, next}
+      end
+    end)
+  end
+
+  @spec add_key(store(), t(), t(), t(), AL.Branch.t()) :: store() | nil
+  def add_key(store, map, key, value, branch) do
+    case deref(store, map) do
+      bound when is_map(bound) ->
+        case Map.fetch(bound, key) do
+          {:ok, existing} -> unify(value, existing, store, branch)
+          :error -> nil
+        end
+
+      open ->
+        if var?(open), do: record_key(store, open, key, value, branch), else: nil
+    end
+  end
+
+  defp record_key(store, var, key, value, branch) do
+    case constraint_set(store, var) do
+      %ConstraintSet{keys: %{^key => existing}} ->
+        unify(value, existing, store, branch)
+
+      %ConstraintSet{} = set ->
+        Map.put(store, var, %{set | keys: Map.put(set.keys, key, value)})
+
+      nil ->
+        Map.put(store, var, %ConstraintSet{keys: %{key => value}})
     end
   end
 
@@ -361,7 +404,8 @@ defmodule AL.Var do
       props: a.props ++ b.props,
       domain: merge_domains(a.domain, b.domain),
       super_link: a.super_link || b.super_link,
-      slot_links: Enum.uniq(a.slot_links ++ b.slot_links)
+      slot_links: Enum.uniq(a.slot_links ++ b.slot_links),
+      keys: a.keys
     }
 
   defp merge_domains(nil, d), do: d
@@ -845,8 +889,9 @@ defmodule AL.Var do
       is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
         unify(Tuple.to_list(x), Tuple.to_list(y), store, branch, mode)
 
-      is_map(x) && is_map(y) ->
-        keys = Map.keys(x) |> MapSet.new() |> MapSet.intersection(MapSet.new(Map.keys(y)))
+      is_map(x) && is_map(y) && map_size(x) == map_size(y) &&
+          Enum.all?(Map.keys(x), &Map.has_key?(y, &1)) ->
+        keys = Map.keys(x)
         mode = if goal_struct?(x) or goal_struct?(y), do: :opaque, else: mode
 
         unify(

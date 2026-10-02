@@ -281,10 +281,10 @@ defmodule Examples.ALConstraints do
 
         Adder >> constrain
         | _Self [I1, I2] Result |
-        vm_map_get I1 lo Lo1,
-        vm_map_get I1 hi Hi1,
-        vm_map_get I2 lo Lo2,
-        vm_map_get I2 hi Hi2,
+        map_get I1 lo Lo1,
+        map_get I1 hi Hi1,
+        map_get I2 lo Lo2,
+        map_get I2 hi Hi2,
         = Lo (+ Lo1 Lo2),
         = Hi (+ Hi1 Hi2),
         = Result #{class => interval_value, hi => Hi, lo => Lo}.

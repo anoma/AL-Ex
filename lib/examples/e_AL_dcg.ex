@@ -112,14 +112,14 @@ defmodule Examples.ALDCG do
         @tree_pass
         #{super => syntax, metaclass => grammar}.
 
-        defrule tree_pass (node #{kind => num, value => Number})
+        defrule tree_pass (node #{num => Number})
           [code Number, where [Number] {isa Number number}].
-        defrule tree_pass (node #{kind => ref, name => Name}) [code Name, where [Name] {atom Name}].
+        defrule tree_pass (node #{ref => Name}) [code Name, where [Name] {atom Name}].
         defrule tree_pass (node Tree) [code Form, within Form [form Tree]].
 
-        defrule tree_pass (form #{kind => apply, op => sub, args => [#{kind => num, value => 0}, Arg]})
+        defrule tree_pass (form #{op => sub, args => [#{num => 0}, Arg]})
           [[neg], node Arg].
-        defrule tree_pass (form #{kind => apply, op => Op, args => Args})
+        defrule tree_pass (form #{op => Op, args => Args})
           [code Op, where [Op] {atom Op, dif Op neg}, nodes Args].
 
         defrule tree_pass (nodes []) [].
@@ -132,15 +132,15 @@ defmodule Examples.ALDCG do
         """
       end
 
-    num = fn n -> %{kind: :num, value: n} end
-    apply = fn op, args -> %{kind: :apply, op: op, args: args} end
+    num = fn n -> %{num: n} end
+    apply = fn op, args -> %{op: op, args: args} end
 
     assert bindings[:"$Ast"] == [:add, 1, [:neg, [:mul, 2, :x]]]
 
     assert bindings[:"$Tree"] ==
              apply.(:add, [
                num.(1),
-               apply.(:sub, [num.(0), apply.(:mul, [num.(2), %{kind: :ref, name: :x}])])
+               apply.(:sub, [num.(0), apply.(:mul, [num.(2), %{ref: :x}])])
              ])
 
     assert bindings[:"$Backs"] == [

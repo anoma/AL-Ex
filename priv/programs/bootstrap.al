@@ -144,15 +144,15 @@ vm_set_class map class.
 
 map >> get
 | Self Key Value |
-vm_map_get Self Key Value.
+map_get Self Key Value.
 
 map >> get
 | Self Key _Default Value |
-vm_map_get Self Key Value.
+map_get Self Key Value.
 
 map >> get
 | Self Key Default Default |
-not (vm_map_get Self Key _).
+not (map_get Self Key _).
 
 map >> put
 | Self Key Value Updated |
@@ -387,7 +387,7 @@ put_slots Partial Rest Updated.
 
 value >> init
 | Self Args Output |
-vm_map_get Self class Class,
+map_get Self class Class,
 reachable_classes [Class] [] Chain,
 collect_ivar_specs Chain IvarSpecs,
 init_value Self Class Args IvarSpecs Output.

@@ -1,6 +1,6 @@
 defmodule Examples.ALMaps do
   @moduledoc """
-  I provide examples for map access/update: the raw `vm_map_get`/
+  I provide examples for map access/update: the raw `map_get`/
   `vm_map_put` primitives, and `:map`'s dispatched `get`/`put` sugar over
   them. `get` supports required and defaulted lookup forms.
   """
@@ -13,7 +13,7 @@ defmodule Examples.ALMaps do
     {:aborted, _} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        vm_map_get not_a_map k V.
+        map_get not_a_map k V.
         """
       end
 
@@ -75,6 +75,29 @@ defmodule Examples.ALMaps do
     assert bindings |> Map.get(:"$M2") |> Map.get(:c) == 4
 
     program_state
+  end
+
+  example map_get_on_an_open_map_is_a_key_constraint() do
+    {:atomic, {bindings, constraints, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        map_get Shared a First, map_get Shared a Second, = First 1.
+        map_get Later a Found, = Later #{a => 3, b => 4}.
+        map_get Left a Merged, map_get Right a 5, = Left Right.
+        not {map_get Missing a 1, = Missing #{b => 2}}.
+        not {map_get Clash a 1, map_get Clash a 2}.
+        not {map_get Scalar a 1, = Scalar foo}.
+        map_get Open k Value.
+        """
+      end
+
+    assert bindings[:"$Second"] == 1
+    assert bindings[:"$Found"] == 3
+    assert bindings[:"$Merged"] == 5
+
+    open = bindings[:"$Open"]
+    assert AL.Var.var?(open)
+    assert Map.keys(constraints[open].keys) == [:k]
   end
 
   example map_put_new() do

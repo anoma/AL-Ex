@@ -473,7 +473,8 @@ defmodule AL do
            bounds: bounds,
            domain: domain,
            super_link: super_link,
-           slot_links: slot_links
+           slot_links: slot_links,
+           keys: keys
          },
          store,
          rewrite_unbound
@@ -484,6 +485,7 @@ defmodule AL do
     |> maybe_put_dispatch(dispatch)
     |> maybe_put_super(super_link, store, rewrite_unbound)
     |> maybe_put_slots(slot_links, store, rewrite_unbound)
+    |> maybe_put_keys(keys, store, rewrite_unbound)
     |> maybe_put_dif(self, dif, store, rewrite_unbound)
     |> maybe_put_bounds(bounds)
     |> maybe_put_domain(domain, store, rewrite_unbound)
@@ -541,6 +543,11 @@ defmodule AL do
       if map_size(slot_of) == 0, do: summary, else: Map.put(summary, :slot_of, slot_of)
     end)
   end
+
+  defp maybe_put_keys(map, keys, _store, _rewrite_unbound) when keys == %{}, do: map
+
+  defp maybe_put_keys(map, keys, store, rewrite_unbound),
+    do: Map.put(map, :keys, AL.Var.subst(keys, store, rewrite_unbound))
 
   defp maybe_put_dif(map, _self, [], _store, _rewrite_unbound), do: map
 
@@ -1088,10 +1095,21 @@ defmodule AL do
     schedule_future_transaction(state, :waiting, effect, head, goals)
   end
 
-  def interp(%Goal.OApply{method_id: :vm_map_get, args: [m, _k, _v]}, state) when not is_map(m),
-    do: backtrack(state)
+  def interp(%Goal.OApply{method_id: :map_get, args: [m, k, v]} = goal, state)
+      when not is_map(m) do
+    cond do
+      not AL.Var.var?(m) ->
+        backtrack(state)
 
-  def interp(%Goal.OApply{method_id: :vm_map_get, args: [m, k_pattern, v_pattern]}, state) do
+      ground?(k) ->
+        put_bindings(state, AL.Var.add_key(store(state), m, k, v, state.branch), [m, v])
+
+      true ->
+        suspend(state, [m], goal)
+    end
+  end
+
+  def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
     if ground?(k_pattern) do
       case Map.fetch(m, k_pattern) do
         {:ok, v} ->
@@ -1122,7 +1140,7 @@ defmodule AL do
   # wildcard (to_mnesia_pattern treats an open var as "match anything"),
   # scanning every object's class instead of just this one and corrupting
   # the resolved spec list. Backtrack rather than guess, same as
-  # `:vm_map_get`'s `when not is_map(m)` guard above.
+  # `:map_get`'s `when not is_map(m)` guard above.
   def interp(%Goal.OApply{method_id: :vm_cached_ivar_specs, args: [self, result]}, state) do
     self_ground = AL.Var.deref(store(state), self)
 

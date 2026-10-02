@@ -46,7 +46,8 @@ defmodule AL.Var.ConstraintSet do
           props: [propagator()],
           domain: MapSet.t(AL.Var.t()) | nil,
           super_link: super_link() | nil,
-          slot_links: [slot_link()]
+          slot_links: [slot_link()],
+          keys: %{optional(AL.Var.t()) => AL.Var.t()}
         }
 
   defstruct dif: [],
@@ -57,5 +58,6 @@ defmodule AL.Var.ConstraintSet do
             props: [],
             domain: nil,
             super_link: nil,
-            slot_links: []
+            slot_links: [],
+            keys: %{}
 end

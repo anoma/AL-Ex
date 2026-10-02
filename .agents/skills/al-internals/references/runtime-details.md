@@ -95,7 +95,7 @@ also starts/stops the Outbox per branch.
     itself only keeps the goals with no better-named home: `Eq`/`Equal`/
     `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Not`/`Call`/
     `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
-    primitive `OApply` cases (`vm_map_get`, `vm_map_put`, `vm_fresh_id`,
+    primitive `OApply` cases (`map_get`, `vm_map_put`, `vm_fresh_id`,
     `vm_current_tx`) and `OApply`'s own general clause (method dispatch — see
     below). `oapply` expands a method head into its body **bidirectionally**:
     freshen the clause's vars by scope, unify head with call args into the
@@ -322,7 +322,7 @@ constraint it's the proof of.
 1. **Compilation (`AL.Syntax`).** `send Recv Sel Args` and implicit
    `sel Recv …` (any non-reserved atom followed by at least one argument) become
    `%Goal.Send{}`. Direct VM ops never become sends: arithmetic (`+ - * / **`)
-   and the `vm_*` primitives (`vm_map_get`, `vm_map_put`, `vm_fresh_id`,
+   and the primitives (`map_get`, `vm_map_put`, `vm_fresh_id`,
    `vm_current_tx`, …) compile to `%Goal.OApply{}`; a bare `foo` in goal
    position, or `(foo)` in a term position →
    `%Goal.OApply{method_id: :foo, args: []}`.

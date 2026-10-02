@@ -195,7 +195,7 @@ defmodule Examples.ALSource do
       {:set_oapply, :"$O", :next, [:"$A"], []},
       {:get_oapply, :"$O", 2, [:"$A"], :"$B"},
       {:set_oapply, :"$O", 3, [:"$A"], []},
-      {:oapply, :vm_map_get, [:"$M", :key, :"$V"]},
+      {:oapply, :map_get, [:"$M", :key, :"$V"]},
       {:oapply, :vm_map_put, [:"$M", :key, :"$V", :"$Out"]},
       {:oapply, :vm_fresh_id, [:"$Id"]},
       {:oapply, :vm_current_tx, [:"$Tx"]},

@@ -18,13 +18,15 @@ defmodule Examples.ALVarSubstrate do
 
   example unification() do
     bindings =
-      AL.Var.unify([:"$self", %{name: :"$name"}, {:"$_", 3}], [
+      AL.Var.unify([:"$self", %{name: :"$name", age: :"$age"}, {:"$_", 3}], [
         :"$self",
         %{name: "alice", age: 32},
         {:_, 3}
       ])
 
-    assert bindings == %{"$name": "alice"}
+    assert bindings == %{"$name": "alice", "$age": 32}
+    assert AL.Var.unify(%{name: :"$name"}, %{name: "alice", age: 32}) == nil
+    assert AL.Var.unify(%{op: :"$op"}, %{num: 2}) == nil
     bindings
   end
 

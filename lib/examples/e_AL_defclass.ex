@@ -363,8 +363,8 @@ defmodule Examples.ALDefclass do
 
         logging_metaclass >> class_redefined
         | Self OldSpec NewSpec |
-        vm_map_get OldSpec supers OldSupers,
-        vm_map_get NewSpec supers NewSupers,
+        map_get OldSpec supers OldSupers,
+        map_get NewSpec supers NewSupers,
         set_slot Self redef_log [OldSupers, NewSupers].
 
         @logged_thing

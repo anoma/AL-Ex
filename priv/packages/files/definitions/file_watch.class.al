@@ -29,7 +29,8 @@ file_watch >> watch_failed
 set_slot Self status #{reason => Reason, status => error}.
 
 file_watch >> receive
-| Self #{contents => #{status => ok, value => Contents}} |
+| Self Event |
+get Event contents #{status => ok, value => Contents},
 set_slot Self contents Contents.
 
 file_watch >> stop_watching

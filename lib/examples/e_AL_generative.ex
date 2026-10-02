@@ -682,7 +682,7 @@ defmodule Examples.ALGenerative do
 
         square >> get
         | Self K V |
-        vm_map_get Self K V.
+        map_get Self K V.
 
         square >> area
         | #{class => square, side => Side} Result |

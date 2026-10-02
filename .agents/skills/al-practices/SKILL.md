@@ -107,8 +107,13 @@ control-flow tools.
   value with `put`. Read only the slots required to compute that update.
 - A value class's `init` constructs its result by unifying with a complete map.
   Do not use durable slot mutation on a map scaffold.
+- Maps unify only with maps that have the same keys. To read some keys of a
+  larger map, use `get` or `map_get` in the body rather than a partial map in
+  the head. On a still-open map, `map_get` records a key constraint that the
+  map must satisfy once it is bound.
 - Prefer `get`, `put`, `set_slot`, and `set_slots` in program code. Use
-  `vm_map_get`, `vm_map_put`, or `vm_set_slot` only at the implementation or
+  `map_get` when the receiver may still be open and is known to be a map, and
+  `vm_map_put` or `vm_set_slot` only at the implementation or
   structural-reconciliation boundary.
 
 ## Verification

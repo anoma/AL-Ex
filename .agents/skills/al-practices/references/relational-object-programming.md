@@ -180,7 +180,7 @@ gain durable identity merely because a slot mutation goal is aimed at it.
 
 Use the public relation whenever the receiver is a modeled AL object or value:
 
-- `get` instead of `vm_map_get` or a raw slot read in application code.
+- `get` instead of `map_get` or a raw slot read in application code.
 - `put` instead of `vm_map_put` for immutable value updates.
 - `set_slot`/`set_slots` instead of `vm_set_slot` for durable object behavior.
 - `run` instead of exposing stored heads and bodies to callers.

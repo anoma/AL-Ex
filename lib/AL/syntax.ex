@@ -70,7 +70,7 @@ defmodule AL.Syntax do
     {:none, ["->"]}
   ]
   @primitives [
-    :vm_map_get,
+    :map_get,
     :vm_map_put,
     :vm_fresh_id,
     :vm_current_tx,
