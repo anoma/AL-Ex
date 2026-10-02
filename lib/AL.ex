@@ -332,10 +332,13 @@ defmodule AL do
     result
   end
 
+  defp anonymous_variable?(variable),
+    do: is_atom(variable) and String.starts_with?(Atom.to_string(variable), "$_@")
+
   # canonical_names: internal freshened var (e.g. concat's fh_N) -> the
   # observable var it's aliased to. Internal names must never surface.
   defp format_output_vars(input_vars, store) do
-    sorted_vars = Enum.sort(input_vars)
+    sorted_vars = input_vars |> Enum.reject(&anonymous_variable?/1) |> Enum.sort()
 
     canonical_names =
       Enum.reduce(sorted_vars, %{}, fn variable, acc ->

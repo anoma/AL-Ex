@@ -491,9 +491,11 @@ defmodule AL.Syntax.Printer do
   defp variable(var) do
     name = var |> Atom.to_string() |> String.trim_leading("$")
 
-    if match?(<<c, _::binary>> when c in ?A..?Z or c == ?_, name),
-      do: name,
-      else: camelize(name)
+    cond do
+      String.starts_with?(name, "_@") -> "_"
+      match?(<<c, _::binary>> when c in ?A..?Z or c == ?_, name) -> name
+      true -> camelize(name)
+    end
   end
 
   @spec camelize(String.t()) :: String.t()

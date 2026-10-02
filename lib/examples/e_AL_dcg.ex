@@ -318,6 +318,7 @@ defmodule Examples.ALDCG do
         ~AL"""
         translate lisp_syntax term_syntax (expr Tree) "(list a (block (g x)))" Term.
         translate term_syntax lisp_syntax (expr Back) Term Lisp.
+        translate lisp_syntax term_syntax (expr _) "(list a b)" Anonymous.
         translate term_syntax lisp_syntax (expr Map) "\#{k => [V]}" MapLisp.
         not (translate lisp_syntax term_syntax (expr _Number) "(f 1)" _Unwritable).
         not (parse lisp_syntax (expr [a, 'b c']) _Spaced).
@@ -334,6 +335,7 @@ defmodule Examples.ALDCG do
     assert bindings[:"$Tree"] == [:list, :a, [:block, [:g, :x]]]
     assert bindings[:"$Term"] == "[a, {g x}]"
     assert bindings[:"$Lisp"] == "(list a (block (g x)))"
+    assert bindings[:"$Anonymous"] == "[a, b]"
     assert bindings[:"$MapLisp"] == "(map (k (list (var V))))"
     assert bindings[:"$Texts"] == ["[a, B]", "(list a B)"]
     assert bindings[:"$Shared"] == [:f, 1, [:var, :Foo], [:list, :a, -2]]

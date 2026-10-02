@@ -42,7 +42,7 @@ defmodule Examples.ALOutputBindings do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == [[1, :"$_", :"$_"]]
+    assert Map.get(bindings, :"$Result") == [[1, :"$_1", :"$_2"]]
     :ok
   end
 

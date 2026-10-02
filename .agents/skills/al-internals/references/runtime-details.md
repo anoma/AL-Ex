@@ -364,7 +364,9 @@ constraint it's the proof of.
 
 Edge cases: a query with no candidates fails, never DNUs; only fully-ground sends
 DNU; `:"$_"` in receiver/selector is the match-anything wildcard, not a slot to
-ground; of the two var-receiver candidate kinds, only durable objects require a
+ground (it only appears in Elixir-built patterns: the reader turns each written
+`_` into its own fresh variable, `$_@N`, numbered across the source and printed
+back as `_`); of the two var-receiver candidate kinds, only durable objects require a
 class row — generative candidates are offered regardless.
 
 ## Tables

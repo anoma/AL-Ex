@@ -902,10 +902,34 @@ defmodule AL.Syntax do
   defp definition_key({kind, name, _start, _stop}), do: {kind, name}
 
   defp compile(items, pins) do
-    {:ok, items |> Enum.reject(&comment?/1) |> Enum.map(&item(&1, pins))}
+    {items, _count} = items |> Enum.reject(&comment?/1) |> number_anonymous(0)
+    {:ok, Enum.map(items, &item(&1, pins))}
   rescue
     exception in ArgumentError -> error(:compile, Exception.message(exception), nil)
   end
+
+  defp number_anonymous({:var, :_, start, stop}, count),
+    do: {{:var, String.to_atom("_@#{count + 1}"), start, stop}, count + 1}
+
+  defp number_anonymous(list, count) when is_list(list),
+    do: Enum.map_reduce(list, count, &number_anonymous/2)
+
+  defp number_anonymous(map, count) when is_map(map) and not is_struct(map) do
+    {pairs, count} =
+      Enum.map_reduce(map, count, fn {key, value}, count ->
+        {value, count} = number_anonymous(value, count)
+        {{key, value}, count}
+      end)
+
+    {Map.new(pairs), count}
+  end
+
+  defp number_anonymous(tuple, count) when is_tuple(tuple) do
+    {items, count} = tuple |> Tuple.to_list() |> number_anonymous(count)
+    {List.to_tuple(items), count}
+  end
+
+  defp number_anonymous(other, count), do: {other, count}
 
   defp item({:clear, owner, selector}, pins),
     do: %Goal.OApply{method_id: :clear_method, args: [term(owner, pins), term(selector, pins)]}
