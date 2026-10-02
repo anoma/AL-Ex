@@ -1110,11 +1110,6 @@ call Head Body AllArgs.
 syntax >> init
 | Self _Args Self |.
 
-syntax >> text
-| _Self Text Input Rest |
-string_codes Text Codes,
-concat Codes Rest Input.
-
 syntax >> word
 | Self Input Rest Word |
 atom_string Word Text,
@@ -1157,24 +1152,24 @@ syntax >> variable_code
 
 syntax >> run_pattern
 | Self Pattern Input Rest Value |
-class Pattern string,
-atom_string Value Pattern,
-text Self Pattern Input Rest.
-
-syntax >> run_pattern
-| Self Pattern Input Rest Value |
 atom Pattern,
 send Self Pattern [Input, Rest, Value].
 
 syntax >> match_pattern
 | Self Pattern Input Rest |
-class Pattern string,
-text Self Pattern Input Rest.
+atom Pattern,
+send Self Pattern [Input, Rest].
+
+syntax >> match_pattern
+| _Self Pattern Input Rest |
+class Pattern list,
+concat Pattern Rest Input.
 
 syntax >> match_pattern
 | Self Pattern Input Rest |
-atom Pattern,
-send Self Pattern [Input, Rest].
+class Pattern string,
+string_codes Pattern Codes,
+match_pattern Self Codes Input Rest.
 
 syntax >> match_pattern
 | Self Pattern Input Rest |
@@ -1223,11 +1218,19 @@ syntax >> sequence
 match_pattern Self Pattern Input After,
 sequence Self Patterns After Rest.
 
+grammar >> phrase
+| Self Pattern Input |
+phrase Self Pattern Input [].
+
+grammar >> phrase
+| Self Pattern Input Rest |
+new Self Receiver,
+match_pattern Receiver Pattern Input Rest.
+
 grammar >> parse
 | Self Pattern Text |
-new Self Receiver,
 string_codes Text Codes,
-match_pattern Receiver Pattern Codes [].
+phrase Self Pattern Codes.
 
 grammar >> translate
 | Self Target Pattern Text Translated |

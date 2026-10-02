@@ -12,11 +12,11 @@ defmodule Examples.ALDCG do
 
         colors >> color
         | Self Input Rest red |
-        text Self "red" Input Rest.
+        match_pattern Self "red" Input Rest.
 
         colors >> color
         | Self Input Rest blue |
-        text Self "blue" Input Rest.
+        match_pattern Self "blue" Input Rest.
 
         parse colors (color Parsed) "red".
         parse syntax (word Word) "abc".
@@ -76,6 +76,79 @@ defmodule Examples.ALDCG do
     assert bindings[:"$Parsed"] == [:a, :b]
     assert bindings[:"$Generated"] == "b-a"
     assert bindings[:"$Remainder"] == [33]
+  end
+
+  example phrase_runs_a_grammar_over_any_list() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @sum_tokens
+        #{super => syntax, metaclass => grammar}.
+
+        defrule sum_tokens (operand Number) [code Number, where [Number] {isa Number number}].
+        defrule sum_tokens (sum [Left, Right]) [operand Left, [plus], operand Right].
+
+        phrase sum_tokens (sum Sum) [1, plus, 2].
+        phrase sum_tokens (sum [3, 4]) Tokens.
+        phrase sum_tokens (sum Prefix) [5, plus, 6, times, 7] Rest.
+        not (phrase sum_tokens (sum _) [1, minus, 2]).
+        phrase syntax [a, b] Terminal.
+        """
+      end
+
+    assert bindings[:"$Sum"] == [1, 2]
+    assert bindings[:"$Tokens"] == [3, :plus, 4]
+    assert bindings[:"$Prefix"] == [5, 6]
+    assert bindings[:"$Rest"] == [:times, 7]
+    assert bindings[:"$Terminal"] == [:a, :b]
+  end
+
+  example a_grammar_rewrites_one_ast_into_another() do
+    source = "(add 1 (neg (mul 2 x)))"
+
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @tree_pass
+        #{super => syntax, metaclass => grammar}.
+
+        defrule tree_pass (node #{kind => num, value => Number})
+          [code Number, where [Number] {isa Number number}].
+        defrule tree_pass (node #{kind => ref, name => Name}) [code Name, where [Name] {atom Name}].
+        defrule tree_pass (node Tree) [code Form, within Form [form Tree]].
+
+        defrule tree_pass (form #{kind => apply, op => sub, args => [#{kind => num, value => 0}, Arg]})
+          [[neg], node Arg].
+        defrule tree_pass (form #{kind => apply, op => Op, args => Args})
+          [code Op, where [Op] {atom Op, dif Op neg}, nodes Args].
+
+        defrule tree_pass (nodes []) [].
+        defrule tree_pass (nodes [Node . Nodes]) [node Node, nodes Nodes].
+
+        parse number_syntax (expr Ast) ^source.
+        phrase tree_pass (form Tree) Ast.
+        findall Back Backs {phrase tree_pass (form Tree) Back}.
+        findall Text Texts {phrase tree_pass (form Tree) Form, parse number_syntax (expr Form) Text}.
+        """
+      end
+
+    num = fn n -> %{kind: :num, value: n} end
+    apply = fn op, args -> %{kind: :apply, op: op, args: args} end
+
+    assert bindings[:"$Ast"] == [:add, 1, [:neg, [:mul, 2, :x]]]
+
+    assert bindings[:"$Tree"] ==
+             apply.(:add, [
+               num.(1),
+               apply.(:sub, [num.(0), apply.(:mul, [num.(2), %{kind: :ref, name: :x}])])
+             ])
+
+    assert bindings[:"$Backs"] == [
+             [:add, 1, [:neg, [:mul, 2, :x]]],
+             [:add, 1, [:sub, 0, [:mul, 2, :x]]]
+           ]
+
+    assert bindings[:"$Texts"] == [source, "(add 1 (sub 0 (mul 2 x)))"]
   end
 
   example a_rule_captures_values_without_capturing_syntax() do
