@@ -247,6 +247,7 @@ defmodule Examples.ALObjects do
     {:atomic, _} =
       run branch: branch_id do
         ~AL"""
+        isa cached_isa_object cached_isa_base.
         vm_set_super cached_isa_base cached_isa_root.
         isa cached_isa_object cached_isa_root.
         """

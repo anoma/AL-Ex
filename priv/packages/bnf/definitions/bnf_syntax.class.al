@@ -2,91 +2,118 @@
 #{super => string_syntax, metaclass => grammar}.
 
 bnf_syntax >> document
-| Self Input Rest Rules |
-sequence Self [rules Rules, blanks] Input Rest.
+| Grammar Input Rest Rules |
+send Grammar rules [Input, After, Rules],
+send Grammar blanks [After, Rest].
 
 bnf_syntax >> rules
-| _Self Rest Rest [] |.
+| Grammar Rest Rest [] |.
 
 bnf_syntax >> rules
-| Self Input Rest [Rule . Rules] |
-sequence Self [rule Rule, more_rules Rules] Input Rest.
+| Grammar Input Rest [Rule . Rules] |
+send Grammar rule [Input, After, Rule],
+send Grammar more_rules [After, Rest, Rules].
 
 bnf_syntax >> more_rules
-| _Self Rest Rest [] |.
+| Grammar Rest Rest [] |.
 
 bnf_syntax >> more_rules
-| Self Input Rest [Rule . Rules] |
-sequence Self [line_break, rule Rule, more_rules Rules] Input Rest.
+| Grammar Input Rest [Rule . Rules] |
+send Grammar line_break [Input, After],
+send Grammar rule [After, After_2, Rule],
+send Grammar more_rules [After_2, Rest, Rules].
 
 bnf_syntax >> rule
-| Self Input Rest (rule Name Alternatives) |
-sequence Self [nonterminal_name Name, gap, "::=", gap, alternatives Alternatives] Input Rest.
+| Grammar Input Rest (rule Name Alternatives) |
+send Grammar nonterminal_name [Input, After, Name],
+send Grammar gap [After, After_2],
+= After_2 [58, 58, 61 . Inner],
+send Grammar gap [Inner, After_3],
+send Grammar alternatives [After_3, Rest, Alternatives].
 
 bnf_syntax >> alternatives
-| Self Input Rest [Alternative . Alternatives] |
-sequence Self [alternative Alternative, more_alternatives Alternatives] Input Rest.
+| Grammar Input Rest [Alternative . Alternatives] |
+send Grammar alternative [Input, After, Alternative],
+send Grammar more_alternatives [After, Rest, Alternatives].
 
 bnf_syntax >> more_alternatives
-| _Self Rest Rest [] |.
+| Grammar Rest Rest [] |.
 
 bnf_syntax >> more_alternatives
-| Self Input Rest [Alternative . Alternatives] |
-sequence Self [gap, "|", gap, alternative Alternative, more_alternatives Alternatives] Input Rest.
+| Grammar Input Rest [Alternative . Alternatives] |
+send Grammar gap [Input, After],
+= After [124 . Inner],
+send Grammar gap [Inner, After_2],
+send Grammar alternative [After_2, After_3, Alternative],
+send Grammar more_alternatives [After_3, Rest, Alternatives].
 
 bnf_syntax >> alternative
-| Self Input Rest [] |
-sequence Self ["\"\""] Input Rest.
+| Grammar Input Rest [] |
+= Input [34, 34 . Rest].
 
 bnf_syntax >> alternative
-| Self Input Rest [Item . Items] |
-sequence Self [item Item, more_items Items] Input Rest.
+| Grammar Input Rest [Item . Items] |
+send Grammar item [Input, After, Item],
+send Grammar more_items [After, Rest, Items].
 
 bnf_syntax >> more_items
-| _Self Rest Rest [] |.
+| Grammar Rest Rest [] |.
 
 bnf_syntax >> more_items
-| Self Input Rest [Item . Items] |
-sequence Self [gap, item Item, more_items Items] Input Rest.
+| Grammar Input Rest [Item . Items] |
+send Grammar gap [Input, After],
+send Grammar item [After, After_2, Item],
+send Grammar more_items [After_2, Rest, Items].
 
 bnf_syntax >> item
-| Self Input Rest (repeat Item) |
-sequence Self [simple_item Item, "*"] Input Rest.
+| Grammar Input Rest (repeat Item) |
+send Grammar simple_item [Input, After, Item],
+= After [42 . Rest].
 
 bnf_syntax >> item
-| Self Input Rest Item |
-sequence Self [simple_item Item] Input Rest.
+| Grammar Input Rest Item |
+send Grammar simple_item [Input, Rest, Item].
 
 bnf_syntax >> simple_item
-| Self Input Rest (any) |
-sequence Self ["/./"] Input Rest.
+| Grammar Input Rest (any) |
+= Input [47, 46, 47 . Rest].
 
 bnf_syntax >> simple_item
-| Self Input Rest (nonterminal Name) |
-sequence Self [nonterminal_name Name] Input Rest.
+| Grammar Input Rest (nonterminal Name) |
+send Grammar nonterminal_name [Input, Rest, Name].
 
 bnf_syntax >> simple_item
-| Self Input Rest (terminal Terminal) |
-sequence Self [expr Terminal] Input Rest.
+| Grammar Input Rest (terminal Terminal) |
+send Grammar expr [Input, Rest, Terminal].
 
 bnf_syntax >> nonterminal_name
-| Self Input Rest Name |
-sequence Self [
-  where [Name, First, More] {atom_string Name Text, string_codes Text [First . More]},
-  "<",
-  name_code First,
-  zero_or_more name_code More,
-  ">"
-] Input Rest.
+| Grammar Input Rest Name |
+not (var Input),
+= Input [60 . Inner],
+send Grammar name_code [Inner, After, First],
+send Grammar zero_or_more [After, After_2, name_code, More],
+= After_2 [62 . Rest],
+call [Name, First, More] {atom_string Name Text, string_codes Text [First . More]} [Name, First, More].
+
+bnf_syntax >> nonterminal_name
+| Grammar Input Rest Name |
+var Input,
+call [Name, First, More] {atom_string Name Text, string_codes Text [First . More]} [Name, First, More],
+= Input [60 . Inner],
+send Grammar name_code [Inner, After, First],
+send Grammar zero_or_more [After, After_2, name_code, More],
+= After_2 [62 . Rest].
 
 bnf_syntax >> name_code
 | _Self [Code . Rest] Rest Code |
 {>= Code 97, <= Code 122} ; {>= Code 48, <= Code 57} ; = Code 95.
 
 bnf_syntax >> line_break
-| Self Input Rest |
-sequence Self [unknown_text, "\n"] Input Rest.
+| Grammar Input Rest |
+var Input,
+= Input [10 . Rest].
 
 bnf_syntax >> line_break
-| Self Input Rest |
-sequence Self [known_text, gap] Input Rest.
+| Grammar Input Rest |
+not (var Input),
+send Grammar gap [Input, Rest].

@@ -301,6 +301,81 @@ defmodule Examples.ALClauses do
     assert %AL.Goal.Compound{name: :wrap} = b[:"$Same"]
   end
 
+  example unused_head_variables_preserve_open_calls_and_live_variables() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @unused_head_probe
+        #{super => object}.
+
+        unused_head_probe >> accepts
+        | _Self _Unused |.
+
+        unused_head_probe >> repeated
+        | _Self X X |.
+
+        unused_head_probe >> echoes
+        | _Self X Result |
+        = Result X.
+
+        new unused_head_probe Probe.
+        accepts Probe Open.
+        var Open.
+        not {repeated Probe 1 2}.
+        repeated Probe 3 3.
+        echoes Probe 4 Echo.
+        """
+      end
+
+    assert bindings[:"$Echo"] == 4
+  end
+
+  example prepared_clause_cache_tracks_clause_replacement() do
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @prepared_clause_probe
+        #{super => object}.
+
+        prepared_clause_probe >> accepts
+        | _Self _Unused |.
+
+        new prepared_clause_probe Probe.
+        accepts Probe anything.
+        method prepared_clause_probe accepts Id.
+        vm_retract_oapply Id _.
+        vm_set_oapply Id [_Self, fixed] {}.
+        not {accepts Probe other}.
+        accepts Probe fixed.
+        """
+      end
+  end
+
+  example send_plan_tracks_method_rebinding() do
+    c = fresh_class()
+    probe = fresh_class()
+
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        vm_set_class ^c object.
+
+        ^c >> tag
+        | _Self first |.
+
+        ^c >> replacement
+        | _Self second |.
+
+        vm_set_class ^probe ^c.
+        tag ^probe first.
+        method ^c replacement ReplacementId.
+        vm_retract_method ^c tag _.
+        vm_set_method ^c tag ReplacementId.
+        tag ^probe second.
+        """
+      end
+  end
+
   # `:object`'s `reorder_clauses` rewrites a method's clauses into a given order.
   # `:list`'s `:at` is the 3-arg entry clause `[xs, n, x]` followed by two 4-arg
   # recursion clauses, so head arity (3 vs 4) is a rename-stable witness of clause

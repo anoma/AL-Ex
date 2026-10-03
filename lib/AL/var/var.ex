@@ -174,8 +174,37 @@ defmodule AL.Var do
   # skips the check even when what it ultimately points to is concrete.
   @spec bind(store(), variable(), t(), AL.Branch.t()) :: store() | nil
   def bind(store, var, term, branch) do
-    term = deref(store, term)
-    if occurs?(var, term, store), do: nil, else: bind_resolved(store, var, term, branch)
+    resolved = deref(store, term)
+
+    if ground_marked?(store, term) do
+      bind_ground(store, var, resolved, branch)
+    else
+      case scan(var, resolved, store) do
+        :occurs -> nil
+        :ground -> bind_ground(store, var, resolved, branch)
+        :open -> bind_resolved(store, var, resolved, branch)
+      end
+    end
+  end
+
+  defp bind_ground(store, var, term, branch) do
+    case bind_resolved(store, var, term, branch) do
+      nil -> nil
+      new_store -> mark_ground(new_store, var)
+    end
+  end
+
+  @ground_marks AL.Var.GroundMarks
+
+  defp ground_marked?(store, term) do
+    var?(term) and Map.has_key?(Map.get(store, @ground_marks, %{}), term)
+  end
+
+  defp mark_ground(store, var) do
+    case Map.get(store, var) do
+      [_ | _] -> Map.update(store, @ground_marks, %{var => true}, &Map.put(&1, var, true))
+      _scalar -> store
+    end
   end
 
   defp bind_resolved(store, var, term, branch) do
@@ -943,38 +972,56 @@ defmodule AL.Var do
   def tighten_min(a, b), do: min(a, b)
 
   @spec occurs?(variable(), t(), store()) :: boolean()
-  def occurs?(_var, term, _store) when is_number(term) or is_binary(term), do: false
-  def occurs?(var, {:"$fresh", _, _} = term, store), do: occurs_resolved?(var, term, store)
+  def occurs?(var, term, store), do: scan(var, term, store) == :occurs
 
-  def occurs?(var, term, store) when is_atom(term),
-    do: var?(term) and occurs_resolved?(var, term, store)
+  defp scan(_var, term, _store) when is_number(term) or is_binary(term), do: :ground
+  defp scan(var, {:"$fresh", _, _} = term, store), do: scan_var(var, term, store)
 
-  def occurs?(var, term, store) when is_list(term), do: occurs_in_list?(var, term, store)
+  defp scan(var, term, store) when is_atom(term),
+    do: if(var?(term), do: scan_var(var, term, store), else: :ground)
 
-  def occurs?(var, term, store) when is_tuple(term),
-    do: occurs_in_list?(var, Tuple.to_list(term), store)
+  defp scan(var, term, store) when is_list(term), do: scan_list(var, term, store, :ground)
 
-  def occurs?(var, term, store) when is_map(term),
-    do: occurs_in_list?(var, Map.values(term), store)
+  defp scan(var, term, store) when is_tuple(term),
+    do: scan_list(var, Tuple.to_list(term), store, :ground)
 
-  def occurs?(_var, _term, _store), do: false
+  defp scan(var, term, store) when is_map(term),
+    do: scan_list(var, Map.keys(term) ++ Map.values(term), store, :ground)
 
-  defp occurs_resolved?(var, term, store) do
-    case deref(store, term) do
-      ^var -> true
-      resolved -> not var?(resolved) and occurs?(var, resolved, store)
+  defp scan(_var, _term, _store), do: :ground
+
+  defp scan_var(var, term, store) do
+    if ground_marked?(store, term) do
+      :ground
+    else
+      case deref(store, term) do
+        ^var -> :occurs
+        resolved -> if var?(resolved), do: :open, else: scan(var, resolved, store)
+      end
     end
   end
 
-  defp occurs_in_list?(var, [head | tail], store) when is_integer(head),
-    do: occurs_in_list?(var, tail, store)
+  defp scan_list(var, [head | tail], store, acc) when is_integer(head),
+    do: scan_list(var, tail, store, acc)
 
-  defp occurs_in_list?(var, [head | tail], store),
-    do: occurs?(var, head, store) or occurs_in_list?(var, tail, store)
+  defp scan_list(var, [head | tail], store, acc) do
+    case scan(var, head, store) do
+      :occurs -> :occurs
+      found -> scan_list(var, tail, store, both(acc, found))
+    end
+  end
 
-  defp occurs_in_list?(_var, [], _store), do: false
+  defp scan_list(_var, [], _store, acc), do: acc
 
-  defp occurs_in_list?(var, tail, store), do: occurs?(var, tail, store)
+  defp scan_list(var, tail, store, acc) do
+    case scan(var, tail, store) do
+      :occurs -> :occurs
+      found -> both(acc, found)
+    end
+  end
+
+  defp both(:ground, :ground), do: :ground
+  defp both(_left, _right), do: :open
 
   @spec unify(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
@@ -982,31 +1029,86 @@ defmodule AL.Var do
 
   @spec unify_fresh(t(), t(), store(), AL.Branch.t(), String.t()) :: store() | nil
   def unify_fresh(head, call, store, branch, scope) do
-    case fresh_unify(head, call, {store, false}, branch, scope) do
+    case fresh_unify(head, call, false, {store, false}, branch, scope) do
       nil -> nil
       {new_store, _leaked} -> new_store
     end
   end
 
-  defp fresh_unify(x, y, acc, branch, scope) do
+  def unify_fresh_prepared(plan, call, store, branch, scope) do
+    case fresh_unify_prepared(plan, call, {store, false}, branch, scope) do
+      nil -> nil
+      {new_store, _leaked} -> new_store
+    end
+  end
+
+  defp fresh_unify_prepared(_plan, :"$_", acc, _branch, _scope), do: acc
+  defp fresh_unify_prepared(:wildcard, _call, acc, _branch, _scope), do: acc
+
+  defp fresh_unify_prepared({:variable, variable}, call, acc, branch, scope),
+    do: fresh_unify(fresh(variable, scope), call, false, acc, branch, scope)
+
+  defp fresh_unify_prepared({:literal, value}, call, acc, branch, scope),
+    do: if(value == call, do: acc, else: fresh_unify(value, call, false, acc, branch, scope))
+
+  defp fresh_unify_prepared({:cons, _original, head, tail}, [arg | args], acc, branch, scope) do
+    case fresh_unify_prepared(head, arg, acc, branch, scope) do
+      nil -> nil
+      next -> fresh_unify_prepared(tail, args, next, branch, scope)
+    end
+  end
+
+  defp fresh_unify_prepared(
+         {:tuple, original, _arity, _fields},
+         {:"$fresh", _, _} = call,
+         acc,
+         branch,
+         scope
+       ),
+       do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
+
+  defp fresh_unify_prepared({:tuple, _original, arity, fields}, call, acc, branch, scope)
+       when is_tuple(call) and arity == tuple_size(call) do
+    fresh_unify_prepared_fields(fields, Tuple.to_list(call), acc, branch, scope)
+  end
+
+  defp fresh_unify_prepared({:fallback, original}, call, acc, branch, scope),
+    do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
+
+  defp fresh_unify_prepared({:cons, original, _, _}, call, acc, branch, scope),
+    do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
+
+  defp fresh_unify_prepared({:tuple, original, _, _}, call, acc, branch, scope),
+    do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
+
+  defp fresh_unify_prepared_fields([], [], acc, _branch, _scope), do: acc
+
+  defp fresh_unify_prepared_fields([field | fields], [value | values], acc, branch, scope) do
+    case fresh_unify_prepared(field, value, acc, branch, scope) do
+      nil -> nil
+      next -> fresh_unify_prepared_fields(fields, values, next, branch, scope)
+    end
+  end
+
+  defp fresh_unify(x, y, ground, acc, branch, scope) do
     cond do
       x == :"$_" || y == :"$_" ->
         acc
 
       var?(x) || var?(y) ->
-        fresh_extend(x, y, acc, branch, scope)
+        fresh_extend(x, y, ground, acc, branch, scope)
 
       is_list(x) && is_list(y) && x != [] && y != [] ->
         [x | xs] = x
         [y | ys] = y
 
-        case fresh_unify(x, y, acc, branch, scope) do
+        case fresh_unify(x, y, ground, acc, branch, scope) do
           nil -> nil
-          next -> fresh_unify(xs, ys, next, branch, scope)
+          next -> fresh_unify(xs, ys, ground, next, branch, scope)
         end
 
       is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        fresh_unify(Tuple.to_list(x), Tuple.to_list(y), acc, branch, scope)
+        fresh_unify(Tuple.to_list(x), Tuple.to_list(y), ground, acc, branch, scope)
 
       is_map(x) && is_map(y) && map_size(x) == map_size(y) &&
           Enum.all?(Map.keys(x), &Map.has_key?(y, &1)) ->
@@ -1015,6 +1117,7 @@ defmodule AL.Var do
         fresh_unify(
           Enum.map(keys, &Map.get(x, &1)),
           Enum.map(keys, &Map.get(y, &1)),
+          ground,
           acc,
           branch,
           scope
@@ -1028,31 +1131,39 @@ defmodule AL.Var do
     end
   end
 
-  defp fresh_extend(x, y, {store, _leaked} = acc, branch, scope) do
+  defp fresh_extend(x, y, ground, {store, _leaked} = acc, branch, scope) do
     rx = deref(store, x)
     ry = deref(store, y)
     is_var_rx = var?(rx)
     is_var_ry = var?(ry)
+    ground = ground or ground_marked?(store, y)
 
     cond do
       rx == ry -> acc
-      not is_var_rx && is_var_ry -> fresh_bind(acc, ry, x, branch, scope)
-      rx == x && is_var_ry -> fresh_bind(acc, ry, x, branch, scope)
-      not is_var_ry && is_var_rx -> fresh_bind(acc, rx, y, branch, scope)
-      ry == y && is_var_rx -> fresh_bind(acc, rx, y, branch, scope)
-      is_var_ry && is_var_rx -> fresh_bind(acc, rx, ry, branch, scope)
-      true -> fresh_unify(rx, ry, acc, branch, scope)
+      is_var_rx && is_var_ry -> fresh_bind(acc, rx, ry, false, branch, scope)
+      not is_var_rx && is_var_ry -> fresh_bind(acc, ry, x, false, branch, scope)
+      rx == x && is_var_ry -> fresh_bind(acc, ry, x, false, branch, scope)
+      not is_var_ry && is_var_rx -> fresh_bind(acc, rx, y, ground, branch, scope)
+      ry == y && is_var_rx -> fresh_bind(acc, rx, y, ground, branch, scope)
+      true -> fresh_unify(rx, ry, ground, acc, branch, scope)
     end
   end
 
-  defp fresh_bind({store, false}, {:"$fresh", _base, scope} = var, term, branch, scope) do
+  defp fresh_bind({store, leaked}, var, term, true, branch, _scope) do
+    case bind_ground(store, var, deref(store, term), branch) do
+      nil -> nil
+      new_store -> {new_store, leaked}
+    end
+  end
+
+  defp fresh_bind({store, false}, {:"$fresh", _base, scope} = var, term, _ground, branch, scope) do
     case bind_resolved(store, var, deref(store, term), branch) do
       nil -> nil
       new_store -> {new_store, false}
     end
   end
 
-  defp fresh_bind({store, _leaked}, var, term, branch, _scope) do
+  defp fresh_bind({store, _leaked}, var, term, _ground, branch, _scope) do
     case bind(store, var, term, branch) do
       nil -> nil
       new_store -> {new_store, true}

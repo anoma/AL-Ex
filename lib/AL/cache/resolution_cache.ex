@@ -14,13 +14,52 @@ defmodule AL.ResolutionCache do
     :generative_descendants,
     :durable_classes,
     :oapply_clauses,
+    :prepared_oapply_clauses,
     :method_scopes,
     :descendants,
     :ivar_specs,
     :native
   ]
 
+  @transaction_cache :al_resolution_transaction_cache
+  @send_plan_cache :al_send_plan_cache
+  @fresh_tables :al_resolution_fresh_tables
+
+  def with_fresh_tables(fun) when is_function(fun, 0) do
+    previous = Process.get(@fresh_tables)
+    Process.put(@fresh_tables, true)
+
+    try do
+      fun.()
+    after
+      if is_nil(previous),
+        do: Process.delete(@fresh_tables),
+        else: Process.put(@fresh_tables, previous)
+    end
+  end
+
+  def with_transaction_cache(fun) when is_function(fun, 0) do
+    case Process.get(@transaction_cache) do
+      nil ->
+        Process.put(@transaction_cache, %{})
+
+        try do
+          fun.()
+        after
+          Process.delete(@transaction_cache)
+        end
+
+      _cache ->
+        fun.()
+    end
+  end
+
   @spec table(atom(), AL.Branch.t()) :: atom()
+  for relation <- @relations do
+    def table(unquote(relation), %AL.Branch{id: :main}),
+      do: unquote(:"al_#{relation}_cache")
+  end
+
   def table(relation, %AL.Branch{id: :main}), do: :"al_#{relation}_cache"
   def table(relation, %AL.Branch{id: branch}), do: :"al_#{relation}_cache@#{branch}"
 
@@ -83,6 +122,19 @@ defmodule AL.ResolutionCache do
   def fetch_oapply_clauses(branch, method_id, compute),
     do: fetch(table(:oapply_clauses, branch), :oapply_clauses, method_id, compute)
 
+  def fetch_prepared_oapply_clauses(branch, method_id, compute) do
+    fetch(table(:prepared_oapply_clauses, branch), :prepared_oapply_clauses, method_id, compute)
+  end
+
+  def fetch_send_plan(branch, key, compute) do
+    table = {@send_plan_cache, table(:providers, branch)}
+
+    case Process.get(@transaction_cache) do
+      nil -> compute.()
+      cache -> fetch_local(cache, table, key, compute)
+    end
+  end
+
   @doc "Caches AL.Object.get_native/2 -- nil (not native) is cached same as a real binding."
   @spec fetch_native(AL.Branch.t(), term(), (-> term())) :: term()
   def fetch_native(branch, method_id, compute),
@@ -112,6 +164,49 @@ defmodule AL.ResolutionCache do
     do: fetch(table(:ivar_specs, branch), :ivar_specs, key, compute)
 
   defp fetch(table, relation, key, compute) do
+    case Process.get(@transaction_cache) do
+      nil -> fetch_from_mnesia(table, relation, key, compute)
+      cache -> fetch_in_transaction(cache, table, relation, key, compute)
+    end
+  end
+
+  defp fetch_in_transaction(cache, table, relation, key, compute) do
+    case cache |> Map.get(table, %{}) |> Map.fetch(key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        value = fetch_from_mnesia(table, relation, key, compute)
+        cache = Process.get(@transaction_cache)
+
+        Process.put(
+          @transaction_cache,
+          Map.update(cache, table, %{key => value}, &Map.put(&1, key, value))
+        )
+
+        value
+    end
+  end
+
+  defp fetch_local(cache, table, key, compute) do
+    case cache |> Map.get(table, %{}) |> Map.fetch(key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        value = compute.()
+        cache = Process.get(@transaction_cache)
+
+        Process.put(
+          @transaction_cache,
+          Map.update(cache, table, %{key => value}, &Map.put(&1, key, value))
+        )
+
+        value
+    end
+  end
+
+  defp fetch_from_mnesia(table, relation, key, compute) do
     case :mnesia.read(table, key) do
       [{^relation, ^key, value}] ->
         value
@@ -125,6 +220,7 @@ defmodule AL.ResolutionCache do
 
   @spec invalidate_providers(AL.Branch.t()) :: :ok
   def invalidate_providers(branch) do
+    clear_local({@send_plan_cache, table(:providers, branch)})
     clear(table(:providers, branch))
   end
 
@@ -140,27 +236,29 @@ defmodule AL.ResolutionCache do
 
   @spec invalidate_generative_descendants(AL.Branch.t()) :: :ok
   def invalidate_generative_descendants(branch) do
-    :mnesia.delete(table(:generative_descendants, branch), :value, :write)
+    delete(table(:generative_descendants, branch), :value)
     :ok
   end
 
   @spec invalidate_durable_classes(AL.Branch.t()) :: :ok
   def invalidate_durable_classes(branch) do
-    :mnesia.delete(table(:durable_classes, branch), :value, :write)
+    delete(table(:durable_classes, branch), :value)
     :ok
   end
 
   @doc "Precise, not flush-all: the write's own `object` param is exactly the cache key."
   @spec invalidate_oapply_clauses(AL.Branch.t(), term()) :: :ok
   def invalidate_oapply_clauses(branch, method_id) do
-    :mnesia.delete(table(:oapply_clauses, branch), method_id, :write)
+    delete(table(:prepared_oapply_clauses, branch), method_id)
+    delete(table(:oapply_clauses, branch), method_id)
     :ok
   end
 
   @doc "Precise, not flush-all: mirrors invalidate_oapply_clauses/2."
   @spec invalidate_native(AL.Branch.t(), term()) :: :ok
   def invalidate_native(branch, method_id) do
-    :mnesia.delete(table(:native, branch), method_id, :write)
+    clear_local({@send_plan_cache, table(:providers, branch)})
+    delete(table(:native, branch), method_id)
     :ok
   end
 
@@ -179,10 +277,39 @@ defmodule AL.ResolutionCache do
   # readers/writers in this transaction — every entry key is unknown up front,
   # so delete each row read under the transaction instead.
   defp clear(table) do
-    for {_relation, key, _value} <- :mnesia.match_object(table, {:_, :_, :_}, :write) do
+    if Process.get(@fresh_tables) do
+      :ok
+    else
+      if cache = Process.get(@transaction_cache) do
+        Process.put(@transaction_cache, Map.delete(cache, table))
+      end
+
+      for {_relation, key, _value} <- :mnesia.match_object(table, {:_, :_, :_}, :write) do
+        :mnesia.delete(table, key, :write)
+      end
+
+      :ok
+    end
+  end
+
+  defp delete(table, key) do
+    if Process.get(@fresh_tables) do
+      :ok
+    else
+      delete_local(table, key)
       :mnesia.delete(table, key, :write)
     end
+  end
 
-    :ok
+  defp delete_local(table, key) do
+    if cache = Process.get(@transaction_cache) do
+      Process.put(@transaction_cache, Map.update(cache, table, %{}, &Map.delete(&1, key)))
+    end
+  end
+
+  defp clear_local(table) do
+    if cache = Process.get(@transaction_cache) do
+      Process.put(@transaction_cache, Map.delete(cache, table))
+    end
   end
 end

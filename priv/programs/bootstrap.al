@@ -1152,11 +1152,6 @@ syntax >> variable_code
 >= Code 48,
 <= Code 57.
 
-syntax >> run_pattern
-| Self Pattern Input Rest Value |
-atom Pattern,
-send Self Pattern [Input, Rest, Value].
-
 syntax >> match_pattern
 | Self Pattern Input Rest |
 atom Pattern,
@@ -1204,13 +1199,13 @@ syntax >> where
 call Args Goals Args.
 
 syntax >> zero_or_more
-| _Self Rest Rest _Pattern [] |.
-
-syntax >> zero_or_more
 | Self Input Rest Pattern [Value . Values] |
-run_pattern Self Pattern Input After Value,
+send Self Pattern [Input, After, Value],
 dif Input After,
 zero_or_more Self After Rest Pattern Values.
+
+syntax >> zero_or_more
+| _Self Rest Rest _Pattern [] |.
 
 syntax >> sequence
 | _Self [] Rest Rest |.
@@ -1231,8 +1226,15 @@ match_pattern Receiver Pattern Input Rest.
 
 grammar >> parse
 | Self Pattern Text |
+not {var Text},
 string_codes Text Codes,
 phrase Self Pattern Codes.
+
+grammar >> parse
+| Self Pattern Text |
+var Text,
+phrase Self Pattern Codes,
+string_codes Text Codes.
 
 grammar >> translate
 | Self Target Pattern Text Translated |
@@ -1268,7 +1270,7 @@ kind_goal Self Kind Grammar Pattern Args Input Rest Goal.
 
 grammar >> pattern_kind
 | _Self Pattern Kind |
-var Pattern -> = Kind open ; atom Pattern -> = Kind name ; class Pattern string -> = Kind text ; class Pattern list -> = Kind tokens ; = Kind call.
+var Pattern -> = Kind open ; == Pattern known_text -> = Kind known ; == Pattern unknown_text -> = Kind unknown ; atom Pattern -> = Kind name ; class Pattern string -> = Kind text ; class Pattern list -> = Kind tokens ; functor Pattern where [_, _] -> = Kind where ; functor Pattern code [_] -> = Kind code ; = Kind call.
 
 grammar >> kind_goal
 | _Self open Grammar Pattern _Args Input Rest Goal |
@@ -1284,6 +1286,28 @@ grammar >> kind_goal
 | _Self tokens _Grammar Tokens _Args Input Rest Goal |
 concat Tokens Rest Expected,
 functor Goal = [Input, Expected].
+
+grammar >> kind_goal
+| _Self known _Grammar _Pattern _Args Input Rest Goal |
+= Input Rest,
+functor Test var [Input],
+functor Goal not [[Test]].
+
+grammar >> kind_goal
+| _Self unknown _Grammar _Pattern _Args Input Rest Goal |
+= Input Rest,
+functor Goal var [Input].
+
+grammar >> kind_goal
+| _Self where _Grammar Pattern _Args Input Rest Goal |
+= Input Rest,
+functor Pattern where [Vars, Goals],
+functor Goal call [Vars, Goals, Vars].
+
+grammar >> kind_goal
+| _Self code _Grammar Pattern _Args Input Rest Goal |
+functor Pattern code [Code],
+functor Goal = [Input, [Code . Rest]].
 
 grammar >> kind_goal
 | Self name Grammar Name Args Input Rest Goal |
@@ -1327,7 +1351,13 @@ defrule lisp_syntax (spaced_exprs []) [].
 defrule lisp_syntax (spaced_exprs [Expr . Exprs]) [gap, expr Expr, spaced_exprs Exprs].
 
 defrule lisp_syntax (symbol Symbol)
-  [where [Symbol, First, More] {atom_string Symbol Text, string_codes Text [First . More]},
+  [known_text,
+   symbol_code First,
+   zero_or_more symbol_code More,
+   where [Symbol, First, More] {atom_string Symbol Text, string_codes Text [First . More]}].
+defrule lisp_syntax (symbol Symbol)
+  [unknown_text,
+   where [Symbol, First, More] {atom_string Symbol Text, string_codes Text [First . More]},
    symbol_code First,
    zero_or_more symbol_code More].
 defrule lisp_syntax (symbol_code Code)
@@ -1382,7 +1412,7 @@ defrule block_syntax (goal_rest []) [].
 defrule block_syntax (goal_rest [Goal . More]) [blanks, ",", pad, goal Goal, goal_rest More].
 
 defrule block_syntax (symbol_code Code)
-  [next, where [Code] {dif Code 123, dif Code 125}].
+  [next, where [Code] {dif Code 44, dif Code 123, dif Code 125}].
 
 @map_syntax #{super => block_syntax, metaclass => grammar}.
 
@@ -1451,7 +1481,9 @@ defrule variable_syntax variable_start
 @string_syntax #{super => lisp_syntax, metaclass => grammar}.
 
 defrule string_syntax (expr String)
-  [where [String, Codes] {string_codes String Codes}, "\"", characters Codes, "\""].
+  [known_text, "\"", characters Codes, "\"", where [String, Codes] {string_codes String Codes}].
+defrule string_syntax (expr String)
+  [unknown_text, where [String, Codes] {string_codes String Codes}, "\"", characters Codes, "\""].
 defrule string_syntax (expr Term) [next].
 
 defrule string_syntax (characters []) [].

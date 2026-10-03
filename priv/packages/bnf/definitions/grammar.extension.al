@@ -114,12 +114,16 @@ grammar >> goal_items
 terminal_items Self Expected Items.
 
 grammar >> goal_items
+| _Self _Receiver var _Args [written] |.
+
+grammar >> goal_items
 | _Self _Receiver Name _Args [] |
 dif Name match_pattern,
 dif Name sequence,
 dif Name call_next_method,
 dif Name send,
-dif Name =.
+dif Name =,
+dif Name var.
 
 grammar >> call_items
 | Self Name Arguments Items |

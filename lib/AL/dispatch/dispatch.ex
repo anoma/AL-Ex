@@ -449,17 +449,33 @@ defmodule AL.Dispatch do
     |> Enum.uniq()
   end
 
-  defp do_send(self, method, args, method_scope, state, on_miss),
-    do:
-      run_providers(
-        providers(self, method, state.branch),
-        self,
-        method,
-        [self | args],
-        method_scope,
-        state,
-        on_miss
-      )
+  defp do_send(self, method, args, method_scope, state, on_miss) do
+    key = {resolution_key(self), method}
+
+    {candidates, first_native?} =
+      AL.ResolutionCache.fetch_send_plan(state.branch, key, fn ->
+        candidates = providers(self, method, state.branch)
+
+        first_native? =
+          case candidates do
+            [{_provider, id} | _] -> native_bound?(id, state.branch)
+            [] -> false
+          end
+
+        {candidates, first_native?}
+      end)
+
+    run_providers(
+      candidates,
+      self,
+      method,
+      [self | args],
+      method_scope,
+      state,
+      on_miss,
+      first_native?
+    )
+  end
 
   # Like do_send, but scope chain is seeded from an explicit class, not
   # derived from self's shape (an unbound self has none to derive from).
@@ -480,19 +496,25 @@ defmodule AL.Dispatch do
   # method-level box rather than opening a fresh one. First match wins (a
   # clause mismatch stays a miss). Primitives make no frame, so carry no
   # cursor.
-  def run_providers([], _self, _selector, _call_args, _method_scope, state, on_miss),
+  def run_providers(candidates, self, selector, call_args, method_scope, state, on_miss),
+    do: run_providers(candidates, self, selector, call_args, method_scope, state, on_miss, nil)
+
+  defp run_providers([], _self, _selector, _call_args, _method_scope, state, on_miss, _native?),
     do: on_miss.(state)
 
-  def run_providers(
-        [{_scope, id} | rest],
-        self,
-        selector,
-        call_args,
-        method_scope,
-        state,
-        on_miss
-      ) do
-    if native_bound?(id, state.branch) do
+  defp run_providers(
+         [{_scope, id} | rest],
+         self,
+         selector,
+         call_args,
+         method_scope,
+         state,
+         on_miss,
+         first_native?
+       ) do
+    native? = if is_nil(first_native?), do: native_bound?(id, state.branch), else: first_native?
+
+    if native? do
       args = AL.Var.subst(call_args, state.active_choicepoint.store)
       AL.interp(%Goal.OApply{method_id: id, args: args}, state)
     else

@@ -205,46 +205,48 @@ defmodule AL do
 
     result =
       :mnesia.transaction(fn ->
-        {tx_id, transaction_object} = AL.Transaction.open(branch)
-        source_refs = source_refs(source, tx_id)
+        AL.ResolutionCache.with_transaction_cache(fn ->
+          {tx_id, transaction_object} = AL.Transaction.open(branch)
+          source_refs = source_refs(source, tx_id)
 
-        if source != nil do
-          :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
-        end
+          if source != nil do
+            :ok = AL.SourceStore.put_text(tx_id, source.text, source.origin, branch)
+          end
 
-        result =
-          continue(%AL{
-            active_choicepoint: %AL.Choicepoint{
-              goals: program,
-              store: store,
-              continuations: [],
-              done: [],
-              scope_pointer: 0,
-              source_scopes: []
-            },
-            choicepoint_stack: [{:mark, 0}],
-            tx_id: tx_id,
-            transaction_object: transaction_object,
-            branch: branch,
-            trace: AL.Trace.new(trace_flags),
-            program: program,
-            source_refs: source_refs,
-            source_anchors: %{}
-          })
-          |> finalize_trace()
+          result =
+            continue(%AL{
+              active_choicepoint: %AL.Choicepoint{
+                goals: program,
+                store: store,
+                continuations: [],
+                done: [],
+                scope_pointer: 0,
+                source_scopes: []
+              },
+              choicepoint_stack: [{:mark, 0}],
+              tx_id: tx_id,
+              transaction_object: transaction_object,
+              branch: branch,
+              trace: AL.Trace.new(trace_flags),
+              program: program,
+              source_refs: source_refs,
+              source_anchors: %{}
+            })
+            |> finalize_trace()
 
-        if result.active_choicepoint.store == nil do
-          :mnesia.abort(format_failure(result))
-        else
-          if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
+          if result.active_choicepoint.store == nil do
+            :mnesia.abort(format_failure(result))
+          else
+            if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
 
-          AL.Transaction.record(tx_id, transaction_object, branch, :committed)
+            AL.Transaction.record(tx_id, transaction_object, branch, :committed)
 
-          {bindings, constraints} =
-            format_output_vars(input_vars, result.active_choicepoint.store)
+            {bindings, constraints} =
+              format_output_vars(input_vars, result.active_choicepoint.store)
 
-          {bindings, constraints, result}
-        end
+            {bindings, constraints, result}
+          end
+        end)
       end)
 
     case result do
@@ -307,17 +309,19 @@ defmodule AL do
 
     result =
       :mnesia.transaction(fn ->
-        tx_id = AL.Command.system_time(state.branch)
-        result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
+        AL.ResolutionCache.with_transaction_cache(fn ->
+          tx_id = AL.Command.system_time(state.branch)
+          result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
 
-        if result.active_choicepoint.store == nil do
-          :mnesia.abort(format_failure(result))
-        else
-          {bindings, constraints} =
-            format_output_vars(input_vars, result.active_choicepoint.store)
+          if result.active_choicepoint.store == nil do
+            :mnesia.abort(format_failure(result))
+          else
+            {bindings, constraints} =
+              format_output_vars(input_vars, result.active_choicepoint.store)
 
-          {bindings, constraints, result}
-        end
+            {bindings, constraints, result}
+          end
+        end)
       end)
 
     case result do
@@ -734,8 +738,7 @@ defmodule AL do
     else
       {discarded, matching_and_rest} =
         Enum.split_while(state.active_choicepoint.failure_context, fn
-          {^scope, _parent, _kind, _call} -> false
-          _frame -> true
+          {frame, _parent, _kind, _call} -> frame > scope
         end)
 
       case matching_and_rest do
@@ -749,7 +752,7 @@ defmodule AL do
 
           {%AL{state | active_choicepoint: choicepoint}, parent}
 
-        [] ->
+        _absent ->
           {state, nil}
       end
     end
@@ -812,14 +815,18 @@ defmodule AL do
     do: push_trace(state, {:clause_chosen, scope, clause})
 
   defp log_trace_entry(state, entry) do
-    cond do
-      constraint_goal?(entry) ->
-        if domino_enabled?(state),
-          do: begin_constraint_trace(state, entry),
-          else: push_trace(state, :vm, entry)
+    if AL.Trace.retained?(state.trace) do
+      cond do
+        constraint_goal?(entry) ->
+          if domino_enabled?(state),
+            do: begin_constraint_trace(state, entry),
+            else: push_trace(state, :vm, entry)
 
-      true ->
-        push_trace(state, :vm, entry)
+        true ->
+          push_trace(state, :vm, entry)
+      end
+    else
+      state
     end
   end
 
@@ -914,7 +921,12 @@ defmodule AL do
       true ->
         [compound | ahead] = state.active_choicepoint.goals
         raw = Goal.lower(compound)
-        goal = resolve_goal(raw, state.active_choicepoint.store)
+
+        goal =
+          if trace_scopes?(state),
+            do: AL.Var.subst(raw, state.active_choicepoint.store),
+            else: resolve_goal(raw, state.active_choicepoint.store)
+
         state = log_trace_entry(state, goal)
 
         next_frame = %AL{
@@ -1005,6 +1017,26 @@ defmodule AL do
 
   defp resolve_goal(%Goal.Send{} = goal, store), do: resolve_send(goal, store)
   defp resolve_goal(%Goal.SendQuery{} = goal, store), do: resolve_send(goal, store)
+
+  defp resolve_goal(%Goal.Eq{a: a, b: b} = goal, store),
+    do: %Goal.Eq{goal | a: resolve_arg(a, store), b: resolve_arg(b, store)}
+
+  defp resolve_goal(%Goal.IsVar{term: term} = goal, store),
+    do: %Goal.IsVar{goal | term: resolve_arg(term, store)}
+
+  defp resolve_goal(%control{} = goal, _store)
+       when control in [
+              Goal.Not,
+              Goal.Or,
+              Goal.Implies,
+              Goal.Then,
+              Goal.Dif,
+              Goal.Pass,
+              Goal.Fail,
+              Goal.Cut
+            ],
+       do: goal
+
   defp resolve_goal(goal, store), do: AL.Var.subst(goal, store)
 
   defp resolve_send(%{object: object, method: method, args: args} = goal, store),
@@ -1015,8 +1047,7 @@ defmodule AL do
         args: resolve_args(args, store)
     }
 
-  defp resolve_args([arg | args], store),
-    do: [resolve_arg(arg, store) | resolve_args(args, store)]
+  defp resolve_args([arg | args], store), do: [arg | resolve_args(args, store)]
 
   defp resolve_args(args, store), do: AL.Var.subst(args, store)
 
@@ -1575,15 +1606,21 @@ defmodule AL do
   # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
   # AL.Var.bind/4 rechecks on each future bind.
   def interp(%Goal.Dif{a: a, b: b}, state) do
-    cond do
-      a == b ->
-        backtrack(state)
+    store = store(state)
 
-      ground?(a) and ground?(b) ->
+    case AL.Var.unify(a, b, store, state.branch) do
+      nil ->
         state
 
-      true ->
-        put_bindings(state, AL.Var.add_dif(store(state), a, b), [])
+      ^store ->
+        backtrack(state)
+
+      _unifiable ->
+        put_bindings(
+          state,
+          AL.Var.add_dif(store, AL.Var.subst(a, store), AL.Var.subst(b, store)),
+          []
+        )
     end
   end
 
@@ -1827,27 +1864,234 @@ defmodule AL do
   @spec unify_clauses(term(), term(), t()) ::
           {integer() | nil, [{tuple(), AL.Var.store() | nil}]}
   def unify_clauses(method_id_pattern, bind_head_pattern, state) do
-    case cached_scan_clauses(method_id_pattern, state.branch) do
-      [] ->
+    case prepared_clauses(method_id_pattern, state.branch) do
+      {[], _index} ->
         {nil, []}
 
-      clauses ->
+      {clauses, index} ->
         scope = fresh_scope()
         freshener = Integer.to_string(scope)
 
+        clauses =
+          if is_nil(index),
+            do: clauses,
+            else: indexed_clauses(clauses, index, bind_head_pattern, state)
+
         {scope,
-         Enum.map(clauses, fn {:oapply, clause_id, _seq, clause_head, _body} = clause ->
+         Enum.map(clauses, fn {{:oapply, clause_id, _seq, _head, _body} = clause, match_head,
+                               match_plan} ->
            {clause,
-            AL.Var.unify_fresh(
-              {AL.Var.freshen(clause_head, freshener), clause_id},
-              {bind_head_pattern, method_id_pattern},
-              state.active_choicepoint.store,
-              state.branch,
-              freshener
+            unify_prepared_head(
+              match_head,
+              clause_id,
+              bind_head_pattern,
+              method_id_pattern,
+              state,
+              freshener,
+              match_plan
             )}
          end)}
     end
   end
+
+  defp unify_prepared_head(
+         [:"$_"],
+         clause_id,
+         [_argument],
+         method_id_pattern,
+         state,
+         _freshener,
+         _match_plan
+       )
+       when clause_id == method_id_pattern,
+       do: state.active_choicepoint.store
+
+  defp unify_prepared_head(
+         _match_head,
+         clause_id,
+         bind_head_pattern,
+         method_id_pattern,
+         state,
+         freshener,
+         match_plan
+       )
+       when clause_id == method_id_pattern do
+    AL.Var.unify_fresh_prepared(
+      match_plan,
+      bind_head_pattern,
+      state.active_choicepoint.store,
+      state.branch,
+      freshener
+    )
+  end
+
+  defp unify_prepared_head(
+         match_head,
+         clause_id,
+         bind_head_pattern,
+         method_id_pattern,
+         state,
+         freshener,
+         _match_plan
+       ) do
+    AL.Var.unify_fresh(
+      {AL.Var.freshen(match_head, freshener), clause_id},
+      {bind_head_pattern, method_id_pattern},
+      state.active_choicepoint.store,
+      state.branch,
+      freshener
+    )
+  end
+
+  defp prepared_clauses(method_id_pattern, branch) do
+    prepare = fn ->
+      method_id_pattern
+      |> cached_scan_clauses(branch)
+      |> Enum.map(&prepare_clause/1)
+    end
+
+    if AL.Var.var?(method_id_pattern),
+      do: {prepare.(), nil},
+      else:
+        AL.ResolutionCache.fetch_prepared_oapply_clauses(branch, method_id_pattern, fn ->
+          clauses = prepare.()
+          {clauses, prepared_clause_index(clauses)}
+        end)
+  end
+
+  defp indexed_clauses(clauses, index, call, state) do
+    if trace_scopes?(state) do
+      clauses
+    else
+      case indexed_argument(call, index.position) do
+        {:ok, argument} ->
+          value = AL.Var.deref(state.active_choicepoint.store, argument)
+
+          if AL.Var.var?(value),
+            do: clauses,
+            else: Map.get(index.buckets, value, index.fallback)
+
+        :open ->
+          clauses
+      end
+    end
+  end
+
+  defp indexed_argument([argument | _rest], 0), do: {:ok, argument}
+  defp indexed_argument([_argument | rest], position), do: indexed_argument(rest, position - 1)
+  defp indexed_argument(_call, _position), do: :open
+
+  defp prepared_clause_index(clauses) when length(clauses) < 2, do: nil
+
+  defp prepared_clause_index(clauses) do
+    positions =
+      Enum.reduce(clauses, %{}, fn {_clause, head, _plan}, acc ->
+        Enum.reduce(literal_positions(head, 0, []), acc, fn {position, literal}, positions ->
+          Map.update(positions, position, %{literal => 1}, fn counts ->
+            Map.update(counts, literal, 1, &(&1 + 1))
+          end)
+        end)
+      end)
+
+    if map_size(positions) == 0 do
+      nil
+    else
+      {position, counts} =
+        Enum.max_by(positions, fn {position, counts} ->
+          {map_size(counts), Enum.sum(Map.values(counts)), -position}
+        end)
+
+      fallback =
+        Enum.filter(clauses, fn {_clause, head, _plan} ->
+          literal_at(head, position) == :none
+        end)
+
+      buckets =
+        Map.new(counts, fn {literal, _count} ->
+          candidates =
+            Enum.filter(clauses, fn {_clause, head, _plan} ->
+              case literal_at(head, position) do
+                {:literal, ^literal} -> true
+                :none -> true
+                _ -> false
+              end
+            end)
+
+          {literal, candidates}
+        end)
+
+      %{position: position, buckets: buckets, fallback: fallback}
+    end
+  end
+
+  defp literal_positions([argument | rest], position, acc) do
+    acc =
+      case literal_key(argument) do
+        {:literal, literal} -> [{position, literal} | acc]
+        :none -> acc
+      end
+
+    literal_positions(rest, position + 1, acc)
+  end
+
+  defp literal_positions(_tail, _position, acc), do: acc
+
+  defp literal_at([argument | _rest], 0), do: literal_key(argument)
+  defp literal_at([_argument | rest], position), do: literal_at(rest, position - 1)
+  defp literal_at(_head, _position), do: :none
+
+  defp literal_key([]), do: {:literal, []}
+
+  defp literal_key(value) when is_binary(value), do: {:literal, value}
+
+  defp literal_key(value) when is_atom(value),
+    do: if(AL.Var.var?(value), do: :none, else: {:literal, value})
+
+  defp literal_key(_value), do: :none
+
+  defp prepare_clause({:oapply, _id, _seq, head, body} = clause) do
+    body_vars = AL.Var.find_vars(body)
+
+    counts =
+      AL.Goal.reduce(head, %{}, fn leaf, acc ->
+        if leaf != :"$_" and AL.Var.var?(leaf),
+          do: Map.update(acc, leaf, 1, &(&1 + 1)),
+          else: acc
+      end)
+
+    dead =
+      MapSet.new(
+        for {variable, 1} <- counts, not MapSet.member?(body_vars, variable), do: variable
+      )
+
+    match_head =
+      if MapSet.size(dead) == 0,
+        do: head,
+        else:
+          AL.Goal.map(head, fn leaf -> if MapSet.member?(dead, leaf), do: :"$_", else: leaf end)
+
+    {clause, match_head, prepared_match_plan(match_head)}
+  end
+
+  defp prepared_match_plan(:"$_"), do: :wildcard
+
+  defp prepared_match_plan({:"$fresh", _base, _scope} = variable),
+    do: {:variable, variable}
+
+  defp prepared_match_plan([head | tail] = original),
+    do: {:cons, original, prepared_match_plan(head), prepared_match_plan(tail)}
+
+  defp prepared_match_plan(term) when is_tuple(term),
+    do:
+      {:tuple, term, tuple_size(term),
+       term |> Tuple.to_list() |> Enum.map(&prepared_match_plan/1)}
+
+  defp prepared_match_plan(term) when is_map(term), do: {:fallback, term}
+
+  defp prepared_match_plan(term) when is_atom(term),
+    do: if(AL.Var.var?(term), do: {:variable, term}, else: {:literal, term})
+
+  defp prepared_match_plan(term), do: {:literal, term}
 
   @spec any_unified?({integer() | nil, [{tuple(), AL.Var.store() | nil}]}) :: boolean()
   def any_unified?({_scope, unified}), do: Enum.any?(unified, fn {_clause, store} -> store end)
@@ -1864,9 +2108,46 @@ defmodule AL do
   def enter_clauses(
         method_id_pattern,
         bind_head_pattern,
+        {scope, [{{:oapply, _id, _seq, _head, []}, store}]} = unified,
+        state
+      )
+      when not is_nil(store) do
+    if not trace_scopes?(state) and state.active_choicepoint.suspensions == %{} do
+      choicepoint = %AL.Choicepoint{
+        state.active_choicepoint
+        | store: store,
+          scope_pointer: caller_scope_pointer(state),
+          clause: nil,
+          failure_context: caller_failure_context(state)
+      }
+
+      %AL{
+        state
+        | active_choicepoint: choicepoint,
+          call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
+          pending_cursor: nil,
+          choicepoint_stack: [{:mark, scope} | state.choicepoint_stack]
+      }
+    else
+      enter_clauses_general(method_id_pattern, bind_head_pattern, unified, state)
+    end
+  end
+
+  def enter_clauses(
+        method_id_pattern,
+        bind_head_pattern,
         {scope, [_ | _] = candidates},
         state
       ) do
+    enter_clauses_general(method_id_pattern, bind_head_pattern, {scope, candidates}, state)
+  end
+
+  defp enter_clauses_general(
+         method_id_pattern,
+         bind_head_pattern,
+         {scope, [_ | _] = candidates},
+         state
+       ) do
     freshener = Integer.to_string(scope)
 
     [{{:oapply, _id, active_seq, _head, _body}, _store} | _] =
@@ -2185,29 +2466,35 @@ defmodule AL do
 
   # Vars a `run` reports. `findall`/`not`/`forall` are local scopes: only a
   # `findall`'s result var escapes.
-  defp observable_vars(goals) when is_list(goals),
-    do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
+  defp observable_vars(goals), do: observable_vars(goals, MapSet.new())
 
-  defp observable_vars(%Goal.Compound{} = compound), do: observable_vars(Goal.lower(compound))
+  defp observable_vars([goal | rest], acc),
+    do: observable_vars(rest, observable_vars(goal, acc))
 
-  defp observable_vars(%Goal.Findall{result: result}), do: AL.Var.find_vars(result)
+  defp observable_vars([], acc), do: acc
 
-  defp observable_vars(%Goal.Not{}), do: MapSet.new()
+  defp observable_vars(%Goal.Compound{} = compound, acc),
+    do: observable_vars(Goal.lower(compound), acc)
 
-  defp observable_vars(%Goal.Forall{}), do: MapSet.new()
+  defp observable_vars(%Goal.Findall{result: result}, acc),
+    do: AL.Var.find_vars(result, acc)
 
-  defp observable_vars(%Goal.Or{or: left, then: right}),
-    do: MapSet.union(observable_vars(left), observable_vars(right))
+  defp observable_vars(%Goal.Not{}, acc), do: acc
 
-  defp observable_vars(%Goal.Implies{condition: condition, then: then, otherwise: otherwise}),
-    do:
-      observable_vars(condition)
-      |> MapSet.union(observable_vars(then))
-      |> MapSet.union(observable_vars(otherwise))
+  defp observable_vars(%Goal.Forall{}, acc), do: acc
 
-  defp observable_vars(%Goal.Then{then: then}), do: observable_vars(then)
+  defp observable_vars(%Goal.Or{or: left, then: right}, acc),
+    do: observable_vars(right, observable_vars(left, acc))
 
-  defp observable_vars(goal), do: AL.Var.find_vars(goal)
+  defp observable_vars(
+         %Goal.Implies{condition: condition, then: then, otherwise: otherwise},
+         acc
+       ),
+       do: observable_vars(otherwise, observable_vars(then, observable_vars(condition, acc)))
+
+  defp observable_vars(%Goal.Then{then: then}, acc), do: observable_vars(then, acc)
+
+  defp observable_vars(goal, acc), do: AL.Var.find_vars(goal, acc)
 
   defp copy_term(term, state) do
     store = store(state)
@@ -2864,10 +3151,9 @@ defmodule AL do
         {:method_call, scope, self, method, args, %{}}
       )
 
-    state = trace_port_call(state, :method, scope, self, method, args)
-
     state =
       if trace_scopes?(state) do
+        state = trace_port_call(state, :method, scope, self, method, args)
         store = state.active_choicepoint.store
         open = open_positions(call_positions(self, args), store)
 

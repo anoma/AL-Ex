@@ -145,7 +145,7 @@ defmodule AL.Branch do
 
     case projection do
       :replay ->
-        AL.Object.hydrate_since(0, branch)
+        AL.ResolutionCache.with_fresh_tables(fn -> AL.Object.hydrate_since(0, branch) end)
 
       :copy ->
         {:atomic, :ok} = AL.Object.copy_projection(from, branch)
@@ -153,7 +153,7 @@ defmodule AL.Branch do
         if AL.Command.system_time(from) != command_cutoff do
           AL.Object.drop_tables(branch)
           AL.Object.create_tables(branch)
-          AL.Object.hydrate_since(0, branch)
+          AL.ResolutionCache.with_fresh_tables(fn -> AL.Object.hydrate_since(0, branch) end)
         end
     end
 
