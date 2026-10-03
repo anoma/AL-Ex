@@ -456,6 +456,9 @@ defmodule AL.Syntax.Printer do
 
   defp term(term, indent), do: term(term, indent, @semi)
 
+  defp term(%Goal.Compound{name: name, args: []}, _indent, _context) when is_atom(name),
+    do: "(#{atom(name)})"
+
   defp term(%Goal.Compound{} = compound, indent, context), do: goal(compound, indent, context)
 
   defp term({:unquote, _, [{name, _, context}]}, _indent, _context)
@@ -474,7 +477,7 @@ defmodule AL.Syntax.Printer do
 
   defp term(term, indent, context) when is_tuple(term) do
     case Goal.from_stored(term) do
-      goal when is_struct(goal) -> goal(goal, indent, context)
+      goal when is_struct(goal) -> term(goal, indent, context)
       _ -> raise ArgumentError, "#{inspect(term)} has no AL syntax"
     end
   end

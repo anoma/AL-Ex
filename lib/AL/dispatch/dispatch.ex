@@ -492,15 +492,18 @@ defmodule AL.Dispatch do
         state,
         on_miss
       ) do
-    if has_matching_clause?(id, call_args, state.active_choicepoint.store, state.branch) do
-      state =
-        if native_bound?(id, state.branch),
-          do: state,
-          else: %AL{state | pending_cursor: {self, selector, rest, method_scope}}
-
-      AL.interp(%Goal.OApply{method_id: id, args: call_args}, state)
+    if native_bound?(id, state.branch) do
+      args = AL.Var.subst(call_args, state.active_choicepoint.store)
+      AL.interp(%Goal.OApply{method_id: id, args: args}, state)
     else
-      on_miss.(state)
+      unified = AL.unify_clauses(id, call_args, state)
+
+      if AL.any_unified?(unified) do
+        state = %AL{state | pending_cursor: {self, selector, rest, method_scope}}
+        AL.enter_clauses(id, call_args, unified, state)
+      else
+        on_miss.(state)
+      end
     end
   end
 
@@ -620,10 +623,6 @@ defmodule AL.Dispatch do
     for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
   end
 
-  defp has_matching_clause?(id, call_args, store, branch) do
-    native_bound?(id, branch) or any_clause_matches?(id, call_args, store, branch)
-  end
-
   # True whenever a durable :native fact exists for `id`, regardless of
   # whether this image currently has a matching implementation registered
   # (AL.Native.Registry) -- that distinction is a "can we actually run it"
@@ -633,12 +632,4 @@ defmodule AL.Dispatch do
     do:
       AL.ResolutionCache.fetch_native(branch, id, fn -> AL.Object.get_native(id, branch) end) !=
         nil
-
-  defp any_clause_matches?(id, call_args, store, branch) do
-    scope = Integer.to_string(AL.fresh_scope())
-
-    Enum.any?(AL.cached_scan_clauses(id, branch), fn {:oapply, _id, _seq, head, _body} ->
-      AL.Var.unify(AL.Var.freshen(head, scope), call_args, store, branch) != nil
-    end)
-  end
 end

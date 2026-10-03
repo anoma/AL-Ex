@@ -27,7 +27,8 @@ config :al,
     :sudoku,
     :blackjack,
     :euler,
-    :swaps
+    :swaps,
+    :bnf
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.

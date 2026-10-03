@@ -117,9 +117,10 @@ generative/durable/domain dispatch convergence specifically, read
   `AL.Syntax.Printer` read), interpreter handler, stored representation if
   applicable, command log operation, projection, and replay path as one
   semantic change.
-- Change the surface syntax: update `AL.Syntax`, `AL.Syntax.Printer`, and
-  `lib/AL/syntax.bnf` together, and keep every installed clause printing and
-  reading back to the same goals.
+- Change the surface syntax: update `AL.Syntax`, `AL.Syntax.Printer`, and the
+  AL grammars in bootstrap (`al_grammar` and the syntax classes it combines)
+  together, keep every installed clause printing and reading back to the same
+  goals, and regenerate `lib/AL/syntax.bnf` with `mix al.bnf`.
 - Change the current runtime coherently. Do not add image, replay, command-log,
   stored-state, or old goal-shape compatibility unless the user explicitly asks
   for it. Use a fresh isolated store for verification when old data cannot be

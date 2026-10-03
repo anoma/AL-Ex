@@ -237,3 +237,7 @@ end
 defmodule ALSyntaxTest do
   use AL.ExampleCase, for: Examples.ALSyntax, async: true
 end
+
+defmodule ALBnfTest do
+  use AL.ExampleCase, for: Examples.ALBnf, async: true
+end

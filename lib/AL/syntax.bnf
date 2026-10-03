@@ -1,25 +1,34 @@
-<program>     ::= <item>*
-<item>        ::= <declaration> | <method> | <goals> "."
-<declaration> ::= "@" ["+"] <name> <map> "."
-<method>      ::= <argument> ">>" <argument> "|" <argument>* ["." <argument>] "|" [<goals>] "."
-<name>        ::= <atom> | <variable> | <pin>
-
-<goals>       ::= <goal> ("," <goal>)*
-<goal>        ::= <conditional> [";" <goal>]
-<conditional> ::= <call> ["->" <call>]
-<call>        ::= <atom> <argument>+ | <argument>
-
-<argument>    ::= <variable> | <atom> | <number> | <string> | <pin>
-                | <list> | <map> | <block> | "(" <goal> ")"
-<pin>         ::= "^" (<atom> | <variable>)
-<list>        ::= "[" [<goal> ("," <goal>)* ["." <goal>]] "]"
-<map>         ::= "#{" [<entry> ("," <entry>)*] "}"
-<entry>       ::= <goal> "=>" <goal>
-<block>       ::= "{" [<goals>] "}"
-
-<variable>    ::= /[A-Z_][A-Za-z0-9_]*/
-<atom>        ::= /[a-z][A-Za-z0-9_]*/ | /'([^'\\]|\\.)*'/ | <operator>
-<operator>    ::= "==" | "<=" | ">=" | "**" | "=" | "<" | ">" | "+" | "-" | "*" | "/"
-<number>      ::= /-?[0-9][0-9_]*(\.[0-9][0-9_eE]*)?/
-<string>      ::= /"([^"\\]|\\.)*"/
-<comment>     ::= /#([^{].*)?$/
+<program> ::= <blanks> <item>*
+<item> ::= <declaration> <blanks> | <clause> <blanks>
+<clause> ::= <symbol> <gap> ">>" <gap> <symbol> <line> "|" <head> "|" <body> <blanks> "."
+<head> ::= <gap> | <gap> <expr> <head_rest> <gap>
+<head_rest> ::= "" | <gap> <expr> <head_rest> | <gap> "." <gap> <expr>
+<body> ::= "" | <line> <goal> <body_rest>
+<body_rest> ::= "" | <blanks> "," <line> <goal> <body_rest>
+<line> ::= <blanks>
+<symbol_code> ::= /./
+<declaration> ::= <class_marker> <symbol> <gap> <options> <blanks> "." | "@+" <symbol> <gap> <extension_options> <blanks> "."
+<class_marker> ::= "@"
+<options> ::= <expr>
+<extension_options> ::= <expr>
+<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}" | "{" <blanks> "}" | "{" <blanks> <goal> <goal_rest> <blanks> "}" | "[" <blanks> "]" | "[" <blanks> <expr> <list_rest> <blanks> "]" | "\"" <characters> "\"" | <symbol> | "(" <blanks> <form> <blanks> ")"
+<map_entries> ::= "" | <entry> <entry_rest>
+<entry_rest> ::= "" | <blanks> "," <pad> <entry> <entry_rest>
+<entry> ::= <expr> <pad> "=>" <pad> <expr>
+<goal> ::= <symbol> <spaced_exprs>
+<goal_rest> ::= "" | <blanks> "," <pad> <goal> <goal_rest>
+<list_rest> ::= "" | <blanks> "," <pad> <expr> <list_rest> | <pad> "." <pad> <expr>
+<symbol> ::= <integer> | <symbol_code> <symbol_code>* <variable_name> | <symbol_code> <symbol_code>*
+<integer> ::= <natural> | "-" <natural>
+<natural> ::= "0" | <digit> <digits>
+<digits> ::= "" | <digit> <digits>
+<digit> ::= /./
+<variable_name> ::= ""
+<characters> ::= "" | <character> <characters>
+<character> ::= "\\\"" | "\\\\" | "\\n" | "\\t" | "\\r" | "\\\#" | "\#" | /./
+<blank> ::= " " | "\n" | "\t" | "\r"
+<blanks> ::= <blank> <blanks> | ""
+<gap> ::= <blank> <blanks>
+<pad> ::= <gap> | ""
+<form> ::= <symbol> <spaced_exprs>
+<spaced_exprs> ::= "" | <gap> <expr> <spaced_exprs>

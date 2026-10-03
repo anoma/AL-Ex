@@ -914,7 +914,7 @@ defmodule AL do
       true ->
         [compound | ahead] = state.active_choicepoint.goals
         raw = Goal.lower(compound)
-        goal = AL.Var.subst(raw, state.active_choicepoint.store)
+        goal = resolve_goal(raw, state.active_choicepoint.store)
         state = log_trace_entry(state, goal)
 
         next_frame = %AL{
@@ -1002,6 +1002,26 @@ defmodule AL do
       outermost -> length(outermost.done)
     end
   end
+
+  defp resolve_goal(%Goal.Send{} = goal, store), do: resolve_send(goal, store)
+  defp resolve_goal(%Goal.SendQuery{} = goal, store), do: resolve_send(goal, store)
+  defp resolve_goal(goal, store), do: AL.Var.subst(goal, store)
+
+  defp resolve_send(%{object: object, method: method, args: args} = goal, store),
+    do: %{
+      goal
+      | object: AL.Var.subst(object, store),
+        method: AL.Var.subst(method, store),
+        args: resolve_args(args, store)
+    }
+
+  defp resolve_args([arg | args], store),
+    do: [resolve_arg(arg, store) | resolve_args(args, store)]
+
+  defp resolve_args(args, store), do: AL.Var.subst(args, store)
+
+  defp resolve_arg(arg, store),
+    do: if(AL.Var.var?(arg), do: AL.Var.deref(store, arg), else: arg)
 
   def put_bindings(state, nil, _terms), do: backtrack(state)
 
@@ -1798,98 +1818,136 @@ defmodule AL do
   # AL.Native.dispatch/3 (checked first, see the OApply interp/2 clause
   # above) can decline into exactly this, never a duplicated copy.
   defp interp_oapply_clauses(method_id_pattern, bind_head_pattern, state) do
+    case unify_clauses(method_id_pattern, bind_head_pattern, state) do
+      {_scope, []} -> backtrack(state)
+      unified -> enter_clauses(method_id_pattern, bind_head_pattern, unified, state)
+    end
+  end
+
+  @spec unify_clauses(term(), term(), t()) ::
+          {integer() | nil, [{tuple(), AL.Var.store() | nil}]}
+  def unify_clauses(method_id_pattern, bind_head_pattern, state) do
     case cached_scan_clauses(method_id_pattern, state.branch) do
       [] ->
-        backtrack(state)
+        {nil, []}
 
       clauses ->
         scope = fresh_scope()
         freshener = Integer.to_string(scope)
 
-        {call_receiver, call_args} =
-          case bind_head_pattern do
-            [r | rest] -> {r, rest}
-            other -> {other, []}
-          end
-
-        pre_store = state.active_choicepoint.store
-        parent = state.active_choicepoint.scope_pointer
-        {:oapply, _id, active_seq, _head, _body} = hd(clauses)
-
-        continuation = %AL.Continuation{
-          goals: state.active_choicepoint.goals,
-          done: state.active_choicepoint.done,
-          scope_pointer: caller_scope_pointer(state),
-          source_scopes: state.active_choicepoint.source_scopes,
-          failure_context: caller_failure_context(state)
-        }
-
-        state =
-          enter_failure_scope(
-            state,
-            scope,
-            parent,
-            :clause,
-            {:clause_call, scope, method_id_pattern, bind_head_pattern, %{}}
-          )
-
-        state =
-          trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
-
-        state =
-          if trace_scopes?(state) do
-            open = open_positions(call_positions(call_receiver, call_args), pre_store)
-
-            state
-            |> push_trace(
-              {:clause_call, scope, method_id_pattern, bind_head_pattern,
-               describe_positions(open, pre_store)}
-            )
-            |> push_trace({:clause_chosen, scope, active_seq})
-            |> put_scope(scope, %{
-              parent: parent,
-              kind: :clause,
-              open_vars: open,
-              exited: false,
-              derived: nil
-            })
-          else
-            state
-          end
-
-        [active_choicepoint | alternative_choicepoints] =
-          Enum.map(clauses, fn {:oapply, clause_id, clause_seq, clause_head, clause_body} ->
-            wake(
-              %AL.Choicepoint{
-                goals: AL.Var.freshen(clause_body, freshener),
-                store:
-                  AL.Var.unify(
-                    {AL.Var.freshen(clause_head, freshener), clause_id},
-                    {bind_head_pattern, method_id_pattern},
-                    state.active_choicepoint.store,
-                    state.branch
-                  ),
-                continuations: [continuation | state.active_choicepoint.continuations],
-                done: [],
-                scope_pointer: scope,
-                source_scopes: state.active_choicepoint.source_scopes,
-                suspensions: state.active_choicepoint.suspensions,
-                clause: clause_seq,
-                failure_context: state.active_choicepoint.failure_context
-              },
-              [{bind_head_pattern, method_id_pattern}]
-            )
-          end)
-
-        %AL{
-          state
-          | active_choicepoint: active_choicepoint,
-            call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
-            pending_cursor: nil,
-            choicepoint_stack:
-              alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
-        }
+        {scope,
+         Enum.map(clauses, fn {:oapply, clause_id, _seq, clause_head, _body} = clause ->
+           {clause,
+            AL.Var.unify_fresh(
+              {AL.Var.freshen(clause_head, freshener), clause_id},
+              {bind_head_pattern, method_id_pattern},
+              state.active_choicepoint.store,
+              state.branch,
+              freshener
+            )}
+         end)}
     end
+  end
+
+  @spec any_unified?({integer() | nil, [{tuple(), AL.Var.store() | nil}]}) :: boolean()
+  def any_unified?({_scope, unified}), do: Enum.any?(unified, fn {_clause, store} -> store end)
+
+  defp live_clauses(unified) do
+    case Enum.filter(unified, fn {_clause, store} -> store end) do
+      [] -> unified
+      live -> live
+    end
+  end
+
+  @spec enter_clauses(term(), term(), {integer(), [{tuple(), AL.Var.store() | nil}]}, t()) ::
+          t() | nil
+  def enter_clauses(
+        method_id_pattern,
+        bind_head_pattern,
+        {scope, [_ | _] = candidates},
+        state
+      ) do
+    freshener = Integer.to_string(scope)
+
+    [{{:oapply, _id, active_seq, _head, _body}, _store} | _] =
+      unified =
+      if trace_scopes?(state), do: candidates, else: live_clauses(candidates)
+
+    {call_receiver, call_args} =
+      case bind_head_pattern do
+        [r | rest] -> {r, rest}
+        other -> {other, []}
+      end
+
+    pre_store = state.active_choicepoint.store
+    parent = state.active_choicepoint.scope_pointer
+
+    continuation = %AL.Continuation{
+      goals: state.active_choicepoint.goals,
+      done: state.active_choicepoint.done,
+      scope_pointer: caller_scope_pointer(state),
+      source_scopes: state.active_choicepoint.source_scopes,
+      failure_context: caller_failure_context(state)
+    }
+
+    state =
+      enter_failure_scope(
+        state,
+        scope,
+        parent,
+        :clause,
+        {:clause_call, scope, method_id_pattern, bind_head_pattern, %{}}
+      )
+
+    state =
+      trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
+
+    state =
+      if trace_scopes?(state) do
+        open = open_positions(call_positions(call_receiver, call_args), pre_store)
+
+        state
+        |> push_trace(
+          {:clause_call, scope, method_id_pattern, bind_head_pattern,
+           describe_positions(open, pre_store)}
+        )
+        |> push_trace({:clause_chosen, scope, active_seq})
+        |> put_scope(scope, %{
+          parent: parent,
+          kind: :clause,
+          open_vars: open,
+          exited: false,
+          derived: nil
+        })
+      else
+        state
+      end
+
+    [active_choicepoint | alternative_choicepoints] =
+      Enum.map(unified, fn {{:oapply, _id, clause_seq, _head, clause_body}, store} ->
+        wake(
+          %AL.Choicepoint{
+            goals: AL.Var.freshen(clause_body, freshener),
+            store: store,
+            continuations: [continuation | state.active_choicepoint.continuations],
+            done: [],
+            scope_pointer: scope,
+            source_scopes: state.active_choicepoint.source_scopes,
+            suspensions: state.active_choicepoint.suspensions,
+            clause: clause_seq,
+            failure_context: state.active_choicepoint.failure_context
+          },
+          [{bind_head_pattern, method_id_pattern}]
+        )
+      end)
+
+    %AL{
+      state
+      | active_choicepoint: active_choicepoint,
+        call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
+        pending_cursor: nil,
+        choicepoint_stack: alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
+    }
   end
 
   defp render_format(control, args) do

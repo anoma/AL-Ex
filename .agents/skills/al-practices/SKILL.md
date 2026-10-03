@@ -37,7 +37,8 @@ control-flow tools.
 
 ## Core surface rules
 
-- AL has its own Prolog-like syntax; the grammar is `lib/AL/syntax.bnf`.
+- AL has its own Prolog-like syntax; `lib/AL/syntax.bnf` is its BNF,
+  generated from the AL grammars by `mix al.bnf`.
   Variables are capitalised (`Self`, `_`), atoms are lowercase or quoted,
   `[H . T]` is a list, `#{key => V}` is a map, and `{G1, G2}` is a block of
   goals. Comments start with `#`.

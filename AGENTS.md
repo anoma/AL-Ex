@@ -5,9 +5,9 @@ object protocols, not as Elixir control flow expressed through AL syntax.
 
 ## Syntax
 
-- AL has its own Prolog-like syntax, read by `AL.Syntax` straight into the
-  `AL.Goal` structs the interpreter runs. The grammar is in
-  `lib/AL/syntax.bnf`. Variables are capitalised (`Self`, `_`), atoms are
+- AL has its own Prolog-like syntax, read by `AL.Syntax` into compound terms
+  that the interpreter runs. `lib/AL/syntax.bnf` is its BNF, generated from the
+  AL grammars by `mix al.bnf`. Variables are capitalised (`Self`, `_`), atoms are
   lowercase or quoted (`point`, `'Hello'`), `[H . T]` is a list,
   `#{key => V}` is a map, and `{G1, G2}` is a block of goals.
 - A call is juxtaposition: `sel Recv Arg1 Arg2` sends `sel` to `Recv`. Call

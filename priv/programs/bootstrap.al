@@ -1262,21 +1262,47 @@ pattern_goal Self Grammar Pattern Args Input After Goal,
 rule_goals Self Grammar Patterns Args After Rest Goals.
 
 grammar >> pattern_goal
-| _Self Grammar next Args Input Rest Goal |
-concat [Grammar, Input, Rest] Args CallArgs,
-functor Goal call_next_method CallArgs.
+| Self Grammar Pattern Args Input Rest Goal |
+pattern_kind Self Pattern Kind,
+kind_goal Self Kind Grammar Pattern Args Input Rest Goal.
 
-grammar >> pattern_goal
-| _Self Grammar Pattern _Args Input Rest Goal |
-functor Pattern next NextArgs,
+grammar >> pattern_kind
+| _Self Pattern Kind |
+var Pattern -> = Kind open ; atom Pattern -> = Kind name ; class Pattern string -> = Kind text ; class Pattern list -> = Kind tokens ; = Kind call.
+
+grammar >> kind_goal
+| _Self open Grammar Pattern _Args Input Rest Goal |
+functor Goal match_pattern [Grammar, Pattern, Input, Rest].
+
+grammar >> kind_goal
+| _Self text _Grammar Text _Args Input Rest Goal |
+string_codes Text Codes,
+concat Codes Rest Expected,
+functor Goal = [Input, Expected].
+
+grammar >> kind_goal
+| _Self tokens _Grammar Tokens _Args Input Rest Goal |
+concat Tokens Rest Expected,
+functor Goal = [Input, Expected].
+
+grammar >> kind_goal
+| Self name Grammar Name Args Input Rest Goal |
+call_goal Self Grammar Name Args [] Input Rest Goal.
+
+grammar >> kind_goal
+| Self call Grammar Pattern _Args Input Rest Goal |
+functor Pattern Name Arguments,
+call_goal Self Grammar Name Arguments Arguments Input Rest Goal.
+
+grammar >> call_goal
+| _Self Grammar next NextArgs _Arguments Input Rest Goal |
 concat [Grammar, Input, Rest] NextArgs CallArgs,
 functor Goal call_next_method CallArgs.
 
-grammar >> pattern_goal
-| _Self Grammar Pattern _Args Input Rest Goal |
-dif Pattern next,
-not {functor Pattern next _},
-functor Goal match_pattern [Grammar, Pattern, Input, Rest].
+grammar >> call_goal
+| _Self Grammar Name _NextArgs Arguments Input Rest Goal |
+dif Name next,
+functor Goal send [Grammar, Name, [Input, Rest . Arguments]].
 
 @lisp_syntax #{super => syntax, metaclass => grammar}.
 
@@ -1451,7 +1477,18 @@ defrule string_syntax (symbol_code Code) [next, where [Code] {dif Code 34}].
 @declaration_syntax #{super => lisp_syntax, metaclass => grammar}.
 
 defrule declaration_syntax (declaration (defclass Name Metaclass Super Ivars Categories))
-  [where [Options, Pairs] {map_pairs Options Pairs},
+  [known_text,
+   class_marker,
+   symbol Name,
+   gap,
+   options Options,
+   blanks,
+   ".",
+   where [Options, Pairs] {map_pairs Options Pairs},
+   within Pairs [class_entries Metaclass Super Ivars Categories]].
+defrule declaration_syntax (declaration (defclass Name Metaclass Super Ivars Categories))
+  [unknown_text,
+   where [Options, Pairs] {map_pairs Options Pairs},
    within Pairs [class_entries Metaclass Super Ivars Categories],
    class_marker,
    symbol Name,
@@ -1501,6 +1538,13 @@ defrule method_syntax line [unknown_text, "\n"].
 defrule method_syntax line [known_text, blanks].
 
 defrule method_syntax (symbol_code Code) [next, where [Code] {dif Code 124}].
+
+@al_grammar
+#{super => [method_syntax, declaration_syntax, term_syntax], metaclass => grammar}.
+
+defrule al_grammar (program Items) [blanks, zero_or_more item Items].
+defrule al_grammar (item Item) [declaration Item, blanks].
+defrule al_grammar (item Item) [clause Item, blanks].
 
 @al_syntax #{super => lisp_syntax, metaclass => grammar}.
 

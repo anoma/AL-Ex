@@ -275,6 +275,32 @@ defmodule Examples.ALClauses do
     :ok
   end
 
+  example clause_heads_refuse_cyclic_bindings() do
+    {:atomic, {b, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @cycle_probe
+        #{super => object}.
+
+        cycle_probe >> wrapped_first
+        | _Self (wrap X) X |.
+
+        cycle_probe >> wrapped_second
+        | _Self X (wrap X) |.
+
+        cycle_probe >> twice
+        | _Self X X |.
+
+        new cycle_probe Probe.
+        not {wrapped_first Probe Y Y}.
+        not {wrapped_second Probe Z Z}.
+        twice Probe (wrap W) Same.
+        """
+      end
+
+    assert %AL.Goal.Compound{name: :wrap} = b[:"$Same"]
+  end
+
   # `:object`'s `reorder_clauses` rewrites a method's clauses into a given order.
   # `:list`'s `:at` is the 3-arg entry clause `[xs, n, x]` followed by two 4-arg
   # recursion clauses, so head arity (3 vs 4) is a rename-stable witness of clause

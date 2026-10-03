@@ -423,15 +423,24 @@ defmodule Examples.ALDCG do
 
           findall Statement Statements {parse declarations (declaration Statement) ^source}.
           parse declarations (declaration ^expected) Generated.
-          not (parse declarations (declaration _) ^unfinished).
-          not (parse declarations (declaration _) ^not_a_map).
-          not (parse declarations (declaration _) ^no_super).
           """
         end
 
       assert bindings[:"$Statements"] == [expected]
       if source in canonical, do: assert(bindings[:"$Generated"] == source)
     end
+
+    {:atomic, _} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @declarations
+        #{super => [declaration_syntax, term_syntax], metaclass => grammar}.
+
+        not (parse declarations (declaration _) ^unfinished).
+        not (parse declarations (declaration _) ^not_a_map).
+        not (parse declarations (declaration _) ^no_super).
+        """
+      end
   end
 
   example the_method_reader_reads_clauses_as_the_al_reader_does() do

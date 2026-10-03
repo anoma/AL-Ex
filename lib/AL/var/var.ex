@@ -175,29 +175,28 @@ defmodule AL.Var do
   @spec bind(store(), variable(), t(), AL.Branch.t()) :: store() | nil
   def bind(store, var, term, branch) do
     term = deref(store, term)
+    if occurs?(var, term, store), do: nil, else: bind_resolved(store, var, term, branch)
+  end
 
-    if occurs?(var, term, store) do
-      nil
-    else
-      old_constraints = constraint_set(store, var)
-      new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
+  defp bind_resolved(store, var, term, branch) do
+    old_constraints = constraint_set(store, var)
+    new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
 
-      with propagated_store when not is_nil(propagated_store) <-
-             propagate(old_constraints, new_store, branch),
-           keyed_store when not is_nil(keyed_store) <-
-             propagate_keys(old_constraints, term, propagated_store, branch),
-           functor_store when not is_nil(functor_store) <-
-             propagate_functor(old_constraints, term, keyed_store, branch),
-           linked_store when not is_nil(linked_store) <-
-             propagate_links(old_constraints, term, functor_store, branch) do
-        if violated?(old_constraints, linked_store, term, branch) do
-          nil
-        else
-          linked_store
-        end
+    with propagated_store when not is_nil(propagated_store) <-
+           propagate(old_constraints, new_store, branch),
+         keyed_store when not is_nil(keyed_store) <-
+           propagate_keys(old_constraints, term, propagated_store, branch),
+         functor_store when not is_nil(functor_store) <-
+           propagate_functor(old_constraints, term, keyed_store, branch),
+         linked_store when not is_nil(linked_store) <-
+           propagate_links(old_constraints, term, functor_store, branch) do
+      if violated?(old_constraints, linked_store, term, branch) do
+        nil
       else
-        nil -> nil
+        linked_store
       end
+    else
+      nil -> nil
     end
   end
 
@@ -313,10 +312,7 @@ defmodule AL.Var do
         link_functor(store, name, var)
 
       is_atom(name) ->
-        case AL.Goal.from_call_form(name, subst(args, store)) do
-          %_{} = goal -> unify(var, goal, store, branch, :opaque)
-          _ -> nil
-        end
+        unify(var, AL.Goal.from_call_form(name, subst(args, store)), store, branch, :opaque)
 
       true ->
         nil
@@ -947,18 +943,31 @@ defmodule AL.Var do
   def tighten_min(a, b), do: min(a, b)
 
   @spec occurs?(variable(), t(), store()) :: boolean()
-  def occurs?(var, term, store) do
-    term = if is_atom(term) or var?(term), do: deref(store, term), else: term
+  def occurs?(_var, term, _store) when is_number(term) or is_binary(term), do: false
+  def occurs?(var, {:"$fresh", _, _} = term, store), do: occurs_resolved?(var, term, store)
 
-    cond do
-      var?(term) -> term == var
-      # handle cons cells directly so improper lists (`[h | $tail]`) work
-      is_list(term) -> occurs_in_list?(var, term, store)
-      is_tuple(term) -> occurs_in_list?(var, Tuple.to_list(term), store)
-      is_map(term) -> occurs_in_list?(var, Map.values(term), store)
-      true -> false
+  def occurs?(var, term, store) when is_atom(term),
+    do: var?(term) and occurs_resolved?(var, term, store)
+
+  def occurs?(var, term, store) when is_list(term), do: occurs_in_list?(var, term, store)
+
+  def occurs?(var, term, store) when is_tuple(term),
+    do: occurs_in_list?(var, Tuple.to_list(term), store)
+
+  def occurs?(var, term, store) when is_map(term),
+    do: occurs_in_list?(var, Map.values(term), store)
+
+  def occurs?(_var, _term, _store), do: false
+
+  defp occurs_resolved?(var, term, store) do
+    case deref(store, term) do
+      ^var -> true
+      resolved -> not var?(resolved) and occurs?(var, resolved, store)
     end
   end
+
+  defp occurs_in_list?(var, [head | tail], store) when is_integer(head),
+    do: occurs_in_list?(var, tail, store)
 
   defp occurs_in_list?(var, [head | tail], store),
     do: occurs?(var, head, store) or occurs_in_list?(var, tail, store)
@@ -970,6 +979,85 @@ defmodule AL.Var do
   @spec unify(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
     do: unify(x, y, store, branch, :opaque)
+
+  @spec unify_fresh(t(), t(), store(), AL.Branch.t(), String.t()) :: store() | nil
+  def unify_fresh(head, call, store, branch, scope) do
+    case fresh_unify(head, call, {store, false}, branch, scope) do
+      nil -> nil
+      {new_store, _leaked} -> new_store
+    end
+  end
+
+  defp fresh_unify(x, y, acc, branch, scope) do
+    cond do
+      x == :"$_" || y == :"$_" ->
+        acc
+
+      var?(x) || var?(y) ->
+        fresh_extend(x, y, acc, branch, scope)
+
+      is_list(x) && is_list(y) && x != [] && y != [] ->
+        [x | xs] = x
+        [y | ys] = y
+
+        case fresh_unify(x, y, acc, branch, scope) do
+          nil -> nil
+          next -> fresh_unify(xs, ys, next, branch, scope)
+        end
+
+      is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
+        fresh_unify(Tuple.to_list(x), Tuple.to_list(y), acc, branch, scope)
+
+      is_map(x) && is_map(y) && map_size(x) == map_size(y) &&
+          Enum.all?(Map.keys(x), &Map.has_key?(y, &1)) ->
+        keys = Map.keys(x)
+
+        fresh_unify(
+          Enum.map(keys, &Map.get(x, &1)),
+          Enum.map(keys, &Map.get(y, &1)),
+          acc,
+          branch,
+          scope
+        )
+
+      x == y ->
+        acc
+
+      true ->
+        nil
+    end
+  end
+
+  defp fresh_extend(x, y, {store, _leaked} = acc, branch, scope) do
+    rx = deref(store, x)
+    ry = deref(store, y)
+    is_var_rx = var?(rx)
+    is_var_ry = var?(ry)
+
+    cond do
+      rx == ry -> acc
+      not is_var_rx && is_var_ry -> fresh_bind(acc, ry, x, branch, scope)
+      rx == x && is_var_ry -> fresh_bind(acc, ry, x, branch, scope)
+      not is_var_ry && is_var_rx -> fresh_bind(acc, rx, y, branch, scope)
+      ry == y && is_var_rx -> fresh_bind(acc, rx, y, branch, scope)
+      is_var_ry && is_var_rx -> fresh_bind(acc, rx, ry, branch, scope)
+      true -> fresh_unify(rx, ry, acc, branch, scope)
+    end
+  end
+
+  defp fresh_bind({store, false}, {:"$fresh", _base, scope} = var, term, branch, scope) do
+    case bind_resolved(store, var, deref(store, term), branch) do
+      nil -> nil
+      new_store -> {new_store, false}
+    end
+  end
+
+  defp fresh_bind({store, _leaked}, var, term, branch, _scope) do
+    case bind(store, var, term, branch) do
+      nil -> nil
+      new_store -> {new_store, true}
+    end
+  end
 
   @spec unify_value(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify_value(x, y, store, branch), do: unify(x, y, store, branch, :value)
@@ -1031,8 +1119,76 @@ defmodule AL.Var do
   # var back to whichever observable query var it's aliased to) instead of
   # showing it as-is.
   @spec subst(t(), store(), (variable() -> t())) :: t()
-  def subst(term, store, rewrite_unbound),
-    do: AL.Goal.map(term, &subst_leaf(&1, store, rewrite_unbound))
+  def subst(term, store, rewrite_unbound) do
+    case subst_walk(term, store, rewrite_unbound) do
+      :same -> term
+      {:new, new} -> new
+    end
+  end
+
+  defp subst_walk(term, _store, _rewrite)
+       when is_number(term) or is_binary(term) or term == [],
+       do: :same
+
+  defp subst_walk({:"$fresh", _base, _scope} = leaf, store, rewrite),
+    do: changed(leaf, subst_leaf(leaf, store, rewrite))
+
+  defp subst_walk(term, store, rewrite) when is_atom(term) do
+    if var?(term), do: changed(term, subst_leaf(term, store, rewrite)), else: :same
+  end
+
+  defp subst_walk([head | tail], store, rewrite) when is_integer(head) do
+    case subst_walk(tail, store, rewrite) do
+      :same -> :same
+      {:new, new_tail} -> {:new, [head | new_tail]}
+    end
+  end
+
+  defp subst_walk([head | tail], store, rewrite) do
+    case {subst_walk(head, store, rewrite), subst_walk(tail, store, rewrite)} do
+      {:same, :same} -> :same
+      {new_head, new_tail} -> {:new, [kept(head, new_head) | kept(tail, new_tail)]}
+    end
+  end
+
+  defp subst_walk(term, store, rewrite) when is_struct(term) do
+    changes =
+      for {key, value} <- Map.from_struct(term),
+          {:new, new} <- [subst_walk(value, store, rewrite)],
+          do: {key, new}
+
+    if changes == [], do: :same, else: {:new, struct(term, changes)}
+  end
+
+  defp subst_walk(term, store, rewrite) when is_map(term) do
+    entries =
+      Enum.map(term, fn {key, value} ->
+        {key, value, subst_walk(key, store, rewrite), subst_walk(value, store, rewrite)}
+      end)
+
+    if Enum.all?(entries, &match?({_, _, :same, :same}, &1)),
+      do: :same,
+      else:
+        {:new,
+         Map.new(entries, fn {key, value, new_key, new_value} ->
+           {kept(key, new_key), kept(value, new_value)}
+         end)}
+  end
+
+  defp subst_walk(term, store, rewrite) when is_tuple(term) do
+    case subst_walk(Tuple.to_list(term), store, rewrite) do
+      :same -> :same
+      {:new, elements} -> {:new, List.to_tuple(elements)}
+    end
+  end
+
+  defp subst_walk(_term, _store, _rewrite), do: :same
+
+  defp changed(leaf, leaf), do: :same
+  defp changed(_leaf, new), do: {:new, new}
+
+  defp kept(term, :same), do: term
+  defp kept(_term, {:new, new}), do: new
 
   @spec copy_term_with_constraints(t(), store()) :: {t(), store()}
   def copy_term_with_constraints(term, store) do
@@ -1112,14 +1268,12 @@ defmodule AL.Var do
   defp subst_leaf(leaf, store, rewrite_unbound) when is_atom(leaf) do
     case deref(store, leaf) do
       ^leaf ->
-        if var?(leaf), do: rewrite_unbound.(leaf), else: leaf
+        rewrite_unbound.(leaf)
 
       other ->
         if var?(other), do: rewrite_unbound.(other), else: subst(other, store, rewrite_unbound)
     end
   end
-
-  defp subst_leaf(leaf, _store, _rewrite_unbound), do: leaf
 
   @spec find_vars(t()) :: MapSet.t(variable())
   @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())
