@@ -282,6 +282,7 @@ defmodule AL.Var.Bounds do
 
   @spec arithmetic?(term()) :: boolean()
   def arithmetic?(%AL.Goal.OApply{method_id: op}), do: op in @arithmetic_ops
+  def arithmetic?(%AL.Goal.Compound{name: op}), do: op in @arithmetic_ops
   def arithmetic?(_), do: false
 
   @doc """
@@ -325,6 +326,22 @@ defmodule AL.Var.Bounds do
        ),
        do: add_product(store, left, right, product, branch)
 
+  defp add_product_equality(
+         store,
+         %AL.Goal.Compound{name: :*, args: [left, right]},
+         product,
+         branch
+       ),
+       do: add_product(store, left, right, product, branch)
+
+  defp add_product_equality(
+         store,
+         product,
+         %AL.Goal.Compound{name: :*, args: [left, right]},
+         branch
+       ),
+       do: add_product(store, left, right, product, branch)
+
   defp add_product_equality(_store, _a, _b, _branch), do: nil
 
   defp bind_or_post(store, side, value, a, b, branch) do
@@ -340,6 +357,9 @@ defmodule AL.Var.Bounds do
   `:error` if any operand is unbound or non-numeric. Division by zero is `:error`.
   """
   def eval(%AL.Goal.OApply{method_id: op, args: args}, store),
+    do: eval({:oapply, op, args}, store)
+
+  def eval(%AL.Goal.Compound{name: op, args: args}, store) when op in @arithmetic_ops,
     do: eval({:oapply, op, args}, store)
 
   def eval({:oapply, :/, [a, b]}, store) do
@@ -494,6 +514,9 @@ defmodule AL.Var.Bounds do
       combine(op, al, ar)
     end
   end
+
+  defp affine(store, %AL.Goal.Compound{name: op, args: [l, r]}) when op in [:+, :-, :*],
+    do: affine(store, %AL.Goal.OApply{method_id: op, args: [l, r]})
 
   defp affine(store, term) do
     case AL.Var.deref(store, term) do

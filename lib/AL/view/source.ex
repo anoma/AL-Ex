@@ -386,6 +386,16 @@ defmodule AL.Source do
        ]),
        do: %{class: class}
 
+  defp scope_context(%AL.Source.Ref{kind: :defmethod}, [
+         %AL.Goal.Compound{name: :defmethod, args: [class, method | _]}
+       ]),
+       do: %{class: class, method: method}
+
+  defp scope_context(%AL.Source.Ref{kind: :defclass}, [
+         %AL.Goal.Compound{name: :defclass, args: [class | _]}
+       ]),
+       do: %{class: class}
+
   defp scope_context(ref, goals) do
     :mnesia.abort(%AL.Source.ProvenanceError{
       capture_id: ref.capture_id,

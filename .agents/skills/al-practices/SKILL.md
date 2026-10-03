@@ -47,6 +47,9 @@ control-flow tools.
 - Operators are ordinary names called in prefix: `= X 1`, `< X 5`,
   `= Y (+ X 1)`, `or (= C 1) (= C 2)`. The only infix forms are `,`, `;`,
   `->`, and the list tail `.`.
+- A compound is just a term until it is run. Unification, head unification
+  included, is structural: `(+ Low 1)` passed to a method arrives as that
+  term. Arithmetic is evaluated only by a running `=` or comparison goal.
 - Goals are separated by commas and every top-level form ends with `.`.
 - AL has no tuples. Use lists for positional relational data, maps for named
   value data, and value classes when behavior belongs with that data.

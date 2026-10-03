@@ -66,7 +66,7 @@ defmodule ALDocumentTest do
                "\#{\n  super => [value, named],\n  ivars => [\#{name => rank}, \#{default => clubs, name => suit}]\n}.\n\n" <>
                "card >> rank\n| Self R |\n  pass."
 
-    assert {:ok, %{program: [%AL.Goal.OApply{method_id: :defclass} | _]}} = AL.Syntax.parse(text)
+    assert {:ok, %{program: [%AL.Goal.Compound{name: :defclass} | _]}} = AL.Syntax.parse(text)
   end
 
   test "a single super is written without a list" do

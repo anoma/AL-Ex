@@ -35,15 +35,20 @@ defmodule ALSyntaxReaderTest do
       """)
 
     assert [
-             %Goal.OApply{method_id: :clear_method, args: [:list, :fold_left]},
-             %Goal.OApply{
-               method_id: :defmethod,
+             %Goal.Compound{name: :clear_method, args: [:list, :fold_left]},
+             %Goal.Compound{
+               name: :defmethod,
                args: [:list, :fold_left, [[], :"$_Func", :"$Acc", :"$Acc"], []]
              },
-             %Goal.OApply{method_id: :clear_method, args: [:object, :forward]},
-             %Goal.OApply{
-               method_id: :defmethod,
-               args: [:object, :forward, [:"$Self" | :"$Args"], [%Goal.Ground{}]]
+             %Goal.Compound{name: :clear_method, args: [:object, :forward]},
+             %Goal.Compound{
+               name: :defmethod,
+               args: [
+                 :object,
+                 :forward,
+                 [:"$Self" | :"$Args"],
+                 [%Goal.Compound{name: :ground, args: [:"$Args"]}]
+               ]
              }
            ] = program
   end
@@ -57,10 +62,10 @@ defmodule ALSyntaxReaderTest do
     {:ok, %{program: program}} = Syntax.parse(source)
 
     assert [
-             %Goal.OApply{method_id: :clear_method, args: [:"$Owner", :"$Selector"]},
-             %Goal.OApply{method_id: :defmethod, args: [:"$Owner", :"$Selector", [:"$Self"], _]},
-             %Goal.OApply{method_id: :clear_method, args: [[:owner], %{name: :value}]},
-             %Goal.OApply{method_id: :defmethod, args: [[:owner], %{name: :value}, [:"$Arg"], _]}
+             %Goal.Compound{name: :clear_method, args: [:"$Owner", :"$Selector"]},
+             %Goal.Compound{name: :defmethod, args: [:"$Owner", :"$Selector", [:"$Self"], _]},
+             %Goal.Compound{name: :clear_method, args: [[:owner], %{name: :value}]},
+             %Goal.Compound{name: :defmethod, args: [[:owner], %{name: :value}, [:"$Arg"], _]}
            ] = program
 
     assert {:ok, %{program: ^program}} = Syntax.parse(AL.Syntax.Printer.program(program))
@@ -85,12 +90,15 @@ defmodule ALSyntaxReaderTest do
       """)
 
     assert [
-             %Goal.OApply{method_id: :clear_method, args: [:list, :size]},
-             %Goal.OApply{method_id: :defmethod, args: [:list, :size | _]},
-             %Goal.OApply{method_id: :clear_method, args: [:list, :other]},
-             %Goal.OApply{method_id: :defmethod, args: [:list, :other | _]},
-             %Goal.OApply{method_id: :defmethod, args: [:list, :size | _]},
-             %Goal.OApply{method_id: :defmethod, args: [:list, :size, [:extra], [%Goal.Pass{}]]}
+             %Goal.Compound{name: :clear_method, args: [:list, :size]},
+             %Goal.Compound{name: :defmethod, args: [:list, :size | _]},
+             %Goal.Compound{name: :clear_method, args: [:list, :other]},
+             %Goal.Compound{name: :defmethod, args: [:list, :other | _]},
+             %Goal.Compound{name: :defmethod, args: [:list, :size | _]},
+             %Goal.Compound{
+               name: :defmethod,
+               args: [:list, :size, [:extra], [%Goal.Compound{name: :pass, args: []}]]
+             }
            ] = program
 
     assert {:ok, %{program: ^program}} = Syntax.parse(AL.Syntax.Printer.program(program))
@@ -102,59 +110,72 @@ defmodule ALSyntaxReaderTest do
       = [H . T] [-1, "a \"b\"", #{k => 'odd atom', 2 => nil}, 2.5].
       """)
 
-    assert [%Goal.Eq{a: [:"$H" | :"$T"], b: [-1, "a \"b\"", %{:k => :"odd atom", 2 => nil}, 2.5]}] =
-             result.program
+    assert [
+             %Goal.Compound{
+               name: :=,
+               args: [[:"$H" | :"$T"], [-1, "a \"b\"", %{:k => :"odd atom", 2 => nil}, 2.5]]
+             }
+           ] = result.program
   end
 
   test "a call takes single-term arguments, so nested calls are bracketed" do
     {:ok, %{program: [call, zero]}} = Syntax.parse("between Self (+ Low 1) High V, = X (foo).")
 
-    assert %Goal.Send{
-             method: :between,
-             object: :"$Self",
-             args: [%Goal.OApply{method_id: :+}, :"$High", :"$V"]
+    assert %Goal.Compound{
+             name: :between,
+             args: [:"$Self", %Goal.Compound{name: :+}, :"$High", :"$V"]
            } = call
 
-    assert %Goal.Eq{b: %Goal.OApply{method_id: :foo, args: []}} = zero
+    assert %Goal.Compound{name: :=, args: [_, %Goal.Compound{name: :foo, args: []}]} = zero
   end
 
   test "commas bind loosest, so conditionals and alternatives need no brackets" do
     {:ok, %{program: program}} = Syntax.parse("a X, > X 1 -> b ; c, d X.")
 
     assert [
-             %Goal.Send{method: :a},
-             %Goal.Implies{
-               condition: [%Goal.Compare{op: :>}],
-               then: [%Goal.OApply{method_id: :b}],
-               otherwise: [%Goal.OApply{method_id: :c}]
-             },
-             %Goal.Send{method: :d}
+             %Goal.Compound{name: :a},
+             %Goal.Compound{
+               name: :";",
+               args: [
+                 [
+                   %Goal.Compound{
+                     name: :->,
+                     args: [[%Goal.Compound{name: :>}], [%Goal.Compound{name: :b}]]
+                   }
+                 ],
+                 [%Goal.Compound{name: :c}]
+               ]
+             } = choice,
+             %Goal.Compound{name: :d}
            ] = program
 
-    assert {:ok, %{program: [%Goal.Implies{otherwise: [%Goal.Fail{}]}]}} =
-             Syntax.parse("> X 1 -> = Y 2.")
+    assert %Goal.Implies{otherwise: [%Goal.Compound{name: :c}]} = Goal.lower(choice)
 
-    assert {:ok, %{program: [%Goal.Or{or: [%Goal.Eq{}], then: [%Goal.Eq{}, %Goal.Eq{}]}]}} =
-             Syntax.parse("= X 1 ; {= X 2, = Y 3}.")
+    assert {:ok, %{program: [conditional]}} = Syntax.parse("> X 1 -> = Y 2.")
+    assert %Goal.Implies{otherwise: [%Goal.Fail{}]} = Goal.lower(conditional)
+
+    assert {:ok, %{program: [alternative]}} = Syntax.parse("= X 1 ; {= X 2, = Y 3}.")
+    assert %Goal.Or{or: [_], then: [_, _]} = Goal.lower(alternative)
   end
 
   test "operators are prefix calls, nested with brackets" do
-    {:ok, %{program: [%Goal.Eq{b: sum}]}} = Syntax.parse("= X (- (+ 1 (* 2 (** 3 2))) (- (4))).")
+    {:ok, %{program: [%Goal.Compound{name: :=, args: [_, sum]}]}} =
+      Syntax.parse("= X (- (+ 1 (* 2 (** 3 2))) (- (4))).")
 
-    assert %Goal.OApply{
-             method_id: :-,
+    assert %Goal.Compound{
+             name: :-,
              args: [
-               %Goal.OApply{
-                 method_id: :+,
+               %Goal.Compound{
+                 name: :+,
                  args: [
                    1,
-                   %Goal.OApply{
-                     method_id: :*,
-                     args: [2, %Goal.OApply{method_id: :**, args: [3, 2]}]
+                   %Goal.Compound{
+                     name: :*,
+                     args: [2, %Goal.Compound{name: :**, args: [3, 2]}]
                    }
                  ]
                },
-               %Goal.OApply{method_id: :-, args: [4]}
+               %Goal.Compound{name: :-, args: [4]}
              ]
            } = sum
   end
@@ -163,21 +184,26 @@ defmodule ALSyntaxReaderTest do
     {:ok, %{program: [functor, negative, negate]}} =
       Syntax.parse("functor G < [X, 10], = Y -1, = Z (- 1).")
 
-    assert %Goal.Functor{term: :"$G", name: :<, args: [:"$X", 10]} = functor
-    assert %Goal.Eq{a: :"$Y", b: -1} = negative
-    assert %Goal.Eq{a: :"$Z", b: %Goal.OApply{method_id: :-, args: [1]}} = negate
+    assert %Goal.Compound{name: :functor, args: [:"$G", :<, [:"$X", 10]]} = functor
+    assert %Goal.Compound{name: :=, args: [:"$Y", -1]} = negative
+
+    assert %Goal.Compound{name: :=, args: [:"$Z", %Goal.Compound{name: :-, args: [1]}]} =
+             negate
   end
 
   test "comments are kept in method bodies only, and a map is not a comment" do
     {:ok, result} = Syntax.parse("# top\nc >> m\n| Self |\n  # body\n  pass.\n= X \#{}.")
 
     assert [
-             %Goal.OApply{method_id: :clear_method},
-             %Goal.OApply{method_id: :defmethod, args: [:c, :m, [:"$Self"], body]},
-             %Goal.Eq{b: %{}}
+             %Goal.Compound{name: :clear_method},
+             %Goal.Compound{name: :defmethod, args: [:c, :m, [:"$Self"], body]},
+             %Goal.Compound{name: :=, args: [_, %{}]}
            ] = result.program
 
-    assert [%Goal.Comment{text: " body"}, %Goal.Pass{}] = body
+    assert [
+             %Goal.Compound{name: :comment, args: [" body"]},
+             %Goal.Compound{name: :pass, args: []}
+           ] = body
   end
 
   test "malformed input reports where it went wrong" do

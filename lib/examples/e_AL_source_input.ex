@@ -46,8 +46,10 @@ defmodule Examples.ALSourceInput do
     assert class_source == "@source_parse_other \#{super => object}"
 
     assert [
-             %AL.Goal.OApply{method_id: :clear_method},
-             %AL.Goal.OApply{args: [_, _, _, [%AL.Goal.Comment{}, %AL.Goal.Eq{}]]},
+             %AL.Goal.Compound{name: :clear_method},
+             %AL.Goal.Compound{
+               args: [_, _, _, [%AL.Goal.Compound{name: :comment}, %AL.Goal.Compound{name: :=}]]
+             },
              _
            ] = result.program
 

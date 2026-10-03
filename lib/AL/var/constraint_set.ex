@@ -47,7 +47,9 @@ defmodule AL.Var.ConstraintSet do
           domain: MapSet.t(AL.Var.t()) | nil,
           super_link: super_link() | nil,
           slot_links: [slot_link()],
-          keys: %{optional(AL.Var.t()) => AL.Var.t()}
+          keys: %{optional(AL.Var.t()) => AL.Var.t()},
+          functor: {AL.Var.t(), AL.Var.t()} | nil,
+          functor_links: [AL.Var.variable()]
         }
 
   defstruct dif: [],
@@ -59,5 +61,7 @@ defmodule AL.Var.ConstraintSet do
             domain: nil,
             super_link: nil,
             slot_links: [],
-            keys: %{}
+            keys: %{},
+            functor: nil,
+            functor_links: []
 end

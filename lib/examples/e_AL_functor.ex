@@ -36,7 +36,7 @@ defmodule Examples.ALFunctor do
     assert Map.get(bindings, :"$LessName") == :<
     assert Map.get(bindings, :"$LessArgs") == [:"$X", 10]
     assert Map.get(bindings, :"$NotName") == :not
-    assert [[%AL.Goal.Dif{}]] = Map.get(bindings, :"$NotArgs")
+    assert [[%AL.Goal.Compound{name: :dif, args: [:"$X", 3]}]] = Map.get(bindings, :"$NotArgs")
   end
 
   example builds_the_goal_it_is_written_as() do
@@ -86,21 +86,75 @@ defmodule Examples.ALFunctor do
     assert Map.get(bindings, :"$Args") == [:"$Value", :number]
   end
 
-  example fails_without_a_goal_or_a_name() do
-    {:aborted, _} =
+  example arithmetic_terms_pass_through_heads_as_data() do
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        functor _Term _Name _Args.
+        @shapes
+        #{super => object}.
+
+        shapes >> operator
+        | _Self Expression Name |
+        functor Expression Name _.
+
+        new shapes Shapes, operator Shapes (+ 1 2) Operator.
+        = Sum (+ 1 2).
         """
       end
 
-    {:aborted, _} =
+    assert bindings[:"$Operator"] == :+
+    assert bindings[:"$Sum"] == 3
+  end
+
+  example compound_terms_are_values_of_class_compound() do
+    {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        functor 3 _Name _Args.
+        compound >> label
+        | Self Name |
+        functor Self Name _.
+
+        class (greet world) Class.
+        isa (greet world) compound.
+        label (greet world) Label.
+        class #{a => 1} MapClass.
+        not (map_get (greet world) object _).
+        not (map_pairs (greet world) _).
+        functor Open Name Args, isa Open compound.
+        not {functor Shaped f [x], = Shaped [x]}.
         """
       end
 
-    :ok
+    assert bindings[:"$Class"] == :compound
+    assert bindings[:"$Label"] == :greet
+    assert bindings[:"$MapClass"] == :map
+  end
+
+  example an_open_term_carries_a_functor_constraint() do
+    {:atomic, {bindings, constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        functor Built Name Args, = Name greet, = Args [world].
+        functor Spined greet Tail, = Tail [a . More], = More [b].
+        functor Same First FirstArgs, functor Same Second SecondArgs, = First f, = FirstArgs [x].
+        functor Late late [x], = Late (late x).
+        not {functor Clash f _, functor Clash g _}.
+        not {functor NotGoal _ _, = NotGoal 3}.
+        not {functor Mismatch f [x], = Mismatch (g x)}.
+        not (functor 3 _ _).
+        functor Open Label Parts.
+        """
+      end
+
+    assert bindings[:"$Built"] == %AL.Goal.Compound{name: :greet, args: [:world]}
+    assert bindings[:"$Spined"] == %AL.Goal.Compound{name: :greet, args: [:a, :b]}
+    assert bindings[:"$Second"] == :f
+    assert bindings[:"$SecondArgs"] == [:x]
+    assert bindings[:"$Same"] == %AL.Goal.Compound{name: :f, args: [:x]}
+    assert bindings[:"$Late"] == %AL.Goal.Compound{name: :late, args: [:x]}
+
+    open = bindings[:"$Open"]
+    assert AL.Var.var?(open)
+    assert constraints[open].functor == [:"$Label", :"$Parts"]
   end
 end

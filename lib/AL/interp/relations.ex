@@ -10,24 +10,14 @@ defmodule AL.Interp.Relations do
 
   alias AL.Goal
 
-  def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_map(object),
-    do:
-      AL.put_bindings(
-        state,
-        AL.unify(state, Map.get(object, :class, :map), class_pattern),
-        [class_pattern]
-      )
-
-  def interp(%Goal.GetClass{object: object, class: class_pattern}, state) when is_list(object),
-    do: AL.put_bindings(state, AL.unify(state, :list, class_pattern), [class_pattern])
-
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state)
-      when is_number(object),
-      do: AL.put_bindings(state, AL.unify(state, :number, class_pattern), [class_pattern])
-
-  def interp(%Goal.GetClass{object: object, class: class_pattern}, state)
-      when is_binary(object),
-      do: AL.put_bindings(state, AL.unify(state, :string, class_pattern), [class_pattern])
+      when is_map(object) or is_list(object) or is_number(object) or is_binary(object),
+      do:
+        AL.put_bindings(
+          state,
+          AL.unify(state, AL.Dispatch.structural_class(object), class_pattern),
+          [class_pattern]
+        )
 
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     known_direct = AL.Var.direct_classes_of(store(state), object)

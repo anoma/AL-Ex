@@ -3,6 +3,37 @@ defmodule Examples.ALDCG do
   use AL
   import ExUnit.Assertions
 
+  defp term(source) do
+    {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, term]}]}} =
+      AL.Syntax.parse("= _ " <> source <> ".")
+
+    AL.Goal.map(term, fn leaf ->
+      if AL.Var.var?(leaf), do: quoted(leaf), else: leaf
+    end)
+  end
+
+  defp statement(source) do
+    {:ok, %{program: [statement]}} = AL.Syntax.parse(source)
+    AL.Goal.map(statement, fn leaf -> if AL.Var.var?(leaf), do: quoted(leaf), else: leaf end)
+  end
+
+  defp clause(source) do
+    {:ok, %{program: [_clear, method]}} = AL.Syntax.parse(source)
+
+    AL.Goal.map(method, fn leaf ->
+      if AL.Var.var?(leaf), do: quoted(leaf), else: leaf
+    end)
+  end
+
+  defp quoted(variable), do: %AL.Goal.Compound{name: :var, args: [variable_name(variable)]}
+
+  defp variable_name(variable) do
+    case Atom.to_string(variable) do
+      "$_@" <> _ -> :_
+      "$" <> name -> String.to_atom(name)
+    end
+  end
+
   example grammar_rules_parse_and_generate_text() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
@@ -115,27 +146,28 @@ defmodule Examples.ALDCG do
         defrule tree_pass (node #{num => Number})
           [code Number, where [Number] {isa Number number}].
         defrule tree_pass (node #{ref => Name}) [code Name, where [Name] {atom Name}].
-        defrule tree_pass (node Tree) [code Form, within Form [form Tree]].
+        defrule tree_pass (node Tree)
+          [code Form, where [Form, Op, Args] {functor Form Op Args}, within [Op . Args] [form Tree]].
 
         defrule tree_pass (form #{op => sub, args => [#{num => 0}, Arg]})
           [[neg], node Arg].
         defrule tree_pass (form #{op => Op, args => Args})
-          [code Op, where [Op] {atom Op, dif Op neg}, nodes Args].
+          [code Op, where [Op] {dif Op neg}, nodes Args].
 
         defrule tree_pass (nodes []) [].
         defrule tree_pass (nodes [Node . Nodes]) [node Node, nodes Nodes].
 
         parse number_syntax (expr Ast) ^source.
-        phrase tree_pass (form Tree) Ast.
-        findall Back Backs {phrase tree_pass (form Tree) Back}.
-        findall Text Texts {phrase tree_pass (form Tree) Form, parse number_syntax (expr Form) Text}.
+        phrase tree_pass (node Tree) [Ast].
+        findall Back Backs {phrase tree_pass (node Tree) [Back]}.
+        findall Text Texts {phrase tree_pass (node Tree) [Form], parse number_syntax (expr Form) Text}.
         """
       end
 
     num = fn n -> %{num: n} end
     apply = fn op, args -> %{op: op, args: args} end
 
-    assert bindings[:"$Ast"] == [:add, 1, [:neg, [:mul, 2, :x]]]
+    assert bindings[:"$Ast"] == term(source)
 
     assert bindings[:"$Tree"] ==
              apply.(:add, [
@@ -143,11 +175,7 @@ defmodule Examples.ALDCG do
                apply.(:sub, [num.(0), apply.(:mul, [num.(2), %{ref: :x}])])
              ])
 
-    assert bindings[:"$Backs"] == [
-             [:add, 1, [:neg, [:mul, 2, :x]]],
-             [:add, 1, [:sub, 0, [:mul, 2, :x]]]
-           ]
-
+    assert bindings[:"$Backs"] == [term(source), term("(add 1 (sub 0 (mul 2 x)))")]
     assert bindings[:"$Texts"] == [source, "(add 1 (sub 0 (mul 2 x)))"]
   end
 
@@ -220,185 +248,316 @@ defmodule Examples.ALDCG do
     assert bindings[:"$Renamed"] == [:x, :c]
   end
 
-  example the_bootstrap_lisp_reader_builds_an_ast() do
+  example the_lisp_core_reads_parentheses_as_compounds() do
     source = "(add (mul x y))"
-    ast = [:add, [:mul, :x, :y]]
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
         parse lisp_syntax (expr Ast) ^source.
-        parse lisp_syntax (expr ^ast) Generated.
-        parse lisp_syntax (expr RoundTrip) Generated.
-        parse lisp_syntax (expr Empty) "()".
-        parse lisp_syntax (expr []) GeneratedEmpty.
+        parse lisp_syntax (expr Ast) Generated.
+        parse lisp_syntax (expr Called) "(f)".
+        parse lisp_syntax (expr ListCall) "(list a)".
         not (parse lisp_syntax (expr _Incomplete) "(add").
+        not (parse lisp_syntax (expr _Nil) "()").
         parse lisp_syntax blanks " \t\n".
         not (parse lisp_syntax gap "").
         parse lisp_syntax (expr Spaced) "( add\r\n  (mul\tx y) )".
-        findall Items SpacedEmpty {parse lisp_syntax (expr Items) "(  )"}.
         parse lisp_syntax (expr Symbols) "(+ 1 foo-bar Baz)".
-        parse lisp_syntax (expr [-, '2', 'Qux']) GeneratedSymbols.
+        parse lisp_syntax (expr (- '2' 'Qux')) GeneratedSymbols.
         """
       end
 
-    assert bindings[:"$Ast"] == ast
+    assert bindings[:"$Ast"] == term(source)
     assert bindings[:"$Generated"] == source
-    assert bindings[:"$RoundTrip"] == ast
-    assert bindings[:"$Empty"] == []
-    assert bindings[:"$GeneratedEmpty"] == "()"
-    assert bindings[:"$Spaced"] == ast
-    assert bindings[:"$SpacedEmpty"] == [[]]
-    assert bindings[:"$Symbols"] == [:+, :"1", :"foo-bar", :Baz]
+    assert bindings[:"$Called"] == term("(f)")
+    assert bindings[:"$ListCall"] == term("(list a)")
+    assert bindings[:"$Spaced"] == term(source)
+    assert bindings[:"$Symbols"] == %AL.Goal.Compound{name: :+, args: [:"1", :"foo-bar", :Baz]}
     assert bindings[:"$GeneratedSymbols"] == "(- 2 Qux)"
   end
 
-  example the_bootstrap_list_reader_adds_bracketed_lists_to_lisp() do
+  example the_tag_reader_adds_lisp_lists_and_maps() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        parse tag_syntax (expr Nil) "()".
+        parse tag_syntax (expr List) "(list a (b c))".
+        parse tag_syntax (expr Cons) "(list* a b c)".
+        parse tag_syntax (expr Map) "(map (k v) (j w))".
+        parse tag_syntax (expr Call) "(f (list a))".
+        parse tag_syntax (expr []) GeneratedNil.
+        parse tag_syntax (expr [add, [mul, x, y]]) GeneratedList.
+        parse tag_syntax (expr [a . b]) GeneratedCons.
+        parse tag_syntax (expr #{k => v}) GeneratedMap.
+        not (parse tag_syntax (expr [a, 'b c']) _Spaced).
+        """
+      end
+
+    assert bindings[:"$Nil"] == []
+    assert bindings[:"$List"] == [:a, term("(b c)")]
+    assert bindings[:"$Cons"] == [:a, :b | :c]
+    assert bindings[:"$Map"] == %{k: :v, j: :w}
+    assert bindings[:"$Call"] == term("(f [a])")
+    assert bindings[:"$GeneratedNil"] == "()"
+    assert bindings[:"$GeneratedList"] == "(list add (list mul x y))"
+    assert bindings[:"$GeneratedCons"] == "(list* a b)"
+    assert bindings[:"$GeneratedMap"] == "(map (k v))"
+  end
+
+  example the_list_reader_adds_bracketed_lists() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
         parse list_syntax (expr Empty) "[]".
-        parse list_syntax (expr List) "[a, (b c), 1, Foo]".
+        parse list_syntax (expr List) "[a, (b c), d]".
         parse list_syntax (expr Cons) "[a, b . c]".
         findall Expr Tight {parse list_syntax (expr Expr) "(f [a,b .c])"}.
-        parse list_syntax (expr [list, a, ['list*', b, c]]) Generated.
+        parse list_syntax (expr ListCall) "(list a)".
+        parse list_syntax (expr [a, [b . c]]) Generated.
         not (parse list_syntax (expr _Incomplete) "[a, b").
         """
       end
 
-    assert bindings[:"$Empty"] == [:list]
-    assert bindings[:"$List"] == [:list, :a, [:b, :c], :"1", :Foo]
-    assert bindings[:"$Cons"] == [:"list*", :a, :b, :c]
-    assert bindings[:"$Tight"] == [[:f, [:"list*", :a, :b, :c]]]
+    assert bindings[:"$Empty"] == []
+    assert bindings[:"$List"] == term("[a, (b c), d]")
+    assert bindings[:"$Cons"] == [:a, :b | :c]
+    assert bindings[:"$Tight"] == [term("(f [a, b . c])")]
+    assert bindings[:"$ListCall"] == term("(list a)")
     assert bindings[:"$Generated"] == "[a, [b . c]]"
   end
 
-  example each_reader_mixin_adds_one_form_to_lisp() do
-    map_source = ~S"#{k => V}"
+  example each_reader_mixin_adds_one_form() do
+    map_source = ~S"#{k => v}"
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
         parse list_syntax (expr Brace) "{f}".
-        parse block_syntax (expr Block) "{f 1, g}".
+        parse block_syntax (expr Block) "{f a, g}".
         parse block_syntax (expr Bracket) "[a]".
         not (parse block_syntax (expr _Map) ^map_source).
         parse map_syntax (expr Map) ^map_source.
-        parse number_syntax (expr Numbers) "(1 -2 V)".
-        parse variable_syntax (expr Variables) "(1 V _)".
-        parse term_syntax (expr Term) "[1, V, {f}]".
+        parse number_syntax (expr Numbers) "(f 1 -2 v)".
+        parse variable_syntax (expr Variables) "(f a V _ V)".
 
-        parse block_syntax (expr [block, [f, a], [g]]) GeneratedBlock.
-        parse map_syntax (expr [map, [k, v]]) GeneratedMap.
-        parse number_syntax (expr [1, -2, v]) GeneratedNumbers.
-        parse variable_syntax (expr [a, [var, 'V']]) GeneratedVariables.
-        parse term_syntax (expr [list, 1, [var, 'V'], [block, [f]], [map, [k, -3]]]) GeneratedTerm.
-        parse term_syntax (expr RoundTrip) GeneratedTerm.
+        parse block_syntax (expr [(f a), (g)]) GeneratedBlock.
+        parse map_syntax (expr #{k => v}) GeneratedMap.
+        parse number_syntax (expr (f 1 -2 v)) GeneratedNumbers.
         """
       end
 
     assert bindings[:"$Brace"] == :"{f}"
-    assert bindings[:"$Block"] == [:block, [:f, :"1"], [:g]]
+    assert bindings[:"$Block"] == term("{f a, g}")
     assert bindings[:"$Bracket"] == :"[a]"
-    assert bindings[:"$Map"] == [:map, [:k, :V]]
-    assert bindings[:"$Numbers"] == [1, -2, :V]
-    assert bindings[:"$Variables"] == [:"1", [:var, :V], [:var, :_]]
-    assert bindings[:"$Term"] == [:list, 1, [:var, :V], [:block, [:f]]]
+    assert bindings[:"$Map"] == %{k: :v}
+    assert bindings[:"$Numbers"] == term("(f 1 -2 v)")
+
+    assert bindings[:"$Variables"] == term("(f a V _ V)")
     assert bindings[:"$GeneratedBlock"] == "{f a, g}"
-    assert bindings[:"$GeneratedMap"] == ~S"#{k => v}"
-    assert bindings[:"$GeneratedNumbers"] == "(1 -2 v)"
-    assert bindings[:"$GeneratedVariables"] == "(a V)"
-    assert bindings[:"$GeneratedTerm"] == ~S"[1, V, {f}, #{k => -3}]"
-    assert bindings[:"$RoundTrip"] == [:list, 1, [:var, :V], [:block, [:f]], [:map, [:k, -3]]]
+    assert bindings[:"$GeneratedMap"] == map_source
+    assert bindings[:"$GeneratedNumbers"] == "(f 1 -2 v)"
+  end
+
+  example the_string_reader_adds_string_literals_to_lisp() do
+    plain = ~S("abc")
+    escaped = ~S("a\"b\\c\nd\#{e}")
+    interpolated = ~S("a#{b}")
+    hash = ~S("a#b")
+    listed = ~S([a, "b c"])
+
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        parse string_syntax (expr Plain) ^plain.
+        parse string_syntax (expr Escaped) ^escaped.
+        parse string_syntax (expr Hash) ^hash.
+        not (parse string_syntax (expr _) ^interpolated).
+        parse string_syntax (expr Called) "(f \"x y\")".
+        parse term_syntax (expr Listed) ^listed.
+        parse string_syntax (expr Escaped) Generated.
+        parse term_syntax (expr [a, "b c"]) GeneratedList.
+        """
+      end
+
+    {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, decoded]}]}} =
+      AL.Syntax.parse("= _ " <> escaped <> ".")
+
+    assert bindings[:"$Plain"] == "abc"
+    assert bindings[:"$Escaped"] == decoded
+    assert bindings[:"$Escaped"] == "a\"b\\c\nd\#{e}"
+    assert bindings[:"$Hash"] == "a#b"
+    assert bindings[:"$Called"] == term(~S[(f "x y")])
+    assert bindings[:"$Listed"] == [:a, "b c"]
+    assert bindings[:"$Generated"] == inspect(decoded)
+    assert bindings[:"$GeneratedList"] == listed
+  end
+
+  example the_declaration_reader_reads_declarations_as_the_al_reader_does() do
+    canonical = [
+      ~S"@point #{super => object}.",
+      ~S"@point #{ivars => [#{name => x}], super => object}.",
+      ~S"@card #{categories => [comparable], metaclass => grammar, super => value}.",
+      ~S"@Name #{super => object}.",
+      ~S"@+list #{super => [mapset]}."
+    ]
+
+    read_only = [
+      ~s"@point\n\#{super => object}.",
+      ~S"@point #{super => object, metaclass => class}.",
+      ~S"@+list #{super => mapset}."
+    ]
+
+    unfinished = ~S"@point #{super => object}"
+    not_a_map = ~S"@point [object]."
+    no_super = ~S"@point #{ivars => []}."
+
+    for source <- canonical ++ read_only do
+      expected = statement(source)
+
+      {:atomic, {bindings, _constraints, _state}} =
+        run branch: Examples.Support.branch() do
+          ~AL"""
+          @declarations
+          #{super => [declaration_syntax, term_syntax], metaclass => grammar}.
+
+          findall Statement Statements {parse declarations (declaration Statement) ^source}.
+          parse declarations (declaration ^expected) Generated.
+          not (parse declarations (declaration _) ^unfinished).
+          not (parse declarations (declaration _) ^not_a_map).
+          not (parse declarations (declaration _) ^no_super).
+          """
+        end
+
+      assert bindings[:"$Statements"] == [expected]
+      if source in canonical, do: assert(bindings[:"$Generated"] == source)
+    end
+  end
+
+  example the_method_reader_reads_clauses_as_the_al_reader_does() do
+    sources = [
+      ~S"""
+      list >> fold_left
+      | [H . T] Func Acc Result |
+      run Func [Acc, H, Next],
+      fold_left T Func Next Result.
+      """,
+      ~S"""
+      list >> fold_left
+      | [] _Func Acc Acc |.
+      """,
+      ~S"""
+      Owner >> greet
+      | Self . Rest |
+      = Rest [],
+      say Self #{text => "hi"}.
+      """,
+      ~S"""
+      point >> origin
+      | |
+      pass.
+      """
+    ]
+
+    for source <- sources do
+      expected = clause(source)
+      text = String.trim_trailing(source)
+
+      {:atomic, {bindings, _constraints, _state}} =
+        run branch: Examples.Support.branch() do
+          ~AL"""
+          @methods
+          #{super => [method_syntax, term_syntax], metaclass => grammar}.
+
+          findall Clause Clauses {parse methods (clause Clause) ^text}.
+          parse methods (clause ^expected) Generated.
+          """
+        end
+
+      assert bindings[:"$Clauses"] == [expected]
+      assert bindings[:"$Generated"] == text
+    end
   end
 
   example a_grammar_translates_text_into_another_grammar() do
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        translate lisp_syntax term_syntax (expr Tree) "(list a (block (g x)))" Term.
-        translate term_syntax lisp_syntax (expr Back) Term Lisp.
-        translate lisp_syntax term_syntax (expr _) "(list a b)" Anonymous.
-        translate term_syntax lisp_syntax (expr Map) "\#{k => [V]}" MapLisp.
+        translate tag_syntax term_syntax (expr Tree) "(list a (list (g x)))" Term.
+        translate term_syntax tag_syntax (expr Back) Term Lisp.
+        translate tag_syntax term_syntax (expr _) "(list a b)" Anonymous.
+        translate tag_syntax term_syntax (expr Map) "(map (k (list v)))" MapTerm.
         not (translate lisp_syntax term_syntax (expr _Number) "(f 1)" _Unwritable).
-        not (parse lisp_syntax (expr [a, 'b c']) _Spaced).
-        findall Text Texts {parse term_syntax (expr [list, a, [var, 'B']]) Text}.
 
         @lisp_terms
-        #{super => [number_syntax, variable_syntax], metaclass => grammar}.
+        #{super => [tag_syntax, number_syntax], metaclass => grammar}.
 
-        translate lisp_terms term_syntax (expr Shared) "(f 1 Foo (list a -2))" Termed.
+        translate lisp_terms term_syntax (expr Shared) "(f 1 foo (list a -2))" Termed.
         translate term_syntax lisp_terms (expr Again) Termed Lisped.
         """
       end
 
-    assert bindings[:"$Tree"] == [:list, :a, [:block, [:g, :x]]]
+    assert bindings[:"$Tree"] == term("[a, {g x}]")
     assert bindings[:"$Term"] == "[a, {g x}]"
-    assert bindings[:"$Lisp"] == "(list a (block (g x)))"
+    assert bindings[:"$Lisp"] == "(list a (list (g x)))"
     assert bindings[:"$Anonymous"] == "[a, b]"
-    assert bindings[:"$MapLisp"] == "(map (k (list (var V))))"
-    assert bindings[:"$Texts"] == ["[a, B]", "(list a B)"]
-    assert bindings[:"$Shared"] == [:f, 1, [:var, :Foo], [:list, :a, -2]]
-    assert bindings[:"$Termed"] == "(f 1 Foo [a, -2])"
-    assert bindings[:"$Lisped"] == "(f 1 Foo (list a -2))"
+    assert bindings[:"$MapTerm"] == ~S"#{k => [v]}"
+    assert bindings[:"$Shared"] == term("(f 1 foo [a, -2])")
+    assert bindings[:"$Termed"] == "(f 1 foo [a, -2])"
+    assert bindings[:"$Lisped"] == "(f 1 foo (list a -2))"
   end
 
-  example the_bootstrap_term_reader_expands_al_forms_into_s_expressions() do
-    map_source = ~S"#{k => V, n => -7}"
-    nested_source = ~S"(f [x] #{} {})"
-    tight_source = ~S"[a,#{k=>V} .T]"
+  example the_term_reader_reads_what_the_al_reader_reads() do
+    sources = [
+      "42",
+      "-7",
+      "0",
+      "-",
+      "Foo",
+      "foo",
+      "[]",
+      "[a, B]",
+      "[H . T]",
+      "[a, b . T]",
+      ~S"#{k => V, n => -7}",
+      "{g a, h}",
+      ~S"(f [x] #{} {})",
+      "[A, A, B]",
+      "[a, B . (f -1 {g})]",
+      ~S"[a,#{k=>V} .T]",
+      "(f (+ X 1))",
+      "[(= Y (* 2 3)), (< Y 7)]"
+    ]
+
+    for source <- sources do
+      expected = term(source)
+
+      {:atomic, _} =
+        run branch: Examples.Support.branch() do
+          ~AL"""
+          findall Term Terms {parse term_syntax (expr Term) ^source}.
+          = Terms [^expected].
+          parse term_syntax (expr ^expected) Text.
+          parse term_syntax (expr Again) Text.
+          == Again ^expected.
+          """
+        end
+    end
 
     {:atomic, {bindings, _constraints, _state}} =
       run branch: Examples.Support.branch() do
         ~AL"""
-        parse term_syntax (expr Number) "42".
-        parse term_syntax (expr Negative) "-7".
-        parse term_syntax (expr Zero) "0".
-        parse term_syntax (expr Padded) "007".
-        parse term_syntax (expr Minus) "-".
-        parse term_syntax (expr Variable) "Foo".
-        parse term_syntax (expr Anonymous) "_".
-        parse term_syntax (expr Atom) "foo".
-        parse term_syntax (expr EmptyList) "[]".
-        parse term_syntax (expr List) "[a, B]".
-        parse term_syntax (expr Cons) "[H . T]".
-        parse term_syntax (expr LongCons) "[a, b . T]".
-        parse term_syntax (expr Map) ^map_source.
-        parse term_syntax (expr Block) "{g a, h}".
-        parse term_syntax (expr Nested) ^nested_source.
-
+        parse term_syntax (expr Anonymous) "[_, _]".
+        parse term_syntax (expr [a, (var 'X'), (var '_')]) Quoted.
         parse term_syntax (expr -12) GeneratedNumber.
-        parse term_syntax
-          (expr [list, 42, [var, 'X'], ['list*', a, [var, 'T']], [map, [k, [block, [g, a]]]]])
-          Generated.
-        findall Term Terms {parse term_syntax (expr Term) "[a, B . (f -1 {g})]"}.
-        findall Term TightTerms {parse term_syntax (expr Term) ^tight_source}.
+        parse term_syntax (expr [42, (f x), [a . b], #{k => [(g a)]}]) Generated.
         """
       end
 
-    assert bindings[:"$Number"] == 42
-    assert bindings[:"$Negative"] == -7
-    assert bindings[:"$Zero"] == 0
-    assert bindings[:"$Padded"] == :"007"
-    assert bindings[:"$Minus"] == :-
-    assert bindings[:"$Variable"] == [:var, :Foo]
-    assert bindings[:"$Anonymous"] == [:var, :_]
-    assert bindings[:"$Atom"] == :foo
-    assert bindings[:"$EmptyList"] == [:list]
-    assert bindings[:"$List"] == [:list, :a, [:var, :B]]
-    assert bindings[:"$Cons"] == [:"list*", [:var, :H], [:var, :T]]
-    assert bindings[:"$LongCons"] == [:"list*", :a, :b, [:var, :T]]
-    assert bindings[:"$Map"] == [:map, [:k, [:var, :V]], [:n, -7]]
-    assert bindings[:"$Block"] == [:block, [:g, :a], [:h]]
-    assert bindings[:"$Nested"] == [:f, [:list, :x], [:map], [:block]]
+    assert bindings[:"$Anonymous"] == term("[_, _]")
+    assert bindings[:"$Quoted"] == "[a, X, _]"
     assert bindings[:"$GeneratedNumber"] == "-12"
-    assert bindings[:"$Generated"] == ~S"[42, X, [a . T], #{k => {g a}}]"
-
-    assert bindings[:"$TightTerms"] == [[:"list*", :a, [:map, [:k, [:var, :V]]], [:var, :T]]]
-
-    assert bindings[:"$Terms"] == [
-             [:"list*", :a, [:var, :B], [:f, -1, [:block, [:g]]]]
-           ]
+    assert bindings[:"$Generated"] == ~S"[42, (f x), [a . b], #{k => {g a}}]"
   end
 
   example the_bootstrap_reader_reads_al_definitions() do
@@ -426,10 +585,8 @@ defmodule Examples.ALDCG do
       run branch: Examples.Support.branch() do
         ~AL"""
         = Expected [
-          (vm_oapply defclass [greeter, class, object, [], []]),
-          (vm_oapply defmethod
-            [greeter, greeting, [Self, First, Second],
-             {greet Self First, echo Self Second}])
+          (defclass greeter class object [] []),
+          (defmethod greeter greeting [Self, First, Second] {greet Self First, echo Self Second})
         ].
 
         parse al_syntax (document Parsed) ^source.
@@ -437,15 +594,14 @@ defmodule Examples.ALDCG do
         variant Parsed ^goals.
 
         = VariableExpected [
-          (vm_oapply defmethod [Owner, Selector, [Self], {greet Self}])
+          (defmethod Owner Selector [Self] {greet Self})
         ].
         parse al_syntax (document VariableParsed) ^variable_headers.
         variant VariableParsed VariableExpected.
         variant VariableParsed [^variable_method].
 
         = GroundExpected [
-          (vm_oapply defmethod [greeter, greeting, [hello, world],
-            {greet hello world, echo world hello}])
+          (defmethod greeter greeting [hello, world] {greet hello world, echo world hello})
         ].
         parse al_syntax (document GroundExpected) Generated.
         parse al_syntax (document GroundRoundTrip) Generated.
@@ -453,7 +609,7 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert [%AL.Goal.OApply{method_id: :defclass}, %AL.Goal.OApply{method_id: :defmethod}] =
+    assert [%AL.Goal.Compound{name: :defclass}, %AL.Goal.Compound{name: :defmethod}] =
              bindings[:"$Parsed"]
 
     assert {:ok, _} = AL.Syntax.document(source)

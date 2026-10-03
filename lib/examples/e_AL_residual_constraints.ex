@@ -5,6 +5,34 @@ defmodule Examples.ALResidualConstraints do
   use AL
   import ExUnit.Assertions
 
+  example copy_term_returns_constraints_as_goals() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        copy_term [a, X] Plain PlainGoals.
+        = Plain [_, b].
+        dif Y 1, copy_term Y DifCopy DifGoals, variant DifGoals [(dif DifCopy 1)].
+        map_get M k _V, copy_term M KeyCopy KeyGoals, variant KeyGoals [(map_get KeyCopy k _Value)].
+        functor F _Name _Args, copy_term F FunctorCopy FunctorGoals,
+        variant FunctorGoals [(functor FunctorCopy _CopyName _CopyArgs)].
+        in_domain D [1, 2, 3], copy_term D DomainCopy DomainGoals,
+        variant DomainGoals [(in_domain DomainCopy [1, 2, 3])].
+        < L 5, copy_term L BoundCopy BoundGoals, variant BoundGoals [(<= BoundCopy 4)].
+        = S (+ T 1), copy_term [S, T] [CopyS, CopyT] ArithGoals,
+        variant ArithGoals [(= (+ CopyS (* -1 CopyT)) 1)].
+        freeze Fz {= Fz 1}, copy_term Fz FrozenCopy FrozenGoals, variant FrozenGoals [(= FrozenCopy 1)].
+        = Fz 1.
+        copy_term (+ 1 2) Expression ExpressionGoals.
+        """
+      end
+
+    assert AL.Var.var?(bindings[:"$X"])
+    assert bindings[:"$Plain"] == [:a, :b]
+    assert bindings[:"$PlainGoals"] == []
+    assert bindings[:"$Expression"] == %AL.Goal.Compound{name: :+, args: [1, 2]}
+    assert bindings[:"$ExpressionGoals"] == []
+  end
+
   example result_separates_bindings_from_constraints() do
     {:atomic, {bindings, constraints, _}} =
       run branch: Examples.Support.branch() do

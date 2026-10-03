@@ -13,6 +13,25 @@ defmodule AL.Syntax.Printer do
   @call 8
   @operators [:=, :==, :<, :>, :<=, :>=, :+, :-, :*, :/, :**]
   @primary 9
+  @statements [:defmethod, :clear_method, :defclass, :extend_class]
+  @syntax [
+    :";",
+    :->,
+    :findall,
+    :forall,
+    :not,
+    :freeze,
+    :spawn,
+    :await,
+    :lambda,
+    :call,
+    :vm_source_scope,
+    :vm_set_oapply,
+    :comment,
+    :cut,
+    :fail,
+    :pass
+  ]
 
   @spec defmethod(term(), term(), term(), [term()]) :: String.t()
   def defmethod(class, selector, head, body), do: method(class, selector, head, body, "")
@@ -81,6 +100,10 @@ defmodule AL.Syntax.Printer do
 
   defp load(goal) when goal in [:cut, :fail, :pass], do: Goal.from_stored(goal)
   defp load(goal) when is_tuple(goal) and not is_struct(goal), do: Goal.from_stored(goal)
+
+  defp load(%Goal.Compound{name: name} = compound) when name in @statements,
+    do: Goal.lower(compound)
+
   defp load(goal), do: goal
 
   defp method(owner, selector, head, body, indent) do
@@ -138,6 +161,12 @@ defmodule AL.Syntax.Printer do
            layout("\#{", ["super => " <> term(supers, indent <> "  ")], "}", indent)
 
   defp declaration(goal, indent), do: goal(goal, indent, @semi)
+
+  defp goal(%Goal.Compound{name: name} = compound, indent, context) when name in @syntax,
+    do: goal(Goal.lower(compound), indent, context)
+
+  defp goal(%Goal.Compound{name: name, args: args}, indent, context),
+    do: call(name, args, indent, context)
 
   defp goal(goal, indent, context)
        when goal in [:cut, :fail, :pass] or (is_tuple(goal) and not is_struct(goal)),
@@ -368,10 +397,14 @@ defmodule AL.Syntax.Printer do
   end
 
   defp comment?(%Goal.Comment{}), do: true
+  defp comment?(%Goal.Compound{name: :comment, args: [text]}) when is_binary(text), do: true
+  defp comment?({:compound, :comment, [text]}) when is_binary(text), do: true
   defp comment?({:comment, _text}), do: true
   defp comment?(_goal), do: false
 
   defp comment_text(%Goal.Comment{text: text}), do: text
+  defp comment_text(%Goal.Compound{name: :comment, args: [text]}), do: text
+  defp comment_text({:compound, :comment, [text]}), do: text
   defp comment_text({:comment, text}), do: text
 
   defp sequence(goals, indent, context) when is_list(goals) do
@@ -422,6 +455,8 @@ defmodule AL.Syntax.Printer do
   defp argument(term, indent), do: term(term, indent, @primary)
 
   defp term(term, indent), do: term(term, indent, @semi)
+
+  defp term(%Goal.Compound{} = compound, indent, context), do: goal(compound, indent, context)
 
   defp term({:unquote, _, [{name, _, context}]}, _indent, _context)
        when is_atom(name) and is_atom(context),

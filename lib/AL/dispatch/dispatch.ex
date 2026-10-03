@@ -77,13 +77,23 @@ defmodule AL.Dispatch do
     Enum.uniq(structural_classes(term) ++ discovered_classes(term, branch))
   end
 
-  defp structural_classes(term) do
+  @doc "The class a value has by its shape alone, or nil for atoms and variables."
+  @spec structural_class(term()) :: atom() | nil
+  def structural_class(term) do
     cond do
-      is_map(term) -> [Map.get(term, :class, :map)]
-      is_list(term) -> [:list]
-      is_number(term) -> [:number]
-      is_binary(term) -> [:string]
-      true -> []
+      AL.Goal.compound?(term) -> :compound
+      is_map(term) -> Map.get(term, :class, :map)
+      is_list(term) -> :list
+      is_number(term) -> :number
+      is_binary(term) -> :string
+      true -> nil
+    end
+  end
+
+  defp structural_classes(term) do
+    case structural_class(term) do
+      nil -> []
+      class -> [class]
     end
   end
 
@@ -542,11 +552,12 @@ defmodule AL.Dispatch do
   # atom: drops itself, scopes from its own class chain; instance: its own
   # super chain starting at itself) — sharing a cache key would let
   # whichever populates first silently answer for both.
-  defp resolution_key(self) when is_list(self), do: {:instance, :list}
-  defp resolution_key(self) when is_map(self), do: {:instance, Map.get(self, :class, :map)}
-  defp resolution_key(self) when is_number(self), do: {:instance, :number}
-  defp resolution_key(self) when is_binary(self), do: {:instance, :string}
-  defp resolution_key(self), do: self
+  defp resolution_key(self) do
+    case structural_class(self) do
+      nil -> self
+      class -> {:instance, class}
+    end
+  end
 
   def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)
 

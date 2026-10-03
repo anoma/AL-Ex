@@ -30,4 +30,4 @@ if [ "$explicit_max_cases" = false ]; then
   set -- --max-cases "${AL_TEST_MAX_CASES:-8}" "$@"
 fi
 
-AL_MNESIA_DISTRIBUTED=false AL_MNESIA_DIR="$store_dir/mnesia" mix test "$@"
+ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-+t 4000000}" AL_MNESIA_DISTRIBUTED=false AL_MNESIA_DIR="$store_dir/mnesia" mix test "$@"

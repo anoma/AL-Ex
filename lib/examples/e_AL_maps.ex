@@ -100,6 +100,36 @@ defmodule Examples.ALMaps do
     assert Map.keys(constraints[open].keys) == [:k]
   end
 
+  example map_pairs_relates_a_map_to_its_sorted_pairs() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        map_pairs #{b => 2, a => 1} Pairs.
+        map_pairs #{b => 2, a => 1} [[b, B], [a, 1]].
+        map_pairs Unordered Entries, = Entries [[k, v] . Tail], = Tail [[j, w]].
+        map_pairs Partial PartialEntries, = PartialEntries [[k, Value] . PartialTail], = PartialTail [].
+        map_pairs #{} Empty.
+        map_pairs Built [[x, 1], [y, Y]].
+        map_pairs #{k => Shared} [[k, Same]], = Same 7.
+        map_pairs Later Open, = Open [[k, v]].
+        map_get Constrained a A, map_pairs Constrained [[a, 1], [b, 2]].
+        not (map_pairs _ [[a, 1], [a, 2]]).
+        not (map_pairs foo _).
+        not {map_get Missing z _, map_pairs Missing [[a, 1]]}.
+        """
+      end
+
+    assert bindings[:"$Pairs"] == [[:a, 1], [:b, 2]]
+    assert bindings[:"$B"] == 2
+    assert bindings[:"$Unordered"] == %{k: :v, j: :w}
+    assert bindings[:"$Partial"] == %{k: :"$Value"}
+    assert bindings[:"$Empty"] == []
+    assert bindings[:"$Built"] == %{x: 1, y: :"$Y"}
+    assert bindings[:"$Shared"] == 7
+    assert bindings[:"$Later"] == %{k: :v}
+    assert bindings[:"$A"] == 1
+  end
+
   example map_put_new() do
     {:atomic, {bindings, _constraints, _}} =
       run do

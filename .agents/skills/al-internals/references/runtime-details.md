@@ -95,7 +95,7 @@ also starts/stops the Outbox per branch.
     itself only keeps the goals with no better-named home: `Eq`/`Equal`/
     `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Not`/`Call`/
     `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
-    primitive `OApply` cases (`map_get`, `vm_map_put`, `vm_fresh_id`,
+    primitive `OApply` cases (`map_get`, `map_pairs`, `vm_map_put`, `vm_fresh_id`,
     `vm_current_tx`) and `OApply`'s own general clause (method dispatch — see
     below). `oapply` expands a method head into its body **bidirectionally**:
     freshen the clause's vars by scope, unify head with call args into the
@@ -319,13 +319,18 @@ grounds `self` to one of the class's own literals is accepted by
 `AL.Var.isa?/3` as membership evidence, so it doesn't self-violate the
 constraint it's the proof of.
 
-1. **Compilation (`AL.Syntax`).** `send Recv Sel Args` and implicit
-   `sel Recv …` (any non-reserved atom followed by at least one argument) become
-   `%Goal.Send{}`. Direct VM ops never become sends: arithmetic (`+ - * / **`)
-   and the primitives (`map_get`, `vm_map_put`, `vm_fresh_id`,
-   `vm_current_tx`, …) compile to `%Goal.OApply{}`; a bare `foo` in goal
-   position, or `(foo)` in a term position →
-   `%Goal.OApply{method_id: :foo, args: []}`.
+1. **Reading (`AL.Syntax`) and lowering (`AL.Goal.lower/1`).** The reader
+   only builds terms: every call, connective (`;`, `->`), statement and comment
+   is a `%Goal.Compound{name, args}`, and `functor` relates a compound to its
+   name and arguments structurally. A compound becomes an executable goal only
+   when it is run: `continue` lowers the goal it pops, before substituting it.
+   Lowering is the interpretation table: a call by juxtaposition becomes
+   `%Goal.Send{}`, arithmetic (`+ - * / **`) and the primitives (`map_get`,
+   `map_pairs`, `vm_map_put`, `vm_fresh_id`, `vm_current_tx`, …) become
+   `%Goal.OApply{}`, a bare `foo` becomes `%Goal.OApply{method_id: :foo, args:
+   []}`, and the special forms (`findall`, `not`, `;`, `->`, `spawn`, …) become
+   their structs. Method bodies are stored as compounds; code that builds goals
+   in Elixir may still pass the executable structs directly.
 2. **Pre-substitution.** `continue` substitutes the goal against bindings before
    `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
 3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
@@ -561,6 +566,12 @@ diff/merge and valid-time queries are unbuilt.
   still unbuilt. Examples in `e_AL_bounds.ex`; [[al-bounds-consistency]] for
   design history.
 
+- **`copy_term/3`** — `copy_term Term Copy Goals` gives `Term` with fresh,
+  unconstrained variables and every constraint reachable from it as ordinary
+  goals over the copy (`dif`, `class`, `isa`, bounds, `in_domain`, pending
+  `super`/`slot`, `map_get` keys, `functor`, linear and other arithmetic
+  relations, and suspended goals). Prolog's `copy_term/3`; the way to treat a
+  constrained term as data, for example when writing it out.
 - **`in_domain/2`** — a real constraint (`ConstraintSet.domain :: MapSet.t() |
   nil`, alongside `dif`/`isa`/`bounds`), not a class with a `:domain` method.
   `AL.Var.add_domain/3` intersects across repeated posts; `find_violation/4`

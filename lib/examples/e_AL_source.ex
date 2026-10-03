@@ -41,7 +41,7 @@ defmodule Examples.ALSource do
     source = AL.Source.body_source(stored)
 
     assert source == "= \#{package => Package, requirement => Requirement} Pair"
-    assert round_trip(stored) == stored
+    assert round_trip(stored) == Enum.map(stored, &meaning/1)
     source
   end
 
@@ -122,7 +122,7 @@ defmodule Examples.ALSource do
 
   example stored_goals_round_trip_through_decompiled_source() do
     failures =
-      for stored <- round_trip_cases(), round_trip([stored]) != [stored] do
+      for stored <- round_trip_cases(), round_trip([stored]) != [meaning(stored)] do
         {stored, AL.Source.body_source([stored]), round_trip([stored])}
       end
 
@@ -135,8 +135,8 @@ defmodule Examples.ALSource do
     message = {:send, :"$O", :set_class, [:"$C"]}
 
     assert AL.Source.body_source([op]) != AL.Source.body_source([message])
-    assert round_trip([op]) == [op]
-    assert round_trip([message]) == [message]
+    assert round_trip([op]) == [meaning(op)]
+    assert round_trip([message]) == [meaning(message)]
 
     AL.Source.body_source([op])
   end
@@ -156,7 +156,7 @@ defmodule Examples.ALSource do
 
     failures =
       for {object, body} <- bodies,
-          shape(round_trip(body)) != shape(body),
+          shape(round_trip(body)) != shape(Enum.map(body, &meaning/1)),
           do: {object, AL.Source.body_source(body)}
 
     assert failures == []
@@ -168,13 +168,27 @@ defmodule Examples.ALSource do
     text = AL.Source.body_source(stored)
 
     case AL.Syntax.parse("o >> m\n| |\n" <> text <> "\n.") do
-      {:ok, %{program: [_clear, %AL.Goal.OApply{args: [_, _, _, body]}]}} ->
-        Enum.map(body, &AL.Goal.to_stored/1)
+      {:ok, %{program: [_clear, %AL.Goal.Compound{args: [_, _, _, body]}]}} ->
+        Enum.map(body, &(&1 |> lowered() |> AL.Goal.to_stored()))
 
       {:error, _reason} ->
         {:unparseable, text}
     end
   end
+
+  defp meaning(stored), do: stored |> AL.Goal.from_stored() |> lowered() |> AL.Goal.to_stored()
+
+  defp lowered(%AL.Goal.Compound{} = compound), do: compound |> AL.Goal.lower() |> lowered()
+
+  defp lowered(%module{} = goal),
+    do: struct(module, Map.new(Map.from_struct(goal), fn {k, v} -> {k, lowered(v)} end))
+
+  defp lowered(list) when is_list(list), do: lowered_list(list)
+  defp lowered(term), do: term
+
+  defp lowered_list([]), do: []
+  defp lowered_list([head | tail]), do: [lowered(head) | lowered_list(tail)]
+  defp lowered_list(tail), do: lowered(tail)
 
   defp shape(term),
     do: AL.Goal.map(term, fn leaf -> if AL.Var.var?(leaf), do: :_, else: leaf end)

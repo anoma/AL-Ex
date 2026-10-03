@@ -186,8 +186,10 @@ defmodule AL.Var do
              propagate(old_constraints, new_store, branch),
            keyed_store when not is_nil(keyed_store) <-
              propagate_keys(old_constraints, term, propagated_store, branch),
+           functor_store when not is_nil(functor_store) <-
+             propagate_functor(old_constraints, term, keyed_store, branch),
            linked_store when not is_nil(linked_store) <-
-             propagate_links(old_constraints, term, keyed_store, branch) do
+             propagate_links(old_constraints, term, functor_store, branch) do
         if violated?(old_constraints, linked_store, term, branch) do
           nil
         else
@@ -216,7 +218,7 @@ defmodule AL.Var do
   @spec add_key(store(), t(), t(), t(), AL.Branch.t()) :: store() | nil
   def add_key(store, map, key, value, branch) do
     case deref(store, map) do
-      bound when is_map(bound) ->
+      bound when is_map(bound) and not is_struct(bound) ->
         case Map.fetch(bound, key) do
           {:ok, existing} -> unify(value, existing, store, branch)
           :error -> nil
@@ -238,6 +240,109 @@ defmodule AL.Var do
       nil ->
         Map.put(store, var, %ConstraintSet{keys: %{key => value}})
     end
+  end
+
+  defp propagate_functor(nil, _term, store, _branch), do: store
+
+  defp propagate_functor(
+         %ConstraintSet{functor: functor, functor_links: links},
+         term,
+         store,
+         branch
+       ) do
+    store =
+      case functor do
+        nil -> store
+        {name, args} -> add_functor(store, term, name, args, branch)
+      end
+
+    Enum.reduce_while(links, store, fn linked, acc ->
+      case acc && resolve_functor(acc, linked, branch) do
+        nil -> {:halt, nil}
+        next -> {:cont, next}
+      end
+    end)
+  end
+
+  @spec add_functor(store(), t(), t(), t(), AL.Branch.t()) :: store() | nil
+  def add_functor(store, term, name, args, branch) do
+    resolved = deref(store, term)
+
+    if var?(resolved) do
+      record_functor(store, resolved, name, args, branch)
+    else
+      case AL.Goal.call_form(resolved) do
+        {term_name, term_args} ->
+          unify([name, args], [term_name, term_args], store, branch, :opaque)
+
+        nil ->
+          nil
+      end
+    end
+  end
+
+  defp record_functor(store, var, name, args, branch) do
+    recorded =
+      case constraint_set(store, var) do
+        %ConstraintSet{functor: {known_name, known_args}} ->
+          unify([name, args], [known_name, known_args], store, branch, :opaque)
+
+        %ConstraintSet{} = set ->
+          store |> Map.put(var, %{set | functor: {name, args}}) |> add_isa(var, :compound)
+
+        nil ->
+          store |> Map.put(var, %ConstraintSet{functor: {name, args}}) |> add_isa(var, :compound)
+      end
+
+    recorded && resolve_functor(recorded, var, branch)
+  end
+
+  defp resolve_functor(store, var, branch) do
+    with resolved <- deref(store, var),
+         true <- var?(resolved),
+         %ConstraintSet{functor: {name, args}} <- constraint_set(store, resolved) do
+      build_functor(store, resolved, deref(store, name), spine(store, args, []), branch)
+    else
+      _ -> store
+    end
+  end
+
+  defp build_functor(store, var, name, {:proper, args}, branch) do
+    cond do
+      var?(name) ->
+        link_functor(store, name, var)
+
+      is_atom(name) ->
+        case AL.Goal.from_call_form(name, subst(args, store)) do
+          %_{} = goal -> unify(var, goal, store, branch, :opaque)
+          _ -> nil
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  defp build_functor(store, var, name, {:open, tail}, _branch) do
+    store = link_functor(store, tail, var)
+    if var?(name), do: link_functor(store, name, var), else: store
+  end
+
+  defp build_functor(_store, _var, _name, :improper, _branch), do: nil
+
+  defp spine(store, list, acc) do
+    case deref(store, list) do
+      [] -> {:proper, Enum.reverse(acc)}
+      [head | tail] -> spine(store, tail, [head | acc])
+      other -> if var?(other), do: {:open, other}, else: :improper
+    end
+  end
+
+  defp link_functor(store, link, term_var) do
+    Map.update(store, link, %ConstraintSet{functor_links: [term_var]}, fn
+      %ConstraintSet{} = set -> %{set | functor_links: Enum.uniq([term_var | set.functor_links])}
+      other -> other
+    end)
   end
 
   # `var`'s own `super_link`/`slot_link` (captured in `old_constraints`,
@@ -405,7 +510,9 @@ defmodule AL.Var do
       domain: merge_domains(a.domain, b.domain),
       super_link: a.super_link || b.super_link,
       slot_links: Enum.uniq(a.slot_links ++ b.slot_links),
-      keys: a.keys
+      keys: a.keys,
+      functor: a.functor,
+      functor_links: Enum.uniq(a.functor_links ++ b.functor_links)
     }
 
   defp merge_domains(nil, d), do: d
@@ -862,10 +969,16 @@ defmodule AL.Var do
 
   @spec unify(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
-    do: unify(x, y, store, branch, :value)
+    do: unify(x, y, store, branch, :opaque)
 
-  # `:value` interprets arithmetic (`=` is value equality); `:opaque` is plain
-  # structural matching, used inside goal structs so a body stays data.
+  @spec unify_value(t(), t(), store(), AL.Branch.t()) :: store() | nil
+  def unify_value(x, y, store, branch), do: unify(x, y, store, branch, :value)
+
+  @spec unify_structural(t(), t(), store(), AL.Branch.t()) :: store() | nil
+  def unify_structural(x, y, store, branch), do: unify(x, y, store, branch, :opaque)
+
+  # `:value` interprets arithmetic and is used only by a running `=` goal;
+  # `:opaque` is plain structural matching, the mode of every other unify.
   defp unify(x, y, store, branch, mode) do
     cond do
       x == :"$_" || y == :"$_" ->
@@ -892,7 +1005,7 @@ defmodule AL.Var do
       is_map(x) && is_map(y) && map_size(x) == map_size(y) &&
           Enum.all?(Map.keys(x), &Map.has_key?(y, &1)) ->
         keys = Map.keys(x)
-        mode = if goal_struct?(x) or goal_struct?(y), do: :opaque, else: mode
+        mode = if AL.Goal.compound?(x) or AL.Goal.compound?(y), do: :opaque, else: mode
 
         unify(
           Enum.map(keys, fn k -> Map.get(x, k) end),
@@ -909,11 +1022,6 @@ defmodule AL.Var do
         nil
     end
   end
-
-  defp goal_struct?(%{__struct__: module}),
-    do: String.starts_with?(Atom.to_string(module), "Elixir.AL.Goal.")
-
-  defp goal_struct?(_), do: false
 
   @spec subst(t(), store()) :: t()
   def subst(term, store), do: subst(term, store, & &1)

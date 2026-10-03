@@ -477,7 +477,8 @@ defmodule AL do
            domain: domain,
            super_link: super_link,
            slot_links: slot_links,
-           keys: keys
+           keys: keys,
+           functor: functor
          },
          store,
          rewrite_unbound
@@ -489,6 +490,7 @@ defmodule AL do
     |> maybe_put_super(super_link, store, rewrite_unbound)
     |> maybe_put_slots(slot_links, store, rewrite_unbound)
     |> maybe_put_keys(keys, store, rewrite_unbound)
+    |> maybe_put_functor(functor, store, rewrite_unbound)
     |> maybe_put_dif(self, dif, store, rewrite_unbound)
     |> maybe_put_bounds(bounds)
     |> maybe_put_domain(domain, store, rewrite_unbound)
@@ -551,6 +553,11 @@ defmodule AL do
 
   defp maybe_put_keys(map, keys, store, rewrite_unbound),
     do: Map.put(map, :keys, AL.Var.subst(keys, store, rewrite_unbound))
+
+  defp maybe_put_functor(map, nil, _store, _rewrite_unbound), do: map
+
+  defp maybe_put_functor(map, {name, args}, store, rewrite_unbound),
+    do: Map.put(map, :functor, AL.Var.subst([name, args], store, rewrite_unbound))
 
   defp maybe_put_dif(map, _self, [], _store, _rewrite_unbound), do: map
 
@@ -905,7 +912,8 @@ defmodule AL do
         end
 
       true ->
-        [raw | ahead] = state.active_choicepoint.goals
+        [compound | ahead] = state.active_choicepoint.goals
+        raw = Goal.lower(compound)
         goal = AL.Var.subst(raw, state.active_choicepoint.store)
         state = log_trace_entry(state, goal)
 
@@ -1099,7 +1107,7 @@ defmodule AL do
   end
 
   def interp(%Goal.OApply{method_id: :map_get, args: [m, k, v]} = goal, state)
-      when not is_map(m) do
+      when not is_map(m) or is_struct(m) do
     cond do
       not AL.Var.var?(m) ->
         backtrack(state)
@@ -1131,8 +1139,35 @@ defmodule AL do
     end
   end
 
+  def interp(%Goal.OApply{method_id: :map_pairs, args: [m, pairs]} = goal, state) do
+    cond do
+      is_struct(m) ->
+        backtrack(state)
+
+      is_map(m) ->
+        case pairs_map(pairs, %{}) do
+          {:ok, given} ->
+            put_bindings(state, unify(state, m, given), [pairs])
+
+          _ ->
+            sorted = m |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {k, v} -> [k, v] end)
+            put_bindings(state, unify(state, pairs, sorted), [pairs])
+        end
+
+      not AL.Var.var?(m) ->
+        backtrack(state)
+
+      true ->
+        case pairs_map(pairs, %{}) do
+          {:ok, map} -> put_bindings(state, unify(state, m, map), [m])
+          {:open, blocking} -> suspend(state, [m | blocking], goal)
+          :error -> backtrack(state)
+        end
+    end
+  end
+
   def interp(%Goal.OApply{method_id: :vm_map_put, args: [m1, _k, _v, _m2]}, state)
-      when not is_map(m1),
+      when not is_map(m1) or is_struct(m1),
       do: backtrack(state)
 
   def interp(%Goal.OApply{method_id: :vm_map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
@@ -1442,7 +1477,7 @@ defmodule AL do
   # dif/isa violation vs plain mismatch: identical in the trace. diagnose_unify_failure/5
   # re-derives which constraint fired (nil if none) for format_failure.
   def interp(%Goal.Eq{a: a, b: b}, state) do
-    result = unify(state, a, b)
+    result = AL.Var.unify_value(a, b, store(state), state.branch)
     state = record_constraint_violation(state, result, a, b)
     put_bindings(state, result, [a, b])
   end
@@ -1457,22 +1492,23 @@ defmodule AL do
   end
 
   def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    if AL.Var.var?(term) do
-      with true <- is_atom(name) and not AL.Var.var?(name) and proper_list?(args),
-           %_{} = goal <- Goal.from_call_form(name, args) do
-        put_bindings(state, unify(state, term, goal), [term])
-      else
-        _ -> backtrack(state)
-      end
-    else
-      case Goal.call_form(term) do
-        {term_name, term_args} ->
-          put_bindings(state, unify(state, [name, args], [term_name, term_args]), [name, args])
+    put_bindings(
+      state,
+      AL.Var.add_functor(store(state), term, name, args, state.branch),
+      [term, name, args]
+    )
+  end
 
-        nil ->
-          backtrack(state)
-      end
-    end
+  def interp(%Goal.Compound{} = compound, state), do: interp(Goal.lower(compound), state)
+
+  def interp(%Goal.CopyTerm{term: term, copy: copy, goals: goals}, state) do
+    {copied, residual} = copy_term(term, state)
+
+    put_bindings(
+      state,
+      AL.Var.unify_structural([copy, goals], [copied, residual], store(state), state.branch),
+      [copy, goals]
+    )
   end
 
   def interp(%Goal.Variant{a: a, b: b}, state) do
@@ -1937,10 +1973,6 @@ defmodule AL do
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
 
-  defp proper_list?([]), do: true
-  defp proper_list?([_ | rest]), do: proper_list?(rest)
-  defp proper_list?(_term), do: false
-
   defp code_list([], codes), do: {:ok, Enum.reverse(codes)}
 
   defp code_list([code | rest], codes) do
@@ -1957,6 +1989,22 @@ defmodule AL do
 
   defp codepoint?(code),
     do: is_integer(code) and code in 0..0x10FFFF and code not in 0xD800..0xDFFF
+
+  defp pairs_map([], map), do: {:ok, map}
+
+  defp pairs_map([[key, value] | rest], map) do
+    cond do
+      not ground?(key) -> {:open, MapSet.to_list(AL.Var.find_vars(key))}
+      Map.has_key?(map, key) -> :error
+      true -> pairs_map(rest, Map.put(map, key, value))
+    end
+  end
+
+  defp pairs_map([pair | _rest], _map) do
+    if AL.Var.var?(pair), do: {:open, [pair]}, else: :error
+  end
+
+  defp pairs_map(tail, _map), do: if(AL.Var.var?(tail), do: {:open, [tail]}, else: :error)
 
   defp suspend(state, vars, goal) do
     choice = state.active_choicepoint
@@ -2082,6 +2130,8 @@ defmodule AL do
   defp observable_vars(goals) when is_list(goals),
     do: Enum.reduce(goals, MapSet.new(), fn g, acc -> MapSet.union(acc, observable_vars(g)) end)
 
+  defp observable_vars(%Goal.Compound{} = compound), do: observable_vars(Goal.lower(compound))
+
   defp observable_vars(%Goal.Findall{result: result}), do: AL.Var.find_vars(result)
 
   defp observable_vars(%Goal.Not{}), do: MapSet.new()
@@ -2100,6 +2150,130 @@ defmodule AL do
   defp observable_vars(%Goal.Then{then: then}), do: observable_vars(then)
 
   defp observable_vars(goal), do: AL.Var.find_vars(goal)
+
+  defp copy_term(term, state) do
+    store = store(state)
+    suspensions = state.active_choicepoint.suspensions
+    resolved = AL.Var.subst(term, store)
+    {variables, goals} = residual_closure(store, suspensions, AL.Var.find_vars(resolved), [])
+    scope = Integer.to_string(fresh_scope())
+    rename = Map.new(variables, &{&1, AL.Var.fresh(&1, scope)})
+    {AL.Var.subst(resolved, rename), AL.Var.subst(goals, rename)}
+  end
+
+  defp residual_closure(store, suspensions, variables, goals) do
+    own = Enum.flat_map(variables, &constraint_goals(store, suspensions, &1))
+    {props, related} = AL.Var.Bounds.residual_constraints(store, MapSet.to_list(variables))
+
+    relations =
+      store
+      |> AL.Var.Bounds.summarize_residual_constraints(props, & &1)
+      |> Enum.flat_map(&relation_goals/1)
+
+    found = Enum.uniq(goals ++ AL.Var.subst(own ++ relations, store))
+
+    reached =
+      related |> MapSet.new() |> MapSet.union(AL.Var.find_vars(found)) |> MapSet.union(variables)
+
+    if MapSet.equal?(reached, variables),
+      do: {variables, found},
+      else: residual_closure(store, suspensions, reached, found)
+  end
+
+  defp constraint_goals(store, suspensions, variable) do
+    suspended = suspensions |> Map.get(variable, []) |> Enum.map(&as_compound/1)
+
+    case AL.Var.constraint_set(store, variable) do
+      nil -> suspended
+      set -> constraint_set_goals(variable, set) ++ suspended
+    end
+  end
+
+  defp as_compound(goal) do
+    case Goal.call_form(goal) do
+      {name, args} -> Goal.from_call_form(name, args)
+      nil -> goal
+    end
+  end
+
+  defp compound(name, args), do: Goal.from_call_form(name, args)
+
+  defp constraint_set_goals(variable, set) do
+    Enum.map(set.dif, fn {a, b} -> compound(:dif, [a, b]) end) ++
+      Enum.map(set.direct_class, &compound(:class, [variable, &1])) ++
+      isa_goals(variable, set) ++
+      bound_goals(variable, set.bounds) ++
+      domain_goals(variable, set.domain) ++
+      super_link_goals(variable, set.super_link) ++
+      Enum.map(set.slot_links, &slot_link_goal(variable, &1)) ++
+      Enum.map(set.keys, fn {key, value} -> compound(:map_get, [variable, key, value]) end) ++
+      functor_goals(variable, set.functor)
+  end
+
+  defp isa_goals(variable, set) do
+    set.isa
+    |> Enum.reject(&internal_relation_link?/1)
+    |> Enum.reject(&(&1 == :compound and set.functor != nil))
+    |> Enum.map(&compound(:isa, [variable, &1]))
+  end
+
+  defp bound_goals(variable, {lo, hi}) do
+    Enum.reject(
+      [lo && compound(:>=, [variable, lo]), hi && compound(:<=, [variable, hi])],
+      &is_nil/1
+    )
+  end
+
+  defp domain_goals(_variable, nil), do: []
+  defp domain_goals(variable, domain), do: [compound(:in_domain, [variable, Enum.sort(domain)])]
+
+  defp super_link_goals(_variable, nil), do: []
+  defp super_link_goals(variable, {:super, super}), do: [compound(:super, [variable, super])]
+  defp super_link_goals(variable, {:object, object}), do: [compound(:super, [object, variable])]
+
+  defp slot_link_goal(variable, {:slot, key, value}), do: compound(:slot, [variable, key, value])
+
+  defp slot_link_goal(variable, {:slot_value, key, object}),
+    do: compound(:slot, [object, key, variable])
+
+  defp functor_goals(_variable, nil), do: []
+  defp functor_goals(variable, {name, args}), do: [compound(:functor, [variable, name, args])]
+
+  defp relation_goals(%{op: op, terms: terms, value: value}) when op in [:=, :lt, :lte] do
+    operator = %{:= => :=, :lt => :<, :lte => :<=}[op]
+    [compound(operator, [linear_sum(terms), value])]
+  end
+
+  defp relation_goals(%{op: :either, alternatives: [left, right]}) do
+    case {relation_goals(left), relation_goals(right)} do
+      {[left_goal], [right_goal]} -> [compound(:or, [left_goal, right_goal])]
+      _ -> []
+    end
+  end
+
+  defp relation_goals(%{op: :all_dif, variables: variables}),
+    do: [compound(:all_dif, [variables])]
+
+  defp relation_goals(%{op: :product, left: left, right: right, product: product}),
+    do: [compound(:=, [product, compound(:*, [left, right])])]
+
+  defp relation_goals(%{op: :floor_divide} = relation),
+    do: [compound(:floor_divide, [relation.dividend, relation.divisor, relation.quotient])]
+
+  defp relation_goals(_relation), do: []
+
+  defp linear_sum(terms) do
+    terms
+    |> Enum.sort()
+    |> Enum.map(fn
+      {variable, 1} -> variable
+      {variable, coefficient} -> compound(:*, [coefficient, variable])
+    end)
+    |> case do
+      [] -> 0
+      [first | rest] -> Enum.reduce(rest, first, &compound(:+, [&2, &1]))
+    end
+  end
 
   # Prolog copy_term: rename unbound vars fresh, no internal scope names leak.
   # def not defp: GetOapply uses this too.

@@ -76,12 +76,12 @@ defmodule ALSourceProjectionTest do
             %{
               program: [
                 _clear,
-                %AL.Goal.OApply{method_id: :defmethod, args: [_, _, _, parsed_body]}
+                %AL.Goal.Compound{name: :defmethod, args: [_, _, _, parsed_body]}
               ]
             }} =
              AL.Syntax.parse(rendered <> ".")
 
-    assert Enum.map(parsed_body, &AL.Goal.to_stored/1) == body
+    assert Enum.map(parsed_body, &AL.Goal.to_stored(AL.Goal.lower(&1))) == body
   end
 
   test "comments are stored as inert goals and render back as comments" do
@@ -102,9 +102,9 @@ defmodule ALSourceProjectionTest do
       {_owner, _selector, _clause, _head, body} =
         branch |> clauses() |> Enum.find(&(elem(&1, 1) == :commented_example))
 
-      assert Enum.filter(body, &match?({:comment, _}, &1)) == [
-               {:comment, " leading note"},
-               {:comment, " trailing note"}
+      assert Enum.filter(body, &match?({:compound, :comment, _}, &1)) == [
+               {:compound, :comment, [" leading note"]},
+               {:compound, :comment, [" trailing note"]}
              ]
 
       rendered = AL.Source.defmethod_source(:object, :commented_example, [:"$Self", :"$X"], body)
@@ -122,7 +122,7 @@ defmodule ALSourceProjectionTest do
 
   defp reparse(owner, selector, text) do
     with {:ok,
-          %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod, args: [_, _, head, body]}]}} <-
+          %{program: [_clear, %AL.Goal.Compound{name: :defmethod, args: [_, _, head, body]}]}} <-
            AL.Syntax.parse(text <> ".") do
       {:ok,
        AL.Source.defmethod_source(

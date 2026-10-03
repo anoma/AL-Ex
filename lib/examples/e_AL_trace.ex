@@ -228,7 +228,7 @@ defmodule Examples.ALTrace do
         &match?(
           %AL.Trace.Event{
             kind: :domino,
-            payload: {:constraint, %AL.Goal.Eq{b: %AL.Goal.OApply{}}, _, _}
+            payload: {:constraint, %AL.Goal.Eq{b: %AL.Goal.Compound{}}, _, _}
           },
           &1
         )
@@ -881,7 +881,7 @@ defmodule Examples.ALTrace do
         _event -> []
       end)
 
-    assert Enum.any?(constraints, &match?(%AL.Goal.Eq{b: %AL.Goal.OApply{}}, &1))
+    assert Enum.any?(constraints, &match?(%AL.Goal.Eq{b: %AL.Goal.Compound{}}, &1))
     assert Enum.any?(constraints, &match?(%AL.Goal.Dif{}, &1))
     assert Enum.any?(constraints, &match?(%AL.Goal.AllDif{}, &1))
     assert Enum.any?(constraints, &match?(%AL.Goal.InDomain{}, &1))
@@ -903,7 +903,7 @@ defmodule Examples.ALTrace do
 
     [constraint_node] = roots
     assert constraint_node.kind == :constraint
-    assert %AL.Goal.Eq{b: %AL.Goal.OApply{method_id: :*}} = constraint_node.label
+    assert %AL.Goal.Eq{b: %AL.Goal.Compound{name: :*}} = constraint_node.label
     assert Map.get(constraint_node.derived, :"$X") == {:bound, 15}
   end
 

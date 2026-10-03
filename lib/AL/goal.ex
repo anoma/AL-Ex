@@ -57,6 +57,8 @@ defmodule AL.Goal do
           | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
           | AL.Goal.Variant.t()
+          | AL.Goal.CopyTerm.t()
+          | AL.Goal.Compound.t()
           | AL.Goal.StringCodes.t()
           | AL.Goal.AtomString.t()
           | AL.Goal.Atom.t()
@@ -323,6 +325,17 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Compound do
+    field(:name, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: CopyTerm do
+    field(:term, AL.Var.t())
+    field(:copy, AL.Var.t())
+    field(:goals, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Functor do
     field(:term, AL.Var.t())
     field(:name, AL.Var.t())
@@ -537,6 +550,8 @@ defmodule AL.Goal do
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
     {Variant, :variant, [a: :term, b: :term]},
+    {CopyTerm, :copy_term, [term: :term, copy: :term, goals: :term]},
+    {Compound, :compound, [name: :term, args: :term]},
     {StringCodes, :string_codes, [string: :term, codes: :term]},
     {AtomString, :atom_string, [atom: :term, string: :term]},
     {Atom, :atom, [term: :term]},
@@ -581,6 +596,7 @@ defmodule AL.Goal do
     {:var, IsVar, [:term], %{}},
     {:dif, Dif, [:a, :b], %{}},
     {:variant, Variant, [:a, :b], %{}},
+    {:copy_term, CopyTerm, [:term, :copy, :goals], %{}},
     {:string_codes, StringCodes, [:string, :codes], %{}},
     {:atom_string, AtomString, [:atom, :string], %{}},
     {:atom, Atom, [:term], %{}},
@@ -643,8 +659,17 @@ defmodule AL.Goal do
   @arithmetic [:+, :-, :*, :/, :**, :rem]
   @comparisons [:<, :>, :<=, :>=]
 
+  @doc "Whether `term` is a compound term: a goal value, rather than a map, list or atom."
+  @spec compound?(term()) :: boolean()
+  def compound?(%{__struct__: module}),
+    do: String.starts_with?(Elixir.Atom.to_string(module), "Elixir.AL.Goal.")
+
+  def compound?(_term), do: false
+
   @doc "The name and arguments a goal is written with, receiver first for a send."
   @spec call_form(term()) :: {atom(), [term()]} | nil
+  def call_form(%Compound{name: name, args: args}), do: {name, args}
+
   def call_form(%Send{object: object, method: method, args: args}) when is_list(args),
     do: if(named?(method), do: {method, [object | args]})
 
@@ -666,42 +691,92 @@ defmodule AL.Goal do
        do: {method_id, args}
   end
 
+  def call_form(%Cut{}), do: {:cut, []}
+  def call_form(%Fail{}), do: {:fail, []}
+  def call_form(%Pass{}), do: {:pass, []}
   def call_form(goal) when is_struct(goal), do: to_call(goal)
   def call_form(_term), do: nil
 
-  @doc "The goal written with this name and these arguments."
-  @spec from_call_form(atom(), [term()]) :: t() | nil
-  def from_call_form(op, [a, b]) when op in @comparisons, do: %Compare{op: op, a: a, b: b}
-  def from_call_form(:=, [a, b]), do: %Eq{a: a, b: b}
-  def from_call_form(:==, [a, b]), do: %Equal{a: a, b: b}
+  @doc "The compound term with this name and these arguments."
+  @spec from_call_form(atom(), [term()]) :: t()
+  def from_call_form(name, args), do: %Compound{name: name, args: args}
 
-  def from_call_form(:or, [left, right]),
-    do: %Either{left: constraint(left), right: constraint(right)}
+  @statements [:defclass, :extend_class, :clear_method, :defprogram, :defpackage]
 
-  def from_call_form(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
+  @doc "The goal a compound runs as, once it is called."
+  @spec lower(term()) :: t()
+  def lower(%Compound{name: name, args: args}), do: lower(name, args)
+  def lower(goal), do: goal
 
-  def from_call_form(:call_next_method, [self | args]),
-    do: %CallNextMethod{self: self, args: args}
+  @spec lower(atom(), [term()]) :: t()
+  def lower(:cut, []), do: %Cut{}
+  def lower(:fail, []), do: %Fail{}
+  def lower(:pass, []), do: %Pass{}
 
-  def from_call_form(:not, [condition]) when is_list(condition), do: %Not{condition: condition}
+  def lower(:";", [[%Compound{name: :->, args: [condition, then]}], otherwise]),
+    do: %Implies{condition: goals(condition), then: goals(then), otherwise: goals(otherwise)}
 
-  def from_call_form(:forall, [condition, body]) when is_list(condition) and is_list(body),
-    do: %Forall{condition: condition, body: body}
+  def lower(:";", [left, right]), do: %Or{or: goals(left), then: goals(right)}
 
-  def from_call_form(:freeze, [var, goals]) when is_list(goals),
-    do: %Freeze{var: var, goals: goals}
+  def lower(:->, [condition, then]),
+    do: %Implies{condition: goals(condition), then: goals(then), otherwise: [%Fail{}]}
 
-  def from_call_form(:findall, [template, result, condition]) when is_list(condition),
-    do: %Findall{template: template, condition: condition, result: result}
+  def lower(op, [a, b]) when op in @comparisons, do: %Compare{op: op, a: a, b: b}
+  def lower(:=, [a, b]), do: %Eq{a: a, b: b}
+  def lower(:==, [a, b]), do: %Equal{a: a, b: b}
 
-  def from_call_form(name, args) do
+  def lower(:or, [left, right]),
+    do: %Either{left: constraint(lower(left)), right: constraint(lower(right))}
+
+  def lower(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
+  def lower(:call_next_method, [self | args]), do: %CallNextMethod{self: self, args: args}
+  def lower(:not, [condition]), do: %Not{condition: goals(condition)}
+
+  def lower(:forall, [condition, body]),
+    do: %Forall{condition: goals(condition), body: goals(body)}
+
+  def lower(:freeze, [var, body]), do: %Freeze{var: var, goals: goals(body)}
+
+  def lower(:findall, [template, result, condition]),
+    do: %Findall{template: template, condition: goals(condition), result: result}
+
+  def lower(:defmethod, [owner, selector, head, body]),
+    do: %OApply{method_id: :defmethod, args: [owner, selector, head, goals(body)]}
+
+  def lower(:lambda, [arguments, method, body]),
+    do: %Send{object: arguments, method: :lambda, args: [method, goals(body)]}
+
+  def lower(:spawn, [body]), do: %OApply{method_id: :spawn_transaction, args: [goals(body)]}
+
+  def lower(:await, [effect, head, body]),
+    do: %OApply{method_id: :await_effect, args: [effect, head, goals(body)]}
+
+  def lower(:vm_source_scope, [capture_id, body]),
+    do: %SourceScope{capture_id: capture_id, goals: goals(body)}
+
+  def lower(:call, [head, body, args]), do: %Call{head: head, body: goals(body), args: args}
+
+  def lower(:vm_set_oapply, [object, head, body]),
+    do: %SetOapply{object: object, seq: :next, head: head, body: goals(body)}
+
+  def lower(:vm_set_oapply, [object, seq, head, body]),
+    do: %SetOapply{object: object, seq: seq, head: head, body: goals(body)}
+
+  def lower(:comment, [text]) when is_binary(text), do: %Comment{text: text}
+  def lower(:vm_oapply, [method_id, args]), do: %OApply{method_id: method_id, args: args}
+
+  def lower(name, args) do
     cond do
+      name in @statements -> %OApply{method_id: name, args: args}
       AL.Syntax.primitive?(name) -> %OApply{method_id: name, args: args}
       goal = from_call(name, args) -> goal
       args == [] -> %OApply{method_id: name, args: []}
       true -> %Send{object: hd(args), method: name, args: tl(args)}
     end
   end
+
+  defp goals(goals) when is_list(goals), do: goals
+  defp goals(goal), do: if(AL.Var.var?(goal), do: goal, else: [goal])
 
   defp named?(name), do: is_atom(name) and not AL.Var.var?(name)
 
