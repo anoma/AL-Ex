@@ -1,11 +1,11 @@
 ---
 name: al-internals
-description: Modify or debug AL's interpreter, goals, dispatch, durable command log and projections, branching, caches, source retention, or serialisation. Use for lib/AL.ex and lib/AL/{interp,dispatch,var,command_log,view,branch,cache,native,trace,serialisation}/, plus lib/AL/source_*.ex and lib/AL/serialisation.ex. For AL programs and package surface syntax, use al-practices.
+description: Modify or debug AL's abstract machine (AL.JAM), goals, dispatch, durable command log and projections, branching, caches, source retention, or serialisation. Use for lib/AL.ex and lib/AL/{jam,dispatch,var,command_log,view,branch,cache,native,trace,serialisation}/, plus lib/AL/source_*.ex and lib/AL/serialisation.ex. For AL programs and package surface syntax, use al-practices.
 ---
 
 # AL internals
 
-AL is an object-oriented logic interpreter whose durable history is an
+AL is an object-oriented logic language, run by an abstract machine, whose durable history is an
 append-only Mnesia command log. Runtime objects and retained source are
 projections of that history. Preserve that separation whenever changing the
 VM or its tools.
@@ -26,7 +26,7 @@ with Elixir-style branching merely because it lives in the bootstrap program.
    `AL.Object`, `AL.SourceStore`, `AL.Serialisation.Snapshot`, or another structured
    API over raw table access from a new caller.
 3. Identify the durable command and projection consequences before editing an
-   interpreter path.
+   machine path.
 4. Run focused tests with `scripts/test.sh <test paths or line numbers>`. It
    gives the run an isolated, local Mnesia store. Run `scripts/test.sh` without
    arguments for the full suite.
@@ -43,7 +43,7 @@ generative/durable/domain dispatch convergence specifically, read
   AL methods and public protocols; a `vm_*` operation belongs at the bottom of
   that protocol, in exact structural reconciliation, or in a deliberate
   primitive test.
-- Preserve relational modes. Interpreter fast paths may optimize a relation but
+- Preserve relational modes. Machine fast paths may optimize a relation but
   must not silently turn an open or bidirectional call into a grounded-only one.
 - AL surface terms do not include Elixir tuples. Internal goal encodings,
   Mnesia rows, and private Elixir return values may use tuples, but they must not
@@ -51,7 +51,7 @@ generative/durable/domain dispatch convergence specifically, read
 
 - `AL.Command` is durable authority. `AL.Object`, `AL.SourceStore`, caches, and
   serialised files are derived and must remain rebuildable.
-- A durable mutation passes through an `AL.Goal`, is interpreted inside the
+- A durable mutation passes through an `AL.Goal`, is executed inside the
   current AL transaction, writes the command log, and updates its projection
   with the command's transaction time. Do not make a durable side write that
   bypasses this path.
@@ -107,14 +107,14 @@ generative/durable/domain dispatch convergence specifically, read
 
 ## Change discipline
 
-- Never add a new VM goal, `vm_*` operation, native, or other interpreter
+- Never add a new VM goal, `vm_*` operation, native, or other machine
   primitive without the user's explicit permission. An approved design that
   mentions a primitive is not permission to add it. Stop, explain what the
   primitive is and why it seems needed, list alternatives that reuse existing
   goals or AL code, and wait for a yes.
 - Add or change a goal: update the struct/type, its surface call in
   `AL.Goal`'s `@calls` table (which both `AL.Syntax` and
-  `AL.Syntax.Printer` read), interpreter handler, stored representation if
+  `AL.Syntax.Printer` read), machine operation and execution, stored representation if
   applicable, command log operation, projection, and replay path as one
   semantic change.
 - Change the surface syntax: update `AL.Syntax`, `AL.Syntax.Printer`, and the

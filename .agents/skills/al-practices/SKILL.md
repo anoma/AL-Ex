@@ -1,6 +1,6 @@
 ---
 name: al-practices
-description: Design, write, refactor, and debug relational-object AL programs, packages, bootstrap methods, and examples. Use for class declarations, methods, run blocks, collection protocols, value objects, anonymous methods, AL surface syntax, and example-driven verification. Use al-internals as well when changing the interpreter or durable runtime.
+description: Design, write, refactor, and debug relational-object AL programs, packages, bootstrap methods, and examples. Use for class declarations, methods, run blocks, collection protocols, value objects, anonymous methods, AL surface syntax, and example-driven verification. Use al-internals as well when changing the abstract machine or durable runtime.
 ---
 
 # AL practices

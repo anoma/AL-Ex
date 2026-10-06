@@ -25,10 +25,11 @@ defmodule AL.Object do
   # soa: struct of arrays, one row per (object, key). class/super/method
   # live here too, as reserved keys.
   @relations %{
-    aos: [:object, :tx_from, :tx_to, :slots],
+    aos: [:version, :object, :tx_from, :tx_to, :slots],
+    aos_current: [:object, :tx_from, :slots],
     soa: [:object, :key, :seq, :tx_from, :tx_to, :value]
   }
-  @bags [:aos, :soa]
+  @bags [:soa]
 
   typedstruct enforce: true do
     field(:id, any(), enforce: true)
@@ -81,6 +82,7 @@ defmodule AL.Object do
 
   defp create_table(relation, branch) do
     opts = [attributes: @relations[relation], type: type(relation), ram_copies: [node()]]
+    opts = if relation == :aos, do: Keyword.put(opts, :index, [:object]), else: opts
     opts = if branch.id == :main, do: opts, else: [{:record_name, relation} | opts]
 
     case :mnesia.create_table(table(relation, branch), opts) do
@@ -141,7 +143,8 @@ defmodule AL.Object do
     |> Enum.map(fn {:soa, o, :super, seq, _tx_from, :open, s} -> {:super, o, seq, s} end)
   end
 
-  defp fresh_wildcard(name), do: AL.Var.var("#{name}_#{AL.fresh_scope()}")
+  defp fresh_wildcard(name),
+    do: AL.Var.fresh(AL.Var.var(name), Integer.to_string(AL.fresh_scope()))
 
   defp select(table, [{head, _guards, _body}] = spec) do
     key = elem(head, 1)
@@ -174,14 +177,13 @@ defmodule AL.Object do
   defp digits?(<<c, rest::binary>>) when c in ?0..?9, do: digits?(rest)
   defp digits?(_text), do: false
 
-  # raw tag :aos, projected tag stays :slots (external callers match on it)
   @spec scan_slots(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [slots_record()]
   def scan_slots(self_pattern, slots_pattern, branch \\ AL.Branch.head()) do
-    select(table(:aos, branch), [
-      {AL.Var.to_mnesia_pattern({:aos, self_pattern, :"$tx_from", :open, slots_pattern}), [],
+    select(table(:aos_current, branch), [
+      {AL.Var.to_mnesia_pattern({:aos_current, self_pattern, :"$tx_from", slots_pattern}), [],
        [:"$_"]}
     ])
-    |> Enum.map(fn {:aos, o, _tx_from, :open, m} -> {:slots, o, m} end)
+    |> Enum.map(fn {:aos_current, o, _tx_from, m} -> {:slots, o, m} end)
   end
 
   # Every row (open *and* closed) for `object`, oldest first -- the full
@@ -197,8 +199,8 @@ defmodule AL.Object do
         ]
   def scan_slots_history(object, branch \\ AL.Branch.head()) do
     table(:aos, branch)
-    |> :mnesia.read(object)
-    |> Enum.map(fn {:aos, o, tx_from, tx_to, m} -> {:slots, o, tx_from, tx_to, m} end)
+    |> :mnesia.index_read(object, :object)
+    |> Enum.map(fn {:aos, _version, o, tx_from, tx_to, m} -> {:slots, o, tx_from, tx_to, m} end)
     |> Enum.sort_by(fn {:slots, _o, tx_from, _tx_to, _m} -> tx_from end)
   end
 
@@ -214,15 +216,25 @@ defmodule AL.Object do
         method_id_pattern,
         branch \\ AL.Branch.head()
       ) do
-    seq_var = fresh_wildcard("seq")
-    tx_from_var = fresh_wildcard("tx_from")
+    rows =
+      if constant_atom?(self_pattern) and constant_atom?(method_name_pattern) and
+           AL.Var.var?(method_id_pattern) do
+        for {:soa, ^self_pattern, {:method, ^method_name_pattern}, _seq, _tx_from, :open, _id} =
+              row <- :mnesia.read(table(:soa, branch), self_pattern),
+            do: row
+      else
+        seq_var = fresh_wildcard("seq")
+        tx_from_var = fresh_wildcard("tx_from")
 
-    select(table(:soa, branch), [
-      {AL.Var.to_mnesia_pattern(
-         {:soa, self_pattern, {:method, method_name_pattern}, seq_var, tx_from_var, :open,
-          method_id_pattern}
-       ), [], [:"$_"]}
-    ])
+        select(table(:soa, branch), [
+          {AL.Var.to_mnesia_pattern(
+             {:soa, self_pattern, {:method, method_name_pattern}, seq_var, tx_from_var, :open,
+              method_id_pattern}
+           ), [], [:"$_"]}
+        ])
+      end
+
+    rows
     |> Enum.sort_by(fn {:soa, _o, {:method, _n}, _seq, tx_from, :open, _id} -> tx_from end)
     |> Enum.map(fn {:soa, o, {:method, n}, _seq, _tx_from, :open, id} ->
       {:method, o, n, id}
@@ -242,18 +254,32 @@ defmodule AL.Object do
         body_pattern,
         branch \\ AL.Branch.head()
       ) do
-    seq_var = fresh_wildcard("seq")
-    tx_from_var = fresh_wildcard("tx_from")
+    patterns = [seq_pattern, head_pattern, body_pattern]
 
-    select(table(:soa, branch), [
-      {AL.Var.to_mnesia_pattern(
-         {:soa, self_pattern, seq_pattern, seq_var, tx_from_var, :open,
-          {head_pattern, body_pattern}}
-       ), [], [:"$_"]}
-    ])
+    rows =
+      if constant_atom?(self_pattern) and Enum.all?(patterns, &AL.Var.var?/1) and
+           length(Enum.uniq(patterns)) == 3 do
+        for {:soa, ^self_pattern, _key, _seq, _tx_from, :open, {_head, _body}} = row <-
+              :mnesia.read(table(:soa, branch), self_pattern),
+            do: row
+      else
+        seq_var = fresh_wildcard("seq")
+        tx_from_var = fresh_wildcard("tx_from")
+
+        select(table(:soa, branch), [
+          {AL.Var.to_mnesia_pattern(
+             {:soa, self_pattern, seq_pattern, seq_var, tx_from_var, :open,
+              {head_pattern, body_pattern}}
+           ), [], [:"$_"]}
+        ])
+      end
+
+    rows
     |> Enum.sort_by(fn {:soa, _object, key, _seq, _tx_from, :open, {_h, _b}} -> key end)
     |> Enum.map(fn {:soa, o, key, _seq, _tx_from, :open, {h, b}} -> {:oapply, o, key, h, b} end)
   end
+
+  defp constant_atom?(term), do: is_atom(term) and term != :_ and not AL.Var.var?(term)
 
   @spec scan_native(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [native_record()]
   def scan_native(object_pattern, mfa_pattern, branch \\ AL.Branch.head()) do
@@ -352,7 +378,7 @@ defmodule AL.Object do
 
   @spec read_slots(AL.Var.t(), AL.Branch.t()) :: [slots_record()]
   def read_slots(object, branch \\ AL.Branch.head()) do
-    for {:aos, ^object, _tx_from, :open, m} <- :mnesia.read(table(:aos, branch), object),
+    for {:aos_current, ^object, _tx_from, m} <- :mnesia.read(table(:aos_current, branch), object),
         do: {:slots, object, m}
   end
 
@@ -410,13 +436,16 @@ defmodule AL.Object do
   defp wildcard?(term), do: is_atom(term) and AL.Var.var?(term)
 
   defp open_aos_rows(object, branch) do
-    if wildcard?(object) do
-      open_rows(:aos, {:aos, object, :"$tx_from", :open, :"$m"}, branch)
-    else
-      for {:aos, _object, _tx_from, :open, _map} = row <-
-            :mnesia.read(table(:aos, branch), object, :write),
-          do: row
-    end
+    rows =
+      if wildcard?(object) do
+        open_rows(:aos_current, {:aos_current, object, :"$tx_from", :"$m"}, branch)
+      else
+        :mnesia.read(table(:aos_current, branch), object, :write)
+      end
+
+    Enum.map(rows, fn {:aos_current, object, tx_from, slots} ->
+      {:aos, object, tx_from, :open, slots}
+    end)
   end
 
   defp open_soa_slot_rows(object, key, branch) do
@@ -433,13 +462,15 @@ defmodule AL.Object do
     end
   end
 
-  # A bag record can't be updated in place -- delete the exact old tuple,
-  # write back the same one with `tx_to` replaced. `tx_to` is always the
-  # second-to-last element (right before the row's own value) regardless of
-  # whether a relation also carries `seq` -- `soa` does, `slots` doesn't
-  # (see @relations above) -- so its index is derived from the raw tuple's
-  # own size rather than hardcoded, and this stays correct for both shapes
-  # without a relation-specific branch.
+  defp close_rows(:aos, rows, tx, branch) do
+    for {:aos, object, tx_from, :open, slots} <- rows do
+      :mnesia.delete(table(:aos_current, branch), object, :write)
+      write_aos_version(object, tx_from, tx, slots, branch)
+    end
+
+    :ok
+  end
+
   defp close_rows(relation, rows, tx, branch) do
     for row <- rows do
       :mnesia.delete_object(table(relation, branch), row, :write)
@@ -447,6 +478,14 @@ defmodule AL.Object do
     end
 
     :ok
+  end
+
+  defp write_aos_version(object, tx_from, tx_to, slots, branch) do
+    :mnesia.write(
+      table(:aos, branch),
+      {:aos, {object, tx_from}, object, tx_from, tx_to, slots},
+      :write
+    )
   end
 
   # tx is the system_time this retract happens at, same as
@@ -494,6 +533,14 @@ defmodule AL.Object do
   # method_scopes and ivar_specs cache off a class's :dispatch_strategy and
   # :ivars slots. only clear them when a write actually touches one of
   # those keys, not on every ordinary instance slots write.
+  defp invalidate_slot_providers(object, key, branch) do
+    if key == :dispatch_strategy or wildcard?(object) do
+      AL.ResolutionCache.invalidate_providers(branch)
+    end
+
+    :ok
+  end
+
   defp invalidate_class_metadata_caches(branch, keys) do
     if :ivars in keys, do: AL.ResolutionCache.invalidate_ivar_specs(branch)
     if :dispatch_strategy in keys, do: AL.ResolutionCache.invalidate_method_scopes(branch)
@@ -597,10 +644,6 @@ defmodule AL.Object do
   def set_slot(object, key, value, :aos, tx, branch),
     do: set_aos_slot(object, key, value, tx, branch)
 
-  # open_rows' match spec filters to tx_to == :open server-side (indexed,
-  # see @tx_indexed) -- a plain :mnesia.read/2 would return every row ever
-  # written for `object`, open and closed alike, since closed rows are
-  # never deleted.
   defp set_aos_slot(object, key, value, tx, branch) do
     rows = open_aos_rows(object, branch)
 
@@ -612,8 +655,9 @@ defmodule AL.Object do
 
     close_rows(:aos, rows, tx, branch)
     merged = Map.put(existing, key, value)
-    :mnesia.write(table(:aos, branch), {:aos, object, tx, :open, merged}, :write)
-    AL.ResolutionCache.invalidate_providers(branch)
+    write_aos_version(object, tx, :open, merged, branch)
+    :mnesia.write(table(:aos_current, branch), {:aos_current, object, tx, merged}, :write)
+    invalidate_slot_providers(object, key, branch)
     invalidate_class_metadata_caches(branch, [key])
   end
 
@@ -643,17 +687,23 @@ defmodule AL.Object do
 
         case Map.delete(existing, key) do
           remaining when remaining == %{} ->
-            :ok
+            :mnesia.delete(table(:aos_current, branch), object, :write)
 
           remaining ->
-            :mnesia.write(table(:aos, branch), {:aos, object, tx, :open, remaining}, :write)
+            write_aos_version(object, tx, :open, remaining, branch)
+
+            :mnesia.write(
+              table(:aos_current, branch),
+              {:aos_current, object, tx, remaining},
+              :write
+            )
         end
 
       _ ->
         :ok
     end
 
-    AL.ResolutionCache.invalidate_providers(branch)
+    invalidate_slot_providers(object, key, branch)
     invalidate_class_metadata_caches(branch, [key])
   end
 

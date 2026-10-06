@@ -51,7 +51,7 @@ defmodule Examples.ALTrace do
   # ever needs one provider -- exercises the *clause* level (multiple
   # clauses of the one chosen method_id: [1,1], [2,1], [n,x]) without any
   # method-level backtracking, and method_exit still fires by propagation
-  # (mark_exited/2, AL.ex) once the top-level fibonacci(3, x) call's own
+  # (`AL.JAM.Trace.exit/2`) once the top-level fibonacci(3, x) call's own
   # clause exits, even though dispatch never had its own return address.
   example fibonacci_trace_shows_clause_level_ports() do
     {:atomic, {bindings, _constraints, state}} =
@@ -411,7 +411,6 @@ defmodule Examples.ALTrace do
     assert state.trace.flags == MapSet.new()
     assert state.trace.events == []
     assert state.trace.runtime.scopes == %{}
-    assert state.active_choicepoint.failure_context == []
   end
 
   example no_trace_still_honours_live_tracepoints_without_retaining_them() do

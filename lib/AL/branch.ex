@@ -230,8 +230,11 @@ defmodule AL.Branch do
   @spec registered?(term()) :: boolean()
   def registered?(:main), do: true
 
-  def registered?(id) when is_atom(id),
-    do: :mnesia.select(:branch, [{{:branch, :"$1", id}, [], [:"$1"]}]) != []
+  def registered?(id) when is_atom(id) do
+    AL.ResolutionCache.fetch_branch_registration(id, fn ->
+      :mnesia.select(:branch, [{{:branch, :"$1", id}, [], [:"$1"]}]) != []
+    end)
+  end
 
   def registered?(_id), do: false
 
@@ -298,6 +301,7 @@ defmodule AL.Branch do
     {:atomic, :ok} =
       :mnesia.transaction(fn ->
         :mnesia.write(:branch, {:branch, parent.id, child.id}, :write)
+        AL.ResolutionCache.invalidate_branch_registration()
         :ok
       end)
 
@@ -316,6 +320,7 @@ defmodule AL.Branch do
         end
 
         :mnesia.delete_object(:branch, {:branch, parent, branch}, :write)
+        AL.ResolutionCache.invalidate_branch_registration()
         :ok
       end)
 

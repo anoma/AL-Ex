@@ -23,18 +23,21 @@ defmodule AL.Var do
   @type entry() :: t() | ConstraintSet.t()
   @type store() :: %{optional(variable()) => entry()}
 
+  def dif_value(a, b, store, branch) do
+    case unify(a, b, store, branch) do
+      nil -> store
+      ^store -> nil
+      _ -> add_dif(store, subst(a, store), subst(b, store))
+    end
+  end
+
   @spec empty_store() :: store()
   def empty_store(), do: %{}
 
   @spec var?(term()) :: boolean()
   def var?({:"$fresh", _base, _scope}), do: true
 
-  def var?(x) when is_atom(x) do
-    case Atom.to_string(x) do
-      <<"$", _::binary>> -> true
-      _ -> false
-    end
-  end
+  def var?(x) when is_atom(x), do: x >= :"$" and x < :%
 
   def var?(_x) do
     false
@@ -118,7 +121,14 @@ defmodule AL.Var do
   def to_mnesia_pattern(x, acc), do: {x, acc}
 
   @spec deref(store(), t()) :: t()
-  def deref(store, k) do
+  def deref(store, {:"$fresh", _, _} = variable), do: deref_variable(store, variable)
+
+  def deref(store, variable) when is_atom(variable) and variable >= :"$" and variable < :%,
+    do: deref_variable(store, variable)
+
+  def deref(_store, value), do: value
+
+  defp deref_variable(store, k) do
     case Map.get(store, k) do
       nil ->
         k
@@ -160,7 +170,7 @@ defmodule AL.Var do
   # here, however deep. def not defp: AL.Var.Bounds also binds directly
   # through this path — including recursively, from `propagate/3` below
   # (mutual recursion across the two modules, same pattern as
-  # AL/AL.Dispatch/AL.Interp.Store elsewhere in this codebase).
+  # AL/AL.Dispatch/AL.JAM.Mutation elsewhere in this codebase).
   #
   # `term` is resolved here, once, before anything else touches it —
   # `extend/4`'s own branch selection sometimes passes a raw, still-var-shaped
@@ -374,7 +384,7 @@ defmodule AL.Var do
   # before this bind overwrote its entry) may have a partner that's now
   # cheaply resolvable -- one side just became concrete (`term`), so what
   # used to require a full scan (both sides open) is now a targeted lookup
-  # (`AL.Interp.Relations.GetSuper`/`GetSlots` already treat exactly this as
+  # (`AL.JAM.Relation`'s `super` and `slot` relations already treat exactly this as
   # cheap). Only auto-binds when that lookup is genuinely unique; several
   # matches leave the partner exactly as open as it was -- not a failure,
   # it just isn't determined yet. Recurses through `bind/4` itself when it
@@ -638,7 +648,7 @@ defmodule AL.Var do
   end
 
   # A var's already-known class domain, if any — the read side of `add_isa/3`.
-  # Lets a query (e.g. `AL.Interp.Relations`'s `GetClass` asked for self's class with
+  # Lets a query (e.g. `AL.JAM.Relation`'s `class` relation asked for self's class with
   # the class side still open) answer directly from what's already known
   # instead of falling back to a real scan for a receiver that, as a value
   # candidate, was never durably classified in the first place.
@@ -668,7 +678,7 @@ defmodule AL.Var do
     end
   end
 
-  # `super(y, z)` with both sides open (`AL.Interp.Relations.GetSuper`) posts one
+  # `super(y, z)` with both sides open (`AL.JAM.Relation`'s `super` relation) posts one
   # of these on each side instead of scanning -- see `ConstraintSet.super_link/0`
   # for why this can't just reuse `isa` the way `class/2` does (the two
   # slots are the same domain, so there's no asymmetric "instance of" claim
@@ -692,7 +702,7 @@ defmodule AL.Var do
   end
 
   # `slot(object, key, value)` with `object` open and `key` ground
-  # (`AL.Interp.Relations.GetSlots`) posts one of these -- `{:slot, key, value}` on
+  # (`AL.JAM.Relation`'s `slot` relation) posts one of these -- `{:slot, key, value}` on
   # `object`, `{:slot_value, key, object}` on `value` if it's also open.
   # Same shape as `super_link` (a directional tag, not an isa claim), `key`
   # just rides along as fixed context rather than needing its own slot.
@@ -922,7 +932,7 @@ defmodule AL.Var do
   defp tag_class_constraint(other, _var), do: other
 
   # `{:object_link, obj}` (posted on the *class* side of a still-open
-  # `class(x, y)`, see `AL.Interp.Relations.GetClass`) never asserts "I belong
+  # `class(x, y)`, see `AL.JAM.Relation`'s `class` relation) never asserts "I belong
   # to a class" at all -- it's a directional marker, not an isa claim, so it
   # can never be violated. Without this clause, once `obj` (or whatever it
   # gets bound to) derefs to something concrete, the fallback clause below
@@ -1027,149 +1037,6 @@ defmodule AL.Var do
   def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
     do: unify(x, y, store, branch, :opaque)
 
-  @spec unify_fresh(t(), t(), store(), AL.Branch.t(), String.t()) :: store() | nil
-  def unify_fresh(head, call, store, branch, scope) do
-    case fresh_unify(head, call, false, {store, false}, branch, scope) do
-      nil -> nil
-      {new_store, _leaked} -> new_store
-    end
-  end
-
-  def unify_fresh_prepared(plan, call, store, branch, scope) do
-    case fresh_unify_prepared(plan, call, {store, false}, branch, scope) do
-      nil -> nil
-      {new_store, _leaked} -> new_store
-    end
-  end
-
-  defp fresh_unify_prepared(_plan, :"$_", acc, _branch, _scope), do: acc
-  defp fresh_unify_prepared(:wildcard, _call, acc, _branch, _scope), do: acc
-
-  defp fresh_unify_prepared({:variable, variable}, call, acc, branch, scope),
-    do: fresh_unify(fresh(variable, scope), call, false, acc, branch, scope)
-
-  defp fresh_unify_prepared({:literal, value}, call, acc, branch, scope),
-    do: if(value == call, do: acc, else: fresh_unify(value, call, false, acc, branch, scope))
-
-  defp fresh_unify_prepared({:cons, _original, head, tail}, [arg | args], acc, branch, scope) do
-    case fresh_unify_prepared(head, arg, acc, branch, scope) do
-      nil -> nil
-      next -> fresh_unify_prepared(tail, args, next, branch, scope)
-    end
-  end
-
-  defp fresh_unify_prepared(
-         {:tuple, original, _arity, _fields},
-         {:"$fresh", _, _} = call,
-         acc,
-         branch,
-         scope
-       ),
-       do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
-
-  defp fresh_unify_prepared({:tuple, _original, arity, fields}, call, acc, branch, scope)
-       when is_tuple(call) and arity == tuple_size(call) do
-    fresh_unify_prepared_fields(fields, Tuple.to_list(call), acc, branch, scope)
-  end
-
-  defp fresh_unify_prepared({:fallback, original}, call, acc, branch, scope),
-    do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
-
-  defp fresh_unify_prepared({:cons, original, _, _}, call, acc, branch, scope),
-    do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
-
-  defp fresh_unify_prepared({:tuple, original, _, _}, call, acc, branch, scope),
-    do: fresh_unify(freshen(original, scope), call, false, acc, branch, scope)
-
-  defp fresh_unify_prepared_fields([], [], acc, _branch, _scope), do: acc
-
-  defp fresh_unify_prepared_fields([field | fields], [value | values], acc, branch, scope) do
-    case fresh_unify_prepared(field, value, acc, branch, scope) do
-      nil -> nil
-      next -> fresh_unify_prepared_fields(fields, values, next, branch, scope)
-    end
-  end
-
-  defp fresh_unify(x, y, ground, acc, branch, scope) do
-    cond do
-      x == :"$_" || y == :"$_" ->
-        acc
-
-      var?(x) || var?(y) ->
-        fresh_extend(x, y, ground, acc, branch, scope)
-
-      is_list(x) && is_list(y) && x != [] && y != [] ->
-        [x | xs] = x
-        [y | ys] = y
-
-        case fresh_unify(x, y, ground, acc, branch, scope) do
-          nil -> nil
-          next -> fresh_unify(xs, ys, ground, next, branch, scope)
-        end
-
-      is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        fresh_unify(Tuple.to_list(x), Tuple.to_list(y), ground, acc, branch, scope)
-
-      is_map(x) && is_map(y) && map_size(x) == map_size(y) &&
-          Enum.all?(Map.keys(x), &Map.has_key?(y, &1)) ->
-        keys = Map.keys(x)
-
-        fresh_unify(
-          Enum.map(keys, &Map.get(x, &1)),
-          Enum.map(keys, &Map.get(y, &1)),
-          ground,
-          acc,
-          branch,
-          scope
-        )
-
-      x == y ->
-        acc
-
-      true ->
-        nil
-    end
-  end
-
-  defp fresh_extend(x, y, ground, {store, _leaked} = acc, branch, scope) do
-    rx = deref(store, x)
-    ry = deref(store, y)
-    is_var_rx = var?(rx)
-    is_var_ry = var?(ry)
-    ground = ground or ground_marked?(store, y)
-
-    cond do
-      rx == ry -> acc
-      is_var_rx && is_var_ry -> fresh_bind(acc, rx, ry, false, branch, scope)
-      not is_var_rx && is_var_ry -> fresh_bind(acc, ry, x, false, branch, scope)
-      rx == x && is_var_ry -> fresh_bind(acc, ry, x, false, branch, scope)
-      not is_var_ry && is_var_rx -> fresh_bind(acc, rx, y, ground, branch, scope)
-      ry == y && is_var_rx -> fresh_bind(acc, rx, y, ground, branch, scope)
-      true -> fresh_unify(rx, ry, ground, acc, branch, scope)
-    end
-  end
-
-  defp fresh_bind({store, leaked}, var, term, true, branch, _scope) do
-    case bind_ground(store, var, deref(store, term), branch) do
-      nil -> nil
-      new_store -> {new_store, leaked}
-    end
-  end
-
-  defp fresh_bind({store, false}, {:"$fresh", _base, scope} = var, term, _ground, branch, scope) do
-    case bind_resolved(store, var, deref(store, term), branch) do
-      nil -> nil
-      new_store -> {new_store, false}
-    end
-  end
-
-  defp fresh_bind({store, _leaked}, var, term, _ground, branch, _scope) do
-    case bind(store, var, term, branch) do
-      nil -> nil
-      new_store -> {new_store, true}
-    end
-  end
-
   @spec unify_value(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify_value(x, y, store, branch), do: unify(x, y, store, branch, :value)
 
@@ -1263,27 +1130,24 @@ defmodule AL.Var do
   end
 
   defp subst_walk(term, store, rewrite) when is_struct(term) do
-    changes =
-      for {key, value} <- Map.from_struct(term),
-          {:new, new} <- [subst_walk(value, store, rewrite)],
-          do: {key, new}
+    :maps.fold(
+      fn
+        :__struct__, _value, acc ->
+          acc
 
-    if changes == [], do: :same, else: {:new, struct(term, changes)}
+        key, value, acc ->
+          case subst_walk(value, store, rewrite) do
+            :same -> acc
+            {:new, new} -> {:new, Map.put(kept(term, acc), key, new)}
+          end
+      end,
+      :same,
+      term
+    )
   end
 
   defp subst_walk(term, store, rewrite) when is_map(term) do
-    entries =
-      Enum.map(term, fn {key, value} ->
-        {key, value, subst_walk(key, store, rewrite), subst_walk(value, store, rewrite)}
-      end)
-
-    if Enum.all?(entries, &match?({_, _, :same, :same}, &1)),
-      do: :same,
-      else:
-        {:new,
-         Map.new(entries, fn {key, value, new_key, new_value} ->
-           {kept(key, new_key), kept(value, new_value)}
-         end)}
+    subst_walk_map(:maps.iterator(term), term, store, rewrite, 0)
   end
 
   defp subst_walk(term, store, rewrite) when is_tuple(term) do
@@ -1294,6 +1158,37 @@ defmodule AL.Var do
   end
 
   defp subst_walk(_term, _store, _rewrite), do: :same
+
+  defp subst_walk_map(iterator, original, store, rewrite, count) do
+    case :maps.next(iterator) do
+      :none ->
+        :same
+
+      {key, value, rest} ->
+        new_key = subst_walk(key, store, rewrite)
+        new_value = subst_walk(value, store, rewrite)
+
+        if new_key == :same and new_value == :same do
+          subst_walk_map(rest, original, store, rewrite, count + 1)
+        else
+          prefix = original |> Enum.take(count) |> Map.new()
+          updated = Map.put(prefix, kept(key, new_key), kept(value, new_value))
+          {:new, subst_walk_map_rest(rest, updated, store, rewrite)}
+        end
+    end
+  end
+
+  defp subst_walk_map_rest(iterator, updated, store, rewrite) do
+    case :maps.next(iterator) do
+      :none ->
+        updated
+
+      {key, value, rest} ->
+        new_key = kept(key, subst_walk(key, store, rewrite))
+        new_value = kept(value, subst_walk(value, store, rewrite))
+        subst_walk_map_rest(rest, Map.put(updated, new_key, new_value), store, rewrite)
+    end
+  end
 
   defp changed(leaf, leaf), do: :same
   defp changed(_leaf, new), do: {:new, new}

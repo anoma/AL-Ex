@@ -1,7 +1,7 @@
 +
 # AL internals
 
-AL is an **object-oriented Prolog**: a WAM-style interpreter over an **append-only
+AL is an **object-oriented Prolog**: a WAM-style abstract machine (`AL.JAM`) over an **append-only
 command log** in Mnesia. Live relational objects, bidirectional execution, ACID
 transactions, durable + replayable state, Git-like branching.
 
@@ -59,7 +59,7 @@ each other at all, only on the command log itself:
   same writes that mutate the view they cache. Never a source of truth —
   correctness never depends on a cache entry existing, only speed does.
 - **Extensible VM** (`AL.Native`, `AL.Native.Registry` — `lib/AL/native/`
-  — and someday a jets mechanism) — the seam where the interpreter's
+  — and someday a jets mechanism) — the seam where the machine's
   dispatch can be handed capability the kernel has no way to derive itself.
   A view holds only a *symbolic reference* to what's expected (a durable
   `:native` fact — module/function/arity/style, a name, not code);
@@ -69,7 +69,7 @@ each other at all, only on the command log itself:
   for why a future jet, unlike a native, wouldn't need even the symbolic
   reference to be durable.
 
-The interpreter proper (`AL` itself, `AL.Dispatch`, `AL.Interp.*`, `AL.Var`,
+The engine proper (`AL` itself, `AL.JAM`, `AL.Dispatch`, `AL.Var`,
 `AL.Choicepoint`) isn't a sixth concern of its own — it's what executes goals
 *against* these five: reading views and caches, writing back only through
 the command log's own `AL.Command`/`AL.Object` entry points (never touching
@@ -82,51 +82,46 @@ also starts/stops the Outbox per branch.
 
 ## Architecture (lib/AL)
 
-- **`AL` (lib/AL.ex)** — the interpreter's core stepping engine:
+- **`AL` (lib/AL.ex)** — the transaction driver:
   - `run do ~AL"""…""" end` → `AL.Syntax` compiles the AL source to
     `AL.Goal` structs at compile time → `eval_captured` runs them in
     `:mnesia.transaction`. `run branch: b do … end` targets fork `b`; bare `run`
     uses `AL.Branch.head()`.
   - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, trace, …}`.
-    `continue/1` drives goals, `backtrack/1` pops the stack. Success →
+    `start_program/1` compiles the whole program into one machine query
+    (`AL.JAM.query/1`, a `:progress` mutation after each top-level goal), so the
+    active choicepoint's goals only ever hold `{:resume, frame}` entries, and
+    frozen goals are parked as `{frame_id, code, slots}` in both the driver and
+    the machine. `continue/1` resumes the machine,
+    `apply_machine_result/2` turns what it yields back into driver state
+    (installed choices, mutations, diagnostics, collection and `forall`
+    continuations, cuts and commits), and `backtrack/1` pops the stack. Success →
     `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, reason}`.
-  - `interp/2` has one clause per goal, but for whole *families* of goals that
-    clause is one line delegating to the module that owns that concern — `AL`
-    itself only keeps the goals with no better-named home: `Eq`/`Equal`/
-    `Dif`/`Compare`/`Ground`/`IsVar`/`Freeze`/`Not`/`Call`/
-    `Findall`/`Forall`/`Fail`, plus arithmetic (`interp_is/2`) and the
-    primitive `OApply` cases (`map_get`, `map_pairs`, `vm_map_put`, `vm_fresh_id`,
-    `vm_current_tx`) and `OApply`'s own general clause (method dispatch — see
-    below). `oapply` expands a method head into its body **bidirectionally**:
-    freshen the clause's vars by scope, unify head with call args into the
-    *shared* binding map, run the body; a continuation resumes the caller with
-    that same map — so head-var bindings made in the body are visible to the
-    caller (no copy-back). `send`/`send_query`/`send_as_value`/
-    `durable_candidates`/`call_next_method` clauses delegate straight to
-    `AL.Dispatch`. Inside an `interp/2` clause a goal's own fields arrive already
-    resolved — `continue/1` substituted the goal against the store it hands down,
-    so `var?(field)` means still unbound and `ground?(field)` means ground. Read
-    them raw; `subst` is deep and idempotent, so adding one back is a no-op walk
-    on a hot path. The guarantee is that entry path's, not the terms' — it stops
-    at the clause boundary, so anything reached another way still needs
-    resolving: a suspension key, a var off a stored link, `Findall`'s
-    per-solution template, or a helper `AL.Dispatch` hands terms of its own.
-  - `wake/2`, `unify/3`, `fresh_scope/0`, `cached_scan_clauses/2`,
-    `put_bindings/3`, `fan_out/3`, `scan_clauses/5`, `standardize_apart/1`,
-    `splice_goals/2` are `def` (not `defp`) specifically so `AL.Dispatch`,
-    `AL.Interp.Store`, `AL.Interp.Relations`, and `AL.Interp.ControlFlow` can call
-    back into them — all mutually recursive with `AL` (each calls `AL.interp/2`
-    to run goals it splices; `interp`'s own clauses delegate out to them), which
-    is fine across modules on the BEAM. `unify/3` is the one nearly every goal
-    clause wants: `AL.unify(state, x, y)` pulls `store`/`branch` off `state`
-    itself, so `branch` threading for `isa` (see `AL.Var`, below) stays
-    invisible at ordinary call sites.
+  - There is no goal interpreter. Every goal runs as machine code (see `AL.JAM`).
   - Object creation is **three-phase**: `construct` (ephemeral object, e.g.
     `%{class: self}`) → `allocate` (persist / give identity) → `init` (setup).
     `new` on `:class` chains all three (AL's take on ObjVLisp allocate/initialize).
+- **`AL.JAM` (lib/AL/jam.ex, lib/AL/jam/)** — the abstract machine that executes
+  every goal. `AL.JAM.Compiler` compiles a method's clauses (head matchers from
+  `AL.JAM.Head`, register-addressed instructions over `AL.JAM.Operand`s, clause
+  indexing via `AL.ClauseIndex`) and caches them per branch; it also compiles
+  runtime goal lists (`runtime/1`) for queries, relation rewrites and woken
+  goals. `AL.JAM.step/12` runs instructions; a frame is
+  `{id, code, pc, slots, returns, store, pending}` and alternatives live in the
+  machine's own choice list. Instruction families delegate to
+  `AL.JAM.Relation` (relational reads: class, super, method, clause, slot,
+  command, branch facts, scheduling), `AL.JAM.Mutation` (durable writes and
+  driver-state effects: output, source scopes, progress), `AL.JAM.Primitive`
+  (term primitives), `AL.JAM.Constraint` (domains, `all_dif`, `floor_divide`,
+  `either`), `AL.JAM.Label` (labelling), `AL.JAM.Format` (`vm_format`) and
+  `AL.JAM.Trace` (ports). A goal the compiler cannot express is a compile
+  error, never a handoff. The machine yields to the driver only for effects
+  that need transaction state (`:mutation`), collection or `forall` results
+  that need the driver, cuts and commits that reach driver choicepoints,
+  diagnostics, failure, and a spent step budget (`:suspend`, resumed as-is).
 - **`AL.Syntax` (lib/AL/syntax.ex)** — the only AL reader: a pure lexer,
   precedence parser from AL source to compound terms (`AL.Goal.Compound`),
-  plus exact definition ranges for source retention. No interpreter state.
+  plus exact definition ranges for source retention. No machine state.
   `lib/AL/syntax.bnf` is generated by `mix al.bnf` from the `al_grammar` DCG in
   bootstrap, so it describes that grammar, which does not yet cover everything
   the reader accepts. The
@@ -137,20 +132,16 @@ also starts/stops the Outbox per branch.
   opens a group, so printing and reading stay exact inverses.
   `AL.Syntax.Printer` is its inverse (goals → AL source), used by every
   decompiled view.
-- **`AL.Dispatch` (lib/AL/dispatch/dispatch.ex)** — resolves a `send` into a
-  concrete method application: candidate generation (generative/durable legs),
-  the selector query, grounded application (`do_send`/`run_providers`), and DNU.
-  See "How a `send` evaluates" below. Public entry points `dispatch/5`,
-  `do_send_as/6`, `force_durable_candidates/4`, `run_providers/6`, `dnu/4` are
-  what `AL`'s `interp/2` calls into; everything else is private. Every
-  generative candidate's `isa` pinning is attached directly to the choicepoint
-  `generative_candidate/5` builds, at construction — before its goals ever run,
-  so it's live for the whole call including nested sends. `dispatch/5` also
-  won't offer a candidate class that conflicts with `self`'s already-known isa
-  set — any two distinct `super: :value` classes are mutually exclusive unless
-  one is an ancestor of the other (`isa_conflict?/3`).
-  `AL.Interp.Relations.GetClass`'s no-witness isa fast path calls the same
-  predicate before registering a new isa.
+- **`AL.Dispatch` (lib/AL/dispatch/dispatch.ex)** — the machine's dispatch
+  queries: `target/3` (a ground receiver's first provider, or a native,
+  or the understood selectors when the selector is unbound),
+  `open_targets/4` (one plan per provider for an unbound receiver: a
+  class provider constrains the receiver with `isa` and a selected-provider
+  entry, a singleton provider binds it, a native provider applies directly),
+  `next_provider/2` (the next provider from a `call_next_method` cursor),
+  `miss_fails?/3` (whether a miss reports a diagnostic or sends
+  `does_not_understand`), plus provider resolution, ivar specs and class
+  membership (`isa_conflict?/3`, `value_member?/3`).
 - **`AL.Dispatch.MethodOrder` (lib/AL/dispatch/method_order.ex)** — the
   resolution-order topological sort (`method_scopes/2`, `super_chain/3`, Kahn's
   algorithm). Pure functions of a receiver/class and a branch, no choicepoint or
@@ -163,29 +154,8 @@ also starts/stops the Outbox per branch.
   Naming follows `AL.Command`/`AL.Object`'s per-branch convention
   (`al_providers_cache@f`, …); created/dropped alongside a branch's other
   tables in `AL.Branch.setup/create_fork/discard`.
-- **`AL.Continuation`/`AL.Choicepoint` (lib/AL/continuation.ex,
-  lib/AL/choicepoint.ex)** — the two struct defs `AL` builds its state from;
-  split out since they're pure data, no logic.
-- **`AL.Interp.Store` (lib/AL/interp/store.ex)** — the object-mutation goals:
-  `SetClass`/`SetSuper`/`SetMethod`/`SetOapply`/`SetSlot` and their five
-  `Retract*` counterparts. Every one writes both the durable command log
-  (`AL.Command`) and the in-memory projection (`AL.Object`) through one shared
-  `write/3` helper. A goal whose `object` is already a live map (an ephemeral
-  instance) is a no-op on all ten — ephemeral objects carry no command-log
-  identity at all.
-- **`AL.Interp.Relations` (lib/AL/interp/relations.ex)** — the relational *read*
-  goals: `GetClass`/`GetSuper`/`GetMethod`/`GetOapply`/`GetSlots`. Each is a scan
-  through `AL.Object` fanned out over `AL.fan_out/3`. `GetClass` is the one
-  exception to "always scan": an unbound `object` with a ground `class` doesn't
-  need a witness to succeed, so it registers an `isa` constraint instead of
-  touching `AL.Object` at all. The reverse direction (both `object` and `class`
-  unbound — querying self's class, not asserting it) has its own fast path too:
-  if `object` already carries a known `isa` domain, `GetClass` answers from it
-  directly instead of scanning.
-- **`AL.Interp.ControlFlow` (lib/AL/interp/control_flow.ex)** — the
-  choicepoint-stack control goals: `Cut`, `Implies`, `Or`, `Then`. Each is
-  entirely about which alternatives stay on `state.choicepoint_stack`, never
-  about producing a binding — see "Execution model" below.
+- **`AL.Choicepoint` (lib/AL/choicepoint.ex)** — the driver's choicepoint
+  struct; pure data.
 - **`AL.Var` (lib/AL/var/var.ex)** — unification against one unified **store**: a
   var→entry map where an entry is either a bare bound term or an
   `AL.Var.ConstraintSet{dif, isa, bounds, domain}` struct for a still-open var
@@ -219,7 +189,7 @@ also starts/stops the Outbox per branch.
   diverge. Forks nest. `checkout` sets HEAD; `discard` tears a fork down.
   `AL.Command`/`AL.Object`/`AL.Branch` *are* the append-only substrate
   (`lib/AL/command_log/`, `lib/AL/view/`, `lib/AL/branch.ex` respectively) —
-  nothing else in the interpreter reaches into Mnesia directly.
+  nothing else in the engine reaches into Mnesia directly.
 - **`AL.TransactionProgram` (lib/AL/transaction_program.ex)** — loads
   `priv/programs/<name>.al` (first form `defprogram name #{version => V,
   deps => [...]}.`), executes it, and creates a durable execution receipt;
@@ -240,7 +210,7 @@ also starts/stops the Outbox per branch.
   tracing model" below for retained trace families, Domino call-tree evidence,
   and `AL.Trace`'s live tracepoint printer.
 - **`AL.Source` (lib/AL/view/source.ex)** — decompiles a stored goal pattern
-  back into readable AL surface syntax; a Views concern, not interpreter
+  back into readable AL surface syntax; a Views concern, not engine
   introspection, since it reads back out of the projection rather than
   tracing live execution. Used by the GlamorousToolkit method-coder view in
   `AL.GtBridge` (`lib/AL/gt_bridge.ex`, renamed from the unrelated
@@ -248,133 +218,47 @@ also starts/stops the Outbox per branch.
 
 ## Execution model: choicepoints, marks, cut
 
-The choicepoint stack mixes real `%Choicepoint{}` alternatives with two **boundary
-sentinels** marking where a scope begins, so backtracking, `cut`, and `then` know
-how far to reach:
+The machine keeps its own choice list of frames plus **boundary markers**:
 
-- `{:mark, scope}` — pushed by `oapply`/`call` *below* a call's alternative
-  clauses; `scope` is the call's freshener and equals the new frame's
-  `scope_pointer`. `{:method_mark, scope}` — pushed the same way for a
-  method-level (dispatch) candidate set, see below. `:implies_mark` — pushed by
-  `implies`. All three are **inert during ordinary `backtrack`** (skipped, but
-  logged as a domino Fail — see below).
-- **`cut`** drops the stack to (not including) the `{:mark, f}` whose `f` matches
-  the active frame's `scope_pointer` — committing every choice in the current
-  method/call scope.
-- **`implies(cond, then, else)`** runs `cond ++ [{:then, then}]` and pushes
-  `[else_choicepoint, :implies_mark]`. `cond` fails → backtracking reaches the else
-  choicepoint. `cond` succeeds → `{:then, _}` drops the stack down to and including
-  `:implies_mark`, discarding `cond`'s remaining alternatives and the else (a soft
-  cut committing to `cond`'s first solution).
-- **`or`** pushes the right branch as a plain choicepoint (no mark).
-- `scope_pointer` is carried in continuations, so returning from a method restores
-  the caller's scope for the next `cut`.
+- `{:jam_cut, ref}` — pushed below a call's alternatives when its clauses
+  contain a cut (`:cut_scope`); the frame id carries the same ref, so `cut`
+  drops the choice list to that marker. A cut in a `freeze` body opens its own
+  scope, so it is local to the frozen goal.
+- `:implies_mark` — pushed by `->`; the condition's `{:commit, then}` drops the
+  choices down to and including it. `or` pushes the right branch as a plain
+  alternative.
+- `{:trace_alternative, scope, seq, entry}` and `{:trace_fail, tag, scope}` —
+  only while tracing, so retries report `clause_chosen` and Fail ports.
+
+When the machine yields, the driver installs the remaining choices as its own
+choicepoints: frames become `%Choicepoint{goals: [{:resume, frame}]}`,
+`{:jam_cut, _}` and `:implies_mark` stay as marks, and trace markers become
+`{:mark, scope}`/`{:method_mark, scope}`. A cut whose marker is already on the
+driver stack returns `{:cut, …}` and the driver drops its stack to it.
 
 ## How a `send` evaluates
 
-Lives in `AL.Dispatch` (+ `AL.Dispatch.MethodOrder` for resolution order); `AL`
-just delegates to it from `interp/2`. `AL.begin_method_scope/5` wraps every
-entry point (see "The domino tracing model" below) — mints a method-level
-scope, retags the caller's `active_choicepoint.scope_pointer` to it (so every
-choicepoint built downstream inherits it for free, being struct-copies of
-`state.active_choicepoint`), and returns a wrapped `on_miss` that records a
-domino Fail if nothing pans out.
+A `send` compiles to a `{:send, site, object, method, args}` instruction (or
+`{:send_local, …}` when its outputs are fresh locals the callee can write
+directly). At runtime:
 
-**Two candidate families, not three — there is no `:ephemeral`/`:value`
-strategy split.** `generative_candidate/5` always runs the same recipe
-regardless of class: call the class's real `new` (fresh vars for its declared
-ivars), unify `self` with whatever `new` produces, then `SendAsValue` the
-actual requested method against `self`. Whether that leaves `self` genuinely
-open (for value-leg-style clause matching, e.g. `:number`'s `factorial`,
-`:letter_chain`'s literal clauses) or grounds it to a real constructed map
-(e.g. `:interval`, `:square`) depends entirely on whether the class's own
-`:init` discards the constructed scaffold or builds something real — `:value`'s
-default `:init` (`priv/programs/bootstrap.al`) is what makes the "stays open" case happen, not
-a VM-level branch. A class opts into being a generative candidate at all just
-by declaring `super: :value` (`generative_descendants/1` scans exactly that).
-- **Durable** — real identity; must retrieve an existing object
-  (`durable_candidates`), never fabricate one. A different resource from the
-  generative leg, not a construction strategy.
-- **Generative** (any `super: :value` class) — always constructs via the
-  class's real `new`. `:list`'s `[]`/cons hypothesis is folded into this one
-  mechanism (`import(:list, :value)`), no VM-level special case needed.
+1. **Unbound receiver** → `AL.Dispatch.open_targets/4` builds one plan
+   per provider of the selector, tried in order as alternatives.
+2. **Unbound selector** → the receiver's understood selectors, one alternative
+   per name, each re-sent as a query (a miss fails quietly).
+3. **Both ground** → `target/3` picks the first provider (cached per
+   receiver key and selector in the frame's targets), the callee's compiled
+   clauses are selected by index and head match, and every matching clause is
+   an alternative in `seq` order. A provider cursor rides in the frame for
+   `call_next_method`.
+4. **No provider** → a diagnostic when the receiver has the default
+   `does_not_understand`, otherwise a re-send of `does_not_understand`.
+   No matching clause → the same choice. A query send (`{:query, ref}` site)
+   just fails.
 
-**Correct usage, not a VM constraint but a real convention:** a value class's
-instances should be a self-describing map (a `:class` field, like
-`:interval`/`:square`/`:card` — works as both a ground and an open receiver for
-free) or left as a constrained-but-open var (`isa`, or `in_domain/2`), not
-bound to a bare atom unless that atom is *also* durably classified. A bare
-atom only gets symmetric dispatch through the durable class/super graph —
-`next(x, :b)` finding `x = :a` via `:letter_chain`'s literal clauses works
-(generative leg, no durable identity needed at all), but `next(:a, y)` fails
-with `does_not_understand`, because ground dispatch on a plain atom only ever
-consults the durable graph. Durably classifying it too creates a second,
-independent proof of membership, so `findall` reports every fact twice, one
-per leg — don't chase that fix, use a map or don't materialize a bare atom.
-
-An **`isa` constraint** (`AL.Var.add_isa`) pins a var to a class the moment a
-generative candidate's choicepoint is *constructed* — before any of its own
-goals run, even if the matched clause leaves the var open. Sound because the
-isa violation check only fires on a bind to a *concrete* term: a clause that
-leaves `self` open never trips it during its own match, and a clause that
-grounds `self` to one of the class's own literals is accepted by
-`AL.Var.isa?/3` as membership evidence, so it doesn't self-violate the
-constraint it's the proof of.
-
-1. **Reading (`AL.Syntax`) and lowering (`AL.Goal.lower/1`).** The reader
-   only builds terms: every call, connective (`;`, `->`), statement and comment
-   is a `%Goal.Compound{name, args}`, and `functor` relates a compound to its
-   name and arguments structurally. A compound becomes an executable goal only
-   when it is run: `continue` lowers the goal it pops, before substituting it.
-   Lowering is the interpretation table: a call by juxtaposition becomes
-   `%Goal.Send{}`, arithmetic (`+ - * / **`) and the primitives (`map_get`,
-   `map_pairs`, `vm_map_put`, `vm_fresh_id`, `vm_current_tx`, …) become
-   `%Goal.OApply{}`, a bare `foo` becomes `%Goal.OApply{method_id: :foo, args:
-   []}`, and the special forms (`findall`, `not`, `;`, `->`, `spawn`, …) become
-   their structs. Method bodies are stored as compounds; code that builds goals
-   in Elixir may still pass the executable structs directly.
-2. **Pre-substitution.** `continue` substitutes the goal against bindings before
-   `interp` sees it, so "var receiver/selector" means *still unbound after deref*.
-3. **`dispatch/5` picks a mode** (`:send` → `on_miss = dnu`; `:send_query` →
-   `on_miss = backtrack`):
-   - **var receiver** (not `:"$_"`) → candidates over two kinds, each pushed as
-     a choicepoint (LIFO try order — generative candidates pushed *after* the
-     durable placeholder, so tried first): `generative_descendants/1` scans
-     every class with `super: :value`, `filter_by_selector` prunes to ones that
-     answer the selector, `shape_conflict?` drops `:number`/`:list`/`:map`
-     siblings once `self`'s known shape already picked one. Durable objects
-     (deferred behind a placeholder choicepoint, filtered by
-     `answers_selector?`) are tried last, only if backtracking gets that far.
-     `install_method_choicepoints/3` appends `{:method_mark, method_scope}`
-     below all of them.
-   - **var selector** (not `:"$_"`) → query over the receiver's methods:
-     `understood_method_names` walks `self` then its class/super chain (deduped); a
-     choicepoint per name binds `sel`, then re-dispatches.
-   - **both ground** → `do_send`. (Both var: receiver query grounds the object
-     first, then the spliced `send_query` re-enters dispatch for the selector.)
-4. **`do_send`** with `call_args = [self | args]`:
-   - `providers/3`: ordered `{scope, id}` pairs from `method_scopes` crossed
-     with `method_ids` per scope, cached per `(self's resolution key, selector,
-     branch)`. `run_providers` tries them in order — **first clause match
-     wins**, stashing the rest as a `call_next_method` cursor (no backtracking
-     over candidates here — the query modes add that).
-   - no candidates → `on_miss`.
-   - candidate → `has_matching_clause?`: primitives `is/map_get/map_put/gensym/fresh_id`
-     are allowlisted; else a freshened clause head must unify with `call_args`.
-     No clause fits → `on_miss`.
-   - match → `{:oapply, id, call_args}` (bidirectional; a method's other clauses
-     become alternative choicepoints, tried in `seq` order — see "Tables" below).
-5. **`on_miss`:** directed (`dnu`) re-sends as `does_not_understand(self, [sel,
-   args])`, resolved like any send (default `:object` body is `:fail`); the `dnu`
-   guard backtracks if `does_not_understand` itself isn't understood, so no loop.
-   Query (`backtrack`) falls to the next candidate — **DNU never fires for a query.**
-
-Edge cases: a query with no candidates fails, never DNUs; only fully-ground sends
-DNU; `:"$_"` in receiver/selector is the match-anything wildcard, not a slot to
-ground (it only appears in Elixir-built patterns: the reader turns each written
-`_` into its own fresh variable, `$_@N`, numbered across the source and printed
-back as `_`); of the two var-receiver candidate kinds, only durable objects require a
-class row — generative candidates are offered regardless.
+`_` in the receiver or selector position finds no provider. The reader turns
+each written `_` into its own fresh variable (`$_@N`), so `:"$_"` only appears
+in Elixir-built patterns.
 
 ## Tables
 
@@ -432,12 +316,18 @@ store would misattribute it; Redo/Fail stay bare. Constraint events likewise
 retain their immediate input and output descriptions. A collection answer owns
 the final solution description; it is never substituted into its earlier
 constraint nodes.
-`AL.begin_method_scope/5` opens a method box; `mark_exited/2` closes a clause
-box natively (from `continue/1`'s continuation-pop) and propagates the exit
-into its enclosing method box, since dispatch has no continuation of its own
-to pop the way a clause call does. `state.trace.runtime.scopes` (one map, keyed by
-scope: `%{parent, kind, open_vars, exited}`) is the bookkeeping that makes
-this possible — set at Call, read at Exit/Redo/Fail, deleted at Fail.
+The machine emits every port through `AL.JAM.Trace` (the SWI-Prolog
+approach: one engine with port hooks, and call-hiding shortcuts such as
+`send_local` turned off while tracing). A traced send opens a method box
+(`method_call/6`) and its callee a clause box (`clause_call/5`); a
+`{:trace_exit, scope}` entry under the callee's return address fires Exit when
+the callee returns and propagates it to the enclosing method box. Traced frame
+ids carry their scope and clause number, `{:traced, scope, seq, id}`, so a
+retry can report Redo and `clause_chosen`. `state.trace.runtime.scopes` (one map,
+keyed by scope: `%{parent, kind, open_vars, exited}`) is the bookkeeping — set
+at Call, read at Exit/Redo/Fail, deleted at Fail. During a machine run the
+trace lives in the process dictionary and is handed back to the driver state
+on every yield.
 
 Every retained entry is an `%AL.Trace.Event{kind, payload}` tagged as either
 `:domino` or `:vm`. Raw goals plus `:backtrack`/`:flounder` join
@@ -466,8 +356,9 @@ normal app-start Mix does for you, so the task itself calls
 `Mix.Task.run("app.start")` first (`lib/mix/tasks/debug.ex`). Examples in
 `e_AL_trace.ex`.
 
-`findall`, `forall`, and `not` evaluate their conditions in isolated `%AL{}`
-states so bindings and choicepoints cannot leak. Their finalized retained events
+`findall`, `forall`, and `not` run their conditions as isolated child searches
+with a fresh trace (root scope 0), so bindings and choicepoints cannot leak. Their
+finalized retained events
 are prepended back into the outer reverse-chronological event stream, so tracing
 still shows the work performed inside those meta-goals. Domino collection
 markers retain each successful inner solution store before exhaustive search
@@ -477,19 +368,12 @@ the calls inside its condition own the actual alternatives. This keeps common
 prefix constraints once and places downstream enumeration beneath the answer
 whose constraints it consumes.
 
-`AL.Trace.dispatch/3` (live-printer only, fired from `AL.Dispatch.dispatch/5`'s
-var-receiver branch) covers what the domino ports don't: *which candidate
-legs* an unbound receiver had to try, printed before any of them run —
-`value=[...]` (the selector-filtered `super: :value` class list) and
-`durable=deferred`, deliberately not a count, since the durable leg's whole
-point is not scanning until backtracking actually reaches it. Example:
-`trace_shows_dispatch_legs` in `e_AL_trace.ex`.
+`AL.Trace.dispatch/3` (live-printer only, fired for an unbound receiver when
+the selector is a tracepoint) prints the providers an open send will try, before
+any of them run. Example: `trace_shows_dispatch_legs` in `e_AL_trace.ex`.
 
-`call_next_method` reports against the *original* send's method-level scope,
-not a fresh one: `AL.Dispatch.run_providers/6` stashes its own position in the
-resolution order as a cursor (`AL.cursor()`, 4th element is that method
-scope), and `Goal.CallNextMethod`'s interp resumes from it, logging
-`method_redo`/`method_fail` against that same box.
+`call_next_method` opens a clause box for the next provider under the current
+scope; it opens no method box of its own.
 
 ## Debugging a live session's failure state
 
@@ -505,9 +389,9 @@ bound what crosses the process boundary. Example:
 `failed_run_exposes_the_final_state` in `e_AL_failures.ex`.
 
 A `a = b` failing because a `dif`/`isa` constraint rejected it looks
-identical to an ordinary structural mismatch — `Goal.Eq`'s interp clause
-calls `AL.Var.diagnose_unify_failure/5` on a `nil` result and, if it can
-explain it, records `{:constraint_violated, violation}` into
+identical to an ordinary structural mismatch — when a machine run fails on an
+`=` instruction, the driver calls `AL.Var.diagnose_unify_failure/5` and, if it
+can explain it, records `{:constraint_violated, violation}` into
 `state.diagnostics`, so `reason.message` names the constraint directly.
 Scoped to the direct "one side a still-open var carrying the constraint,
 other side already concrete" shape; a var-vs-var mismatch or a failure from
@@ -521,18 +405,18 @@ returns `nil` (no diagnosis) rather than guessing. Example:
    clause in `AL.Syntax.Printer`, and the name in `@special` if it is a reserved
    form.
 2. Add it to the `goal()` typespec.
-3. `interp/2` clause, in whichever module owns that goal's concern — a plain
-   mutation goes in `AL.Interp.Store`, a plain scan in `AL.Interp.Relations`, a choicepoint-
-   stack goal in `AL.Interp.ControlFlow`, a dispatch goal in `AL.Dispatch`; only add a
-   clause directly to `AL` itself if the goal doesn't fit any of those (and
-   add a one-line delegating clause to `AL`'s own `interp/2`, matching the
-   existing ones, so `continue/1` still finds it). A mutating goal must
-   **both** write the command (`AL.Command.*`) **and** apply to the
-   projection (`AL.Object.*`); a read/query goal scans the projection and
-   pushes choicepoints via `AL.fan_out/3`.
+3. An `operation/2` clause in `AL.JAM.Compiler` and its execution in the
+   module that owns the concern: a relational read in `AL.JAM.Relation`, a
+   durable write or driver-state effect in `AL.JAM.Mutation`, a term primitive
+   in `AL.JAM.Primitive`, a constraint in `AL.JAM.Constraint`. Add the matching
+   `goal/2` clause there too (and an `instruction/2` clause in `AL.JAM` for a new
+   instruction shape) so traces and failure messages can show it. A mutating
+   goal must **both** write the command (`AL.Command.*`) **and** apply to the
+   projection (`AL.Object.*`); a read returns `{:stores, stores}` for
+   alternatives.
 4. If it mutates, add a case to `AL.Object.hydrate_event/3` so replay/fork works.
 
-No comments — repo-wide ban (al-practices' "Code style"), interpreter code included.
+No comments — repo-wide ban (al-practices' "Code style"), machine code included.
 
 ## Roadmap context
 
@@ -542,8 +426,8 @@ diff/merge and valid-time queries are unbuilt.
 
 ## Known gaps
 
-- **Arithmetic bounds consistency for `< > <= >= =`.** Both sides ground (via
-  `interp_is/2`) is the original check; a side that derefs to a bare open var
+- **Arithmetic bounds consistency for `< > <= >= =`.** Both sides ground (evaluated
+  arithmetic) is the original check; a side that derefs to a bare open var
   narrows an interval instead of failing (`AL.Var.add_compare/5`), living in
   the same `ConstraintSet` slot `dif`/`isa` do (`bounds :: {lo, hi}`) with its
   own `props` list of parked propagators — narrowing one var re-queues every
@@ -551,13 +435,13 @@ diff/merge and valid-time queries are unbuilt.
   `x < y, y < 5` tightens `x` transitively. A var whose bounds collapse to a
   single value binds outright through the existing `bind/4` (so `dif`/`isa`
   still gets checked). A compound expression with an open var still buried
-  inside after `interp_is` (e.g. `n - 1` with `n` open) has no interval to
+  inside after evaluation (e.g. `n - 1` with `n` open) has no interval to
   narrow and hard-fails.
 
   `vm_label/1` (`Goal.Label`) is the companion CLP(FD) primitive: enumerates a
   still-open var's propagated `{lo, hi}` by *splicing a `between/4` send*
-  (`:object`'s own recursive method), not `AL.fan_out/3` — `fan_out` builds
-  every alternative eagerly, catastrophic for a wide domain (`between` only
+  (`:object`'s own recursive method), not an eager list of alternatives, which
+  would build every value up front, catastrophic for a wide domain (`between` only
   computes what backtracking actually visits). `factorial`/`fibonacci`
   (`priv/programs/bootstrap.al`) collapse to one relational clause each on top of this: the
   inequalities are real invariants posted while `n` may be open, `vm_label(n)`

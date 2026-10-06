@@ -10,6 +10,44 @@ defmodule Examples.ALSoaSlots do
   use AL
   import ExUnit.Assertions
 
+  example storage_routing_tracks_metadata_class_and_inheritance_changes() do
+    result =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @route_storage_a #{super => object, ivars => [#{name => count}]}.
+        @route_storage_b #{super => object, ivars => [#{name => count}]}.
+        @route_storage_child #{super => route_storage_a}.
+
+        vm_set_class route_storage_instance route_storage_child.
+        vm_set_slot route_storage_instance count 1.
+        slot route_storage_instance count 1 aos.
+        vm_set_slot route_storage_a ivars [#{name => count, storage => soa}].
+        vm_set_slot route_storage_instance count 2.
+        slot route_storage_instance count 2 soa.
+
+        vm_retract_class route_storage_instance route_storage_child.
+        vm_set_class route_storage_instance route_storage_b.
+        vm_set_slot route_storage_instance count 3.
+        slot route_storage_instance count 3 aos.
+
+        vm_retract_class route_storage_instance route_storage_b.
+        vm_set_class route_storage_instance route_storage_child.
+        vm_set_slot route_storage_instance count 4.
+        slot route_storage_instance count 4 soa.
+
+        vm_retract_super route_storage_child route_storage_a.
+        vm_set_super route_storage_child route_storage_b.
+        vm_set_slot route_storage_instance count 5.
+        slot route_storage_instance count 5 aos.
+        vm_retract_slot route_storage_instance count.
+        not {slot route_storage_instance count _ aos}.
+        slot route_storage_instance count 4 soa.
+        """
+      end
+
+    assert {:atomic, _} = result
+  end
+
   example vm_get_slot_soa_finds_a_value_written_via_set_slot() do
     {:atomic, _} =
       run branch: Examples.Support.branch() do

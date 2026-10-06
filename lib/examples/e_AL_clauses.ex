@@ -351,7 +351,7 @@ defmodule Examples.ALClauses do
       end
   end
 
-  example send_plan_tracks_method_rebinding() do
+  example dispatch_tracks_method_rebinding() do
     c = fresh_class()
     probe = fresh_class()
 

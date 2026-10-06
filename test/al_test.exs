@@ -241,3 +241,11 @@ end
 defmodule ALBnfTest do
   use AL.ExampleCase, for: Examples.ALBnf, async: true
 end
+
+defmodule ALJAMTest do
+  use AL.ExampleCase, for: Examples.ALJAM, async: false
+end
+
+defmodule ALJAMCompilerTest do
+  use AL.ExampleCase, for: Examples.ALJAMCompiler, async: false
+end

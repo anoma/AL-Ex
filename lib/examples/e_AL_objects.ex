@@ -119,7 +119,7 @@ defmodule Examples.ALObjects do
     :ok
   end
 
-  # A durable object has exactly one direct class (AL.Interp.Store's SetClass
+  # A durable object has exactly one direct class (AL.JAM.Mutation's set_class
   # guard) -- reclassifying means retract first, not accreting a second one.
   example retractall_class() do
     {:atomic, _} =
@@ -1300,6 +1300,23 @@ defmodule Examples.ALObjects do
       end
 
     assert Map.get(b2, :"$T") == :branch_b_trait
+
+    {:atomic, {changed, _, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        trait dsp_instance Before.
+        vm_set_slot dsp_instance scratch 1.
+        trait dsp_instance Unchanged.
+        vm_retract_slot dsp_leaf dispatch_strategy.
+        trait dsp_instance Default.
+        vm_set_slot dsp_leaf dispatch_strategy bfs.
+        trait dsp_instance Again.
+        """
+      end
+
+    assert Enum.map([:"$Before", :"$Unchanged", :"$Default", :"$Again"], &changed[&1]) ==
+             [:branch_b_trait, :branch_b_trait, :deep_trait, :branch_b_trait]
+
     :ok
   end
 

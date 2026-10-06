@@ -327,6 +327,29 @@ defmodule Examples.ALLists do
     :ok
   end
 
+  example all_dif_eliminates_forced_values_and_preserves_alternative_solutions() do
+    {:atomic, {bindings, _, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        in_domain A [1].
+        in_domain B [1, 2].
+        in_domain C [2, 3].
+        in_domain D [3, 4].
+        all_dif [A, B, C, D].
+        in_domain X [1, 2, 3].
+        in_domain Y [1, 2, 3].
+        all_dif [X, Y, 3].
+        findall [X, Y] Pairs {
+          {= X 1, = Y 1} ; {label X, label Y}
+        }.
+        not {all_dif [A, A, B]}.
+        """
+      end
+
+    assert Enum.map([:"$A", :"$B", :"$C", :"$D"], &bindings[&1]) == [1, 2, 3, 4]
+    assert Enum.sort(bindings[:"$Pairs"]) == [[1, 2], [2, 1]]
+  end
+
   example all_dif_leaves_slack_domains_unpruned() do
     {:atomic, {_bindings, constraints, _}} =
       run branch: Examples.Support.branch() do

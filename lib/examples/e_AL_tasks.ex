@@ -47,6 +47,44 @@ defmodule Examples.ALTasks do
     Enum.any?(results, fn {:slots, _, slots} -> Map.get(slots, :processed) == true end)
   end
 
+  example callable_messages_commit_once_and_rollback_on_failure() do
+    pid = self()
+    branch = %AL.Branch{id: Examples.Support.branch()}
+
+    {:atomic, {_, _, state}} =
+      run branch: branch.id do
+        ~AL"""
+        not {call [Same, Same] {send_elixir ^pid mismatched} [one, two]}.
+        call [Receiver, Message] {send_elixir Receiver Message}
+          [^pid, committed_callable].
+        """
+      end
+
+    assert_receive :committed_callable, 1000
+    refute_receive :mismatched, 20
+    refute_receive :committed_callable, 20
+
+    {:atomic, commands} =
+      :mnesia.transaction(fn ->
+        AL.Command.commands_for_transaction(state.tx_id, branch)
+      end)
+
+    assert Enum.count(commands, fn
+             {:command, _, _, {:send_elixir, {^pid, :committed_callable}}} -> true
+             _ -> false
+           end) == 1
+
+    {:aborted, _} =
+      run branch: branch.id do
+        ~AL"""
+        call [Receiver] {send_elixir Receiver aborted_callable} [^pid].
+        fail.
+        """
+      end
+
+    refute_receive :aborted_callable, 100
+  end
+
   example async_send_runs_handler() do
     register_worker(:async_worker_1, :async_subscriber_1, self())
 

@@ -127,8 +127,8 @@ defmodule AL.Trace do
   # the chosen provider runs) -- the same Call/Exit/Redo/Fail ports at both
   # levels, just printed with a prefix so a traced line always says which
   # box it's reporting on. These render exactly the port tuples already
-  # appended to `state.trace.events` (see `AL.begin_method_scope/5`,
-  # `mark_exited/2`, `fail_scope/3` in `AL.ex`) -- no separate decision
+  # appended to `state.trace.events` (see `AL.JAM.Trace.method_call/6`,
+  # `exit/2` and `fail/2`) -- no separate decision
   # logic, just formatting.
   @spec call(atom(), non_neg_integer(), term(), term(), [term()]) :: :ok
   def call(level, depth, receiver, method, args) do

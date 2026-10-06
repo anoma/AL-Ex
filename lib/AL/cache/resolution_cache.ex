@@ -14,7 +14,7 @@ defmodule AL.ResolutionCache do
     :generative_descendants,
     :durable_classes,
     :oapply_clauses,
-    :prepared_oapply_clauses,
+    :compiled_methods,
     :method_scopes,
     :descendants,
     :ivar_specs,
@@ -22,7 +22,7 @@ defmodule AL.ResolutionCache do
   ]
 
   @transaction_cache :al_resolution_transaction_cache
-  @send_plan_cache :al_send_plan_cache
+  @dispatch_cache :al_dispatch_cache
   @fresh_tables :al_resolution_fresh_tables
 
   def with_fresh_tables(fun) when is_function(fun, 0) do
@@ -122,12 +122,30 @@ defmodule AL.ResolutionCache do
   def fetch_oapply_clauses(branch, method_id, compute),
     do: fetch(table(:oapply_clauses, branch), :oapply_clauses, method_id, compute)
 
-  def fetch_prepared_oapply_clauses(branch, method_id, compute) do
-    fetch(table(:prepared_oapply_clauses, branch), :prepared_oapply_clauses, method_id, compute)
+  def fetch_compiled_method(branch, method_id, compute),
+    do: fetch(table(:compiled_methods, branch), :compiled_methods, method_id, compute)
+
+  def fetch_branch_registration(id, compute) do
+    case Process.get(@transaction_cache) do
+      nil -> compute.()
+      cache -> fetch_local(cache, :branch_registration, id, compute)
+    end
   end
 
-  def fetch_send_plan(branch, key, compute) do
-    table = {@send_plan_cache, table(:providers, branch)}
+  def invalidate_branch_registration() do
+    clear_local(:branch_registration)
+    clear_local(:ivar_storage)
+  end
+
+  def fetch_ivar_storage(branch, object, key, compute) do
+    case Process.get(@transaction_cache) do
+      nil -> compute.()
+      cache -> fetch_local(cache, :ivar_storage, {branch.id, object, key}, compute)
+    end
+  end
+
+  def fetch_dispatch(branch, key, compute) do
+    table = {@dispatch_cache, table(:providers, branch)}
 
     case Process.get(@transaction_cache) do
       nil -> compute.()
@@ -220,7 +238,8 @@ defmodule AL.ResolutionCache do
 
   @spec invalidate_providers(AL.Branch.t()) :: :ok
   def invalidate_providers(branch) do
-    clear_local({@send_plan_cache, table(:providers, branch)})
+    clear_local(:ivar_storage)
+    clear_local({@dispatch_cache, table(:providers, branch)})
     clear(table(:providers, branch))
   end
 
@@ -246,10 +265,11 @@ defmodule AL.ResolutionCache do
     :ok
   end
 
-  @doc "Precise, not flush-all: the write's own `object` param is exactly the cache key."
+  @doc "Invalidates a method's clauses and cached send plans that may contain them."
   @spec invalidate_oapply_clauses(AL.Branch.t(), term()) :: :ok
   def invalidate_oapply_clauses(branch, method_id) do
-    delete(table(:prepared_oapply_clauses, branch), method_id)
+    clear_local({@dispatch_cache, table(:providers, branch)})
+    delete(table(:compiled_methods, branch), method_id)
     delete(table(:oapply_clauses, branch), method_id)
     :ok
   end
@@ -257,7 +277,7 @@ defmodule AL.ResolutionCache do
   @doc "Precise, not flush-all: mirrors invalidate_oapply_clauses/2."
   @spec invalidate_native(AL.Branch.t(), term()) :: :ok
   def invalidate_native(branch, method_id) do
-    clear_local({@send_plan_cache, table(:providers, branch)})
+    clear_local({@dispatch_cache, table(:providers, branch)})
     delete(table(:native, branch), method_id)
     :ok
   end
@@ -270,6 +290,7 @@ defmodule AL.ResolutionCache do
 
   @spec invalidate_ivar_specs(AL.Branch.t()) :: :ok
   def invalidate_ivar_specs(branch) do
+    clear_local(:ivar_storage)
     clear(table(:ivar_specs, branch))
   end
 
@@ -280,12 +301,21 @@ defmodule AL.ResolutionCache do
     if Process.get(@fresh_tables) do
       :ok
     else
-      if cache = Process.get(@transaction_cache) do
-        Process.put(@transaction_cache, Map.delete(cache, table))
-      end
+      cache = Process.get(@transaction_cache)
+      cleared = {:cleared, table}
 
-      for {_relation, key, _value} <- :mnesia.match_object(table, {:_, :_, :_}, :write) do
-        :mnesia.delete(table, key, :write)
+      keys =
+        if cache != nil and Map.has_key?(cache, cleared) do
+          cache |> Map.get(table, %{}) |> Map.keys()
+        else
+          for {_relation, key, _value} <- :mnesia.match_object(table, {:_, :_, :_}, :write),
+              do: key
+        end
+
+      for key <- keys, do: :mnesia.delete(table, key, :write)
+
+      if cache != nil do
+        Process.put(@transaction_cache, cache |> Map.delete(table) |> Map.put(cleared, true))
       end
 
       :ok

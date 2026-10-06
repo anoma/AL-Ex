@@ -1,4 +1,4 @@
-defprogram bootstrap #{deps => [], version => 38}.
+defprogram bootstrap #{deps => [], version => 39}.
 
 vm_set_class class class.
 vm_set_class object class.
@@ -1244,16 +1244,32 @@ parse Target Pattern Translated.
 grammar >> defrule
 | Self RuleName Patterns |
 atom RuleName,
-rule_goals Self Grammar Patterns [] Input Rest Body,
+rule_goals_first Self Grammar Patterns [] Input Rest Body,
 defmethod Self RuleName [Grammar, Input, Rest] Body.
 
 grammar >> defrule
 | Self Head Patterns |
 functor Head RuleName Args,
 atom RuleName,
-rule_goals Self Grammar Patterns Args Input Rest Body,
+rule_goals_first Self Grammar Patterns Args Input Rest Body,
 concat [Grammar, Input, Rest] Args MethodHead,
 defmethod Self RuleName MethodHead Body.
+
+grammar >> rule_goals_first
+| Self Grammar Patterns Args Input Rest Body |
+{= Patterns [Literal . More], ground Literal, first_literal Self Literal Tokens} ->
+{concat Tokens After Input, rule_goals Self Grammar More Args After Rest Body} ;
+rule_goals Self Grammar Patterns Args Input Rest Body.
+
+grammar >> first_literal
+| _Self Text Tokens |
+class Text string,
+string_codes Text Tokens.
+
+grammar >> first_literal
+| _Self Tokens Tokens |
+class Tokens list,
+ground Tokens.
 
 grammar >> rule_goals
 | _Self _Grammar [] _Args Rest Rest [] |.

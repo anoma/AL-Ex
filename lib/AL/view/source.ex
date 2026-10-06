@@ -304,9 +304,7 @@ defmodule AL.Source do
           | source_refs: refs,
             active_choicepoint: %AL.Choicepoint{
               choicepoint
-              | source_scopes: [capture_id | choicepoint.source_scopes],
-                goals:
-                  goals ++ [%AL.Goal.SourceScopeExit{capture_id: capture_id}] ++ choicepoint.goals
+              | source_scopes: [capture_id | choicepoint.source_scopes]
             }
         }
 

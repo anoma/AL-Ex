@@ -1,20 +1,17 @@
 defmodule Examples.ALNative.Divisors do
   @moduledoc """
-  A :raw-style native -- the full `(call_args, state) :: AL.t() | nil`
-  contract, used here to prove natives may be nondeterministic via AL's
-  existing `fan_out` choicepoint mechanism (no new engine work needed).
+  A :raw-style native -- the `(call_args, store, branch) :: [store]`
+  contract, used here to prove natives may be nondeterministic: each
+  returned store is one solution.
   """
 
-  def divisors([n, divisor], state) do
-    store = state.active_choicepoint.store
+  def divisors([n, divisor], store, branch) do
     n_value = AL.Var.deref(store, n)
 
-    if AL.Var.var?(n_value) do
-      AL.backtrack(state)
-    else
-      divisors = for d <- 1..n_value, rem(n_value, d) == 0, do: d
-      AL.fan_out(state, divisors, fn d -> {AL.unify(state, divisor, d), [divisor]} end)
-    end
+    if AL.Var.var?(n_value),
+      do: [],
+      else:
+        for(d <- 1..n_value, rem(n_value, d) == 0, do: AL.Var.unify(divisor, d, store, branch))
   end
 end
 
@@ -130,14 +127,14 @@ defmodule Examples.ALNative do
     :ok
   end
 
-  example nondet_raw_native_produces_multiple_solutions_via_fan_out() do
+  example nondet_raw_native_produces_one_solution_per_store() do
     {:ok, method_id} =
       AL.Native.register(
         :number,
         :al_native_divisors,
         Examples.ALNative.Divisors,
         :divisors,
-        2,
+        3,
         style: :raw,
         branch: examples_branch()
       )

@@ -428,6 +428,22 @@ defmodule AL.Var.Bounds do
   # tightens transitively). Collapse to a single value -> bind
   # via AL.Var.bind/4 (so dif/isa still gets checked). nil = infeasible or
   # non-affine side — same backtrack either way at the call site.
+  def compare_value(store, op, a, b, branch) do
+    case {eval(a, store), eval(b, store)} do
+      {x, y} when is_number(x) and is_number(y) ->
+        if compare_numbers(op, x, y), do: store, else: nil
+
+      _ ->
+        add_compare(store, op, a, b, branch)
+    end
+  end
+
+  defp compare_numbers(:<, x, y), do: x < y
+  defp compare_numbers(:>, x, y), do: x > y
+  defp compare_numbers(:<=, x, y), do: x <= y
+  defp compare_numbers(:>=, x, y), do: x >= y
+  defp compare_numbers(:=, x, y), do: x == y
+
   @spec add_compare(AL.Var.store(), atom(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           AL.Var.store() | nil
   def add_compare(store, :=, a, b, branch) do
@@ -607,7 +623,10 @@ defmodule AL.Var.Bounds do
           ),
           AL.Branch.t()
         ) :: AL.Var.store() | nil
-  def run_fixpoint(store, worklist, branch) do
+  def run_fixpoint(store, worklist, branch),
+    do: AL.Var.AllDif.with_analysis_cache(fn -> fixpoint(store, worklist, branch) end)
+
+  defp fixpoint(store, worklist, branch) do
     case Enum.at(worklist, 0) do
       nil ->
         store
@@ -617,7 +636,7 @@ defmodule AL.Var.Bounds do
 
         case check_only(store, prop) do
           nil -> nil
-          new_store -> run_fixpoint(new_store, rest, branch)
+          new_store -> fixpoint(new_store, rest, branch)
         end
 
       {:either, left, right} = t ->
@@ -625,7 +644,7 @@ defmodule AL.Var.Bounds do
 
         case resolve_either(store, left, right, branch) do
           nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+          {new_store, more} -> fixpoint(new_store, MapSet.union(rest, more), branch)
         end
 
       {:all_dif, vars} = t ->
@@ -633,7 +652,7 @@ defmodule AL.Var.Bounds do
 
         case AL.Var.AllDif.resolve(store, vars, branch) do
           nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+          {new_store, more} -> fixpoint(new_store, MapSet.union(rest, more), branch)
         end
 
       {:floor_divide, dividend, divisor, quotient} = t ->
@@ -641,7 +660,7 @@ defmodule AL.Var.Bounds do
 
         case resolve_floor_divide(store, dividend, divisor, quotient, branch) do
           nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+          {new_store, more} -> fixpoint(new_store, MapSet.union(rest, more), branch)
         end
 
       {:product, left, right, product} = t ->
@@ -649,7 +668,7 @@ defmodule AL.Var.Bounds do
 
         case resolve_product(store, left, right, product, branch) do
           nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
+          {new_store, more} -> fixpoint(new_store, MapSet.union(rest, more), branch)
         end
 
       {lo_aff, hi_aff, strict} = t ->
@@ -660,7 +679,7 @@ defmodule AL.Var.Bounds do
             nil
 
           {new_store, more} ->
-            run_fixpoint(retire(new_store, t), MapSet.union(rest, more), branch)
+            fixpoint(retire(new_store, t), MapSet.union(rest, more), branch)
         end
     end
   end

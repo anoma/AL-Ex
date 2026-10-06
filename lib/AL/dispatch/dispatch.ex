@@ -8,43 +8,6 @@ defmodule AL.Dispatch do
   to explicit labeling, not dispatch.
   """
 
-  alias AL.Goal
-
-  # A variable receiver or selector makes the send a query. Only a fully
-  # ground send is directed and uses `on_miss`. `:"$_"` is the wildcard.
-  def dispatch(self, method, args, state, on_miss) do
-    {state, method_scope, on_miss} = AL.begin_method_scope(state, self, method, args, on_miss)
-
-    cond do
-      AL.Var.var?(self) and self != :"$_" ->
-        dispatch_open_receiver(self, method, args, state, method_scope)
-
-      AL.Var.var?(method) and method != :"$_" ->
-        enumerate_selectors(self, method, args, state, method_scope)
-
-      true ->
-        # The var-receiver/var-selector legs above both push a
-        # `{:method_mark, method_scope}` via `install_method_choicepoints/3`
-        # even for a single candidate -- that sentinel is what lets
-        # `AL.backtrack/1` close the method-level domino scope
-        # (`fail_scope(..., :method_fail)`) if the chosen candidate's clause
-        # matches but its *body* later fails on backtrack. A ground
-        # self+method skips straight to `do_send/6` with no such marker, so
-        # that same body-level failure only closes the clause-level scope
-        # (`{:mark, _}`, pushed by `oapply`/`wrap_clause_scope`) and leaves
-        # the method-level one permanently open in the trace -- harmless for
-        # ordinary execution (the marker is inert on backtrack either way)
-        # but corrupts `AL.Trace.derivation_tree`'s stack-based tree-builder,
-        # which assumes every method_call has a matching close event.
-        state = %AL{
-          state
-          | choicepoint_stack: [{:method_mark, method_scope} | state.choicepoint_stack]
-        }
-
-        do_send(self, method, args, method_scope, state, on_miss)
-    end
-  end
-
   # Two isa constraints are compatible when at least one direct class can
   # witness both, including a common descendant under multiple inheritance.
   @spec isa_conflict?(Enumerable.t(atom()), atom(), AL.Branch.t()) :: boolean()
@@ -138,19 +101,6 @@ defmodule AL.Dispatch do
     |> Enum.uniq()
   end
 
-  defp dispatch_open_receiver(self, method, args, state, method_scope) do
-    providers = direct_providers(method, state.branch)
-
-    candidates =
-      providers
-      |> Enum.map(&open_receiver_candidate(state, self, method, args, &1, method_scope))
-      |> Enum.reject(&is_nil/1)
-
-    maybe_trace_dispatch(state, self, method, Enum.map(providers, &elem(&1, 0)))
-
-    install_method_choicepoints(state, method_scope, candidates)
-  end
-
   defp direct_providers(method, branch) do
     AL.ResolutionCache.fetch_open_providers(branch, method, fn ->
       scope = AL.fresh_scope()
@@ -166,105 +116,63 @@ defmodule AL.Dispatch do
     end)
   end
 
-  defp open_receiver_candidate(
-         state,
-         self,
-         method,
-         args,
-         {provider, selector},
-         method_scope
-       ) do
-    case AL.Var.unify(method, selector, state.active_choicepoint.store, state.branch) do
+  def open_provider_classes(method, branch),
+    do: direct_providers(method, branch) |> Enum.map(&elem(&1, 0))
+
+  def open_targets(self, method, store, branch) do
+    direct_providers(method, branch)
+    |> Enum.flat_map(fn {provider, selector} ->
+      case AL.Var.unify(method, selector, store, branch) do
+        nil ->
+          []
+
+        next ->
+          if class_provider?(provider, branch),
+            do: open_class_plan(next, self, selector, provider, branch),
+            else: open_singleton_plan(next, self, provider, branch)
+      end
+    end)
+  end
+
+  defp open_class_plan(store, self, selector, provider, branch) do
+    case open_class_store(store, self, selector, provider, branch) do
       nil ->
-        nil
+        []
 
-      store ->
-        candidate_state =
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: store}
-          }
+      constrained ->
+        providers =
+          providers_for(provider, selector, branch, fn ->
+            AL.Dispatch.MethodOrder.super_chain([provider], branch, :dfs)
+          end)
 
-        if class_provider?(provider, state.branch) do
-          open_class_receiver_candidate(
-            candidate_state,
-            self,
-            selector,
-            args,
-            provider,
-            method_scope
-          )
-        else
-          open_singleton_receiver_candidate(
-            candidate_state,
-            self,
-            selector,
-            args,
-            provider,
-            method_scope
-          )
+        case providers do
+          [{_, id} | remaining] ->
+            if native_bound?(id, branch),
+              do: [{:native, id, constrained}],
+              else: [{:provider, id, {selector, remaining}, constrained}]
+
+          [] ->
+            []
         end
     end
   end
 
-  defp open_class_receiver_candidate(state, self, method, args, provider, method_scope) do
-    store = state.active_choicepoint.store
-    known_isa = resolved_isa_classes(store, self)
-    known_direct = resolved_direct_classes(store, self)
-    selected = Enum.map(known_direct, &selected_provider_for_class(&1, method, state.branch))
-
-    compatible =
-      not isa_conflict?(known_isa, provider, state.branch) and
-        (selected == [] or Enum.all?(selected, &(&1 == provider))) and
-        not dispatch_conflict?(store, self, method, provider)
-
-    if compatible do
-      new_store =
-        store
-        |> AL.Var.add_isa(self, provider)
-        |> AL.Var.add_dispatch(self, method, provider)
-
-      candidate_state =
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: new_store}
-        }
-
-      goals = [
-        %Goal.SendAsValue{
-          class: provider,
-          object: self,
-          method: method,
-          args: args,
-          method_scope: method_scope
-        }
-      ]
-
-      {choicepoint, _state} =
-        AL.wrap_clause_scope(candidate_state, method_scope, self, method, args, goals)
-
-      choicepoint
+  defp open_singleton_plan(store, self, provider, branch) do
+    case AL.Var.unify(self, provider, store, branch) do
+      nil -> []
+      next -> [{:query, next}]
     end
   end
 
-  defp open_singleton_receiver_candidate(state, self, method, args, provider, method_scope) do
-    case AL.Var.unify(self, provider, state.active_choicepoint.store, state.branch) do
-      nil ->
-        nil
+  defp open_class_store(store, self, method, provider, branch) do
+    known_isa = resolved_isa_classes(store, self)
+    known_direct = resolved_direct_classes(store, self)
+    selected = Enum.map(known_direct, &selected_provider_for_class(&1, method, branch))
 
-      store ->
-        candidate_state =
-          %AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: store}
-          }
-
-        goals = [%Goal.SendQuery{object: self, method: method, args: args}]
-
-        {choicepoint, _state} =
-          AL.wrap_clause_scope(candidate_state, method_scope, self, method, args, goals)
-
-        choicepoint
+    if not isa_conflict?(known_isa, provider, branch) and
+         (selected == [] or Enum.all?(selected, &(&1 == provider))) and
+         not dispatch_conflict?(store, self, method, provider) do
+      store |> AL.Var.add_isa(self, provider) |> AL.Var.add_dispatch(self, method, provider)
     end
   end
 
@@ -275,14 +183,6 @@ defmodule AL.Dispatch do
       {^selector, existing} -> existing != provider
       _ -> false
     end)
-  end
-
-  # method must be ground to check tracepoints — a var selector has nothing
-  # to look up yet.
-  defp maybe_trace_dispatch(state, self, method, value_classes) do
-    if not AL.Var.var?(method) and MapSet.member?(state.trace.runtime.tracepoints, method) do
-      AL.Trace.dispatch(self, method, value_classes)
-    end
   end
 
   # Every {object, classes} pair with a durable class row. Unbound self/class scan
@@ -345,7 +245,19 @@ defmodule AL.Dispatch do
   # only call with `self` as the true write target, never an ancestor --
   # find_ivar_spec resolves via self's own class chain.
   @spec ivar_storage(AL.Var.t(), term(), AL.Branch.t()) :: :aos | :soa
-  def ivar_storage(self, key, branch) do
+  def ivar_storage(self, key, branch) when is_atom(self) and is_atom(key) do
+    if AL.Var.var?(self) or AL.Var.var?(key) do
+      resolve_ivar_storage(self, key, branch)
+    else
+      AL.ResolutionCache.fetch_ivar_storage(branch, self, key, fn ->
+        resolve_ivar_storage(self, key, branch)
+      end)
+    end
+  end
+
+  def ivar_storage(self, key, branch), do: resolve_ivar_storage(self, key, branch)
+
+  defp resolve_ivar_storage(self, key, branch) do
     case find_ivar_spec(self, key, branch) do
       %{storage: storage} -> storage
       _ -> :aos
@@ -393,53 +305,6 @@ defmodule AL.Dispatch do
     end)
   end
 
-  # Same idiom, but for a method-level (dispatch) candidate set rather than
-  # a plain choicepoint list: appends `{:method_mark, method_scope}` below
-  # every candidate, so backtrack/1 can tell "every provider for this send
-  # exhausted" apart from "every alternative some unrelated caller pushed
-  # exhausted" -- exactly what `{:mark, scope}` already does one level down,
-  # for clauses. No retagging needed here: every candidate a caller passes
-  # in is itself a struct-copy of `state.active_choicepoint`
-  # (the open-provider candidate builders and `enumerate_selectors`), and
-  # `AL.begin_method_scope/5` already retagged
-  # *that* to `method_scope` before any of them were built.
-  @spec install_method_choicepoints(AL.t(), AL.scope(), [AL.Choicepoint.t()]) :: AL.t()
-  def install_method_choicepoints(state, method_scope, candidates) do
-    marked_stack = [{:method_mark, method_scope} | state.choicepoint_stack]
-
-    case candidates do
-      [] ->
-        AL.backtrack(%AL{state | choicepoint_stack: marked_stack})
-
-      [first | rest] ->
-        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ marked_stack}
-    end
-  end
-
-  # Bind the selector to each method `self` understands and re-dispatch as a query;
-  # the call's arg shape selects which match.
-  defp enumerate_selectors(self, method, args, state, method_scope) do
-    case understood_method_names(self, state.branch) do
-      [] ->
-        install_method_choicepoints(state, method_scope, [])
-
-      names ->
-        spliced =
-          AL.splice_goals(state, [%Goal.SendQuery{object: self, method: method, args: args}])
-
-        candidate = fn name ->
-          new_store = AL.Var.unify(method, name, state.active_choicepoint.store, state.branch)
-
-          AL.wake(
-            %AL.Choicepoint{state.active_choicepoint | goals: spliced, store: new_store},
-            [method]
-          )
-        end
-
-        install_method_choicepoints(state, method_scope, Enum.map(names, candidate))
-    end
-  end
-
   defp understood_method_names(self, branch) do
     AL.Dispatch.MethodOrder.method_scopes(self, branch)
     |> Enum.flat_map(fn scope ->
@@ -449,85 +314,55 @@ defmodule AL.Dispatch do
     |> Enum.uniq()
   end
 
-  defp do_send(self, method, args, method_scope, state, on_miss) do
-    key = {resolution_key(self), method}
+  def target(:"$_", _method, _branch), do: :miss
+  def target(_self, :"$_", _branch), do: :miss
 
-    {candidates, first_native?} =
-      AL.ResolutionCache.fetch_send_plan(state.branch, key, fn ->
-        candidates = providers(self, method, state.branch)
-
-        first_native? =
-          case candidates do
-            [{_provider, id} | _] -> native_bound?(id, state.branch)
-            [] -> false
-          end
-
-        {candidates, first_native?}
-      end)
-
-    run_providers(
-      candidates,
-      self,
-      method,
-      [self | args],
-      method_scope,
-      state,
-      on_miss,
-      first_native?
-    )
-  end
-
-  # Like do_send, but scope chain is seeded from an explicit class, not
-  # derived from self's shape (an unbound self has none to derive from).
-  # self is constrained to class by the caller, not here.
-  def do_send_as(class, self, method, args, method_scope, state, on_miss) do
-    candidates =
-      providers_for(class, method, state.branch, fn ->
-        AL.Dispatch.MethodOrder.super_chain([class], state.branch, :dfs)
-      end)
-
-    run_providers(candidates, self, method, [self | args], method_scope, state, on_miss)
-  end
-
-  # Run the first provider whose clause fits, stashing the rest -- plus the
-  # method_scope of the send that started this whole resolution -- as a
-  # cursor for `call_next_method` (AL.ex) to resume from, so a later
-  # explicit next-provider request still reports against the *original*
-  # method-level box rather than opening a fresh one. First match wins (a
-  # clause mismatch stays a miss). Primitives make no frame, so carry no
-  # cursor.
-  def run_providers(candidates, self, selector, call_args, method_scope, state, on_miss),
-    do: run_providers(candidates, self, selector, call_args, method_scope, state, on_miss, nil)
-
-  defp run_providers([], _self, _selector, _call_args, _method_scope, state, on_miss, _native?),
-    do: on_miss.(state)
-
-  defp run_providers(
-         [{_scope, id} | rest],
-         self,
-         selector,
-         call_args,
-         method_scope,
-         state,
-         on_miss,
-         first_native?
-       ) do
-    native? = if is_nil(first_native?), do: native_bound?(id, state.branch), else: first_native?
-
-    if native? do
-      args = AL.Var.subst(call_args, state.active_choicepoint.store)
-      AL.interp(%Goal.OApply{method_id: id, args: args}, state)
+  def target(self, method, branch) do
+    if AL.Var.var?(method) do
+      {:selectors, understood_method_names(self, branch)}
     else
-      unified = AL.unify_clauses(id, call_args, state)
+      key = {resolution_key(self), method}
 
-      if AL.any_unified?(unified) do
-        state = %AL{state | pending_cursor: {self, selector, rest, method_scope}}
-        AL.enter_clauses(id, call_args, unified, state)
-      else
-        on_miss.(state)
+      target =
+        AL.ResolutionCache.fetch_dispatch(branch, {:target, key}, fn ->
+          case providers(self, method, branch) do
+            [{_provider, id} | _] ->
+              if native_bound?(id, branch), do: {:native, id}, else: {:ok, id}
+
+            [] ->
+              :miss
+          end
+        end)
+
+      case target do
+        {:ok, id} -> {:ok, key, id}
+        :miss -> :miss
+        {:native, id} -> {:native, id}
       end
     end
   end
+
+  def provider_cursor(self, selector, id, branch) do
+    [{_provider, ^id} | remaining] = providers(self, selector, branch)
+    {selector, remaining}
+  end
+
+  def next_provider(nil, _branch), do: :miss
+  def next_provider({_selector, []}, _branch), do: :miss
+
+  def next_provider({selector, [{_provider, id} | remaining]}, branch) do
+    if native_bound?(id, branch), do: {:native, id}, else: {:ok, id, {selector, remaining}}
+  end
+
+  def miss_fails?(_self, :does_not_understand, _branch), do: true
+
+  def miss_fails?(self, _method, branch) do
+    AL.ResolutionCache.fetch_dispatch(branch, {:miss_policy, resolution_key(self)}, fn ->
+      default_dnu?(self, branch)
+    end)
+  end
+
+  def receiver_key(self, method), do: {resolution_key(self), method}
 
   # Every {scope, id} answering selector across self's scopes. send takes the
   # head, call_next_method the tail. Cache key is resolution_key, not raw
@@ -584,46 +419,10 @@ defmodule AL.Dispatch do
     end
   end
 
-  def dnu(_self, :does_not_understand, _args, state), do: AL.backtrack(state)
-
-  def dnu(self, method, args, state) do
-    if default_dnu?(self, state.branch) do
-      state =
-        if providers(self, method, state.branch) == [],
-          do: record_dnu(state, self, method, args),
-          else: state
-
-      AL.backtrack(state)
-    else
-      AL.interp(
-        %Goal.Send{object: self, method: :does_not_understand, args: [method, args]},
-        state
-      )
-    end
-  end
-
   # True when receiver has no does_not_understand of its own — only then is
   # a miss worth reporting.
   defp default_dnu?(self, branch) do
-    provider =
-      Enum.find(AL.Dispatch.MethodOrder.method_scopes(self, branch), fn scope ->
-        method_ids(scope, :does_not_understand, branch) != []
-      end)
-
-    provider in [:object, nil]
-  end
-
-  # Most `does_not_understand` hits are ordinary backtracking noise (a failed
-  # `not [...]`, an `implies` branch that didn't match) and never become the
-  # transaction's reported failure -- `failing_lineage` picks at most one
-  # diagnostic to actually surface. Ranking suggestions is real work (a Jaro
-  # distance against every method the receiver understands), so it's kept
-  # lazy here: record what's needed to compute it, not the computed result,
-  # and let `AL.format_failure/1` call `suggest/3` only for the one
-  # diagnostic that's actually reported.
-  defp record_dnu(state, self, method, args) do
-    inner = {self, method, length(args), state.branch}
-    AL.record_diagnostic(state, inner)
+    selected_provider(self, :does_not_understand, branch) in [:object, nil]
   end
 
   @doc "Rank known selectors on `self` by similarity to `method`, for a \"did you mean\"."

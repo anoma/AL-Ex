@@ -8,6 +8,44 @@ defmodule Examples.ALBranch do
   use AL
   import ExUnit.Assertions
 
+  example branch_classification_tracks_discard_and_reparenting() do
+    parent = AL.Branch.fork(:tip, %AL.Branch{id: Examples.Support.branch()})
+    child = AL.Branch.fork(:tip, parent)
+    parent_id = parent.id
+    child_id = child.id
+
+    try do
+      result =
+        run(branch: Examples.Support.branch()) do
+          ~AL"""
+          isa ^parent_id branch.
+          isa ^parent_id branch.
+          isa ^child_id branch.
+          not {isa jam_missing_branch_registration branch}.
+          not {isa jam_missing_branch_registration branch}.
+          """
+        end
+
+      assert {:atomic, _} = result
+      AL.Branch.discard(parent)
+
+      result =
+        run(branch: Examples.Support.branch()) do
+          ~AL"""
+          not {isa ^parent_id branch}.
+          not {isa ^parent_id branch}.
+          isa ^child_id branch.
+          isa ^child_id branch.
+          """
+        end
+
+      assert {:atomic, _} = result
+    after
+      AL.Branch.discard(child)
+      if parent in AL.Branch.list(), do: AL.Branch.discard(parent)
+    end
+  end
+
   example read_from_fork() do
     # time just before we introduce :tt_thing
     before = AL.Command.system_time()
@@ -498,7 +536,7 @@ defmodule Examples.ALBranch do
     soa_before = projection_rows(branch)
     aos_before = slot_rows(branch)
 
-    assert Enum.any?(aos_before, fn {:aos, _object, _from, to, _map} -> to != :open end)
+    assert Enum.any?(aos_before, fn {:aos, _version, _object, _from, to, _map} -> to != :open end)
     assert Enum.any?(soa_before, fn {:soa, _o, _k, _s, _f, to, _v} -> to != :open end)
 
     :ok = AL.Object.drop_tables(branch)
@@ -552,7 +590,7 @@ defmodule Examples.ALBranch do
       :mnesia.transaction(fn ->
         :mnesia.match_object(
           AL.Object.table(:aos, branch),
-          {:aos, :_, :_, :_, :_},
+          {:aos, :_, :_, :_, :_, :_},
           :read
         )
       end)

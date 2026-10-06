@@ -1,6 +1,24 @@
 defmodule AL.Var.AllDif do
   alias AL.Var.ConstraintSet
 
+  @analysis_cache :al_all_dif_analysis_cache
+
+  def with_analysis_cache(fun) do
+    case Process.get(@analysis_cache) do
+      nil ->
+        Process.put(@analysis_cache, %{})
+
+        try do
+          fun.()
+        after
+          Process.delete(@analysis_cache)
+        end
+
+      _ ->
+        fun.()
+    end
+  end
+
   @type propagator() :: {:all_dif, [AL.Var.t()]}
 
   @spec post(AL.Var.store(), [AL.Var.t()], AL.Branch.t()) :: AL.Var.store() | nil
@@ -26,6 +44,7 @@ defmodule AL.Var.AllDif do
           {AL.Var.store(), MapSet.t(propagator())} | nil
   def resolve(store, vars, branch) do
     case materialize_domains(store, vars) do
+      :inconsistent -> nil
       :unknown -> {store, MapSet.new()}
       domains -> propagate(store, domains, branch)
     end
@@ -38,14 +57,25 @@ defmodule AL.Var.AllDif do
   defp materialize_domains(store, vars) do
     vars
     |> Enum.with_index()
-    |> Enum.reduce_while(%{}, fn {v, idx}, acc ->
+    |> Enum.reduce_while({%{}, MapSet.new(), true}, fn {v, idx}, {domains, seen, known} ->
       resolved = AL.Var.deref(store, v)
 
-      case domain_of(store, resolved) do
-        nil -> {:halt, :unknown}
-        dom -> {:cont, Map.put(acc, {idx, resolved}, dom)}
+      if resolved != :"$_" and MapSet.member?(seen, resolved) do
+        {:halt, :inconsistent}
+      else
+        seen = MapSet.put(seen, resolved)
+
+        case domain_of(store, resolved) do
+          nil -> {:cont, {domains, seen, false}}
+          domain -> {:cont, {Map.put(domains, {idx, resolved}, domain), seen, known}}
+        end
       end
     end)
+    |> case do
+      :inconsistent -> :inconsistent
+      {_domains, _seen, false} -> :unknown
+      {domains, _seen, true} -> domains
+    end
   end
 
   defp domain_of(store, resolved) do
@@ -94,6 +124,86 @@ defmodule AL.Var.AllDif do
   end
 
   defp run_matching(store, domains, branch) do
+    graph = Map.new(domains, fn {{index, _var}, domain} -> {index, domain} end)
+
+    case analyze(graph) do
+      nil ->
+        nil
+
+      prunings ->
+        live = Map.new(domains, fn {{index, var}, _domain} -> {index, var} end)
+
+        prunings =
+          Map.new(prunings, fn {index, domain} ->
+            {{index, Map.fetch!(live, index)}, domain}
+          end)
+
+        apply_prunings(store, prunings, branch)
+    end
+  end
+
+  defp analyze(domains) do
+    case Process.get(@analysis_cache) do
+      nil ->
+        analyze_graph(domains)
+
+      cache ->
+        case Map.fetch(cache, domains) do
+          {:ok, result} ->
+            result
+
+          :error ->
+            result = analyze_graph(domains)
+            cache = if map_size(cache) >= 256, do: %{}, else: cache
+            Process.put(@analysis_cache, Map.put(cache, domains, result))
+            result
+        end
+    end
+  end
+
+  defp analyze_graph(domains) do
+    with {remaining, fixed} <- eliminate_singletons(domains, %{}),
+         prunings when not is_nil(prunings) <- match_graph(remaining) do
+      fixed
+      |> Map.merge(remaining)
+      |> Map.merge(prunings)
+      |> Map.reject(fn {var, domain} -> MapSet.equal?(domain, Map.fetch!(domains, var)) end)
+    else
+      nil -> nil
+    end
+  end
+
+  defp eliminate_singletons(domains, fixed) do
+    {singles, remaining} =
+      Enum.split_with(domains, fn {_var, domain} -> MapSet.size(domain) == 1 end)
+
+    values = Enum.map(singles, fn {_var, domain} -> domain |> MapSet.to_list() |> hd() end)
+
+    cond do
+      Enum.any?(domains, fn {_var, domain} -> MapSet.size(domain) == 0 end) ->
+        nil
+
+      length(values) != MapSet.size(MapSet.new(values)) ->
+        nil
+
+      singles == [] ->
+        {domains, fixed}
+
+      true ->
+        excluded = MapSet.new(values)
+
+        remaining =
+          Map.new(remaining, fn {var, domain} ->
+            {var, MapSet.difference(domain, excluded)}
+          end)
+
+        eliminate_singletons(remaining, Map.merge(fixed, Map.new(singles)))
+    end
+  end
+
+  defp match_graph(domains) when map_size(domains) == 0, do: %{}
+
+  defp match_graph(domains) do
     case maximum_matching(domains) do
       nil ->
         nil
@@ -107,23 +217,20 @@ defmodule AL.Var.AllDif do
 
         reachable = reaches_free(edges, free_val_nodes)
 
-        prunings =
-          Enum.reduce(domains, %{}, fn {var, dom}, acc ->
-            matched_val = Map.fetch!(matching, var)
-            var_scc = Map.fetch!(scc, {:var, var})
+        Enum.reduce(domains, %{}, fn {var, dom}, acc ->
+          matched_val = Map.fetch!(matching, var)
+          var_scc = Map.fetch!(scc, {:var, var})
 
-            kept =
-              dom
-              |> Enum.filter(fn val ->
-                val == matched_val or Map.fetch!(scc, {:val, val}) == var_scc or
-                  MapSet.member?(reachable, {:val, val})
-              end)
-              |> MapSet.new()
+          kept =
+            dom
+            |> Enum.filter(fn val ->
+              val == matched_val or Map.fetch!(scc, {:val, val}) == var_scc or
+                MapSet.member?(reachable, {:val, val})
+            end)
+            |> MapSet.new()
 
-            if MapSet.equal?(kept, dom), do: acc, else: Map.put(acc, var, kept)
-          end)
-
-        apply_prunings(store, prunings, branch)
+          if MapSet.equal?(kept, dom), do: acc, else: Map.put(acc, var, kept)
+        end)
     end
   end
 

@@ -11,8 +11,9 @@ AL source text
      straight to AL.Goal structs
   -> AL.Source prepares retry-stable source metadata
   -> AL.eval_program opens one Mnesia transaction and creates AL state
-  -> AL.interp / AL.Interp.* execute goals and choicepoints
-  -> AL.Interp.Store applies durable mutation goals
+  -> AL.JAM.Compiler compiles the program and methods to machine code
+  -> AL.JAM runs it; AL drives the choicepoints it yields
+  -> AL.JAM.Mutation applies durable mutation instructions
        -> AL.Command appends the command with tx_id and system time
        -> AL.Object updates the branch projection using that same time
        -> AL.Source anchors captured source spans to written commands
@@ -43,8 +44,8 @@ history, but it does not replace the command that produced it.
 
 | Area | Start with | Continue into |
 |---|---|---|
-| Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/interp/`, `lib/AL/trace/domino.ex` |
-| Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/syntax.ex`, `lib/AL/interp/store.ex` |
+| Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/jam.ex`, `lib/AL/jam/`, `lib/AL/trace/domino.ex` |
+| Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/syntax.ex`, `lib/AL/jam/mutation.ex` |
 | Dispatch and method order | `lib/AL/dispatch/dispatch.ex` | `lib/AL/dispatch/`, `lib/AL/cache/` |
 | Variables and constraints | `lib/AL/var/var.ex` | `lib/AL/var/`, relation handlers |
 | Durable writes and replay | `lib/AL/command_log/command.ex` | hydration modules, `lib/AL/view/object.ex` |
@@ -66,7 +67,8 @@ Follow one mutation from syntax to replay before changing it:
 1. `AL.Goal.*` defines the runtime shape.
 2. `AL.Syntax` compiles AL source to that goal and `AL.Syntax.Printer` prints it
    back.
-3. `AL.Interp.Store` validates durable values and performs the write.
+3. `AL.JAM.Compiler` compiles it to a `{:mutation, …}` instruction and
+   `AL.JAM.Mutation` validates durable values and performs the write.
 4. `AL.Command` records the operation and transaction identity.
 5. `AL.Object` updates or closes the matching projected fact.
 6. `AL.Source.anchor` associates a captured definition with the command time.
@@ -125,8 +127,8 @@ revision is an optimistic concurrency check against its snapshot.
 
 ## Fast inspection routes
 
-- Find a goal: search its struct in `goal.ex`, then its `AL.Syntax` compile clause and `interp`
-  clauses.
+- Find a goal: search its struct in `goal.ex`, then its `AL.Syntax` compile clause and its
+  `operation/2` clause in `AL.JAM.Compiler`.
 - Find a durable operation: search the operation atom in `AL.Command`,
   `AL.Object`, hydration, and cache invalidation.
 - Find a source discrepancy: inspect `AL.SourceStore.text/2`, its span at the

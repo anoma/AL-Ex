@@ -11,6 +11,64 @@ defmodule Examples.ALSlotHistory do
   use AL
   import ExUnit.Assertions
 
+  example current_slots_match_history_after_retraction_fork_replay_and_abort() do
+    parent = AL.Branch.fork(:tip, %AL.Branch{id: Examples.Support.branch()})
+
+    inspect_slots = fn branch ->
+      :mnesia.transaction(fn ->
+        current = AL.Object.read_slots(:current_slots_probe, branch)
+        history = AL.Object.scan_slots_history(:current_slots_probe, branch)
+        open = for {:slots, object, _, :open, slots} <- history, do: {:slots, object, slots}
+        assert current == open
+        assert AL.Object.scan_slots(:current_slots_probe, :"$Slots", branch) == current
+        {current, history}
+      end)
+    end
+
+    try do
+      {:atomic, _} =
+        AL.eval_source(
+          ~S"""
+          vm_set_slot current_slots_probe count 1.
+          vm_set_slot current_slots_probe other kept.
+          vm_set_slot current_slots_probe count 2.
+          vm_retract_slot current_slots_probe count.
+          vm_retract_slot current_slots_probe other.
+          not {slot current_slots_probe _ _}.
+          vm_set_slot current_slots_probe count 3.
+          vm_set_slot current_slots_probe count 3.
+          """,
+          parent
+        )
+
+      {:atomic, {current, history}} = inspect_slots.(parent)
+      assert current == [{:slots, :current_slots_probe, %{count: 3}}]
+      assert length(history) == 6
+      assert length(Enum.uniq_by(history, &elem(&1, 2))) == 6
+
+      for child <- [AL.Branch.fork(:tip, parent), AL.Branch.fork_stable(parent)] do
+        try do
+          assert {:atomic, {^current, ^history}} = inspect_slots.(child)
+
+          assert {:aborted, _} =
+                   AL.eval_source(
+                     "vm_set_slot current_slots_probe count 999, fail.",
+                     child
+                   )
+
+          assert {:atomic, {^current, ^history}} = inspect_slots.(child)
+          {:atomic, _} = AL.eval_source("vm_set_slot current_slots_probe count 4.", child)
+          {:atomic, {[{:slots, :current_slots_probe, %{count: 4}}], _}} = inspect_slots.(child)
+          assert {:atomic, {^current, ^history}} = inspect_slots.(parent)
+        after
+          AL.Branch.discard(child)
+        end
+      end
+    after
+      AL.Branch.discard(parent)
+    end
+  end
+
   example slot_history_finds_every_value_a_slot_has_held() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

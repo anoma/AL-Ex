@@ -74,4 +74,67 @@ defmodule Examples.ALAnonymousMethods do
     assert bindings[:"$Result"] == [:durable]
     :ok
   end
+
+  example reusable_bodies_keep_captured_values_and_fresh_locals() do
+    {:atomic, {bindings, _, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        = Prefix captured.
+        lambda [Input, Output] Method {
+          member [a, b] Local,
+          = Output [Prefix, Input, Local]
+        }.
+        findall Output First {run Method [one, Output]}.
+        findall Output Second {run Method [two, Output]}.
+        """
+      end
+
+    expected = {bindings[:"$First"], bindings[:"$Second"]}
+
+    assert expected ==
+             {[[:captured, :one, :a], [:captured, :one, :b]],
+              [[:captured, :two, :a], [:captured, :two, :b]]}
+
+    assert expected == {
+             [[:captured, :one, :a], [:captured, :one, :b]],
+             [[:captured, :two, :a], [:captured, :two, :b]]
+           }
+
+    expected
+  end
+
+  example callable_arguments_share_constraints_and_repeated_variables() do
+    {:atomic, {bindings, _, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        lambda [Input, Input] Same {> Input 0, dif Input 2}.
+        run Same [Left, Right].
+        = Left 3.
+        findall Value Values {run Same [Value, Value], member [1, 2, 3] Value}.
+        not {run Same [1, 3]}.
+        """
+      end
+
+    assert bindings[:"$Right"] == 3
+    assert bindings[:"$Values"] == [1, 3]
+    bindings
+  end
+
+  example callable_cuts_leave_caller_choices_available() do
+    {:atomic, {bindings, _, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        lambda [Color] First {member [red, blue] Color, cut}.
+        findall [Outer, Color] Pairs {
+          member [a, b] Outer,
+          run First [Color]
+        }.
+        """
+      end
+
+    result = bindings[:"$Pairs"]
+
+    assert result == [[:a, :red], [:b, :red]]
+    result
+  end
 end

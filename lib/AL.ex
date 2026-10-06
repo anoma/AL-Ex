@@ -1,23 +1,27 @@
 defmodule AL do
   @moduledoc """
-  I am the top-level interpreter for AL
+  I run AL transactions
 
-  I define the state of an AL program
+  I define the state of an AL program and drive the abstract machine
+  (`AL.JAM`) that executes it: I hold the choicepoints it yields, apply its
+  mutations, and commit or abort the transaction
   """
   use TypedStruct
   alias AL.Goal
 
   @type scope() :: non_neg_integer()
+  @type failure_call() ::
+          {:method_call, scope(), term(), term(), [term()], %{}}
+          | {:clause_call, scope(), term(), term(), %{}}
 
   # A resolution cursor: Necessary for `call_next_method`
-  @type cursor() :: {term(), atom(), [{term(), AL.Var.t()}], scope()}
 
   @type stack_entry() ::
           AL.Choicepoint.t() | {:mark, scope()} | {:method_mark, scope()} | :implies_mark
 
   @type failure_score() :: {non_neg_integer(), 0 | 1, non_neg_integer()}
   @type failure_candidate() ::
-          {failure_score(), {:call, AL.Choicepoint.failure_call()} | {:diagnostic, term()}}
+          {failure_score(), {:call, failure_call()} | {:diagnostic, term()}}
 
   typedstruct enforce: true do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
@@ -26,8 +30,6 @@ defmodule AL do
     field(:transaction_object, AL.Var.t() | nil, default: nil)
     field(:trace, AL.Trace.t(), default: %AL.Trace{})
     field(:program, [AL.Goal.t()], enforce: true, default: [])
-    field(:call_cursors, %{optional(scope()) => cursor()}, default: %{})
-    field(:pending_cursor, cursor() | nil, default: nil)
     field(:diagnostics, [term()], default: [])
     field(:failure_candidate, failure_candidate() | nil, default: nil)
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
@@ -43,7 +45,7 @@ defmodule AL do
     )
   end
 
-  # Stack limit. reductions = goals interpreted so far.
+  # Stack limit. reductions = machine steps taken so far.
   @max_reductions 2_000_000
 
   defmacro __using__(_opts) do
@@ -122,16 +124,6 @@ defmodule AL do
     end
   end
 
-  @spec splice_goals(t(), [AL.Goal.t()]) :: [AL.Goal.t()]
-  def splice_goals(state, goals) do
-    goals ++ state.active_choicepoint.goals
-  end
-
-  @doc "Parse, retain, and evaluate one complete AL source input in one transaction."
-  @spec eval_source(String.t(), AL.Branch.t(), keyword()) ::
-          {:atomic, {AL.Var.store(), map(), t() | nil}}
-          | {:aborted, term()}
-          | {:error, String.t() | AL.Syntax.Error.t()}
   def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
     with {:ok, result} <- AL.Syntax.parse(text),
          {:ok, source} <- AL.Source.prepare(result, %{kind: :eval_source, label: nil}, text) do
@@ -214,12 +206,10 @@ defmodule AL do
           end
 
           result =
-            continue(%AL{
+            %AL{
               active_choicepoint: %AL.Choicepoint{
                 goals: program,
                 store: store,
-                continuations: [],
-                done: [],
                 scope_pointer: 0,
                 source_scopes: []
               },
@@ -231,7 +221,9 @@ defmodule AL do
               program: program,
               source_refs: source_refs,
               source_anchors: %{}
-            })
+            }
+            |> start_program()
+            |> continue()
             |> finalize_trace()
 
           if result.active_choicepoint.store == nil do
@@ -508,7 +500,7 @@ defmodule AL do
   defp maybe_put_isa(map, isa, store, rewrite_unbound) do
     values =
       isa
-      |> Enum.reject(&internal_relation_link?/1)
+      |> Enum.reject(&AL.Var.Residual.internal_relation_link?/1)
       |> summarize_terms(store, rewrite_unbound)
 
     if values == [], do: map, else: Map.put(map, :isa, values)
@@ -592,10 +584,6 @@ defmodule AL do
     |> Enum.sort()
   end
 
-  defp internal_relation_link?({:object_link, _object}), do: true
-  defp internal_relation_link?({:isa_object_link, _object}), do: true
-  defp internal_relation_link?(_entry), do: false
-
   # A domino Call/Exit's "what's known about this position" -- reuses the
   # exact same constraint_set/summarize_constraints machinery
   # format_output_vars/2 already uses for residual constraints, just per-var
@@ -629,318 +617,97 @@ defmodule AL do
   # it), and `[self | z]` for an open var z is an *improper* list Enum.*
   # can't walk. When args isn't a list, it's one position in its own
   # right instead of a spine to walk.
-  defp call_positions(self, args) when is_list(args), do: [self | args]
-  defp call_positions(self, args), do: [self, args]
+  def call_positions(self, args) when is_list(args), do: [self | args]
+  def call_positions(self, args), do: [self, args]
 
-  defp open_positions(terms, store) do
+  def open_positions(terms, store) do
     terms
     |> AL.Var.find_vars()
     |> Enum.filter(fn var -> AL.Var.var?(AL.Var.deref(store, var)) end)
   end
 
-  defp describe_positions(vars, store), do: Map.new(vars, fn v -> {v, describe_var(v, store)} end)
-
-  # Domino is one producer in the generic trace stream. Its private scope
-  # bookkeeping stays in `state.trace.runtime`; retained events and composable
-  # flags belong to `state.trace` itself.
-  defp push_trace(state, event), do: push_trace(state, :domino, event)
-
-  defp push_trace(state, kind, event),
-    do: %AL{state | trace: AL.Trace.push(state.trace, kind, event)}
+  def describe_positions(vars, store), do: Map.new(vars, fn v -> {v, describe_var(v, store)} end)
 
   defp domino_enabled?(state), do: AL.Trace.enabled?(state.trace, :domino)
 
-  defp trace_scopes?(state),
-    do:
-      domino_enabled?(state) or
-        MapSet.size(state.trace.runtime.tracepoints) > 0
-
-  defp put_scope(state, scope, info) do
-    runtime = %AL.Trace.Runtime{
-      state.trace.runtime
-      | scopes: Map.put(state.trace.runtime.scopes, scope, info)
-    }
-
-    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
-  end
-
-  defp delete_scope(state, scope) do
-    runtime = %AL.Trace.Runtime{
-      state.trace.runtime
-      | scopes: Map.delete(state.trace.runtime.scopes, scope)
-    }
-
-    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
-  end
-
-  defp unmark_exited(state, scope) do
-    case Map.get(state.trace.runtime.scopes, scope) do
-      %{exited: true, parent: parent} = info ->
-        state |> put_scope(scope, %{info | exited: false}) |> unmark_exited(parent)
-
-      _ ->
-        state
-    end
-  end
-
-  defp caller_scope_pointer(state) do
-    if not domino_enabled?(state) do
-      case state.active_choicepoint.failure_context do
-        [{scope, parent, :method, _call} | _]
-        when scope == state.active_choicepoint.scope_pointer ->
-          parent
-
-        _ ->
-          state.active_choicepoint.scope_pointer
-      end
-    else
-      case Map.get(state.trace.runtime.scopes, state.active_choicepoint.scope_pointer) do
-        %{kind: :method, parent: parent} when parent != nil -> parent
-        _ -> state.active_choicepoint.scope_pointer
-      end
-    end
-  end
-
-  defp caller_failure_context(state) do
-    if domino_enabled?(state) do
-      []
-    else
-      case state.active_choicepoint.failure_context do
-        [{scope, _parent, :method, _call} | rest]
-        when scope == state.active_choicepoint.scope_pointer ->
-          rest
-
-        context ->
-          context
-      end
-    end
-  end
-
-  defp enter_failure_scope(state, scope, parent, kind, call) do
-    if domino_enabled?(state) do
-      state
-    else
-      %AL{
-        state
-        | active_choicepoint: %AL.Choicepoint{
-            state.active_choicepoint
-            | failure_context: [
-                {scope, parent, kind, call} | state.active_choicepoint.failure_context
-              ]
-          }
-      }
-    end
-  end
-
-  defp leave_failed_scope(state, scope) do
-    if domino_enabled?(state) do
-      {state, nil}
-    else
-      {discarded, matching_and_rest} =
-        Enum.split_while(state.active_choicepoint.failure_context, fn
-          {frame, _parent, _kind, _call} -> frame > scope
-        end)
-
-      case matching_and_rest do
-        [{^scope, parent, _kind, call} | rest] ->
-          state = record_failure_candidate(state, {:call, failure_call(discarded) || call})
-
-          choicepoint = %AL.Choicepoint{
-            state.active_choicepoint
-            | failure_context: rest
-          }
-
-          {%AL{state | active_choicepoint: choicepoint}, parent}
-
-        _absent ->
-          {state, nil}
-      end
-    end
-  end
-
-  defp failure_call([{_scope, _parent, _kind, call} | _]), do: call
-  defp failure_call([]), do: nil
-
   @spec backtrack(t()) :: t() | nil
   def backtrack(state) do
-    state = clear_pending_constraint(state)
+    state = traced(state, &AL.JAM.Trace.abandon/0)
 
     case state.choicepoint_stack do
       [] ->
         %AL{
           state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | store: nil
-            }
+          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
         }
 
-      [{:mark, f} | rest_choices] ->
-        backtrack(%AL{fail_scope(state, f, :clause_fail) | choicepoint_stack: rest_choices})
+      [{:jam_cut, _} | rest] ->
+        backtrack(%AL{state | choicepoint_stack: rest})
 
-      [{:method_mark, f} | rest_choices] ->
-        backtrack(%AL{fail_scope(state, f, :method_fail) | choicepoint_stack: rest_choices})
+      [:implies_mark | rest] ->
+        backtrack(%AL{state | choicepoint_stack: rest})
 
-      [:implies_mark | rest_choices] ->
-        backtrack(%AL{state | choicepoint_stack: rest_choices})
+      [{:mark, scope} | rest] ->
+        state = traced(state, fn -> AL.JAM.Trace.fail(scope, :clause_fail) end)
+        backtrack(%AL{state | choicepoint_stack: rest})
 
-      [choice | rest_choices] ->
-        redo? =
-          match?(%{exited: true}, Map.get(state.trace.runtime.scopes, choice.scope_pointer))
+      [{:method_mark, scope} | rest] ->
+        state = traced(state, fn -> AL.JAM.Trace.fail(scope, :method_fail) end)
+        backtrack(%AL{state | choicepoint_stack: rest})
 
+      [choice | rest] ->
         state =
-          if redo? do
-            %{kind: level} = Map.get(state.trace.runtime.scopes, choice.scope_pointer)
-            tag = if level == :method, do: :method_redo, else: :clause_redo
-            state = trace_port_event(state, choice.scope_pointer, :redo)
-            push_trace(state, {tag, choice.scope_pointer})
-          else
-            state
-          end
+          traced(state, fn ->
+            AL.JAM.Trace.resume(choice.scope_pointer)
+            if choice.clause, do: AL.JAM.Trace.chosen(choice.scope_pointer, choice.clause)
+          end)
 
-        state = log_trace_entry(state, :backtrack)
-        state = unmark_exited(state, choice.scope_pointer)
-        state = mark_clause_chosen(state, choice)
-
-        continue(%AL{state | active_choicepoint: choice, choicepoint_stack: rest_choices})
+        continue(%AL{state | active_choicepoint: choice, choicepoint_stack: rest})
     end
   end
 
-  # A method's untried clauses become choicepoints all at once, so a clause is
-  # chosen only when backtracking arrives at it. The scope is the one the
-  # clause_call opened: a retry runs the next clause of the same call.
-  defp mark_clause_chosen(state, %AL.Choicepoint{clause: nil}), do: state
-
-  defp mark_clause_chosen(state, %AL.Choicepoint{clause: clause, scope_pointer: scope}),
-    do: push_trace(state, {:clause_chosen, scope, clause})
-
-  defp log_trace_entry(state, entry) do
-    if AL.Trace.retained?(state.trace) do
-      cond do
-        constraint_goal?(entry) ->
-          if domino_enabled?(state),
-            do: begin_constraint_trace(state, entry),
-            else: push_trace(state, :vm, entry)
-
-        true ->
-          push_trace(state, :vm, entry)
-      end
-    else
-      state
-    end
-  end
-
-  defp constraint_goal?(%Goal.Compare{}), do: true
-  defp constraint_goal?(%Goal.FloorDivide{}), do: true
-
-  defp constraint_goal?(%Goal.Eq{a: a, b: b}),
-    do: AL.Var.Bounds.arithmetic?(a) or AL.Var.Bounds.arithmetic?(b)
-
-  defp constraint_goal?(%Goal.Dif{}), do: true
-  defp constraint_goal?(%Goal.Isa{}), do: true
-  defp constraint_goal?(%Goal.AllDif{}), do: true
-  defp constraint_goal?(%Goal.InDomain{}), do: true
-  defp constraint_goal?(_), do: false
-
-  defp begin_constraint_trace(state, goal) do
-    vars = AL.Var.find_vars(goal)
-
-    pending_constraint = %{
-      goal: goal,
-      vars: vars,
-      constraints_in: describe_positions(vars, store(state))
-    }
-
-    runtime = %AL.Trace.Runtime{state.trace.runtime | pending_constraint: pending_constraint}
-    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
-  end
-
-  defp finish_constraint_trace(
-         %AL{trace: %AL.Trace{runtime: %AL.Trace.Runtime{pending_constraint: nil}}} = state
-       ),
-       do: state
-
-  defp finish_constraint_trace(state) do
-    %{goal: goal, vars: vars, constraints_in: constraints_in} =
-      state.trace.runtime.pending_constraint
-
-    derived = describe_positions(vars, store(state))
-    runtime = %AL.Trace.Runtime{state.trace.runtime | pending_constraint: nil}
-    state = %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
-    push_trace(state, :domino, {:constraint, goal, constraints_in, derived})
-  end
-
-  defp clear_pending_constraint(state) do
-    runtime = %AL.Trace.Runtime{state.trace.runtime | pending_constraint: nil}
-    %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
+  defp traced(state, fun) do
+    {_result, trace} = AL.JAM.Trace.run(state.trace, fun)
+    %AL{state | trace: trace}
   end
 
   @spec continue(t()) :: t() | nil
   def continue(nil), do: nil
 
   def continue(state) do
-    state = finish_constraint_trace(state)
+    state = traced(state, fn -> AL.JAM.Trace.settle(store(state)) end)
 
-    cond do
-      state.reductions > @max_reductions ->
+    case state.active_choicepoint do
+      _choice when state.reductions > @max_reductions ->
         %AL{
           record_resource_limit(state)
           | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
         }
 
-      state.active_choicepoint.store == nil ->
+      %AL.Choicepoint{store: nil} ->
         backtrack(state)
 
-      state.active_choicepoint.goals == [] ->
-        if state.active_choicepoint.continuations == [] do
-          # Floundering: a solution may not leave goals parked.
-          if state.active_choicepoint.suspensions == %{} do
-            state
-          else
-            backtrack(log_trace_entry(state, :flounder))
-          end
-        else
-          [continuation | rest_continuations] = state.active_choicepoint.continuations
-          state = mark_exited(state, state.active_choicepoint.scope_pointer)
+      %AL.Choicepoint{goals: [], suspensions: suspensions} when suspensions == %{} ->
+        state
 
-          continue(%AL{
-            state
-            | active_choicepoint: %AL.Choicepoint{
-                goals: continuation.goals,
-                done: continuation.done,
-                store: state.active_choicepoint.store,
-                continuations: rest_continuations,
-                scope_pointer: continuation.scope_pointer,
-                source_scopes: continuation.source_scopes,
-                suspensions: state.active_choicepoint.suspensions,
-                failure_context: continuation.failure_context
-              }
-          })
-        end
+      %AL.Choicepoint{goals: []} ->
+        state |> traced(&AL.JAM.Trace.flounder/0) |> backtrack()
 
-      true ->
-        [compound | ahead] = state.active_choicepoint.goals
-        raw = Goal.lower(compound)
+      %AL.Choicepoint{goals: [{:resume, snapshot} | ahead]} = choice ->
+        state = %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: ahead}}
+        snapshot = AL.JAM.with_store(snapshot, store(state))
 
-        goal =
-          if trace_scopes?(state),
-            do: AL.Var.subst(raw, state.active_choicepoint.store),
-            else: resolve_goal(raw, state.active_choicepoint.store)
+        {result, state} =
+          run_machine(state, fn ->
+            AL.JAM.resume(
+              snapshot,
+              state.branch,
+              @max_reductions - state.reductions,
+              machine_context(state)
+            )
+          end)
 
-        state = log_trace_entry(state, goal)
-
-        next_frame = %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              state.active_choicepoint
-              | goals: ahead,
-                done: [raw | state.active_choicepoint.done]
-            },
-            reductions: state.reductions + 1
-        }
-
-        result = interp(goal, next_frame)
-        continue(result)
+        continue(apply_machine_result(result, release_machine_suspensions(state)))
     end
   end
 
@@ -950,7 +717,7 @@ defmodule AL do
       | diagnostics: [{:resource_limit_exceeded, @max_reductions} | state.diagnostics]
     }
 
-  defp record_constraint_violation(state, nil, a, b) do
+  defp record_constraint_violation(state, a, b) do
     case AL.Var.diagnose_unify_failure(a, b, store(state), state.branch) do
       nil ->
         resolved_a = AL.Var.deref(store(state), a)
@@ -962,14 +729,7 @@ defmodule AL do
     end
   end
 
-  defp record_constraint_violation(state, _result, _a, _b), do: state
-
   defp store(state), do: state.active_choicepoint.store
-
-  # def not defp: AL.Interp.Relations/AL.Dispatch use this too (branch threading for
-  # isa, see AL.Var.bind/4, stays invisible at call sites).
-  @spec unify(t(), AL.Var.t(), AL.Var.t()) :: AL.Var.store() | nil
-  def unify(state, x, y), do: AL.Var.unify(x, y, store(state), state.branch)
 
   @doc false
   @spec record_diagnostic(t(), term()) :: t()
@@ -1008,15 +768,9 @@ defmodule AL do
     end
   end
 
-  defp failure_progress(state) do
-    case List.last(state.active_choicepoint.continuations) do
-      nil -> length(state.active_choicepoint.done)
-      outermost -> length(outermost.done)
-    end
-  end
+  defp failure_progress(state), do: state.active_choicepoint.progress
 
   defp resolve_goal(%Goal.Send{} = goal, store), do: resolve_send(goal, store)
-  defp resolve_goal(%Goal.SendQuery{} = goal, store), do: resolve_send(goal, store)
 
   defp resolve_goal(%Goal.Eq{a: a, b: b} = goal, store),
     do: %Goal.Eq{goal | a: resolve_arg(a, store), b: resolve_arg(b, store)}
@@ -1029,7 +783,6 @@ defmodule AL do
               Goal.Not,
               Goal.Or,
               Goal.Implies,
-              Goal.Then,
               Goal.Dif,
               Goal.Pass,
               Goal.Fail,
@@ -1054,1383 +807,316 @@ defmodule AL do
   defp resolve_arg(arg, store),
     do: if(AL.Var.var?(arg), do: AL.Var.deref(store, arg), else: arg)
 
-  def put_bindings(state, nil, _terms), do: backtrack(state)
+  defp raw_goal({:resume, snapshot}), do: AL.JAM.pending_goals(snapshot)
+  defp raw_goal(goal), do: goal
 
-  def put_bindings(state, new_store, terms),
+  defp start_program(state) do
+    choice = state.active_choicepoint
+    goals = [{:resume, AL.JAM.query(choice.goals)}]
+    %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: goals}}
+  end
+
+  defp run_machine(state, fun) do
+    {result, trace} = AL.JAM.Trace.run(state.trace, fun)
+    {result, %AL{state | trace: trace}}
+  end
+
+  defp machine_context(state),
+    do: %{
+      tx_id: state.tx_id,
+      transaction_object: state.transaction_object,
+      suspensions: state.active_choicepoint.suspensions
+    }
+
+  defp release_machine_suspensions(state),
     do: %AL{
       state
-      | active_choicepoint:
-          wake(%AL.Choicepoint{state.active_choicepoint | store: new_store}, terms)
+      | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | suspensions: %{}}
     }
 
-  def wake(%AL.Choicepoint{store: nil} = choice, _terms), do: choice
-  def wake(%AL.Choicepoint{suspensions: s} = choice, _terms) when s == %{}, do: choice
+  def collection_budget, do: @max_reductions
 
-  def wake(choice, _terms) do
-    choice.suspensions
-    |> Map.keys()
-    |> Enum.reduce(choice, fn v, ch -> wake_key(ch, v) end)
-  end
-
-  # A resolved suspension runs in place; one aliased onward re-parks
-  # on the still-free end of its chain.
-  defp wake_key(choice, v) do
-    case Map.fetch(choice.suspensions, v) do
-      :error ->
-        choice
-
-      {:ok, goals} ->
-        target = AL.Var.deref(choice.store, v)
-
-        cond do
-          target == v ->
-            choice
-
-          AL.Var.var?(target) ->
-            suspensions =
-              choice.suspensions |> Map.delete(v) |> Map.update(target, goals, &(&1 ++ goals))
-
-            %AL.Choicepoint{choice | suspensions: suspensions}
-
-          true ->
-            %AL.Choicepoint{
-              choice
-              | goals: goals ++ choice.goals,
-                suspensions: Map.delete(choice.suspensions, v)
-            }
-        end
-    end
-  end
-
-  # alts -> choicepoints via to_bindings; first = current path, empty = fail.
-  # def not defp: AL.Interp.Relations builds every read goal on this.
-  def fan_out(state, alts, to_bindings) do
-    base = state.active_choicepoint
-
-    build = fn alt ->
-      {new_store, terms} = to_bindings.(alt)
-      wake(%AL.Choicepoint{base | store: new_store}, terms)
-    end
-
-    case alts do
-      [] ->
-        backtrack(state)
-
-      [first | rest] ->
-        %AL{
-          state
-          | active_choicepoint: build.(first),
-            choicepoint_stack: Enum.map(rest, build) ++ state.choicepoint_stack
-        }
-    end
-  end
-
-  @spec interp(AL.Goal.t(), t()) :: t() | nil
-  def interp(%Goal.GetClass{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.Isa{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.GetSuper{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.GetMethod{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.GetCommand{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.BranchEdge{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.BranchMeta{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.CurrentBranch{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.GetOapply{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.TransactionSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
-
-  def interp(%Goal.MethodSource{} = g, state), do: AL.Interp.Relations.interp(g, state)
-  def interp(%Goal.GetSlotAt{} = g, state), do: AL.Interp.Relations.interp(g, state)
-
-  def interp(%Goal.OApply{method_id: :vm_fresh_id, args: [result]}, state),
-    do: put_bindings(state, unify(state, result, AL.Command.fresh_id(state.branch)), [result])
-
-  def interp(%Goal.OApply{method_id: :vm_current_tx, args: [result]}, state),
-    do: put_bindings(state, unify(state, result, state.tx_id), [result])
-
-  def interp(%Goal.OApply{method_id: :vm_transaction_object, args: [result]}, state),
-    do: put_bindings(state, unify(state, result, state.transaction_object), [result])
-
-  def interp(%Goal.OApply{method_id: :spawn_transaction, args: [goals]}, state) do
-    schedule_future_transaction(state, :ready, :none, [], goals)
-  end
-
-  def interp(%Goal.OApply{method_id: :await_effect, args: [effect, head, goals]}, state) do
-    schedule_future_transaction(state, :waiting, effect, head, goals)
-  end
-
-  def interp(%Goal.OApply{method_id: :map_get, args: [m, k, v]} = goal, state)
-      when not is_map(m) or is_struct(m) do
-    cond do
-      not AL.Var.var?(m) ->
-        backtrack(state)
-
-      ground?(k) ->
-        put_bindings(state, AL.Var.add_key(store(state), m, k, v, state.branch), [m, v])
-
-      true ->
-        suspend(state, [m], goal)
-    end
-  end
-
-  def interp(%Goal.OApply{method_id: :map_get, args: [m, k_pattern, v_pattern]}, state) do
-    if ground?(k_pattern) do
-      case Map.fetch(m, k_pattern) do
-        {:ok, v} ->
-          put_bindings(state, unify(state, v_pattern, v), [v_pattern])
-
-        :error ->
-          backtrack(state)
-      end
-    else
-      matches =
-        m
-        |> Enum.map(&unify(state, {k_pattern, v_pattern}, &1))
-        |> Enum.filter(& &1)
-
-      fan_out(state, matches, &{&1, [{k_pattern, v_pattern}]})
-    end
-  end
-
-  def interp(%Goal.OApply{method_id: :map_pairs, args: [m, pairs]} = goal, state) do
-    cond do
-      is_struct(m) ->
-        backtrack(state)
-
-      is_map(m) ->
-        case pairs_map(pairs, %{}) do
-          {:ok, given} ->
-            put_bindings(state, unify(state, m, given), [pairs])
-
-          _ ->
-            sorted = m |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {k, v} -> [k, v] end)
-            put_bindings(state, unify(state, pairs, sorted), [pairs])
-        end
-
-      not AL.Var.var?(m) ->
-        backtrack(state)
-
-      true ->
-        case pairs_map(pairs, %{}) do
-          {:ok, map} -> put_bindings(state, unify(state, m, map), [m])
-          {:open, blocking} -> suspend(state, [m | blocking], goal)
-          :error -> backtrack(state)
-        end
-    end
-  end
-
-  def interp(%Goal.OApply{method_id: :vm_map_put, args: [m1, _k, _v, _m2]}, state)
-      when not is_map(m1) or is_struct(m1),
-      do: backtrack(state)
-
-  def interp(%Goal.OApply{method_id: :vm_map_put, args: [m1, k_pattern, v_pattern, m2]}, state),
-    do: put_bindings(state, unify(state, m2, Map.put(m1, k_pattern, v_pattern)), [m2])
-
-  # cached: AL.ResolutionCache.fetch_ivar_specs, see AL.Dispatch. self must
-  # be ground -- an open self would make scan_class's self_pattern a
-  # wildcard (to_mnesia_pattern treats an open var as "match anything"),
-  # scanning every object's class instead of just this one and corrupting
-  # the resolved spec list. Backtrack rather than guess, same as
-  # `:map_get`'s `when not is_map(m)` guard above.
-  def interp(%Goal.OApply{method_id: :vm_cached_ivar_specs, args: [self, result]}, state) do
-    self_ground = AL.Var.deref(store(state), self)
-
-    if AL.Var.var?(self_ground) do
-      backtrack(state)
-    else
-      specs = AL.Dispatch.resolved_ivar_specs(self_ground, state.branch)
-      put_bindings(state, unify(state, result, specs), [result])
-    end
-  end
-
-  def interp(%Goal.OApply{method_id: :vm_cached_find_ivar_spec, args: [self, key, result]}, state) do
-    self_ground = AL.Var.deref(store(state), self)
-    key_ground = AL.Var.deref(store(state), key)
-
-    if AL.Var.var?(self_ground) do
-      backtrack(state)
-    else
-      spec = AL.Dispatch.find_ivar_spec(self_ground, key_ground, state.branch)
-      put_bindings(state, unify(state, result, spec), [result])
-    end
-  end
-
-  def interp(%Goal.SourceScope{capture_id: capture_id, goals: goals}, state),
-    do: AL.Source.enter_scope(state, capture_id, goals)
-
-  def interp(%Goal.SourceScopeExit{capture_id: capture_id}, state),
-    do: AL.Source.exit_scope(state, capture_id)
-
-  def interp(%Goal.OApply{method_id: method_id_pattern, args: bind_head_pattern}, state) do
-    case AL.Native.dispatch(method_id_pattern, bind_head_pattern, state) do
-      {:handled, result} -> result
-      :not_native -> interp_oapply_clauses(method_id_pattern, bind_head_pattern, state)
-    end
-  end
-
-  def interp(%Goal.Cut{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
-  def interp(%Goal.Implies{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
-  def interp(%Goal.Or{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
-  def interp(%Goal.Then{} = g, state), do: AL.Interp.ControlFlow.interp(g, state)
-
-  def interp(%Goal.SetClass{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.AssertValidClauseSelf{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.SetSuper{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.SetMethod{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.SetOapply{} = g, state), do: AL.Interp.Store.interp(g, state)
-
-  def interp(%Goal.GetSlots{} = g, state), do: AL.Interp.Relations.interp(g, state)
-
-  def interp(%Goal.SetSlot{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.RetractClass{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.RetractSuper{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.RetractMethod{} = g, state), do: AL.Interp.Store.interp(g, state)
-  def interp(%Goal.RetractOapply{} = g, state), do: AL.Interp.Store.interp(g, state)
-
-  def interp(%Goal.RetractSlot{} = g, state), do: AL.Interp.Store.interp(g, state)
-
-  def interp(%Goal.SendAsync{object: object, method: method, args: args}, state) do
-    AL.Command.send_async(state.tx_id, object, method, args, state.branch)
-    state
-  end
-
-  def interp(%Goal.SendElixir{pid: pid, message: message}, state) do
-    AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
-    state
-  end
-
-  def interp(
-        %Goal.EmitEffect{
-          effect: effect,
-          provider: provider,
-          operation: operation,
-          arguments: arguments
-        },
-        state
-      ) do
-    store = store(state)
-
-    AL.Edge.request(
-      state.tx_id,
-      AL.Var.subst(effect, store),
-      AL.Var.subst(provider, store),
-      AL.Var.subst(operation, store),
-      AL.Var.subst(arguments, store),
-      state.branch
-    )
-
-    state
-  end
-
-  def interp(
-        %Goal.Effect{
-          provider: provider,
-          operation: operation,
-          arguments: arguments,
-          effect: effect
-        },
-        state
-      ) do
-    args = [
-      %{
-        provider: provider,
-        operation: operation,
-        arguments: arguments
-      },
-      effect
-    ]
+  defp apply_machine_result({:cut, snapshot, [], steps, scope}, state) do
+    remaining = Enum.drop_while(state.choicepoint_stack, &(&1 != scope))
 
     %AL{
       state
-      | active_choicepoint: %AL.Choicepoint{
+      | reductions: state.reductions + steps,
+        choicepoint_stack: remaining,
+        active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
-          | goals:
-              AL.splice_goals(state, [
-                %Goal.Send{object: :effect, method: :new, args: args}
-              ])
+          | store: AL.JAM.snapshot_store(snapshot),
+            goals: [{:resume, snapshot} | state.active_choicepoint.goals]
         }
     }
   end
 
-  def interp(%Goal.Gensym{var: var}, state) do
-    sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
-    put_bindings(state, unify(state, var, sym), [var])
-  end
+  defp apply_machine_result({:mutation, snapshot, choices, steps, operation, arguments}, state) do
+    state = install_machine_choices(state, choices)
 
-  def interp(%Goal.Format{control: control, args: args}, state) do
-    store = store(state)
-    control_ground = AL.Var.subst(control, store)
-    args_ground = AL.Var.subst(args, store)
-
-    case plan_format(control_ground, args_ground) do
-      {_new_control, _new_args, []} ->
-        %AL{state | output: [render_format(control_ground, args_ground) | state.output]}
-
-      {new_control, new_args, pending_sends} ->
-        implies_goals =
-          Enum.map(pending_sends, fn {original_arg, fresh_var} ->
-            %Goal.Implies{
-              condition: [
-                %Goal.Send{object: original_arg, method: :print_object, args: [fresh_var]}
-              ],
-              then: [],
-              otherwise: [%Goal.Fail{}]
-            }
-          end)
-
-        spliced =
-          AL.splice_goals(
-            state,
-            implies_goals ++ [%Goal.Format{control: new_control, args: new_args}]
-          )
-
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}
-        }
-    end
-  end
-
-  def interp(%Goal.Forall{condition: condition, body: body}, state) do
-    case collect_all_solutions(
-           :forall,
-           condition,
-           nil,
-           state.active_choicepoint.store,
-           state.tx_id,
-           state.branch,
-           state.active_choicepoint.source_scopes,
-           state.trace.flags
-         ) do
-      {:ok, solutions, trace_events} ->
-        state = merge_trace_events(state, trace_events)
-
-        {raw_condition, raw_body} =
-          case state.active_choicepoint.done do
-            [%Goal.Forall{condition: c, body: b} | _] -> {c, b}
-            _ -> {condition, body}
-          end
-
-        raw_vars = AL.Var.find_vars({raw_condition, raw_body}) |> MapSet.delete(:"$_")
-        body_vars = AL.Var.find_vars(body)
-        connectable = raw_condition |> AL.Var.find_vars() |> MapSet.intersection(body_vars)
-        outer = MapSet.difference(visible_vars(state), raw_vars)
-
-        body_goals =
-          Enum.flat_map(solutions, fn store ->
-            freshener = Integer.to_string(fresh_scope())
-
-            representatives =
-              Enum.reduce(outer, %{}, fn v, acc ->
-                case AL.Var.deref(store, v) do
-                  ^v -> acc
-                  root -> if AL.Var.var?(root), do: Map.put_new(acc, root, v), else: acc
-                end
-              end)
-
-            rewrite = &Map.get(representatives, &1, &1)
-
-            connects =
-              connectable
-              |> Enum.map(fn c -> {c, AL.Var.subst(c, store, rewrite)} end)
-              |> Enum.reject(fn {c, value} -> value == c end)
-              |> Enum.map(fn {c, value} ->
-                %Goal.Eq{
-                  a: AL.Var.freshen(c, freshener, raw_vars),
-                  b: AL.Var.freshen(value, freshener, raw_vars)
-                }
-              end)
-
-            connects ++ AL.Var.freshen(body, freshener, raw_vars)
-          end)
-
-        spliced = splice_goals(state, body_goals)
-
-        %AL{
-          state
-          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | goals: spliced}
-        }
-
-      {:resource_limit_exceeded, trace_events} ->
-        state |> merge_trace_events(trace_events) |> resource_limit_abort()
-    end
-  end
-
-  def interp(%Goal.Findall{template: template, condition: condition, result: result}, state) do
-    case collect_all_solutions(
-           :findall,
-           condition,
-           result,
-           state.active_choicepoint.store,
-           state.tx_id,
-           state.branch,
-           state.active_choicepoint.source_scopes,
-           state.trace.flags
-         ) do
-      {:ok, solutions, trace_events} ->
-        state = merge_trace_events(state, trace_events)
-
-        {collected, copied_constraints} =
-          Enum.map_reduce(solutions, %{}, fn solution_store, constraint_store ->
-            {copied, constraints} =
-              AL.Var.copy_term_with_constraints(template, solution_store)
-
-            {copied, Map.merge(constraint_store, constraints)}
-          end)
-
-        augmented_store = Map.merge(state.active_choicepoint.store, copied_constraints)
-        new_store = AL.Var.unify(result, collected, augmented_store, state.branch)
-        put_bindings(state, new_store, [result])
-
-      {:resource_limit_exceeded, trace_events} ->
-        state |> merge_trace_events(trace_events) |> resource_limit_abort()
-    end
-  end
-
-  def interp(%Goal.Call{head: head, body: body, args: args}, state) do
-    scope = fresh_scope()
-    freshener = Integer.to_string(scope)
-    fresh_head = AL.Var.freshen(head, freshener)
-    fresh_body = body |> from_stored_body() |> AL.Var.freshen(freshener)
-
-    case unify(state, fresh_head, args) do
-      nil ->
-        backtrack(state)
-
-      new_store ->
-        continuation = %AL.Continuation{
-          goals: state.active_choicepoint.goals,
-          done: state.active_choicepoint.done,
-          scope_pointer: state.active_choicepoint.scope_pointer,
-          source_scopes: state.active_choicepoint.source_scopes,
-          failure_context: state.active_choicepoint.failure_context
-        }
-
-        %AL{
-          state
-          | active_choicepoint:
-              wake(
-                %AL.Choicepoint{
-                  goals: fresh_body,
-                  store: new_store,
-                  continuations: [continuation | state.active_choicepoint.continuations],
-                  done: [],
-                  scope_pointer: scope,
-                  source_scopes: state.active_choicepoint.source_scopes,
-                  suspensions: state.active_choicepoint.suspensions,
-                  failure_context: state.active_choicepoint.failure_context
-                },
-                [args]
-              ),
-            choicepoint_stack: [{:mark, scope} | state.choicepoint_stack]
-        }
-    end
-  end
-
-  # dif/isa violation vs plain mismatch: identical in the trace. diagnose_unify_failure/5
-  # re-derives which constraint fired (nil if none) for format_failure.
-  def interp(%Goal.Eq{a: a, b: b}, state) do
-    result = AL.Var.unify_value(a, b, store(state), state.branch)
-    state = record_constraint_violation(state, result, a, b)
-    put_bindings(state, result, [a, b])
-  end
-
-  # Prolog `==`: structural equality; never binds, so an unbound side fails.
-  def interp(%Goal.Equal{a: a, b: b}, state) do
-    if a == b do
+    state = %AL{
       state
-    else
-      backtrack(state)
-    end
+      | reductions: state.reductions + steps,
+        active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | store: AL.JAM.snapshot_store(snapshot),
+            goals: [{:resume, snapshot} | state.active_choicepoint.goals]
+        }
+    }
+
+    AL.JAM.Mutation.execute(operation, arguments, state)
   end
 
-  def interp(%Goal.Functor{term: term, name: name, args: args}, state) do
-    put_bindings(
-      state,
-      AL.Var.add_functor(store(state), term, name, args, state.branch),
-      [term, name, args]
-    )
+  defp apply_machine_result({:diagnostic, snapshot, choices, steps, diagnostic}, state) do
+    state = install_machine_choices(state, choices)
+
+    state = %AL{
+      state
+      | reductions: state.reductions + steps,
+        active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | store: AL.JAM.snapshot_store(snapshot)
+        }
+    }
+
+    state |> record_diagnostic(diagnostic) |> backtrack()
   end
 
-  def interp(%Goal.Compound{} = compound, state), do: interp(Goal.lower(compound), state)
+  defp apply_machine_result({:failed, snapshot, steps}, state) do
+    choice = state.active_choicepoint
 
-  def interp(%Goal.CopyTerm{term: term, copy: copy, goals: goals}, state) do
-    {copied, residual} = copy_term(term, state)
+    state = %AL{
+      state
+      | reductions: state.reductions + steps,
+        active_choicepoint: %AL.Choicepoint{choice | store: AL.JAM.snapshot_store(snapshot)}
+    }
 
-    put_bindings(
-      state,
-      AL.Var.unify_structural([copy, goals], [copied, residual], store(state), state.branch),
-      [copy, goals]
-    )
-  end
+    state =
+      case AL.JAM.failed_call(snapshot) do
+        {method, args} ->
+          call = {:clause_call, fresh_scope(), method, AL.Var.subst(args, store(state)), %{}}
+          record_failure_candidate(state, {:call, call})
 
-  def interp(%Goal.Variant{a: a, b: b}, state) do
-    if variant_renaming(a, b, {%{}, %{}}), do: state, else: backtrack(state)
-  end
-
-  def interp(%Goal.StringCodes{string: string, codes: codes} = goal, state) do
-    cond do
-      is_binary(string) and String.valid?(string) ->
-        put_bindings(state, unify(state, String.to_charlist(string), codes), [codes])
-
-      AL.Var.var?(string) ->
-        case code_list(codes, []) do
-          {:ok, list} -> put_bindings(state, unify(state, string, List.to_string(list)), [string])
-          {:open, var} -> suspend(state, [string, var], goal)
-          :error -> backtrack(state)
-        end
-
-      true ->
-        backtrack(state)
-    end
-  end
-
-  def interp(%Goal.AtomString{atom: atom, string: string} = goal, state) do
-    cond do
-      is_atom(atom) and not AL.Var.var?(atom) ->
-        put_bindings(state, unify(state, Atom.to_string(atom), string), [string])
-
-      AL.Var.var?(atom) and is_binary(string) and String.valid?(string) ->
-        put_bindings(state, unify(state, atom, String.to_atom(string)), [atom])
-
-      AL.Var.var?(atom) and AL.Var.var?(string) ->
-        suspend(state, [atom, string], goal)
-
-      true ->
-        backtrack(state)
-    end
-  end
-
-  def interp(%Goal.Atom{term: term}, state) do
-    if is_atom(term) and not AL.Var.var?(term), do: state, else: backtrack(state)
-  end
-
-  # Prolog dif/2. Ground -> resolve now. Else park on every var mentioned;
-  # AL.Var.bind/4 rechecks on each future bind.
-  def interp(%Goal.Dif{a: a, b: b}, state) do
-    store = store(state)
-
-    case AL.Var.unify(a, b, store, state.branch) do
-      nil ->
-        state
-
-      ^store ->
-        backtrack(state)
-
-      _unifiable ->
-        put_bindings(
-          state,
-          AL.Var.add_dif(store, AL.Var.subst(a, store), AL.Var.subst(b, store)),
-          []
-        )
-    end
-  end
-
-  # in_domain/2: "var must end up being one of these" — a real constraint
-  # (AL.Var.add_domain), narrows/intersects across repeated posts, checked at
-  # bind time thereafter (find_violation) — not a class with a :domain
-  # method. Ground var -> direct membership check, no constraint touched.
-  def interp(%Goal.InDomain{var: var, values: values}, state) do
-    if AL.Var.var?(var) do
-      {new_store, _narrowed} = AL.Var.add_domain(store(state), var, values)
-      {new_store, narrowed} = AL.Var.narrow_domain(new_store, var, state.branch)
-
-      cond do
-        MapSet.size(narrowed) == 0 ->
-          backtrack(state)
-
-        MapSet.size(narrowed) == 1 ->
-          [only] = MapSet.to_list(narrowed)
-
-          case AL.Var.bind(new_store, var, only, state.branch) do
-            nil -> backtrack(state)
-            bound_store -> put_bindings(state, bound_store, [var])
-          end
-
-        true ->
-          put_bindings(state, new_store, [])
+        nil ->
+          state
       end
-    else
-      if var in values do
-        state
-      else
-        record_diagnostic(state, {:domain_violated, var, values})
-        |> backtrack()
-      end
-    end
-  end
 
-  # `< > <= >= =` rely on constraint intervals (see AL.Var.Bounds).
-  def interp(%Goal.Compare{op: op, a: a, b: b}, state) do
-    store = store(state)
+    goal = resolve_goal(AL.JAM.failed_goal(snapshot), store(state))
 
-    case {AL.Var.Bounds.eval(a, store), AL.Var.Bounds.eval(b, store)} do
-      {x, y} when is_number(x) and is_number(y) ->
-        if compare(op, x, y), do: state, else: backtrack(state)
+    case goal do
+      %Goal.Eq{a: a, b: b} ->
+        state |> record_constraint_violation(a, b) |> backtrack()
+
+      %Goal.Send{object: object, method: method, args: args} ->
+        call = {:method_call, fresh_scope(), object, method, args, %{}}
+        state |> record_failure_candidate({:call, call}) |> backtrack()
 
       _ ->
-        case AL.Var.Bounds.add_compare(store, op, a, b, state.branch) do
-          nil -> backtrack(state)
-          new_store -> put_bindings(state, new_store, [a, b])
-        end
-    end
-  end
-
-  def interp(
-        %Goal.FloorDivide{dividend: dividend, divisor: divisor, quotient: quotient},
-        state
-      ) do
-    case AL.Var.Bounds.floor_divide(store(state), dividend, divisor, quotient, state.branch) do
-      nil -> backtrack(state)
-      new_store -> put_bindings(state, new_store, [dividend, divisor, quotient])
-    end
-  end
-
-  # `left or right` (CLP(FD) `#\/`) — a real disjunctive constraint held
-  # and propagated directly (AL.Var.Bounds.either/4), not `alternative`'s
-  # backtracking choicepoint: resolves by elimination once one side is
-  # provably infeasible, the other then applied for real.
-  def interp(
-        %Goal.Either{
-          left: %Goal.Compare{op: op1, a: a1, b: b1},
-          right: %Goal.Compare{op: op2, a: a2, b: b2}
-        },
-        state
-      ) do
-    case AL.Var.Bounds.either(store(state), {op1, a1, b1}, {op2, a2, b2}, state.branch) do
-      nil -> backtrack(state)
-      new_store -> put_bindings(state, new_store, [a1, b1, a2, b2])
-    end
-  end
-
-  def interp(%Goal.AllDif{vars: vars}, state) do
-    if is_list(vars) do
-      case AL.Var.AllDif.post(store(state), vars, state.branch) do
-        nil -> backtrack(state)
-        new_store -> put_bindings(state, new_store, vars)
-      end
-    else
-      backtrack(state)
-    end
-  end
-
-  # freeze/2: the goals run now if the variable is bound, and park on
-  # it otherwise; whoever binds it wakes them in place.
-  def interp(%Goal.Freeze{var: var, goals: goals}, state) do
-    choice = state.active_choicepoint
-
-    if AL.Var.var?(var) do
-      suspensions = Map.update(choice.suspensions, var, goals, &(&1 ++ goals))
-
-      %AL{state | active_choicepoint: %AL.Choicepoint{choice | suspensions: suspensions}}
-    else
-      %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, goals)}}
-    end
-  end
-
-  # Assert var is ground
-  def interp(%Goal.Ground{term: term}, state) do
-    if ground?(term) do
-      state
-    else
-      backtrack(state)
-    end
-  end
-
-  # CLP(FD) labeling
-  def interp(%Goal.Label{term: term}, state) do
-    store = store(state)
-
-    if not AL.Var.var?(term) do
-      state
-    else
-      case AL.Var.domain_of(store, term) do
-        nil ->
-          case AL.Var.Bounds.bounds_of(store, term) do
-            {lo, hi} when is_integer(lo) and is_integer(hi) ->
-              goal = %Goal.Send{object: lo, method: :between, args: [lo, hi, term]}
-              splice_and_run(state, [goal])
-
-            _ ->
-              label_from_link_or_isa(term, store, state)
-          end
-
-        domain ->
-          label_from_domain_constraint(term, domain, state)
-      end
-    end
-  end
-
-  # Ground's dual on leaves: succeeds only on an unbound variable.
-  def interp(%Goal.IsVar{term: term}, state) do
-    if AL.Var.var?(term) do
-      state
-    else
-      backtrack(state)
-    end
-  end
-
-  def interp(%Goal.Not{condition: condition}, state) do
-    case collect_all_solutions(
-           :not,
-           condition,
-           nil,
-           state.active_choicepoint.store,
-           state.tx_id,
-           state.branch,
-           state.active_choicepoint.source_scopes,
-           state.trace.flags
-         ) do
-      {:ok, [], trace_events} ->
-        merge_trace_events(state, trace_events)
-
-      {:ok, _, trace_events} ->
-        state |> merge_trace_events(trace_events) |> backtrack()
-
-      {:resource_limit_exceeded, trace_events} ->
-        state |> merge_trace_events(trace_events) |> resource_limit_abort()
-    end
-  end
-
-  def interp(%Goal.Fail{}, state) do
-    backtrack(state)
-  end
-
-  def interp(%Goal.Pass{}, state), do: state
-  def interp(%Goal.Comment{}, state), do: state
-
-  def interp(%Goal.Send{object: self, method: method, args: args}, state),
-    do: AL.Dispatch.dispatch(self, method, args, state, &AL.Dispatch.dnu(self, method, args, &1))
-
-  # Query re-dispatch: a miss is skipped, never escalated to `does_not_understand`
-  # (which may have side effects).
-  def interp(%Goal.SendQuery{object: self, method: method, args: args}, state),
-    do: AL.Dispatch.dispatch(self, method, args, state, &backtrack/1)
-
-  # Value dispatch leg: unify self directly against class's own clauses, no
-  # construction/retrieval. Sound only when clause heads fully spec an
-  # instance — not durable classes, which have real identity to retrieve.
-  def interp(
-        %Goal.SendAsValue{
-          class: class,
-          object: self,
-          method: method,
-          args: args,
-          method_scope: method_scope
-        },
-        state
-      ),
-      do: AL.Dispatch.do_send_as(class, self, method, args, method_scope, state, &backtrack/1)
-
-  # Run the next provider of the same selector, from this frame's cursor. No cursor
-  # (called outside a resolved method) or none left → fail.
-  # Reports against the *original* send's method_scope (carried in the
-  # cursor since AL.begin_method_scope/5 first opened it), not a fresh one
-  # -- this is still resolving the one original selector request, just
-  # explicitly asking for the next candidate rather than via backtracking.
-  # Not a strict Prolog Redo (nothing has necessarily Exited yet -- the
-  # calling clause is still mid-body), but the useful signal is the same:
-  # another provider is being tried under this method box.
-  def interp(%Goal.CallNextMethod{self: self, args: args}, state) do
-    case Map.get(state.call_cursors, state.active_choicepoint.scope_pointer) do
-      {_self, selector, remaining, method_scope} ->
-        state = trace_port_event(state, method_scope, :redo)
-        state = push_trace(state, {:method_redo, method_scope})
-        on_miss = fn s -> backtrack(fail_scope(s, method_scope, :method_fail)) end
-
-        AL.Dispatch.run_providers(
-          remaining,
-          self,
-          selector,
-          [self | args],
-          method_scope,
-          state,
-          on_miss
-        )
-
-      nil ->
         backtrack(state)
     end
   end
 
-  # unchanged interpreted-clause fallback for OApply -- extracted so
-  # AL.Native.dispatch/3 (checked first, see the OApply interp/2 clause
-  # above) can decline into exactly this, never a duplicated copy.
-  defp interp_oapply_clauses(method_id_pattern, bind_head_pattern, state) do
-    case unify_clauses(method_id_pattern, bind_head_pattern, state) do
-      {_scope, []} -> backtrack(state)
-      unified -> enter_clauses(method_id_pattern, bind_head_pattern, unified, state)
-    end
+  defp apply_machine_result({:waiting, pending, result}, state),
+    do: result |> apply_machine_result(state) |> import_machine_suspensions(pending)
+
+  defp apply_machine_result({kind, snapshot, choices, steps}, state)
+       when kind in [:suspend, :commit] and elem(snapshot, 6) != %{} do
+    {kind, AL.JAM.without_suspensions(snapshot), choices, steps}
+    |> apply_machine_result(state)
+    |> import_machine_suspensions(AL.JAM.pending(snapshot))
   end
 
-  @spec unify_clauses(term(), term(), t()) ::
-          {integer() | nil, [{tuple(), AL.Var.store() | nil}]}
-  def unify_clauses(method_id_pattern, bind_head_pattern, state) do
-    case prepared_clauses(method_id_pattern, state.branch) do
-      {[], _index} ->
-        {nil, []}
-
-      {clauses, index} ->
-        scope = fresh_scope()
-        freshener = Integer.to_string(scope)
-
-        clauses =
-          if is_nil(index),
-            do: clauses,
-            else: indexed_clauses(clauses, index, bind_head_pattern, state)
-
-        {scope,
-         Enum.map(clauses, fn {{:oapply, clause_id, _seq, _head, _body} = clause, match_head,
-                               match_plan} ->
-           {clause,
-            unify_prepared_head(
-              match_head,
-              clause_id,
-              bind_head_pattern,
-              method_id_pattern,
-              state,
-              freshener,
-              match_plan
-            )}
-         end)}
-    end
-  end
-
-  defp unify_prepared_head(
-         [:"$_"],
-         clause_id,
-         [_argument],
-         method_id_pattern,
-         state,
-         _freshener,
-         _match_plan
-       )
-       when clause_id == method_id_pattern,
-       do: state.active_choicepoint.store
-
-  defp unify_prepared_head(
-         _match_head,
-         clause_id,
-         bind_head_pattern,
-         method_id_pattern,
-         state,
-         freshener,
-         match_plan
-       )
-       when clause_id == method_id_pattern do
-    AL.Var.unify_fresh_prepared(
-      match_plan,
-      bind_head_pattern,
-      state.active_choicepoint.store,
-      state.branch,
-      freshener
-    )
-  end
-
-  defp unify_prepared_head(
-         match_head,
-         clause_id,
-         bind_head_pattern,
-         method_id_pattern,
-         state,
-         freshener,
-         _match_plan
-       ) do
-    AL.Var.unify_fresh(
-      {AL.Var.freshen(match_head, freshener), clause_id},
-      {bind_head_pattern, method_id_pattern},
-      state.active_choicepoint.store,
-      state.branch,
-      freshener
-    )
-  end
-
-  defp prepared_clauses(method_id_pattern, branch) do
-    prepare = fn ->
-      method_id_pattern
-      |> cached_scan_clauses(branch)
-      |> Enum.map(&prepare_clause/1)
-    end
-
-    if AL.Var.var?(method_id_pattern),
-      do: {prepare.(), nil},
-      else:
-        AL.ResolutionCache.fetch_prepared_oapply_clauses(branch, method_id_pattern, fn ->
-          clauses = prepare.()
-          {clauses, prepared_clause_index(clauses)}
-        end)
-  end
-
-  defp indexed_clauses(clauses, index, call, state) do
-    if trace_scopes?(state) do
-      clauses
-    else
-      case indexed_argument(call, index.position) do
-        {:ok, argument} ->
-          value = AL.Var.deref(state.active_choicepoint.store, argument)
-
-          if AL.Var.var?(value),
-            do: clauses,
-            else: Map.get(index.buckets, value, index.fallback)
-
-        :open ->
-          clauses
-      end
-    end
-  end
-
-  defp indexed_argument([argument | _rest], 0), do: {:ok, argument}
-  defp indexed_argument([_argument | rest], position), do: indexed_argument(rest, position - 1)
-  defp indexed_argument(_call, _position), do: :open
-
-  defp prepared_clause_index(clauses) when length(clauses) < 2, do: nil
-
-  defp prepared_clause_index(clauses) do
-    positions =
-      Enum.reduce(clauses, %{}, fn {_clause, head, _plan}, acc ->
-        Enum.reduce(literal_positions(head, 0, []), acc, fn {position, literal}, positions ->
-          Map.update(positions, position, %{literal => 1}, fn counts ->
-            Map.update(counts, literal, 1, &(&1 + 1))
-          end)
-        end)
-      end)
-
-    if map_size(positions) == 0 do
-      nil
-    else
-      {position, counts} =
-        Enum.max_by(positions, fn {position, counts} ->
-          {map_size(counts), Enum.sum(Map.values(counts)), -position}
-        end)
-
-      fallback =
-        Enum.filter(clauses, fn {_clause, head, _plan} ->
-          literal_at(head, position) == :none
-        end)
-
-      buckets =
-        Map.new(counts, fn {literal, _count} ->
-          candidates =
-            Enum.filter(clauses, fn {_clause, head, _plan} ->
-              case literal_at(head, position) do
-                {:literal, ^literal} -> true
-                :none -> true
-                _ -> false
-              end
-            end)
-
-          {literal, candidates}
-        end)
-
-      %{position: position, buckets: buckets, fallback: fallback}
-    end
-  end
-
-  defp literal_positions([argument | rest], position, acc) do
-    acc =
-      case literal_key(argument) do
-        {:literal, literal} -> [{position, literal} | acc]
-        :none -> acc
-      end
-
-    literal_positions(rest, position + 1, acc)
-  end
-
-  defp literal_positions(_tail, _position, acc), do: acc
-
-  defp literal_at([argument | _rest], 0), do: literal_key(argument)
-  defp literal_at([_argument | rest], position), do: literal_at(rest, position - 1)
-  defp literal_at(_head, _position), do: :none
-
-  defp literal_key([]), do: {:literal, []}
-
-  defp literal_key(value) when is_binary(value), do: {:literal, value}
-
-  defp literal_key(value) when is_atom(value),
-    do: if(AL.Var.var?(value), do: :none, else: {:literal, value})
-
-  defp literal_key(_value), do: :none
-
-  defp prepare_clause({:oapply, _id, _seq, head, body} = clause) do
-    body_vars = AL.Var.find_vars(body)
-
-    counts =
-      AL.Goal.reduce(head, %{}, fn leaf, acc ->
-        if leaf != :"$_" and AL.Var.var?(leaf),
-          do: Map.update(acc, leaf, 1, &(&1 + 1)),
-          else: acc
-      end)
-
-    dead =
-      MapSet.new(
-        for {variable, 1} <- counts, not MapSet.member?(body_vars, variable), do: variable
-      )
-
-    match_head =
-      if MapSet.size(dead) == 0,
-        do: head,
-        else:
-          AL.Goal.map(head, fn leaf -> if MapSet.member?(dead, leaf), do: :"$_", else: leaf end)
-
-    {clause, match_head, prepared_match_plan(match_head)}
-  end
-
-  defp prepared_match_plan(:"$_"), do: :wildcard
-
-  defp prepared_match_plan({:"$fresh", _base, _scope} = variable),
-    do: {:variable, variable}
-
-  defp prepared_match_plan([head | tail] = original),
-    do: {:cons, original, prepared_match_plan(head), prepared_match_plan(tail)}
-
-  defp prepared_match_plan(term) when is_tuple(term),
-    do:
-      {:tuple, term, tuple_size(term),
-       term |> Tuple.to_list() |> Enum.map(&prepared_match_plan/1)}
-
-  defp prepared_match_plan(term) when is_map(term), do: {:fallback, term}
-
-  defp prepared_match_plan(term) when is_atom(term),
-    do: if(AL.Var.var?(term), do: {:variable, term}, else: {:literal, term})
-
-  defp prepared_match_plan(term), do: {:literal, term}
-
-  @spec any_unified?({integer() | nil, [{tuple(), AL.Var.store() | nil}]}) :: boolean()
-  def any_unified?({_scope, unified}), do: Enum.any?(unified, fn {_clause, store} -> store end)
-
-  defp live_clauses(unified) do
-    case Enum.filter(unified, fn {_clause, store} -> store end) do
-      [] -> unified
-      live -> live
-    end
-  end
-
-  @spec enter_clauses(term(), term(), {integer(), [{tuple(), AL.Var.store() | nil}]}, t()) ::
-          t() | nil
-  def enter_clauses(
-        method_id_pattern,
-        bind_head_pattern,
-        {scope, [{{:oapply, _id, _seq, _head, []}, store}]} = unified,
-        state
-      )
-      when not is_nil(store) do
-    if not trace_scopes?(state) and state.active_choicepoint.suspensions == %{} do
-      choicepoint = %AL.Choicepoint{
-        state.active_choicepoint
-        | store: store,
-          scope_pointer: caller_scope_pointer(state),
-          clause: nil,
-          failure_context: caller_failure_context(state)
-      }
-
-      %AL{
-        state
-        | active_choicepoint: choicepoint,
-          call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
-          pending_cursor: nil,
-          choicepoint_stack: [{:mark, scope} | state.choicepoint_stack]
-      }
-    else
-      enter_clauses_general(method_id_pattern, bind_head_pattern, unified, state)
-    end
-  end
-
-  def enter_clauses(
-        method_id_pattern,
-        bind_head_pattern,
-        {scope, [_ | _] = candidates},
-        state
-      ) do
-    enter_clauses_general(method_id_pattern, bind_head_pattern, {scope, candidates}, state)
-  end
-
-  defp enter_clauses_general(
-         method_id_pattern,
-         bind_head_pattern,
-         {scope, [_ | _] = candidates},
-         state
-       ) do
-    freshener = Integer.to_string(scope)
-
-    [{{:oapply, _id, active_seq, _head, _body}, _store} | _] =
-      unified =
-      if trace_scopes?(state), do: candidates, else: live_clauses(candidates)
-
-    {call_receiver, call_args} =
-      case bind_head_pattern do
-        [r | rest] -> {r, rest}
-        other -> {other, []}
-      end
-
-    pre_store = state.active_choicepoint.store
-    parent = state.active_choicepoint.scope_pointer
-
-    continuation = %AL.Continuation{
-      goals: state.active_choicepoint.goals,
-      done: state.active_choicepoint.done,
-      scope_pointer: caller_scope_pointer(state),
-      source_scopes: state.active_choicepoint.source_scopes,
-      failure_context: caller_failure_context(state)
-    }
-
-    state =
-      enter_failure_scope(
-        state,
-        scope,
-        parent,
-        :clause,
-        {:clause_call, scope, method_id_pattern, bind_head_pattern, %{}}
-      )
-
-    state =
-      trace_port_call(state, :clause, scope, call_receiver, method_id_pattern, call_args)
-
-    state =
-      if trace_scopes?(state) do
-        open = open_positions(call_positions(call_receiver, call_args), pre_store)
-
-        state
-        |> push_trace(
-          {:clause_call, scope, method_id_pattern, bind_head_pattern,
-           describe_positions(open, pre_store)}
-        )
-        |> push_trace({:clause_chosen, scope, active_seq})
-        |> put_scope(scope, %{
-          parent: parent,
-          kind: :clause,
-          open_vars: open,
-          exited: false,
-          derived: nil
-        })
-      else
-        state
-      end
-
-    [active_choicepoint | alternative_choicepoints] =
-      Enum.map(unified, fn {{:oapply, _id, clause_seq, _head, clause_body}, store} ->
-        wake(
-          %AL.Choicepoint{
-            goals: AL.Var.freshen(clause_body, freshener),
-            store: store,
-            continuations: [continuation | state.active_choicepoint.continuations],
-            done: [],
-            scope_pointer: scope,
-            source_scopes: state.active_choicepoint.source_scopes,
-            suspensions: state.active_choicepoint.suspensions,
-            clause: clause_seq,
-            failure_context: state.active_choicepoint.failure_context
-          },
-          [{bind_head_pattern, method_id_pattern}]
-        )
-      end)
+  defp apply_machine_result({:forall, snapshot, choices, steps, solutions}, state) do
+    state = install_machine_choices(state, choices)
+    next = AL.JAM.forall_continuation(snapshot, solutions, visible_vars(state))
 
     %AL{
       state
-      | active_choicepoint: active_choicepoint,
-        call_cursors: record_cursor(state.call_cursors, scope, state.pending_cursor),
-        pending_cursor: nil,
-        choicepoint_stack: alternative_choicepoints ++ [{:mark, scope} | state.choicepoint_stack]
-    }
-  end
-
-  defp render_format(control, args) do
-    control
-    |> String.graphemes()
-    |> do_render_format(args, [])
-    |> Enum.reverse()
-    |> IO.iodata_to_binary()
-  end
-
-  defp do_render_format([], _args, acc), do: acc
-
-  defp do_render_format(["~", "a" | rest], [arg | args], acc),
-    do: do_render_format(rest, args, [format_aesthetic(arg) | acc])
-
-  defp do_render_format(["~", "d" | rest], [arg | args], acc),
-    do: do_render_format(rest, args, [format_decimal(arg) | acc])
-
-  defp do_render_format(["~", "%" | rest], args, acc),
-    do: do_render_format(rest, args, ["\n" | acc])
-
-  defp do_render_format(["~", "~" | rest], args, acc),
-    do: do_render_format(rest, args, ["~" | acc])
-
-  defp do_render_format([g | rest], args, acc), do: do_render_format(rest, args, [g | acc])
-
-  # `~o` needs AL.Dispatch (print_object is a real send), unreachable from a
-  # plain Elixir function the way format_aesthetic/format_decimal are -- this
-  # walk mirrors do_render_format/3 directive-by-directive, but instead of
-  # producing output it produces a rewritten control/args pair (every `~o`
-  # replaced by `~a`, its arg replaced by a fresh var) plus the print_object
-  # sends the caller must splice and resolve before re-running Format on the
-  # rewritten pair. See Goal.Format's interp clause above.
-  @spec plan_format(String.t(), [term()]) :: {String.t(), [term()], [{term(), AL.Var.t()}]}
-  defp plan_format(control, args) do
-    {control_acc, args_acc, pending_acc} =
-      do_plan_format(String.graphemes(control), args, [], [], [])
-
-    {
-      control_acc |> Enum.reverse() |> IO.iodata_to_binary(),
-      Enum.reverse(args_acc),
-      Enum.reverse(pending_acc)
-    }
-  end
-
-  defp do_plan_format([], _args, control_acc, args_acc, pending_acc),
-    do: {control_acc, args_acc, pending_acc}
-
-  defp do_plan_format(["~", "a" | rest], [arg | args], control_acc, args_acc, pending_acc),
-    do: do_plan_format(rest, args, ["~a" | control_acc], [arg | args_acc], pending_acc)
-
-  defp do_plan_format(["~", "d" | rest], [arg | args], control_acc, args_acc, pending_acc),
-    do: do_plan_format(rest, args, ["~d" | control_acc], [arg | args_acc], pending_acc)
-
-  defp do_plan_format(["~", "o" | rest], [arg | args], control_acc, args_acc, pending_acc) do
-    fresh_var = AL.Var.var("format_object_#{fresh_scope()}")
-
-    do_plan_format(
-      rest,
-      args,
-      ["~a" | control_acc],
-      [fresh_var | args_acc],
-      [{arg, fresh_var} | pending_acc]
-    )
-  end
-
-  defp do_plan_format(["~", "%" | rest], args, control_acc, args_acc, pending_acc),
-    do: do_plan_format(rest, args, ["~%" | control_acc], args_acc, pending_acc)
-
-  defp do_plan_format(["~", "~" | rest], args, control_acc, args_acc, pending_acc),
-    do: do_plan_format(rest, args, ["~~" | control_acc], args_acc, pending_acc)
-
-  defp do_plan_format([g | rest], args, control_acc, args_acc, pending_acc),
-    do: do_plan_format(rest, args, [g | control_acc], args_acc, pending_acc)
-
-  defp format_aesthetic(term) when is_binary(term), do: term
-  defp format_aesthetic(term), do: inspect(term)
-
-  defp format_decimal(term) when is_integer(term), do: Integer.to_string(term)
-  defp format_decimal(term), do: inspect(term)
-
-  defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
-
-  defp code_list([], codes), do: {:ok, Enum.reverse(codes)}
-
-  defp code_list([code | rest], codes) do
-    cond do
-      AL.Var.var?(code) -> {:open, code}
-      codepoint?(code) -> code_list(rest, [code | codes])
-      true -> :error
-    end
-  end
-
-  defp code_list(rest, _codes) do
-    if AL.Var.var?(rest), do: {:open, rest}, else: :error
-  end
-
-  defp codepoint?(code),
-    do: is_integer(code) and code in 0..0x10FFFF and code not in 0xD800..0xDFFF
-
-  defp pairs_map([], map), do: {:ok, map}
-
-  defp pairs_map([[key, value] | rest], map) do
-    cond do
-      not ground?(key) -> {:open, MapSet.to_list(AL.Var.find_vars(key))}
-      Map.has_key?(map, key) -> :error
-      true -> pairs_map(rest, Map.put(map, key, value))
-    end
-  end
-
-  defp pairs_map([pair | _rest], _map) do
-    if AL.Var.var?(pair), do: {:open, [pair]}, else: :error
-  end
-
-  defp pairs_map(tail, _map), do: if(AL.Var.var?(tail), do: {:open, [tail]}, else: :error)
-
-  defp suspend(state, vars, goal) do
-    choice = state.active_choicepoint
-
-    suspensions =
-      Enum.reduce(vars, choice.suspensions, fn var, suspensions ->
-        Map.update(suspensions, var, [goal], &(&1 ++ [goal]))
-      end)
-
-    %AL{state | active_choicepoint: %AL.Choicepoint{choice | suspensions: suspensions}}
-  end
-
-  defp variant_renaming(a, b, renaming) do
-    case {AL.Var.var?(a), AL.Var.var?(b)} do
-      {true, true} -> rename_variant(a, b, renaming)
-      {false, false} -> variant_structure(a, b, renaming)
-      _ -> nil
-    end
-  end
-
-  defp rename_variant(:"$_", _b, renaming), do: renaming
-  defp rename_variant(_a, :"$_", renaming), do: renaming
-
-  defp rename_variant(a, b, {forward, backward} = renaming) do
-    case {Map.fetch(forward, a), Map.fetch(backward, b)} do
-      {{:ok, ^b}, {:ok, ^a}} -> renaming
-      {:error, :error} -> {Map.put(forward, a, b), Map.put(backward, b, a)}
-      _ -> nil
-    end
-  end
-
-  defp variant_structure([ha | ta], [hb | tb], renaming) do
-    with renaming when not is_nil(renaming) <- variant_renaming(ha, hb, renaming) do
-      variant_renaming(ta, tb, renaming)
-    end
-  end
-
-  defp variant_structure(a, b, renaming)
-       when is_tuple(a) and is_tuple(b) and tuple_size(a) == tuple_size(b),
-       do: variant_renaming(Tuple.to_list(a), Tuple.to_list(b), renaming)
-
-  defp variant_structure(a, b, renaming)
-       when is_map(a) and is_map(b) and map_size(a) == map_size(b) do
-    if Enum.sort(Map.keys(a)) == Enum.sort(Map.keys(b)) do
-      Enum.reduce_while(Map.keys(a), renaming, fn key, renaming ->
-        case variant_renaming(Map.fetch!(a, key), Map.fetch!(b, key), renaming) do
-          nil -> {:halt, nil}
-          renaming -> {:cont, renaming}
-        end
-      end)
-    end
-  end
-
-  defp variant_structure(a, a, renaming), do: renaming
-  defp variant_structure(_a, _b, _renaming), do: nil
-
-  defp schedule_future_transaction(state, status, effect, head, goals) do
-    future = AL.Var.var("future_transaction_#{fresh_scope()}")
-
-    creation = %Goal.Send{
-      object: :future_transaction,
-      method: :new,
-      args: [
-        %{
-          effect: effect,
-          head: head,
-          goals: AL.Goal.to_stored(goals),
-          status: status
-        },
-        future
-      ]
-    }
-
-    %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{
+      | reductions: state.reductions + steps,
+        active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
-          | goals: splice_goals(state, [creation])
+          | store: AL.JAM.snapshot_store(snapshot),
+            goals: [{:resume, next} | state.active_choicepoint.goals]
         }
     }
+  end
+
+  defp apply_machine_result({:collect, snapshot, choices, steps, child, solutions}, state)
+       when elem(snapshot, 6) != %{} do
+    {:collect, AL.JAM.without_suspensions(snapshot), choices, steps, child, solutions}
+    |> apply_machine_result(state)
+    |> import_machine_suspensions(AL.JAM.pending(snapshot))
+  end
+
+  defp apply_machine_result({:collect, snapshot, choices, steps, child_result, solutions}, state) do
+    condition = AL.JAM.collection_condition(snapshot)
+
+    child = %AL{
+      active_choicepoint: %AL.Choicepoint{
+        goals: [],
+        scope_pointer: 0,
+        store: AL.JAM.snapshot_store(snapshot),
+        source_scopes: state.active_choicepoint.source_scopes
+      },
+      choicepoint_stack: [],
+      tx_id: state.tx_id,
+      branch: state.branch,
+      trace: AL.Trace.new(state.trace.flags),
+      program: condition
+    }
+
+    collected = do_collect(continue(apply_machine_result(child_result, child)), solutions)
+
+    state = install_machine_choices(state, choices)
+    state = %AL{state | reductions: state.reductions + steps}
+
+    case collected do
+      {:ok, solutions} ->
+        if AL.JAM.forall?(snapshot) do
+          apply_machine_result({:forall, snapshot, [], 0, solutions}, state)
+        else
+          {next, new_store} = AL.JAM.collection_continuation(snapshot, solutions, state.branch)
+
+          if is_nil(new_store) do
+            backtrack(state)
+          else
+            %AL{
+              state
+              | active_choicepoint: %AL.Choicepoint{
+                  state.active_choicepoint
+                  | store: new_store,
+                    goals: [{:resume, next} | state.active_choicepoint.goals]
+                }
+            }
+          end
+        end
+
+      :resource_limit_exceeded ->
+        resource_limit_abort(state)
+    end
+  end
+
+  defp apply_machine_result({:commit, snapshot, choices, steps}, state) do
+    state = install_machine_choices(state, choices)
+    [_mark | remaining] = Enum.drop_while(state.choicepoint_stack, &(&1 != :implies_mark))
+
+    %AL{
+      state
+      | reductions: state.reductions + steps,
+        choicepoint_stack: remaining,
+        active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | store: AL.JAM.snapshot_store(snapshot),
+            goals: [{:resume, snapshot} | state.active_choicepoint.goals]
+        }
+    }
+  end
+
+  defp apply_machine_result({:ok, store, steps}, state),
+    do: apply_machine_result({:answers, store, [], steps}, state)
+
+  defp apply_machine_result({:answers, store, choices, steps}, state) do
+    state = install_machine_choices(state, choices)
+
+    %AL{
+      state
+      | reductions: state.reductions + steps,
+        active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: store}
+    }
+  end
+
+  defp apply_machine_result({:suspend, snapshot, choices, steps}, state) do
+    state = install_machine_choices(state, choices)
+
+    %AL{
+      state
+      | reductions: state.reductions + steps,
+        active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | goals: [{:resume, snapshot} | state.active_choicepoint.goals],
+            store: AL.JAM.snapshot_store(snapshot)
+        }
+    }
+  end
+
+  defp install_machine_choices(state, choices) do
+    choices =
+      Enum.map(choices, fn
+        :implies_mark ->
+          :implies_mark
+
+        {:jam_cut, _} = mark ->
+          mark
+
+        {:trace_fail, :clause_fail, scope} ->
+          {:mark, scope}
+
+        {:trace_fail, :method_fail, scope} ->
+          {:method_mark, scope}
+
+        {:trace_alternative, scope, seq, nil} ->
+          %AL.Choicepoint{
+            state.active_choicepoint
+            | store: nil,
+              clause: seq,
+              scope_pointer: scope
+          }
+
+        {:trace_alternative, scope, seq, snapshot} ->
+          %AL.Choicepoint{machine_choice(state, snapshot) | clause: seq, scope_pointer: scope}
+
+        snapshot ->
+          machine_choice(state, snapshot)
+      end)
+
+    %AL{state | choicepoint_stack: choices ++ state.choicepoint_stack}
+  end
+
+  defp machine_choice(state, snapshot) do
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | goals: [
+          {:resume, AL.JAM.without_suspensions(snapshot)}
+          | state.active_choicepoint.goals
+        ],
+        store: AL.JAM.snapshot_store(snapshot),
+        clause: AL.JAM.Trace.seq_of(elem(snapshot, 0)),
+        scope_pointer:
+          AL.JAM.Trace.scope_of(elem(snapshot, 0)) || state.active_choicepoint.scope_pointer
+    }
+    |> import_choice_suspensions(AL.JAM.pending(snapshot))
+  end
+
+  defp import_machine_suspensions(nil, _pending), do: nil
+
+  defp import_machine_suspensions(state, pending),
+    do: %AL{
+      state
+      | active_choicepoint: import_choice_suspensions(state.active_choicepoint, pending)
+    }
+
+  defp import_choice_suspensions(choice, pending) do
+    suspensions =
+      Map.merge(choice.suspensions, pending, fn _key, a, b ->
+        a ++ b
+      end)
+
+    wake(%AL.Choicepoint{choice | suspensions: suspensions})
+  end
+
+  defp wake(%AL.Choicepoint{store: nil} = choice), do: choice
+
+  defp wake(choice) do
+    {suspensions, ready} = AL.JAM.Suspension.ready(choice.suspensions, choice.store)
+    woken = Enum.map(ready, &{:resume, AL.JAM.wake_frame(&1)})
+    %AL.Choicepoint{choice | suspensions: suspensions, goals: woken ++ choice.goals}
   end
 
   defp from_stored_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.from_stored/1)
   defp from_stored_body(body), do: body
 
   # Scan clauses with bodies lifted to structs, so stored form never enters the
-  # VM. `def`, not `defp` — `AL.Interp.Relations`'s `GetOapply` clause uses this too.
+  # VM. `def`, not `defp` — `AL.JAM.Relation`'s clause relation uses this too.
   def scan_clauses(object, seq, head, body, branch) do
     AL.Object.scan_oapply(object, seq, head, body, branch)
     |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
@@ -2492,133 +1178,7 @@ defmodule AL do
        ),
        do: observable_vars(otherwise, observable_vars(then, observable_vars(condition, acc)))
 
-  defp observable_vars(%Goal.Then{then: then}, acc), do: observable_vars(then, acc)
-
   defp observable_vars(goal, acc), do: AL.Var.find_vars(goal, acc)
-
-  defp copy_term(term, state) do
-    store = store(state)
-    suspensions = state.active_choicepoint.suspensions
-    resolved = AL.Var.subst(term, store)
-    {variables, goals} = residual_closure(store, suspensions, AL.Var.find_vars(resolved), [])
-    scope = Integer.to_string(fresh_scope())
-    rename = Map.new(variables, &{&1, AL.Var.fresh(&1, scope)})
-    {AL.Var.subst(resolved, rename), AL.Var.subst(goals, rename)}
-  end
-
-  defp residual_closure(store, suspensions, variables, goals) do
-    own = Enum.flat_map(variables, &constraint_goals(store, suspensions, &1))
-    {props, related} = AL.Var.Bounds.residual_constraints(store, MapSet.to_list(variables))
-
-    relations =
-      store
-      |> AL.Var.Bounds.summarize_residual_constraints(props, & &1)
-      |> Enum.flat_map(&relation_goals/1)
-
-    found = Enum.uniq(goals ++ AL.Var.subst(own ++ relations, store))
-
-    reached =
-      related |> MapSet.new() |> MapSet.union(AL.Var.find_vars(found)) |> MapSet.union(variables)
-
-    if MapSet.equal?(reached, variables),
-      do: {variables, found},
-      else: residual_closure(store, suspensions, reached, found)
-  end
-
-  defp constraint_goals(store, suspensions, variable) do
-    suspended = suspensions |> Map.get(variable, []) |> Enum.map(&as_compound/1)
-
-    case AL.Var.constraint_set(store, variable) do
-      nil -> suspended
-      set -> constraint_set_goals(variable, set) ++ suspended
-    end
-  end
-
-  defp as_compound(goal) do
-    case Goal.call_form(goal) do
-      {name, args} -> Goal.from_call_form(name, args)
-      nil -> goal
-    end
-  end
-
-  defp compound(name, args), do: Goal.from_call_form(name, args)
-
-  defp constraint_set_goals(variable, set) do
-    Enum.map(set.dif, fn {a, b} -> compound(:dif, [a, b]) end) ++
-      Enum.map(set.direct_class, &compound(:class, [variable, &1])) ++
-      isa_goals(variable, set) ++
-      bound_goals(variable, set.bounds) ++
-      domain_goals(variable, set.domain) ++
-      super_link_goals(variable, set.super_link) ++
-      Enum.map(set.slot_links, &slot_link_goal(variable, &1)) ++
-      Enum.map(set.keys, fn {key, value} -> compound(:map_get, [variable, key, value]) end) ++
-      functor_goals(variable, set.functor)
-  end
-
-  defp isa_goals(variable, set) do
-    set.isa
-    |> Enum.reject(&internal_relation_link?/1)
-    |> Enum.reject(&(&1 == :compound and set.functor != nil))
-    |> Enum.map(&compound(:isa, [variable, &1]))
-  end
-
-  defp bound_goals(variable, {lo, hi}) do
-    Enum.reject(
-      [lo && compound(:>=, [variable, lo]), hi && compound(:<=, [variable, hi])],
-      &is_nil/1
-    )
-  end
-
-  defp domain_goals(_variable, nil), do: []
-  defp domain_goals(variable, domain), do: [compound(:in_domain, [variable, Enum.sort(domain)])]
-
-  defp super_link_goals(_variable, nil), do: []
-  defp super_link_goals(variable, {:super, super}), do: [compound(:super, [variable, super])]
-  defp super_link_goals(variable, {:object, object}), do: [compound(:super, [object, variable])]
-
-  defp slot_link_goal(variable, {:slot, key, value}), do: compound(:slot, [variable, key, value])
-
-  defp slot_link_goal(variable, {:slot_value, key, object}),
-    do: compound(:slot, [object, key, variable])
-
-  defp functor_goals(_variable, nil), do: []
-  defp functor_goals(variable, {name, args}), do: [compound(:functor, [variable, name, args])]
-
-  defp relation_goals(%{op: op, terms: terms, value: value}) when op in [:=, :lt, :lte] do
-    operator = %{:= => :=, :lt => :<, :lte => :<=}[op]
-    [compound(operator, [linear_sum(terms), value])]
-  end
-
-  defp relation_goals(%{op: :either, alternatives: [left, right]}) do
-    case {relation_goals(left), relation_goals(right)} do
-      {[left_goal], [right_goal]} -> [compound(:or, [left_goal, right_goal])]
-      _ -> []
-    end
-  end
-
-  defp relation_goals(%{op: :all_dif, variables: variables}),
-    do: [compound(:all_dif, [variables])]
-
-  defp relation_goals(%{op: :product, left: left, right: right, product: product}),
-    do: [compound(:=, [product, compound(:*, [left, right])])]
-
-  defp relation_goals(%{op: :floor_divide} = relation),
-    do: [compound(:floor_divide, [relation.dividend, relation.divisor, relation.quotient])]
-
-  defp relation_goals(_relation), do: []
-
-  defp linear_sum(terms) do
-    terms
-    |> Enum.sort()
-    |> Enum.map(fn
-      {variable, 1} -> variable
-      {variable, coefficient} -> compound(:*, [coefficient, variable])
-    end)
-    |> case do
-      [] -> 0
-      [first | rest] -> Enum.reduce(rest, first, &compound(:+, [&2, &1]))
-    end
-  end
 
   # Prolog copy_term: rename unbound vars fresh, no internal scope names leak.
   # def not defp: GetOapply uses this too.
@@ -2632,96 +1192,25 @@ defmodule AL do
     AL.Var.subst(term, rename)
   end
 
-  defp collect_all_solutions(
-         kind,
-         condition,
-         output,
-         store,
-         tx_id,
-         branch,
-         source_scopes,
-         trace_flags
-       ) do
-    collection_scope = fresh_scope()
-
-    initial = %AL{
-      active_choicepoint: %AL.Choicepoint{
-        goals: condition,
-        store: store,
-        continuations: [],
-        done: [],
-        scope_pointer: 0,
-        source_scopes: source_scopes
-      },
-      choicepoint_stack: [],
-      tx_id: tx_id,
-      branch: branch,
-      trace: AL.Trace.new(trace_flags),
-      program: condition
-    }
-
-    do_collect(continue(initial), [], collection_scope, kind, condition, output)
-  end
-
   # store == nil: exhausted, or this sub-search's own reduction budget ran
   # out (e.g. open-ended findall/not) — resource_limited?/1 distinguishes,
   # reading the freshest diagnostic.
-  defp do_collect(state, acc, collection_scope, kind, condition, output) do
+  defp do_collect(state, acc) do
     cond do
       state.active_choicepoint.store != nil ->
-        state =
-          push_trace(
-            state,
-            :domino,
-            {:collection_solution, collection_scope, state.active_choicepoint.store}
-          )
-
-        new_acc = [state.active_choicepoint.store | acc]
+        acc = [state.active_choicepoint.store | acc]
 
         case state.choicepoint_stack do
-          [] ->
-            {:ok, Enum.reverse(new_acc),
-             finalized_collection_trace_events(state, collection_scope, kind, condition, output)}
-
-          _ ->
-            do_collect(backtrack(state), new_acc, collection_scope, kind, condition, output)
+          [] -> {:ok, Enum.reverse(acc)}
+          _ -> do_collect(backtrack(state), acc)
         end
 
       resource_limited?(state) ->
-        {:resource_limit_exceeded,
-         finalized_collection_trace_events(state, collection_scope, kind, condition, output)}
+        :resource_limit_exceeded
 
       true ->
-        {:ok, Enum.reverse(acc),
-         finalized_collection_trace_events(state, collection_scope, kind, condition, output)}
+        {:ok, Enum.reverse(acc)}
     end
-  end
-
-  defp finalized_trace_events(state), do: finalize_trace(state).trace.events
-
-  defp finalized_collection_trace_events(state, collection_scope, kind, condition, output) do
-    events = finalized_trace_events(state)
-
-    if domino_enabled?(state) do
-      end_event = %AL.Trace.Event{
-        kind: :domino,
-        payload: {:collection_end, collection_scope}
-      }
-
-      begin_event = %AL.Trace.Event{
-        kind: :domino,
-        payload: {:collection_begin, collection_scope, kind, condition, output}
-      }
-
-      [end_event | events] ++ [begin_event]
-    else
-      events
-    end
-  end
-
-  defp merge_trace_events(state, events) do
-    trace = %AL.Trace{state.trace | events: events ++ state.trace.events}
-    %AL{state | trace: trace}
   end
 
   defp resource_limited?(state),
@@ -2944,10 +1433,7 @@ defmodule AL do
         AL.Trace.pretty(failure)
 
       _ ->
-        case state.active_choicepoint.done do
-          [goal | _] -> AL.Trace.pretty(goal)
-          [] -> nil
-        end
+        nil
     end
   end
 
@@ -3001,7 +1487,7 @@ defmodule AL do
 
   # `trace.runtime.scopes` deliberately deletes a scope's bookkeeping the moment
   # it fails, to keep a long backtracking search's live state bounded (see
-  # `fail_scope/3`), and `AL.Trace.derivation_tree/1` does the same thing
+  # `AL.JAM.Trace.fail/2`), and `AL.Trace.derivation_tree/1` does the same thing
   # for the same reason (it's built to show the *successful* path) -- so
   # neither can answer "what actually failed." The retained event journal is
   # never pruned, so the lineage gets reconstructed from it directly: AL
@@ -3009,7 +1495,7 @@ defmodule AL do
   # child that was opened *last* is the one that was never superseded by
   # a later sibling -- walking that "last child" chain from the root down
   # to a leaf lands on the actual final call that failed, using nothing
-  # but data already in the trace, no interpreter-level marking needed.
+  # but data already in the trace, no machine-level marking needed.
   defp failing_lineage(raw_trace) do
     chronological = raw_trace |> Enum.reverse() |> AL.Trace.payloads()
 
@@ -3105,538 +1591,10 @@ defmodule AL do
   def fresh_scope(), do: System.unique_integer([:positive, :monotonic])
 
   defp visible_vars(%AL{active_choicepoint: choice}) do
-    frames = [
-      {tl(choice.done), choice.goals} | Enum.map(choice.continuations, &{&1.done, &1.goals})
-    ]
-
-    Enum.reduce(frames, MapSet.new(), fn {done, goals}, acc ->
-      AL.Var.find_vars({done, goals}, acc)
-    end)
+    AL.Var.find_vars(Enum.map(choice.goals, &raw_goal/1))
   end
 
-  defp observable_name(state, v) do
-    case state.active_choicepoint.done do
-      [%Goal.Label{term: written} | _] -> written
-      _ -> v
-    end
-  end
-
-  defp record_cursor(cursors, _scope, nil), do: cursors
-  defp record_cursor(cursors, scope, cursor), do: Map.put(cursors, scope, cursor)
-
-  # Domino tracing model: opens a method-level box (dispatch's own
-  # provider/candidate search) wrapping whichever clause-level box the
-  # chosen provider eventually spawns. Retagging the *current*
-  # active_choicepoint's scope_pointer here (rather than only tagging
-  # newly-built candidate choicepoints) is what makes every choicepoint
-  # dispatch subsequently builds inherit `scope` for free -- they're all
-  # struct-copies of `state.active_choicepoint` (see dispatch.ex's open
-  # provider candidate builders and selector enumeration),
-  # and the very next `OApply` (ground path) or candidate choicepoint (open
-  # receiver/selector path) captures this same value as its own parent link
-  # (`scope_parents`) either way -- no separate retagging pass needed in
-  # `AL.Dispatch` at all.
-  @spec begin_method_scope(t(), AL.Var.t(), AL.Var.t(), [AL.Var.t()], (t() -> t() | nil)) ::
-          {t(), scope(), (t() -> t() | nil)}
-  def begin_method_scope(state, self, method, args, on_miss) do
-    scope = fresh_scope()
-    parent = state.active_choicepoint.scope_pointer
-
-    state =
-      enter_failure_scope(
-        state,
-        scope,
-        parent,
-        :method,
-        {:method_call, scope, self, method, args, %{}}
-      )
-
-    state =
-      if trace_scopes?(state) do
-        state = trace_port_call(state, :method, scope, self, method, args)
-        store = state.active_choicepoint.store
-        open = open_positions(call_positions(self, args), store)
-
-        state
-        |> push_trace({:method_call, scope, self, method, args, describe_positions(open, store)})
-        |> put_scope(scope, %{
-          parent: parent,
-          kind: :method,
-          open_vars: open,
-          exited: false,
-          derived: nil
-        })
-      else
-        state
-      end
-
-    state = %AL{
-      state
-      | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: scope}
-    }
-
-    wrapped_miss = fn s -> on_miss.(fail_scope(s, scope, :method_fail)) end
-
-    {state, scope, wrapped_miss}
-  end
-
-  @spec wrap_clause_scope(t(), scope(), AL.Var.t(), AL.Var.t(), [AL.Var.t()], [AL.Goal.t()]) ::
-          {AL.Choicepoint.t(), t()}
-  def wrap_clause_scope(state, method_scope, receiver, method, args, goals) do
-    scope = fresh_scope()
-
-    continuation = %AL.Continuation{
-      goals: state.active_choicepoint.goals,
-      done: state.active_choicepoint.done,
-      scope_pointer: caller_scope_pointer(state),
-      source_scopes: state.active_choicepoint.source_scopes,
-      failure_context: caller_failure_context(state)
-    }
-
-    state =
-      enter_failure_scope(
-        state,
-        scope,
-        method_scope,
-        :clause,
-        {:clause_call, scope, method, [receiver | args], %{}}
-      )
-
-    state = trace_port_call(state, :clause, scope, receiver, method, args)
-
-    state =
-      if trace_scopes?(state) do
-        store = state.active_choicepoint.store
-        open = open_positions(call_positions(receiver, args), store)
-
-        state
-        |> push_trace(
-          {:clause_call, scope, method, [receiver | args], describe_positions(open, store)}
-        )
-        |> put_scope(scope, %{
-          parent: method_scope,
-          kind: :clause,
-          open_vars: open,
-          exited: false,
-          derived: nil
-        })
-      else
-        state
-      end
-
-    choicepoint = %AL.Choicepoint{
-      state.active_choicepoint
-      | goals: AL.splice_goals(state, goals),
-        continuations: [continuation | state.active_choicepoint.continuations],
-        done: [],
-        scope_pointer: scope
-    }
-
-    {choicepoint, state}
-  end
-
-  defp trace_port_call(state, level, scope, receiver, method, args) do
-    traced? =
-      MapSet.member?(state.trace.runtime.tracepoints, method) or
-        MapSet.member?(state.trace.runtime.tracepoints, receiver)
-
-    if traced? do
-      depth = length(state.active_choicepoint.continuations)
-      AL.Trace.call(level, depth, receiver, method, args)
-
-      runtime = %AL.Trace.Runtime{
-        state.trace.runtime
-        | traced_calls:
-            Map.put(state.trace.runtime.traced_calls, scope, {level, depth, receiver, method})
-      }
-
-      %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
-    else
-      state
-    end
-  end
-
-  defp trace_port_event(state, scope, kind) do
-    case Map.get(state.trace.runtime.traced_calls, scope) do
-      nil ->
-        state
-
-      {level, depth, receiver, method} ->
-        case kind do
-          :exit -> AL.Trace.exit(level, depth, receiver, method)
-          :redo -> AL.Trace.redo(level, depth, receiver, method)
-          :fail -> AL.Trace.fail(level, depth, receiver, method)
-        end
-
-        if kind == :fail do
-          runtime = %AL.Trace.Runtime{
-            state.trace.runtime
-            | traced_calls: Map.delete(state.trace.runtime.traced_calls, scope)
-          }
-
-          %AL{state | trace: %AL.Trace{state.trace | runtime: runtime}}
-        else
-          state
-        end
-    end
-  end
-
-  defp mark_exited(state, scope) do
-    case Map.get(state.trace.runtime.scopes, scope) do
-      nil ->
-        state
-
-      %{kind: kind, open_vars: open, exited: already_exited?} = info ->
-        tag = if kind == :method, do: :method_exit, else: :clause_exit
-        derived = describe_positions(open, state.active_choicepoint.store)
-
-        state =
-          if already_exited? do
-            put_scope(state, scope, %{info | derived: derived})
-          else
-            state = trace_port_event(state, scope, :exit)
-
-            state
-            |> push_trace({tag, scope, derived})
-            |> put_scope(scope, %{info | exited: true, derived: derived})
-          end
-
-        propagate_exit(state, scope)
-    end
-  end
-
-  defp finalize_trace(state) do
-    events =
-      if domino_enabled?(state) do
-        {events, _patched} =
-          Enum.map_reduce(state.trace.events, MapSet.new(), fn
-            %AL.Trace.Event{kind: :domino, payload: {tag, scope, _old}} = event, patched
-            when tag in [:method_exit, :clause_exit] ->
-              key = {tag, scope}
-
-              if MapSet.member?(patched, key) do
-                {event, patched}
-              else
-                case Map.get(state.trace.runtime.scopes, scope) do
-                  %{derived: derived} when not is_nil(derived) ->
-                    {%AL.Trace.Event{event | payload: {tag, scope, derived}},
-                     MapSet.put(patched, key)}
-
-                  _ ->
-                    {event, MapSet.put(patched, key)}
-                end
-              end
-
-            other, patched ->
-              {other, patched}
-          end)
-
-        events
-      else
-        state.trace.events
-      end
-
-    runtime =
-      if domino_enabled?(state),
-        do: state.trace.runtime,
-        else: %AL.Trace.Runtime{state.trace.runtime | scopes: %{}, traced_calls: %{}}
-
-    trace = %AL.Trace{state.trace | events: events, runtime: runtime}
-
-    %AL{state | trace: trace}
-  end
-
-  defp propagate_exit(state, scope) do
-    case Map.get(state.trace.runtime.scopes, scope) do
-      %{parent: parent} when parent != nil ->
-        case Map.get(state.trace.runtime.scopes, parent) do
-          %{kind: :method} -> mark_exited(state, parent)
-          _ -> state
-        end
-
-      _ ->
-        state
-    end
-  end
-
-  # Shared Fail cleanup for both port levels: `{:mark, f}`/`{:method_mark,
-  # f}` in backtrack/1, and a ground send's on_miss (wrapped by
-  # begin_method_scope/5) when no provider matches at all. Deletes the
-  # scope's bookkeeping entirely -- a long backtracking search would
-  # otherwise grow `trace.runtime.scopes` without limit. Restores
-  # active_choicepoint's scope_pointer to the failed scope's own parent when
-  # it's still the current one (true for the ground on_miss case, where
-  # nothing has retagged it since begin_method_scope set it; a no-op for the
-  # mark-popping cases, where active_choicepoint has already moved on to
-  # some other, unrelated failed attempt) -- otherwise a DNU redispatch
-  # right after would record its parent link against a scope that's already
-  # been deleted, breaking mark_exited/2's upward walk.
-  defp fail_scope(state, scope, tag) do
-    traced_parent =
-      case Map.get(state.trace.runtime.scopes, scope) do
-        nil -> nil
-        info -> info.parent
-      end
-
-    {state, failure_parent} = leave_failed_scope(state, scope)
-    parent = traced_parent || failure_parent
-
-    state = trace_port_event(state, scope, :fail)
-    state = state |> push_trace({tag, scope}) |> delete_scope(scope)
-
-    if parent != nil and state.active_choicepoint.scope_pointer == scope do
-      %AL{
-        state
-        | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | scope_pointer: parent}
-      }
-    else
-      state
-    end
-  end
-
-  defp compare(:<, x, y), do: x < y
-  defp compare(:>, x, y), do: x > y
-  defp compare(:<=, x, y), do: x <= y
-  defp compare(:>=, x, y), do: x >= y
-  defp compare(:=, x, y), do: x == y
-
-  # `super/2`'s two slots are the same domain (a superclass is still just a
-  # class), so unlike `class/2` there's no object/class asymmetry -- both
-  # slots just need *naming*, no construction. The pending link (posted by
-  # `AL.Interp.Relations.GetSuper`'s both-open branch) records which slot `v`
-  # occupies; splicing the same `GetSuper` goal again would just re-post the
-  # same pending state (`other` is still open too), so this does the real
-  # `AL.Object.scan_super` scan directly -- both patterns can be open,
-  # `to_mnesia_pattern` treats an open one as a wildcard -- and offers each
-  # real edge as a choicepoint, binding both `v` and `other` per row.
-  defp label_from_link_or_isa(v, store, state) do
-    if has_resolved_class_domain?(v, store) do
-      label_from_class_domain(v, store, state)
-    else
-      case AL.Var.super_link_of(store, v) do
-        nil ->
-          case AL.Var.slot_links_of(store, v) do
-            [] -> label_from_class_domain(v, store, state)
-            [link | _] -> label_from_slot_link(v, link, state)
-          end
-
-        link ->
-          label_from_super_link(v, link, state)
-      end
-    end
-  end
-
-  defp has_resolved_class_domain?(v, store) do
-    MapSet.size(AL.Var.direct_classes_of(store, v)) > 0 or
-      Enum.any?(AL.Var.isa_of(store, v), fn raw ->
-        resolved = AL.Var.deref(store, raw)
-        is_atom(resolved) and not AL.Var.var?(resolved)
-      end)
-  end
-
-  defp label_from_super_link(v, link, state) do
-    store = state.active_choicepoint.store
-
-    {object_var, super_var} =
-      case link do
-        {:super, other} -> {v, other}
-        {:object, other} -> {other, v}
-      end
-
-    # Deref before scanning -- either side may have been bound directly
-    # (e.g. a plain `unify`, bypassing `GetSuper` entirely) since the link
-    # was posted, and a since-resolved value must filter the scan, not be
-    # passed through as if still open (`to_mnesia_pattern` would otherwise
-    # treat the raw var as a wildcard regardless of what it's since become).
-    object_pattern = AL.Var.deref(store, object_var)
-    super_pattern = AL.Var.deref(store, super_var)
-    rows = AL.Object.scan_super(object_pattern, super_pattern, state.branch)
-
-    choicepoints =
-      if AL.Var.var?(object_pattern) and AL.Var.var?(super_pattern) do
-        distinct_link_witnesses(state, v, rows, fn {:super, object, _seq, super_class} ->
-          if v == object_var, do: object, else: super_class
-        end)
-      else
-        # One side is already concrete, so the scan above is already a
-        # targeted lookup, not a wide-open one -- bind both from each real
-        # row same as before.
-        Enum.map(rows, &super_edge_witness(state, object_var, super_var, &1))
-      end
-
-    choicepoints
-    |> Enum.reject(&(&1.store == nil))
-    |> case do
-      [] ->
-        backtrack(state)
-
-      [first | rest] ->
-        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
-    end
-  end
-
-  # Both sides of the link are still fully open: labeling `v` alone must
-  # not also pin the *other* side to whichever row happens to produce a
-  # given value first -- verified against genuine CLP(FD): a var derived
-  # via `element/3`-style relational propagation gets a domain that's
-  # already a deduplicated *set* (`fd_dom/2`), so `label/1` on it alone
-  # enumerates distinct values, not one solution per underlying fact. A
-  # raw table scan has no such domain, so this computes the set by hand
-  # (`Enum.uniq/1`) and offers one choicepoint per distinct value of `v`,
-  # leaving the other var's own link untouched for its own, separately
-  # resolvable labeling later -- which will then scan already filtered by
-  # whatever `v` resolved to, via the same deref-before-scan path above.
-  defp distinct_link_witnesses(state, v, rows, extract) do
-    rows
-    |> Enum.map(extract)
-    |> Enum.uniq()
-    |> Enum.map(fn value ->
-      new_store = AL.Var.unify(v, value, state.active_choicepoint.store, state.branch)
-      %AL.Choicepoint{state.active_choicepoint | store: new_store}
-    end)
-  end
-
-  defp super_edge_witness(state, object_var, super_var, {:super, object, _seq, super_class}) do
-    branch = state.branch
-
-    new_store =
-      case AL.Var.unify(object_var, object, state.active_choicepoint.store, branch) do
-        nil -> nil
-        store1 -> AL.Var.unify(super_var, super_class, store1, branch)
-      end
-
-    %AL.Choicepoint{state.active_choicepoint | store: new_store}
-  end
-
-  defp label_from_slot_link(v, link, state) do
-    store = state.active_choicepoint.store
-
-    {object_var, key, value_var} =
-      case link do
-        {:slot, key, other} -> {v, key, other}
-        {:slot_value, key, other} -> {other, key, v}
-      end
-
-    object_pattern = AL.Var.deref(store, object_var)
-    slots_scope = AL.Var.var("slot_link_scan_#{AL.fresh_scope()}")
-
-    rows =
-      object_pattern
-      |> AL.Object.scan_slots(slots_scope, state.branch)
-      |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.has_key?(m, key) end)
-
-    choicepoints =
-      if v == value_var and AL.Var.var?(object_pattern) do
-        distinct_link_witnesses(state, v, rows, fn {:slots, _object, m} -> Map.fetch!(m, key) end)
-      else
-        Enum.map(rows, &slot_edge_witness(state, object_var, value_var, key, &1))
-      end
-
-    choicepoints
-    |> Enum.reject(&(&1.store == nil))
-    |> case do
-      [] ->
-        backtrack(state)
-
-      [first | rest] ->
-        %AL{state | active_choicepoint: first, choicepoint_stack: rest ++ state.choicepoint_stack}
-    end
-  end
-
-  defp slot_edge_witness(state, object_var, value_var, key, {:slots, object, m}) do
-    branch = state.branch
-    value = Map.fetch!(m, key)
-
-    new_store =
-      case AL.Var.unify(object_var, object, state.active_choicepoint.store, branch) do
-        nil -> nil
-        store1 -> AL.Var.unify(value_var, value, store1, branch)
-      end
-
-    %AL.Choicepoint{state.active_choicepoint | store: new_store}
-  end
-
-  defp label_from_class_domain(v, store, state) do
-    case MapSet.to_list(AL.Var.direct_classes_of(store, v)) do
-      [] ->
-        label_from_isa_domain(v, store, state)
-
-      known_direct ->
-        {classes, pending_links} = partition_isa(known_direct, store)
-
-        choicepoints =
-          case classes do
-            [] -> AL.Label.object_choicepoints(state, v, :any, pending_links)
-            _ -> AL.Label.object_choicepoints(state, v, classes, pending_links)
-          end
-
-        AL.Label.install_choicepoints(state, choicepoints)
-    end
-  end
-
-  defp label_from_isa_domain(v, store, state) do
-    case MapSet.to_list(AL.Var.isa_of(store, v)) do
-      [] ->
-        backtrack(record_diagnostic(state, {:label_unconstrained, observable_name(state, v)}))
-
-      known_isa ->
-        choicepoints =
-          case Enum.find_value(known_isa, &object_link_target/1) do
-            nil ->
-              {classes, pending_links} = partition_isa(known_isa, store)
-
-              case classes do
-                [] ->
-                  AL.Label.object_choicepoints(state, v, :any, pending_links)
-
-                _ ->
-                  descendants =
-                    classes
-                    |> Enum.map(fn class ->
-                      MapSet.new(AL.Dispatch.MethodOrder.descendants_of(class, state.branch))
-                    end)
-                    |> Enum.reduce(&MapSet.intersection/2)
-                    |> MapSet.to_list()
-
-                  AL.Label.object_choicepoints(state, v, descendants)
-              end
-
-            {:class, object_var} ->
-              AL.Label.class_choicepoints(state, v, object_var, :class)
-
-            {:isa, object_var} ->
-              AL.Label.class_choicepoints(state, v, object_var, :isa)
-          end
-
-        AL.Label.install_choicepoints(state, choicepoints)
-    end
-  end
-
-  defp object_link_target({:object_link, obj}), do: {:class, obj}
-  defp object_link_target({:isa_object_link, obj}), do: {:isa, obj}
-  defp object_link_target(_), do: nil
-
-  defp partition_isa(known_isa, store) do
-    Enum.reduce(known_isa, {[], []}, fn raw, {classes, pending} ->
-      value = AL.Var.deref(store, raw)
-
-      if AL.Var.var?(value),
-        do: {classes, [value | pending]},
-        else: {[value | classes], pending}
-    end)
-  end
-
-  # A real in_domain/2 constraint, not a class -- no SendAsValue, no class
-  # lookup at all, just member/2 over the narrowed set directly.
-  defp label_from_domain_constraint(v, domain, state) do
-    goal = %Goal.Send{object: MapSet.to_list(domain), method: :member, args: [v]}
-    splice_and_run(state, [goal])
-  end
-
-  defp splice_and_run(state, goals) do
-    choice = state.active_choicepoint
-    %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: splice_goals(state, goals)}}
-  end
+  defp finalize_trace(state), do: %AL{state | trace: AL.JAM.Trace.finalize(state.trace)}
 end
 
 defimpl Inspect, for: AL do

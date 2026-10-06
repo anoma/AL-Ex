@@ -28,7 +28,6 @@ defmodule AL.Goal do
           | AL.Goal.SendAsync.t()
           | AL.Goal.SendElixir.t()
           | AL.Goal.EmitEffect.t()
-          | AL.Goal.Effect.t()
 
   @type instructions() ::
           AL.Goal.GetClass.t()
@@ -46,7 +45,6 @@ defmodule AL.Goal do
           | AL.Goal.Cut.t()
           | AL.Goal.Implies.t()
           | AL.Goal.Or.t()
-          | AL.Goal.Then.t()
           | AL.Goal.Forall.t()
           | AL.Goal.Findall.t()
           | AL.Goal.GetSlots.t()
@@ -76,11 +74,8 @@ defmodule AL.Goal do
           | AL.Goal.Freeze.t()
           | AL.Goal.Call.t()
           | AL.Goal.Send.t()
-          | AL.Goal.SendQuery.t()
-          | AL.Goal.SendAsValue.t()
           | AL.Goal.CallNextMethod.t()
           | AL.Goal.SourceScope.t()
-          | AL.Goal.SourceScopeExit.t()
           | AL.Goal.Fail.t()
           | AL.Goal.Pass.t()
           | AL.Goal.Comment.t()
@@ -161,13 +156,6 @@ defmodule AL.Goal do
     field(:provider, AL.Var.t())
     field(:operation, AL.Var.t())
     field(:arguments, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: Effect do
-    field(:provider, AL.Var.t())
-    field(:operation, AL.Var.t())
-    field(:arguments, AL.Var.t())
-    field(:effect, AL.Var.t())
   end
 
   # General Goals -----------------------------------
@@ -258,10 +246,6 @@ defmodule AL.Goal do
     field(:then, [AL.Goal.t()])
   end
 
-  typedstruct enforce: true, module: Then do
-    field(:then, [AL.Goal.t()])
-  end
-
   typedstruct enforce: true, module: Forall do
     field(:condition, [AL.Goal.t()])
     field(:body, [AL.Goal.t()])
@@ -287,7 +271,7 @@ defmodule AL.Goal do
   # posts that row's interval as `t`'s real `ConstraintSet.bounds`
   # (`AL.Var.add_bounds/3`) rather than returning inert data -- a still-open
   # `t` stays a live, further-narrowable CLP var, not a dead end. See
-  # `AL.Interp.Relations`'s handler and `AL.Object`'s `@relations` doc (no
+  # `AL.JAM.Relation`'s handler and `AL.Object`'s `@relations` doc (no
   # separate history table -- this reads straight off `slots`'s bag, both
   # open and closed rows).
   typedstruct enforce: true, module: GetSlotAt do
@@ -434,29 +418,9 @@ defmodule AL.Goal do
     field(:args, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: SendQuery do
-    field(:object, AL.Var.t())
-    field(:method, AL.Var.t())
-    field(:args, AL.Var.t())
-  end
-
-  # Internal, dispatch-only: try `class`'s own clauses against a possibly-unbound
-  # `object`, no construction/retrieval — see the "value" dispatch leg in dispatch/5.
-  typedstruct enforce: true, module: SendAsValue do
-    field(:class, AL.Var.t())
-    field(:object, AL.Var.t())
-    field(:method, AL.Var.t())
-    field(:args, AL.Var.t())
-    field(:method_scope, AL.scope())
-  end
-
   typedstruct enforce: true, module: SourceScope do
     field(:capture_id, term())
     field(:goals, [AL.Goal.t()])
-  end
-
-  typedstruct enforce: true, module: SourceScopeExit do
-    field(:capture_id, term())
   end
 
   typedstruct enforce: true, module: CallNextMethod do
@@ -526,7 +490,6 @@ defmodule AL.Goal do
     {SendElixir, :send_elixir, [pid: :term, message: :term]},
     {EmitEffect, :emit_effect,
      [effect: :term, provider: :term, operation: :term, arguments: :term]},
-    {Effect, :effect, [provider: :term, operation: :term, arguments: :term, effect: :term]},
     {GetClass, :get_class, [object: :term, class: :term]},
     {GetSuper, :get_super, [object: :term, super: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
@@ -539,7 +502,6 @@ defmodule AL.Goal do
     {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
-    {Then, :then, [then: :goals]},
     {Forall, :forall, [condition: :goals, body: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
@@ -572,7 +534,6 @@ defmodule AL.Goal do
     {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
-    {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
     {CallNextMethod, :call_next_method, [self: :term, args: :term]},
     {Comment, :comment, [text: :term]}
   ]
@@ -846,7 +807,6 @@ defmodule AL.Goal do
     if AL.Var.var?(capture_id), do: invalid_storable(goals), else: {scope, :concrete_source_scope}
   end
 
-  defp invalid_storable(%SourceScopeExit{} = exit), do: {exit, :source_scope_exit}
   defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
 
   defp invalid_storable({evaluation_ref, ordinal} = capture_id)

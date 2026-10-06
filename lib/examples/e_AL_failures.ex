@@ -270,4 +270,33 @@ defmodule Examples.ALFailures do
 
     :ok
   end
+
+  example dnu_resolution_tracks_handler_and_inheritance_changes() do
+    {:atomic, {bindings, _, _}} =
+      run branch: Examples.Support.branch() do
+        ~AL"""
+        @dnu_cache_parent #{super => value}.
+        @dnu_cache_child #{super => dnu_cache_parent}.
+        = Receiver #{class => dnu_cache_child}.
+        not {missing Receiver _}.
+        defmethod dnu_cache_parent does_not_understand [_Self, _Selector, [Answer]] {= Answer inherited}.
+        missing Receiver First.
+        defmethod dnu_cache_child does_not_understand [_Self, _Selector, [Answer]] {= Answer own}.
+        missing Receiver Second.
+        vm_retract_method dnu_cache_child does_not_understand _.
+        missing Receiver Third.
+        @dnu_cache_child #{super => value}.
+        not {missing Receiver _}.
+        @dnu_cache_child #{super => dnu_cache_parent}.
+        missing Receiver Fourth.
+        """
+      end
+
+    assert Map.take(bindings, [:"$First", :"$Second", :"$Third", :"$Fourth"]) == %{
+             :"$First" => :inherited,
+             :"$Second" => :own,
+             :"$Third" => :inherited,
+             :"$Fourth" => :inherited
+           }
+  end
 end

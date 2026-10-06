@@ -1,6 +1,24 @@
 defmodule AL.ClauseIndexTest do
   use ExUnit.Case, async: false
 
+  defp sequences(class, selector, call, store \\ %{}) do
+    {:atomic, sequences} =
+      :mnesia.transaction(fn ->
+        AL.ResolutionCache.with_transaction_cache(fn ->
+          [{:method, ^class, ^selector, id}] =
+            AL.Object.scan_method(class, selector, :"$Id", AL.Branch.head())
+
+          {clauses, index} = AL.JAM.Compiler.fetch_method(id, AL.Branch.head())
+
+          clauses
+          |> AL.ClauseIndex.select(index, call, store)
+          |> Enum.map(fn {{_id, sequence, _head, _operand}, _, _, _, _, _} -> sequence end)
+        end)
+      end)
+
+    sequences
+  end
+
   test "ground calls select compatible clauses in source order and open calls keep all" do
     {:atomic, _} =
       AL.eval_source(~S"""
@@ -22,51 +40,14 @@ defmodule AL.ClauseIndexTest do
       | _Self 2 |.
       """)
 
-    state = %AL{
-      active_choicepoint: %AL.Choicepoint{
-        goals: [],
-        done: [],
-        store: %{},
-        continuations: [],
-        scope_pointer: 0
-      },
-      tx_id: 0,
-      program: []
-    }
-
-    {:atomic, {all, red, blue, green, numeric_match?}} =
-      :mnesia.transaction(fn ->
-        AL.ResolutionCache.with_transaction_cache(fn ->
-          [{:method, :clause_index_probe, :pick, id}] =
-            AL.Object.scan_method(:clause_index_probe, :pick, :"$Id", AL.Branch.head())
-
-          sequences = fn color ->
-            {_scope, candidates} =
-              AL.unify_clauses(id, [:receiver, color, :fallback], state)
-
-            Enum.map(candidates, fn {{:oapply, _id, sequence, _head, _body}, _store} ->
-              sequence
-            end)
-          end
-
-          [{:method, :clause_index_probe, :numeric, numeric_id}] =
-            AL.Object.scan_method(:clause_index_probe, :numeric, :"$Id", AL.Branch.head())
-
-          numeric_match? =
-            numeric_id
-            |> AL.unify_clauses([:receiver, 1.0], state)
-            |> AL.any_unified?()
-
-          {sequences.(:"$Color"), sequences.(:red), sequences.(:blue), sequences.(:green),
-           numeric_match?}
-        end)
-      end)
+    pick = &sequences(:clause_index_probe, :pick, [:receiver, &1, :fallback])
+    all = pick.(:"$Color")
 
     assert length(all) == 3
-    assert red == [Enum.at(all, 0), Enum.at(all, 2)]
-    assert blue == [Enum.at(all, 1), Enum.at(all, 2)]
-    assert green == [Enum.at(all, 2)]
-    assert numeric_match?
+    assert pick.(:red) == [Enum.at(all, 0), Enum.at(all, 2)]
+    assert pick.(:blue) == [Enum.at(all, 1), Enum.at(all, 2)]
+    assert pick.(:green) == [Enum.at(all, 2)]
+    assert sequences(:clause_index_probe, :numeric, [:receiver, 1.0]) != []
 
     {:atomic, _} =
       AL.eval_source(~S"""
@@ -77,19 +58,31 @@ defmodule AL.ClauseIndexTest do
       | _Self yellow _Value |.
       """)
 
-    {:atomic, {green_after, red_after}} =
-      :mnesia.transaction(fn ->
-        AL.ResolutionCache.with_transaction_cache(fn ->
-          [{:method, :clause_index_probe, :pick, id}] =
-            AL.Object.scan_method(:clause_index_probe, :pick, :"$Id", AL.Branch.head())
+    assert length(pick.(:green)) == 1
+    assert pick.(:red) == []
+  end
 
-          green_after = AL.unify_clauses(id, [:receiver, :green, :fallback], state)
-          red_after = AL.unify_clauses(id, [:receiver, :red, :fallback], state)
-          {green_after, red_after}
-        end)
-      end)
+  test "list shape selects clauses while an open argument keeps both shapes" do
+    {:atomic, _} =
+      AL.eval_source(~S"""
+      @clause_shape_probe #{super => object}.
 
-    assert length(elem(green_after, 1)) == 1
-    assert elem(red_after, 1) == []
+      clause_shape_probe >> choose
+      | _Self [] red |.
+
+      clause_shape_probe >> choose
+      | _Self [_Head . _Tail] blue |.
+
+      clause_shape_probe >> choose
+      | _Self [_Head . _Tail] green |.
+      """)
+
+    choose = &sequences(:clause_shape_probe, :choose, [:receiver, &1, :"$Color"], &2)
+    open = choose.(:"$Input", %{})
+
+    assert length(open) == 3
+    assert choose.([], %{}) == [hd(open)]
+    assert choose.([1], %{}) == tl(open)
+    assert choose.(:"$Input", %{:"$Input" => [1]}) == tl(open)
   end
 end

@@ -6,8 +6,10 @@ parse bnf_syntax (document Rules) Text.
 grammar >> bnf
 | Self Start Text |
 bnf_rules Self All,
-reachable Self All [Start] [] Names,
-findall (rule Name Alternatives) Rules {member All (rule Name Alternatives), member Names Name},
+findall [Name, Alternatives] RulePairs (member All (rule Name Alternatives)),
+map_pairs Index RulePairs,
+reachable_indexed Self Index [Start] #{} Reachable,
+findall (rule Name Alternatives) Rules {member All (rule Name Alternatives), get Reachable Name true},
 parse bnf_syntax (document Rules) Text.
 
 grammar >> write_bnf
@@ -25,6 +27,13 @@ grammar >> reachable
 | Self Rules [Name . Names] Seen Reached |
 member Seen Name -> reachable Self Rules Names Seen Reached ; {referenced Self Rules Name Referenced, concat Names Referenced Next, concat Seen [Name] Marked, reachable Self Rules Next Marked Reached}.
 
+grammar >> reachable_indexed
+| _Self _Index [] Seen Seen |.
+
+grammar >> reachable_indexed
+| Self Index [Name . Names] Seen Reached |
+get Seen Name true -> reachable_indexed Self Index Names Seen Reached ; {get Index Name [] Alternatives, findall Other Referenced {member Alternatives Alternative, member Alternative Item, = Item (nonterminal Other) ; = Item (repeat (nonterminal Other))}, concat Referenced Names Next, put Seen Name true Marked, reachable_indexed Self Index Next Marked Reached}.
+
 grammar >> referenced
 | _Self Rules Name Referenced |
 findall Other Referenced {member Rules (rule Name Alternatives), member Alternatives Alternative, member Alternative Item, = Item (nonterminal Other) ; = Item (repeat (nonterminal Other))}.
@@ -33,7 +42,7 @@ grammar >> bnf_rules
 | Self Rules |
 precedence Self Order,
 findall Name Names {member Order Class, class Class grammar, dif Class syntax, method Class Name _},
-distinct Self Names [] Unique,
+ground Names -> distinct_ground Self Names Unique ; distinct Self Names [] Unique,
 rules_for Self Order Unique Rules.
 
 grammar >> distinct
@@ -43,13 +52,24 @@ grammar >> distinct
 | Self [Item . Items] Seen Unique |
 member Seen Item -> distinct Self Items Seen Unique ; {concat Seen [Item] Next, distinct Self Items Next Unique}.
 
+grammar >> distinct_ground
+| Self Items Unique |
+distinct_ground_items Self Items [] Unique [].
+
+grammar >> distinct_ground_items
+| _Self [] _Seen Tail Tail |.
+
+grammar >> distinct_ground_items
+| Self [Item . Items] Seen Unique Tail |
+member Seen Item -> distinct_ground_items Self Items Seen Unique Tail ; {= Unique [Item . Rest], distinct_ground_items Self Items [Item . Seen] Rest Tail}.
+
 grammar >> rules_for
 | _Self _Order [] [] |.
 
 grammar >> rules_for
 | Self Order [Name . Names] [(rule Name Alternatives) . Rules] |
 alternatives Self Order Name All,
-distinct Self All [] Alternatives,
+ground All -> distinct_ground Self All Alternatives ; distinct Self All [] Alternatives,
 rules_for Self Order Names Rules.
 
 grammar >> alternatives
@@ -63,8 +83,10 @@ grammar >> bodies_alternatives
 | _Self _Classes _Name [] [] |.
 
 grammar >> bodies_alternatives
-| Self Classes Name [[[Receiver . _Arguments], Body] . Clauses] Alternatives |
-body_items Self Receiver Body Items,
+| Self Classes Name [[[Receiver, Input . _Arguments], Body] . Clauses] Alternatives |
+terminal_items Self Input Prefix,
+body_items Self Receiver Body BodyItems,
+concat Prefix BodyItems Items,
 member Items written -> = Expanded [] ; findall Alternative Expanded {splice Self Classes Name Items Alternative},
 bodies_alternatives Self Classes Name Clauses Others,
 concat Expanded Others Alternatives.

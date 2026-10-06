@@ -16,10 +16,11 @@ defmodule Examples.ALTransactions do
   end
 
   example total_failure_aborts_transaction() do
-    {:aborted, _trace} = AL.eval([%AL.Goal.Fail{}])
+    branch = %AL.Branch{id: Examples.Support.branch()}
+    {:aborted, _trace} = AL.eval([%AL.Goal.Fail{}], nil, branch)
 
     {:aborted, _trace} =
-      AL.eval([%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: :"$x"}])
+      AL.eval([%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: :"$x"}], nil, branch)
 
     :ok
   end

@@ -46,4 +46,68 @@ defmodule Examples.ALBootstrap do
 
     :ok
   end
+
+  example projection_reads_preserve_query_variables_versions_and_branches() do
+    branch = AL.Branch.fork()
+
+    try do
+      {:atomic, _} =
+        AL.eval_source(
+          ~S"""
+          @projection_read_probe #{super => object}.
+          projection_read_probe >> value
+          | _Self red |.
+          projection_read_probe >> value
+          | _Self blue |.
+          vm_set_method projection_read_probe same same.
+          """,
+          branch
+        )
+
+      {:atomic, id} =
+        :mnesia.transaction(fn ->
+          [{:method, :projection_read_probe, :value, id}] =
+            AL.Object.scan_method(:projection_read_probe, :value, :"$Id", branch)
+
+          methods = AL.Object.scan_method(:"$Owner", :"$Name", :"$Id", branch)
+          assert {:method, :projection_read_probe, :value, id} in methods
+
+          assert AL.Object.scan_method(:projection_read_probe, :"$Same", :"$Same", branch) ==
+                   [{:method, :projection_read_probe, :same, :same}]
+
+          assert AL.Object.scan_method(:projection_read_probe, :"$tx_from", :"$seq", branch) ==
+                   Enum.filter(methods, &(elem(&1, 1) == :projection_read_probe))
+
+          clauses = AL.Object.scan_oapply(id, :"$Seq", :"$Head", :"$Body", branch)
+          assert length(clauses) == 2
+          assert clauses == AL.Object.scan_oapply(id, :"$_", :"$_", :"$_", branch)
+          assert AL.Object.scan_oapply(id, :"$Seq", :"$Same", :"$Same", branch) == []
+          assert AL.Object.scan_method(:projection_read_probe, :value, :"$Id") == []
+          id
+        end)
+
+      {:atomic, _} =
+        AL.eval_source(
+          ~S"""
+          projection_read_probe >> value
+          | _Self green |.
+          """,
+          branch
+        )
+
+      {:atomic, _} =
+        :mnesia.transaction(fn ->
+          [{:method, :projection_read_probe, :value, ^id}] =
+            AL.Object.scan_method(:projection_read_probe, :value, :"$Id", branch)
+
+          [{:oapply, ^id, _, [_self, :green], []}] =
+            AL.Object.scan_oapply(id, :"$Seq", :"$Head", :"$Body", branch)
+
+          assert length(AL.Object.scan_oapply_history(id, :"$Seq", :"$Head", :"$Body", branch)) ==
+                   3
+        end)
+    after
+      AL.Branch.discard(branch)
+    end
+  end
 end

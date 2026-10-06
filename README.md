@@ -137,3 +137,12 @@ Metacello new
 	baseline: 'AL';
 	load: #dev
 ```
+
+The standalone allocation benchmark constructs durable objects and value objects
+with the same payload, retaining and checking every result. Startup and branch
+setup are outside the timer:
+
+```sh
+mix run --no-start bench/allocations.exs
+AL_ALLOCATION_COUNT=10000 mix run --no-start bench/allocations.exs
+```
