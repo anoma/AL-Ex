@@ -15,7 +15,6 @@ defmodule AL.Application do
     children = [
       AL.Events,
       AL.Outbox.supervisor_spec(),
-      AL.Serialisation.supervisor_spec(),
       AL.Native.Registry,
       AL.Edge.Registry,
       AL.Edge.File,
@@ -37,8 +36,6 @@ defmodule AL.Application do
         do: AL.Branch.ensure_examples(),
         else: AL.Branch.reset_examples_to(:tip)
     end
-
-    AL.Serialisation.start_all()
 
     {:ok, pid}
   end

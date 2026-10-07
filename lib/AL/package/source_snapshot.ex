@@ -1,7 +1,7 @@
 defmodule AL.Package.SourceSnapshot do
   @moduledoc "I represent the current live source of one active package build."
 
-  alias AL.Serialisation.Document
+  alias AL.Definition.Document
 
   @enforce_keys [:package, :build, :provider, :documents]
   defstruct [:package, :build, :provider, :documents]

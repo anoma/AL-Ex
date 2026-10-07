@@ -1,4 +1,4 @@
-defmodule AL.Serialisation.Document.Method do
+defmodule AL.Definition.Document.Method do
   @moduledoc "One ordered AL method clause as authored declaration and body text."
 
   @enforce_keys [:selector, :declaration, :body]
@@ -11,7 +11,7 @@ defmodule AL.Serialisation.Document.Method do
         }
 end
 
-defmodule AL.Serialisation.Document do
+defmodule AL.Definition.Document do
   @moduledoc ~S"""
   Encodes one AL definition owner as an AL source file.
 
@@ -21,7 +21,7 @@ defmodule AL.Serialisation.Document do
   body text. Clause order is file order.
   """
 
-  alias AL.Serialisation.Document.Method
+  alias AL.Definition.Document.Method
 
   @enforce_keys [:kind, :owner, :metaclass, :supers, :ivars, :comment, :methods]
   defstruct [:kind, :owner, :metaclass, :supers, :ivars, :comment, :methods]

@@ -159,7 +159,6 @@ defmodule AL.Branch do
 
     register(branch, from)
     AL.Outbox.start(branch)
-    AL.Serialisation.start(branch)
     branch
   end
 
@@ -172,7 +171,6 @@ defmodule AL.Branch do
   end
 
   defp drop(branch) do
-    AL.Serialisation.stop(branch)
     AL.Outbox.stop(branch)
     AL.Object.drop_tables(branch)
     AL.ResolutionCache.drop_tables(branch)

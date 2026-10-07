@@ -20,7 +20,6 @@ config :logger,
   level: :error
 
 config :al,
-  serialisation_dir: nil,
   create_examples_branch: false
 
 config :al, AL.MCP, enabled: false

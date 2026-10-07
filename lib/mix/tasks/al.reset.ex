@@ -4,9 +4,8 @@ defmodule Mix.Tasks.Al.Reset do
   @shortdoc "Wipes the local Mnesia store (.mnesiastore/) so boot reinstalls every transaction program fresh"
 
   @moduledoc """
-  Deletes #{AL.Command.mnesia_dir()} and the configured AL serialisation tree,
-  the disposable state shared by every `mix run`/`mix test` in this checkout.
-  Both are rebuilt from scratch on next boot.
+  Deletes #{AL.Command.mnesia_dir()}, the runtime state shared by every
+  `mix run`/`mix test` in this checkout. It is rebuilt on next boot.
 
   This is a genuinely destructive, process-wide reset — it takes out `:main`
   *and every fork*, including any other node's, not just yours. Prefer
@@ -27,8 +26,7 @@ defmodule Mix.Tasks.Al.Reset do
   def run(args) do
     {opts, _rest} = OptionParser.parse!(args, aliases: [y: :yes], strict: [yes: :boolean])
     dir = AL.Command.mnesia_dir()
-    serialisation_dir = AL.Serialisation.configured_root()
-    paths = [dir, serialisation_dir] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    paths = [dir]
     existing = Enum.filter(paths, &File.exists?/1)
 
     cond do

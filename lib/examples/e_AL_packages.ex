@@ -56,7 +56,7 @@ defmodule Examples.ALPackages do
                  AL.TransactionProgram.load(:package_system)
                ])
 
-      assert {:ok, before} = AL.Serialisation.Snapshot.capture(branch)
+      assert {:ok, before} = AL.Definition.Snapshot.capture(branch)
 
       assert {:ok, catalog} =
                AL.Package.discover(AL.Package.configured_channels(), branch: branch)
@@ -84,7 +84,7 @@ defmodule Examples.ALPackages do
       assert {:ok, empty_plan} = AL.Package.resolve(catalog, [], branch: branch)
       assert {:ok, empty} = AL.Package.realise(empty_plan, branch: branch)
       assert {:ok, _} = AL.Package.activate(empty, branch: branch, replace: true)
-      assert {:ok, after_removal} = AL.Serialisation.Snapshot.capture(branch)
+      assert {:ok, after_removal} = AL.Definition.Snapshot.capture(branch)
       assert after_removal.documents[:number] == before.documents[:number]
       assert after_removal.documents[:list] == before.documents[:list]
       refute Map.has_key?(after_removal.documents, :card)
@@ -220,7 +220,7 @@ defmodule Examples.ALPackages do
                AL.Package.manifest(root)
 
       definition = File.read!(Path.join(root, "definitions/handmade_value.class.al"))
-      assert {:ok, document} = AL.Serialisation.Document.parse(definition)
+      assert {:ok, document} = AL.Definition.Document.parse(definition)
       assert document.owner == :handmade_value
       assert document.supers == [:object]
       assert Enum.map(document.methods, & &1.selector) == [:value]
@@ -341,7 +341,7 @@ defmodule Examples.ALPackages do
                core_export
                |> Path.join("definitions/composable_widget.class.al")
                |> File.read!()
-               |> AL.Serialisation.Document.parse()
+               |> AL.Definition.Document.parse()
 
       assert core_document.kind == :class
       assert core_document.supers == [:object]
@@ -350,7 +350,7 @@ defmodule Examples.ALPackages do
                rendering_export
                |> Path.join("definitions/composable_widget.extension.al")
                |> File.read!()
-               |> AL.Serialisation.Document.parse()
+               |> AL.Definition.Document.parse()
 
       assert extension_document.kind == :extension
       assert extension_document.supers == [:renderable]
@@ -423,7 +423,7 @@ defmodule Examples.ALPackages do
       assert Enum.sort(exported_definitions) == [:owned, :user]
 
       user_source = File.read!(Path.join(root, "definitions/user.class.al"))
-      assert {:ok, user_document} = AL.Serialisation.Document.parse(user_source)
+      assert {:ok, user_document} = AL.Definition.Document.parse(user_source)
       assert Enum.any?(user_document.methods, &(&1.selector == :blah))
 
       :ok

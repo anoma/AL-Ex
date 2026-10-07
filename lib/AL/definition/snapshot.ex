@@ -1,4 +1,4 @@
-defmodule AL.Serialisation.Snapshot do
+defmodule AL.Definition.Snapshot do
   @moduledoc """
   A consistent snapshot of AL definitions on one branch, as definition documents.
 
@@ -7,8 +7,8 @@ defmodule AL.Serialisation.Snapshot do
   tables at install time, never carried here or in a file.
   """
 
-  alias AL.Serialisation.Document
-  alias AL.Serialisation.Document.Method
+  alias AL.Definition.Document
+  alias AL.Definition.Document.Method
 
   @enforce_keys [:documents]
   defstruct [:documents]
@@ -28,9 +28,9 @@ defmodule AL.Serialisation.Snapshot do
   def capture_in_transaction(branch) do
     bindings =
       AL.Object.scan_open_method_versions(
-        AL.Var.var("serialisation_snapshot_owner"),
-        AL.Var.var("serialisation_snapshot_selector"),
-        AL.Var.var("serialisation_snapshot_method"),
+        AL.Var.var("definition_snapshot_owner"),
+        AL.Var.var("definition_snapshot_selector"),
+        AL.Var.var("definition_snapshot_method"),
         branch
       )
 
@@ -49,8 +49,8 @@ defmodule AL.Serialisation.Snapshot do
 
     classes =
       AL.Object.scan_class(
-        AL.Var.var("serialisation_snapshot_class"),
-        AL.Var.var("serialisation_snapshot_metaclass"),
+        AL.Var.var("definition_snapshot_class"),
+        AL.Var.var("definition_snapshot_metaclass"),
         branch
       )
       |> Enum.filter(fn {:class, _owner, _seq, meta} ->
@@ -183,9 +183,9 @@ defmodule AL.Serialisation.Snapshot do
   def clause_rows(method_id, branch) do
     AL.Object.scan_open_oapply_versions(
       method_id,
-      AL.Var.var("serialisation_snapshot_clause"),
-      AL.Var.var("serialisation_snapshot_head"),
-      AL.Var.var("serialisation_snapshot_body"),
+      AL.Var.var("definition_snapshot_clause"),
+      AL.Var.var("definition_snapshot_head"),
+      AL.Var.var("definition_snapshot_body"),
       branch
     )
     |> Enum.sort_by(fn {:oapply, ^method_id, clause, _seq, _tx, :open, _head, _body} ->
@@ -196,8 +196,8 @@ defmodule AL.Serialisation.Snapshot do
   defp class_metaclass_closure(branch) do
     children_by_parent =
       AL.Object.scan_super(
-        AL.Var.var("serialisation_snapshot_meta_child"),
-        AL.Var.var("serialisation_snapshot_meta_parent"),
+        AL.Var.var("definition_snapshot_meta_child"),
+        AL.Var.var("definition_snapshot_meta_parent"),
         branch
       )
       |> Enum.reduce(%{}, fn {:super, child, _seq, parent}, acc ->
@@ -219,7 +219,7 @@ defmodule AL.Serialisation.Snapshot do
   end
 
   defp live_supers(class, branch) do
-    AL.Object.scan_super(class, AL.Var.var("serialisation_snapshot_super"), branch)
+    AL.Object.scan_super(class, AL.Var.var("definition_snapshot_super"), branch)
     |> Enum.map(fn {:super, ^class, _seq, super} -> super end)
   end
 

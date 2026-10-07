@@ -228,7 +228,11 @@ defmodule AL.JAM.Mutation do
     scope = AL.fresh_scope()
 
     for {:class, _o, _seq, class} <-
-          AL.Object.scan_class(o, AL.Var.var("direct_class_check_#{scope}"), branch),
+          AL.Object.scan_class(
+            o,
+            AL.Var.fresh(:"$direct_class_check", Integer.to_string(scope)),
+            branch
+          ),
         do: class
   end
 end

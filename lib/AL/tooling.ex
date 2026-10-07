@@ -68,7 +68,7 @@ defmodule AL.Tooling do
   def search_definitions(query, branch, opts) when is_binary(query) and is_list(opts) do
     with :ok <- validate_query(query),
          {:ok, offset, limit} <- result_page(opts),
-         {:ok, snapshot} <- AL.Serialisation.Snapshot.capture(branch) do
+         {:ok, snapshot} <- AL.Definition.Snapshot.capture(branch) do
       matches =
         snapshot.documents
         |> Enum.map(fn {_owner, document} -> definition_match(document, query) end)
@@ -93,8 +93,8 @@ defmodule AL.Tooling do
 
   def diff_branches(from_branch, to_branch, opts) when is_list(opts) do
     with {:ok, offset, limit} <- result_page(opts),
-         {:ok, from_snapshot} <- AL.Serialisation.Snapshot.capture(from_branch),
-         {:ok, to_snapshot} <- AL.Serialisation.Snapshot.capture(to_branch) do
+         {:ok, from_snapshot} <- AL.Definition.Snapshot.capture(from_branch),
+         {:ok, to_snapshot} <- AL.Definition.Snapshot.capture(to_branch) do
       changes = definition_changes(from_snapshot.documents, to_snapshot.documents)
 
       {:ok,

@@ -10,10 +10,10 @@ defmodule AL.Package do
   alias AL.Package.Realisation
   alias AL.Package.Resolver
   alias AL.Package.SourceSnapshot
-  alias AL.Serialisation.Document, as: DefinitionDocument
-  alias AL.Serialisation.Layout
-  alias AL.Serialisation.Snapshot
-  alias AL.Serialisation.Sync
+  alias AL.Definition.Document, as: DefinitionDocument
+  alias AL.Definition.Path, as: DefinitionPath
+  alias AL.Definition.Snapshot
+  alias AL.Definition.Changes
 
   @type import_result() :: %{
           package: atom(),
@@ -396,7 +396,7 @@ defmodule AL.Package do
     Enum.reduce_while(owners, {:ok, []}, fn owner, {:ok, definitions} ->
       case Map.fetch(documents, owner) do
         {:ok, document} ->
-          path = Path.join("definitions", Layout.definition_filename(owner))
+          path = Path.join("definitions", DefinitionPath.filename(owner))
           definition = %{owner: owner, path: path, text: DefinitionDocument.render(document)}
           {:cont, {:ok, [definition | definitions]}}
 
@@ -412,7 +412,7 @@ defmodule AL.Package do
 
   defp render_package_definitions(documents) do
     Enum.map(documents, fn document ->
-      path = Path.join("definitions", Layout.definition_filename(document.owner, document.kind))
+      path = Path.join("definitions", DefinitionPath.filename(document.owner, document.kind))
 
       %{
         owner: document.owner,
@@ -1137,7 +1137,7 @@ defmodule AL.Package do
            new_documents
            |> Map.values()
            |> Enum.sort_by(&:erlang.term_to_binary(&1.owner)),
-         {:ok, definition_chunks} <- Sync.plan(snapshot, definitions, deleted),
+         {:ok, definition_chunks} <- Changes.plan(snapshot, definitions, deleted),
          {:ok, membership_chunks} <- build_definition_chunks(final, branch),
          pointer_chunks <- active_pointer_chunks(current, final),
          :ok <-
@@ -1646,7 +1646,7 @@ defmodule AL.Package do
   end
 
   defp evaluate_chunks_result(chunks, origin, branch) do
-    with {:ok, parsed, source} <- AL.Serialisation.compile_chunks(chunks) do
+    with {:ok, parsed, source} <- Changes.compile(chunks) do
       case AL.eval_captured(parsed, source, origin, nil, branch, []) do
         {:atomic, result} -> {:ok, result}
         {:aborted, reason} -> {:error, {:package_operation_failed, reason}}

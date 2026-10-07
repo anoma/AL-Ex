@@ -6,7 +6,6 @@ config :logger,
   handle_sasl_reports: false
 
 config :al,
-  serialisation_dir: "src/al",
   transaction_programs: [
     :bootstrap,
     :package_system

@@ -109,8 +109,8 @@ defmodule Examples.ALSyntax do
 
       assert output =~ "#{al(class)} >> bump\n| Self By |\n  # refuse to count down\n"
 
-      {:ok, snapshot} = AL.Serialisation.Snapshot.capture(branch)
-      {^class, document} = List.keyfind(AL.Serialisation.Snapshot.rendered(snapshot), class, 0)
+      {:ok, snapshot} = AL.Definition.Snapshot.capture(branch)
+      {^class, document} = List.keyfind(AL.Definition.Snapshot.rendered(snapshot), class, 0)
       assert document =~ "#{al(class)} >> bump\n| Self By |\n# refuse to count down\n"
       output
     after

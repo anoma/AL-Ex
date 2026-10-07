@@ -1,8 +1,8 @@
-defmodule ALDocumentTest do
+defmodule ALDefinitionDocumentTest do
   use ExUnit.Case, async: true
 
-  alias AL.Serialisation.Document
-  alias AL.Serialisation.Document.Method
+  alias AL.Definition.Document
+  alias AL.Definition.Document.Method
 
   defp class(overrides) do
     struct!(

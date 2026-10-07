@@ -1,4 +1,4 @@
-defmodule AL.Serialisation.Sync do
+defmodule AL.Definition.Changes do
   @moduledoc """
   Calculates the AL transaction represented by definition-document edits.
 
@@ -8,10 +8,20 @@ defmodule AL.Serialisation.Sync do
   by enumerating `clause` at run time.
   """
 
-  alias AL.Serialisation.Document
-  alias AL.Serialisation.Snapshot
+  alias AL.Definition.Document
+  alias AL.Definition.Snapshot
 
   @type chunk() :: {String.t(), {term(), term()} | nil}
+
+  @spec compile([chunk()]) :: {:ok, AL.Syntax.Result.t(), String.t()} | {:error, term()}
+  def compile(chunks) do
+    source = Enum.map_join(chunks, "\n\n", &elem(&1, 0))
+
+    case AL.Syntax.parse(source) do
+      {:ok, result} -> {:ok, result, source}
+      {:error, reason} -> {:error, {:invalid_definition_source, reason}}
+    end
+  end
 
   @spec plan(Snapshot.t(), [Document.t()], [term()]) ::
           {:ok, [chunk()]} | {:error, term()}
@@ -195,7 +205,7 @@ defmodule AL.Serialisation.Sync do
       |> :erlang.term_to_binary()
       |> Base.encode16(case: :lower)
 
-    "serialisation_#{encoded}"
+    "definition_#{encoded}"
   end
 
   defp literal(term), do: AL.Syntax.Printer.term(term)

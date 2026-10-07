@@ -15,7 +15,7 @@ defmodule AL.Package.Provider do
   @type definition() :: %{
           path: Path.t(),
           text: String.t(),
-          document: AL.Serialisation.Document.t()
+          document: AL.Definition.Document.t()
         }
 
   @type t() :: %__MODULE__{

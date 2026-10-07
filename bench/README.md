@@ -39,6 +39,36 @@ Reductions are generally steadier than wall time. These workloads replace the
 JAM instruction microbenchmarks; existing application examples such as
 Fibonacci and Sudoku remain available separately.
 
+## Atom growth
+
+```sh
+ELIXIR_ERL_OPTIONS='+S 1:1 +t 4000000' BENCH_JSON=/tmp/atom-growth.json mix run --no-start bench/atom_growth.exs
+```
+
+This warms and repeats object creation, definition snapshot rendering, and their
+combination in one VM, using a temporary Mnesia store. The old filesystem
+synchronizer and branch-tree exporter have been removed. Earlier parser
+benchmarks disabled synchronization and therefore did not measure its atom
+growth or execution cost.
+
+Before the query-variable fix, each warmed `new object X` added three atoms.
+A full definition serialization added 1,336 more: the loaded branch had 668
+clause-source reads, each creating a unique `source_head_<scope>` and
+`source_body_<scope>` atom. Together these reproduced exactly 1,339 new atoms
+per invocation. Compiled, pre-parsed, source-evaluated, and dynamically compiled
+calls had the same three-atom execution growth without serialization.
+
+Source queries and direct-class checks now use existing fresh-variable tuples
+with fixed base names. Repeated definition serialization adds zero atoms;
+object creation, with or without serialization, adds two for the object and
+transaction identities. This fixes these temporary-name leaks; source variable
+names are still atoms pending the separate binary-name migration.
+
+The former synchronizer marked definitions dirty for every source-text or
+object-table event. Its startup/branch hooks, filesystem layout, and standalone
+exporter have been removed. Shared definition code now lives in `AL.Definition`;
+filesystem exports go through `AL.Package.export/2`.
+
 ## Parser function profile
 
 ```sh

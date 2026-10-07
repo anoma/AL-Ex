@@ -11,7 +11,7 @@ defmodule ALSourceProjectionTest do
           branch
         )
         |> Enum.flat_map(fn {:method, owner, selector, _seq, _tx, :open, id} ->
-          AL.Serialisation.Snapshot.clause_rows(id, branch)
+          AL.Definition.Snapshot.clause_rows(id, branch)
           |> Enum.map(fn {:oapply, ^id, clause, _seq, _tx, :open, head, body} ->
             {owner, selector, clause, head, body}
           end)

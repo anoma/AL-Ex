@@ -21,7 +21,6 @@ defmodule Mix.Tasks.Al.Bnf do
     File.mkdir_p!(directory)
     System.put_env("AL_MNESIA_DIR", directory)
     System.put_env("AL_MNESIA_DISTRIBUTED", "false")
-    Application.put_env(:al, :serialisation_dir, nil)
     Application.put_env(:al, :create_examples_branch, false)
     Application.put_env(:al, AL.MCP, enabled: false)
 
