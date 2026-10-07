@@ -215,7 +215,13 @@ defmodule AL.JAM.Head do
     end
   end
 
-  defp match_arguments(_operations, _values, _store, _registers, _branch), do: :defer
+  defp match_arguments(operations, values, store, registers, branch) do
+    case AL.Var.deref(store, values) do
+      [] -> match_arguments(operations, [], store, registers, branch)
+      [_ | _] = values -> match_arguments(operations, values, store, registers, branch)
+      _ -> :defer
+    end
+  end
 
   defp match_operands(
          [operation | operations],
@@ -234,13 +240,20 @@ defmodule AL.JAM.Head do
   defp match_operands(operations, {:constant, values}, _caller, store, registers, branch),
     do: match_arguments(operations, values, store, registers, branch)
 
-  defp match_operands(_operations, _args, _caller, _store, _registers, _branch), do: :defer
+  defp match_operands(operations, args, caller, store, registers, branch),
+    do: match_arguments(operations, Operand.read(args, caller), store, registers, branch)
 
   defp read_call(object, args, caller, store),
     do: [object | resolve_arguments(Operand.read(args, caller), store)]
 
   defp resolve_arguments([head | tail], store), do: [head | resolve_arguments(tail, store)]
-  defp resolve_arguments(tail, store), do: AL.Var.subst(tail, store)
+
+  defp resolve_arguments(tail, store) do
+    case AL.Var.deref(store, tail) do
+      [_ | _] = values -> resolve_arguments(values, store)
+      value -> value
+    end
+  end
 
   defp match_fields([], _call, store, registers, _branch), do: {store, registers}
 

@@ -24,7 +24,7 @@ defmodule Examples.ALJAM do
 
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    assert {:atomic, {:ok, %{}, 3000}} =
+    assert {:atomic, {:ok, %{}, 1002}} =
              :mnesia.transaction(fn ->
                {:ok, _, id} = AL.Dispatch.target(:machine_frame_instance, :walk, branch)
 
@@ -248,7 +248,7 @@ defmodule Examples.ALJAM do
 
     expected = {bindings, constraints, state.reductions}
 
-    assert expected == {%{"$Pairs": [[:red, :red], [:blue, :blue]], "$Result": :ready}, %{}, 6}
+    assert expected == {%{"$Pairs": [[:red, :red], [:blue, :blue]], "$Result": :ready}, %{}, 5}
     {bindings, _, _} = expected
     assert bindings[:"$Pairs"] == [[:red, :red], [:blue, :blue]]
     assert bindings[:"$Result"] == :ready
@@ -377,7 +377,7 @@ defmodule Examples.ALJAM do
                 "$Nested": [[:a, :c]],
                 "$Failed": [],
                 "$Restored": :restored
-              }, 9}
+              }, 8}
 
     {bindings, _} = expected
     assert bindings[:"$Results"] == [[:red, :first], [:red, :second], :outside]

@@ -85,4 +85,61 @@ defmodule AL.ClauseIndexTest do
     assert choose.([1], %{}) == tl(open)
     assert choose.(:"$Input", %{:"$Input" => [1]}) == tl(open)
   end
+
+  test "literal decisions across positions preserve order and open modes" do
+    {:atomic, _} =
+      AL.eval_source(~S"""
+      @clause_tree_probe #{super => object}.
+
+      clause_tree_probe >> choose
+      | _Self red round |.
+
+      clause_tree_probe >> choose
+      | _Self red square |.
+
+      clause_tree_probe >> choose
+      | _Self blue round |.
+
+      clause_tree_probe >> choose
+      | _Self _Color square |.
+      """)
+
+    choose = &sequences(:clause_tree_probe, :choose, [:receiver, &1, &2])
+    all = choose.(:"$Color", :"$Shape")
+
+    assert length(all) == 4
+    assert choose.(:red, :round) == [Enum.at(all, 0)]
+    assert choose.(:blue, :square) == [Enum.at(all, 3)]
+    assert choose.(:"$Color", :round) == [Enum.at(all, 0), Enum.at(all, 2)]
+    assert choose.(:red, :"$Shape") == [Enum.at(all, 0), Enum.at(all, 1), Enum.at(all, 3)]
+    assert choose.(1, :square) == [Enum.at(all, 3)]
+  end
+
+  test "decision leaves keep clause-local bodies and alternatives" do
+    {:atomic, {bindings, _constraints, _state}} =
+      AL.eval_source(~S"""
+      @clause_tree_runtime #{super => object}.
+
+      clause_tree_runtime >> choose
+      | _Self red round Result |
+      = Result first.
+
+      clause_tree_runtime >> choose
+      | _Self red square Result |
+      = Result exact.
+
+      clause_tree_runtime >> choose
+      | _Self blue round Result |
+      = Result other.
+
+      clause_tree_runtime >> choose
+      | _Self _Color square Result |
+      = Result fallback.
+
+      vm_set_class clause_tree_instance clause_tree_runtime.
+      findall Result Results {choose clause_tree_instance red square Result}.
+      """)
+
+    assert bindings[:"$Results"] == [:exact, :fallback]
+  end
 end

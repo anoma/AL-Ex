@@ -15,6 +15,8 @@ defmodule AL.ResolutionCache do
     :durable_classes,
     :oapply_clauses,
     :compiled_methods,
+    :compiled_plans,
+    :code_versions,
     :method_scopes,
     :descendants,
     :ivar_specs,
@@ -24,6 +26,7 @@ defmodule AL.ResolutionCache do
   @transaction_cache :al_resolution_transaction_cache
   @dispatch_cache :al_dispatch_cache
   @fresh_tables :al_resolution_fresh_tables
+  @resident_code :al_resident_code
 
   def with_fresh_tables(fun) when is_function(fun, 0) do
     previous = Process.get(@fresh_tables)
@@ -88,8 +91,29 @@ defmodule AL.ResolutionCache do
   end
 
   @spec fetch_providers(AL.Branch.t(), tuple(), (-> term())) :: term()
-  def fetch_providers(branch, key, compute),
-    do: fetch(table(:providers, branch), :providers, key, compute)
+  def fetch_providers(branch, {receiver, selector}, compute) do
+    table = table(:providers, branch)
+    group = fetch(table, :providers, receiver, fn -> %{} end)
+
+    case Map.fetch(group, selector) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        value = compute.()
+        group = Map.put(group, selector, value)
+        :mnesia.write(table, {:providers, receiver, group}, :write)
+
+        if cache = Process.get(@transaction_cache) do
+          Process.put(
+            @transaction_cache,
+            Map.update(cache, table, %{receiver => group}, &Map.put(&1, receiver, group))
+          )
+        end
+
+        value
+    end
+  end
 
   @doc """
   Every {provider, selector} pair answering `selector`, for an open-receiver
@@ -122,8 +146,78 @@ defmodule AL.ResolutionCache do
   def fetch_oapply_clauses(branch, method_id, compute),
     do: fetch(table(:oapply_clauses, branch), :oapply_clauses, method_id, compute)
 
-  def fetch_compiled_method(branch, method_id, compute),
-    do: fetch(table(:compiled_methods, branch), :compiled_methods, method_id, compute)
+  def fetch_compiled_method(branch, method_id, compute) do
+    table = table(:compiled_methods, branch)
+    load = fn -> fetch_code(branch, :compiled_methods, method_id, compute) end
+
+    case Process.get(@transaction_cache) do
+      nil -> load.()
+      cache -> fetch_local(cache, table, method_id, load)
+    end
+  end
+
+  def fetch_plan(branch, key, valid?, compute) do
+    case fetch_code(branch, :compiled_plans, key, compute) do
+      nil ->
+        nil
+
+      plan ->
+        if valid?.(plan), do: plan, else: store_code(branch, :compiled_plans, key, compute.())
+    end
+  end
+
+  defp fetch_code(branch, relation, key, compute) do
+    versions = table(:code_versions, branch)
+    version_key = {relation, key}
+    cache_key = {table(relation, branch), key}
+
+    case :mnesia.read(versions, version_key) do
+      [{:code_versions, ^version_key, version}] ->
+        case Map.get(Process.get(@resident_code, %{}), cache_key) do
+          {^version, value} ->
+            value
+
+          _ ->
+            [{^relation, ^key, value}] = :mnesia.read(table(relation, branch), key)
+            retain_code(cache_key, version, value)
+        end
+
+      [] ->
+        store_code(branch, relation, key, compute.())
+    end
+  end
+
+  defp store_code(branch, relation, key, nil) do
+    :mnesia.delete(table(:code_versions, branch), {relation, key}, :write)
+    :mnesia.delete(table(relation, branch), key, :write)
+
+    Process.put(
+      @resident_code,
+      Map.delete(Process.get(@resident_code, %{}), {table(relation, branch), key})
+    )
+
+    nil
+  end
+
+  defp store_code(branch, relation, key, value) do
+    version = make_ref()
+    :mnesia.write(table(relation, branch), {relation, key, value}, :write)
+
+    :mnesia.write(
+      table(:code_versions, branch),
+      {:code_versions, {relation, key}, version},
+      :write
+    )
+
+    retain_code({table(relation, branch), key}, version, value)
+  end
+
+  defp retain_code(key, version, value) do
+    cache = Process.get(@resident_code, %{})
+    cache = if map_size(cache) >= 256 and not Map.has_key?(cache, key), do: %{}, else: cache
+    Process.put(@resident_code, Map.put(cache, key, {version, value}))
+    value
+  end
 
   def fetch_branch_registration(id, compute) do
     case Process.get(@transaction_cache) do
@@ -243,6 +337,18 @@ defmodule AL.ResolutionCache do
     clear(table(:providers, branch))
   end
 
+  def invalidate_receiver_class(branch, receiver) when is_atom(receiver) do
+    if AL.Var.var?(receiver) do
+      invalidate_providers(branch)
+    else
+      clear_local(:ivar_storage)
+      clear_local({@dispatch_cache, table(:providers, branch)})
+      delete(table(:providers, branch), receiver)
+    end
+  end
+
+  def invalidate_receiver_class(branch, _receiver), do: invalidate_providers(branch)
+
   @doc """
   Both caches read the method relation and nothing else, so a class or slot
   write leaves them intact; only binding a method to an owner can change them.
@@ -269,6 +375,7 @@ defmodule AL.ResolutionCache do
   @spec invalidate_oapply_clauses(AL.Branch.t(), term()) :: :ok
   def invalidate_oapply_clauses(branch, method_id) do
     clear_local({@dispatch_cache, table(:providers, branch)})
+    delete(table(:code_versions, branch), {:compiled_methods, method_id})
     delete(table(:compiled_methods, branch), method_id)
     delete(table(:oapply_clauses, branch), method_id)
     :ok

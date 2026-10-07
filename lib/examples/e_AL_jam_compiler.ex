@@ -211,6 +211,44 @@ defmodule Examples.ALJAMCompiler do
     assert actual[:"$Selected"] == :blue
   end
 
+  example direct_applications_execute_open_list_and_map_heads() do
+    source = ~S"""
+    @jam_head_machine_probe #{super => object}.
+
+    jam_head_machine_probe >> shape
+    | _Self [Head . Tail] #{item => Head, rest => Tail} |.
+
+    method jam_head_machine_probe shape Method.
+    vm_oapply Method [jam_head_machine_probe, [a, b], Result].
+    vm_oapply Method [jam_head_machine_probe, Constructed, #{item => c, rest => []}].
+    """
+
+    {:atomic, {bindings, _, _}} = evaluate(source)
+    assert bindings[:"$Result"] == %{item: :a, rest: [:b]}
+    assert bindings[:"$Constructed"] == [:c]
+  end
+
+  example direct_application_choices_survive_mutation_handoffs() do
+    source = ~S"""
+    @jam_choice_machine_probe #{super => object, ivars => [#{name => count}]}.
+
+    jam_choice_machine_probe >> choose
+    | Self red |
+    set_slot Self count 1.
+
+    jam_choice_machine_probe >> choose
+    | Self blue |
+    set_slot Self count 2.
+
+    vm_set_class jam_choice_machine_instance jam_choice_machine_probe.
+    method jam_choice_machine_probe choose Method.
+    findall Value Results {vm_oapply Method [jam_choice_machine_instance, Value]}.
+    """
+
+    {:atomic, {bindings, _, _}} = evaluate(source)
+    assert bindings[:"$Results"] == [:red, :blue]
+  end
+
   example native_calls_preserve_answers_suspensions_cuts_and_next_provider() do
     branch = %AL.Branch{id: Examples.Support.branch()}
 

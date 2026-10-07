@@ -1,6 +1,42 @@
 defmodule AL.JAM.Registers do
+  defmodule Facts do
+    defstruct fresh: MapSet.new()
+  end
+
   def specialize(code, locals) do
-    if contains_forall?(code), do: code, else: specialize_registers(code, locals)
+    {before, after_forall} = split_after_forall(code)
+    facts = %Facts{fresh: MapSet.new(locals, &elem(&1, 0))}
+
+    facts =
+      Enum.reduce(before, facts, fn operation, facts ->
+        observe(facts, references(operation))
+      end)
+
+    before ++ specialize_registers(after_forall, facts)
+  end
+
+  def materialized_locals(code, locals) do
+    if AL.JAM.Trace.active?() or Enum.any?(code, &contains_forall?/1) do
+      locals
+    else
+      Enum.reject(locals, fn {index, _name} ->
+        first = Enum.find(code, &MapSet.member?(references(&1), index))
+        writes_first?(first, index)
+      end)
+    end
+  end
+
+  defp writes_first?({:local, index, {:eq, _, _}}, index), do: true
+
+  defp writes_first?({:local, index, {:map_put, _, _, _, _}}, index), do: true
+  defp writes_first?({:collect, _, {:destination, index}, _}, index), do: true
+  defp writes_first?(_, _), do: false
+
+  defp split_after_forall(code) do
+    case Enum.find_index(Enum.reverse(code), &contains_forall?/1) do
+      nil -> {[], code}
+      from_end -> Enum.split(code, length(code) - from_end)
+    end
   end
 
   defp contains_forall?({:forall, _, _, _, _}), do: true
@@ -12,17 +48,18 @@ defmodule AL.JAM.Registers do
   defp contains_forall?([head | tail]), do: contains_forall?(head) or contains_forall?(tail)
   defp contains_forall?(_), do: false
 
-  defp specialize_registers(code, locals) do
-    fresh = MapSet.new(locals, &elem(&1, 0))
-
+  defp specialize_registers(code, facts) do
     {code, _} =
-      Enum.map_reduce(code, fresh, fn operation, fresh ->
-        specialized = specialize_operation(operation, fresh)
-        {specialized, MapSet.difference(fresh, escaped_references(operation))}
+      Enum.map_reduce(code, facts, fn operation, facts ->
+        specialized = specialize_operation(operation, facts.fresh)
+        {specialized, observe(facts, escaped_references(operation))}
       end)
 
     code
   end
+
+  defp observe(%Facts{} = facts, references),
+    do: %Facts{fresh: MapSet.difference(facts.fresh, references)}
 
   defp specialize_operation({:send, _site, object, method, args} = operation, fresh) do
     destinations =
@@ -51,6 +88,20 @@ defmodule AL.JAM.Registers do
 
   defp specialize_operation({:map_put, map, key, value, {:register, index}} = operation, fresh),
     do: destination(operation, index, {map, key, value}, fresh)
+
+  defp specialize_operation({:primitive, name, arguments} = operation, fresh)
+       when name in [:string_codes, :atom_string, :map_pairs] do
+    case Enum.find(arguments, fn
+           {:register, index} ->
+             MapSet.member?(fresh, index) and count_references(arguments, index) == 1
+
+           _ ->
+             false
+         end) do
+      {:register, index} -> {:local, index, operation}
+      nil -> operation
+    end
+  end
 
   defp specialize_operation(
          {:collect, template, {:register, index}, condition} = operation,
@@ -113,6 +164,7 @@ defmodule AL.JAM.Registers do
   defp escaped_references(operation), do: references(operation)
 
   defp references({:register, index}), do: MapSet.new([index])
+  defp references({:destination, index}), do: MapSet.new([index])
   defp references({:constant, _term}), do: MapSet.new()
   defp references(term) when is_tuple(term), do: references(Tuple.to_list(term))
   defp references([head | tail]), do: MapSet.union(references(head), references(tail))

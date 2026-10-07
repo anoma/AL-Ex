@@ -11,7 +11,9 @@ AL source text
      straight to AL.Goal structs
   -> AL.Source prepares retry-stable source metadata
   -> AL.eval_program opens one Mnesia transaction and creates AL state
-  -> AL.JAM.Compiler compiles the program and methods to machine code
+  -> AL.JAM.IR lowers executable bodies to block programs
+  -> IR transformations specialize regions and inline proven calls
+  -> AL.JAM.Compiler allocates registers and emits machine code
   -> AL.JAM runs it; AL drives the choicepoints it yields
   -> AL.JAM.Mutation applies durable mutation instructions
        -> AL.Command appends the command with tx_id and system time
@@ -128,7 +130,7 @@ revision is an optimistic concurrency check against its snapshot.
 ## Fast inspection routes
 
 - Find a goal: search its struct in `goal.ex`, then its `AL.Syntax` compile clause and its
-  `operation/2` clause in `AL.JAM.Compiler`.
+  lowering in `AL.JAM.IR`/`IR.Lower`, then instruction selection in `IR.Emit`.
 - Find a durable operation: search the operation atom in `AL.Command`,
   `AL.Object`, hydration, and cache invalidation.
 - Find a source discrepancy: inspect `AL.SourceStore.text/2`, its span at the

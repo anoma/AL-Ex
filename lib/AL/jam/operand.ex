@@ -1,32 +1,61 @@
 defmodule AL.JAM.Operand do
   def compile(term, registers) do
-    cond do
-      term == :"$_" or MapSet.size(AL.Var.find_vars(term)) == 0 ->
-        {:constant, term}
-
-      AL.Var.var?(term) ->
-        {:register, Map.fetch!(registers, term)}
-
-      is_list(term) and term != [] ->
-        [head | tail] = term
-        {:cons, compile(head, registers), compile(tail, registers)}
-
-      is_map(term) ->
-        {:map,
-         Enum.map(Map.to_list(term), fn {key, value} ->
-           {compile(key, registers), compile(value, registers)}
-         end)}
-
-      is_tuple(term) ->
-        {:tuple, term |> Tuple.to_list() |> Enum.map(&compile(&1, registers))}
-
-      true ->
-        {:constant, term}
+    if (is_list(term) or is_map(term) or is_tuple(term)) and
+         MapSet.size(AL.Var.find_vars(term)) == 0 do
+      {:constant, term}
+    else
+      {operand, _variable?} = compile_term(term, registers)
+      operand
     end
   end
 
+  defp compile_term(term, registers) do
+    cond do
+      term == :"$_" ->
+        {{:constant, term}, true}
+
+      AL.Var.var?(term) ->
+        {{:register, Map.fetch!(registers, term)}, true}
+
+      is_list(term) and term != [] ->
+        [head | tail] = term
+        {head_operand, head_variable?} = compile_term(head, registers)
+        {tail_operand, tail_variable?} = compile_term(tail, registers)
+
+        if head_variable? or tail_variable?,
+          do: {{:cons, head_operand, tail_operand}, true},
+          else: {{:constant, term}, false}
+
+      is_map(term) ->
+        {fields, variable?} =
+          Enum.map_reduce(Map.to_list(term), false, fn {key, value}, variable? ->
+            {key_operand, key_variable?} = compile_term(key, registers)
+            {value_operand, value_variable?} = compile_term(value, registers)
+            {{key_operand, value_operand}, variable? or key_variable? or value_variable?}
+          end)
+
+        if variable?, do: {{:map, fields}, true}, else: {{:constant, term}, false}
+
+      is_tuple(term) ->
+        {fields, variable?} =
+          Enum.map_reduce(Tuple.to_list(term), false, fn value, variable? ->
+            {operand, nested_variable?} = compile_term(value, registers)
+            {operand, variable? or nested_variable?}
+          end)
+
+        if variable?, do: {{:tuple, fields}, true}, else: {{:constant, term}, false}
+
+      true ->
+        {{:constant, term}, false}
+    end
+  end
+
+  def read({:compiled_callable, _template, _captures, source}, registers),
+    do: read(source, registers)
+
   def read({:destination, index}, registers), do: elem(registers, index)
   def read({:constant, term}, _registers), do: term
+  def read({:method_identity, method, _position}, _registers), do: method
   def read({:register, index}, registers), do: elem(registers, index)
   def read({:cons, head, tail}, registers), do: [read(head, registers) | read(tail, registers)]
 

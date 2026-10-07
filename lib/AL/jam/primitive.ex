@@ -1,12 +1,39 @@
 defmodule AL.JAM.Primitive do
   alias AL.Goal
 
-  def arguments(operation, operands, slots, store)
-      when operation in [:atom, :atom_string, :string_codes],
-      do: Enum.map(operands, &AL.JAM.Operand.shallow(&1, slots, store))
+  def arguments(operation, operands, slots, store),
+    do: AL.JAM.IR.Access.arguments(:primitive, operation, operands, slots, store)
 
-  def arguments(_operation, operands, slots, store),
-    do: Enum.map(operands, &AL.JAM.Operand.resolve(&1, slots, store))
+  def output(:string_codes, 0, [_string, codes], store) do
+    case code_list(codes, [], store) do
+      {:ok, list} -> {:ok, List.to_string(list)}
+      _ -> :fallback
+    end
+  end
+
+  def output(:string_codes, 1, [string, _codes], _store) when is_binary(string) do
+    if String.valid?(string), do: {:ok, String.to_charlist(string)}, else: :fallback
+  end
+
+  def output(:atom_string, 0, [_atom, string], _store) when is_binary(string) do
+    if String.valid?(string), do: {:ok, String.to_atom(string)}, else: :fallback
+  end
+
+  def output(:atom_string, 1, [atom, _string], _store) when is_atom(atom) do
+    if AL.Var.var?(atom), do: :fallback, else: {:ok, Atom.to_string(atom)}
+  end
+
+  def output(:map_pairs, 0, [_map, pairs], _store) do
+    case pairs_map(pairs, %{}) do
+      {:ok, map} -> {:ok, map}
+      _ -> :fallback
+    end
+  end
+
+  def output(:map_pairs, 1, [map, _pairs], _store) when is_map(map) and not is_struct(map),
+    do: {:ok, map |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {key, value} -> [key, value] end)}
+
+  def output(_, _, _, _), do: :fallback
 
   def execute(:equal, [a, b], store, _branch),
     do: if(a == b, do: {:ok, store}, else: :fail)

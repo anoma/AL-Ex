@@ -394,7 +394,7 @@ defmodule AL.Object do
        class_pattern}
 
     close_rows(:soa, open_rows(:soa, pattern, branch), tx, branch)
-    AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_receiver_class(branch, object_pattern)
     AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 
@@ -553,7 +553,7 @@ defmodule AL.Object do
   def set_class(object, class, tx, branch \\ AL.Branch.head()) do
     seq = next_soa_seq(object, :class, branch)
     :mnesia.write(table(:soa, branch), {:soa, object, :class, seq, tx, :open, class}, :write)
-    AL.ResolutionCache.invalidate_providers(branch)
+    AL.ResolutionCache.invalidate_receiver_class(branch, object)
     AL.ResolutionCache.invalidate_durable_classes(branch)
   end
 

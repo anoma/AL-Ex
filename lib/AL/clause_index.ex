@@ -1,6 +1,8 @@
 defmodule AL.ClauseIndex do
   def select(clauses, nil, _call, _store), do: clauses
 
+  def select(_clauses, %{tree: tree}, call, store), do: select_tree(tree, call, store)
+
   def select(clauses, %{literal: nil, list_indices: [index]}, call, store) do
     case indexed_argument(call, index.position) do
       {:ok, argument} ->
@@ -131,9 +133,39 @@ defmodule AL.ClauseIndex do
   def build(clauses) when length(clauses) < 2, do: nil
 
   def build(clauses) do
-    literal = prepared_literal_index(clauses)
     list_indices = prepared_list_indices(clauses)
 
+    literal_positions =
+      clauses
+      |> Enum.flat_map(fn row -> literal_positions(head(row), 0, []) end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.uniq()
+      |> Enum.filter(&discriminating_literal_position?(clauses, &1))
+
+    if length(literal_positions) > 1 and list_indices == [] do
+      %{tree: build_tree(clauses, literal_positions, 0)}
+    else
+      build_flat_index(prepared_literal_index(clauses), list_indices)
+    end
+  end
+
+  defp discriminating_literal_position?(clauses, position) do
+    values = literal_values(clauses, position)
+    length(values) > 1 or Enum.any?(clauses, &(literal_at(head(&1), position) == :none))
+  end
+
+  defp literal_values(clauses, position) do
+    clauses
+    |> Enum.flat_map(fn row ->
+      case literal_at(head(row), position) do
+        {:literal, value} -> [value]
+        :none -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp build_flat_index(literal, list_indices) do
     literal =
       case literal do
         %{position: position, buckets: buckets} ->
@@ -148,6 +180,69 @@ defmodule AL.ClauseIndex do
     if is_nil(literal) and list_indices == [],
       do: nil,
       else: %{literal: literal, list_indices: list_indices}
+  end
+
+  defp build_tree(clauses, _positions, 3), do: clauses
+  defp build_tree(clauses, [], _depth), do: clauses
+  defp build_tree([], _positions, _depth), do: []
+
+  defp build_tree(clauses, positions, depth) do
+    position =
+      Enum.max_by(positions, fn position ->
+        {length(literal_values(clauses, position)), -position}
+      end)
+
+    values = literal_values(clauses, position)
+
+    if values == [] do
+      build_tree(clauses, List.delete(positions, position), depth)
+    else
+      remaining = List.delete(positions, position)
+      fallback = Enum.filter(clauses, &(literal_at(head(&1), position) == :none))
+
+      branches =
+        Map.new(values, fn value ->
+          candidates =
+            Enum.filter(clauses, fn row ->
+              case literal_at(head(row), position) do
+                {:literal, ^value} -> true
+                :none -> true
+                _ -> false
+              end
+            end)
+
+          {value, build_tree(candidates, remaining, depth + 1)}
+        end)
+
+      {:test_literal, position, branches, build_tree(fallback, remaining, depth + 1),
+       build_tree(clauses, remaining, depth + 1)}
+    end
+  end
+
+  defp select_tree(clauses, _call, _store) when is_list(clauses), do: clauses
+
+  defp select_tree({:test_literal, position, branches, fallback, open}, call, store) do
+    case indexed_argument(call, position) do
+      {:ok, argument} ->
+        value = resolve(argument, store)
+
+        cond do
+          AL.Var.var?(value) ->
+            select_tree(open, call, store)
+
+          true ->
+            branch =
+              case literal_key(value) do
+                {:literal, literal} -> Map.get(branches, literal, fallback)
+                :none -> fallback
+              end
+
+            select_tree(branch, call, store)
+        end
+
+      :open ->
+        select_tree(open, call, store)
+    end
   end
 
   defp prepared_literal_index(clauses) do

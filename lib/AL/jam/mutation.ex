@@ -3,11 +3,6 @@ defmodule AL.JAM.Mutation do
 
   def execute(:output, [text], state), do: %AL{state | output: [text | state.output]}
 
-  def execute(:progress, [], state) do
-    choice = state.active_choicepoint
-    %AL{state | active_choicepoint: %AL.Choicepoint{choice | progress: choice.progress + 1}}
-  end
-
   def execute(:source_scope_enter, [capture_id, goals], state),
     do: AL.Source.enter_scope(state, capture_id, goals)
 
@@ -127,7 +122,6 @@ defmodule AL.JAM.Mutation do
   def goal(:send_async, [object, method, args]),
     do: %Goal.SendAsync{object: object, method: method, args: args}
 
-  def goal(:progress, []), do: %Goal.Pass{}
   def goal(:source_scope_exit, [_capture_id]), do: %Goal.Pass{}
 
   def goal(:send_elixir, [pid, message]), do: %Goal.SendElixir{pid: pid, message: message}

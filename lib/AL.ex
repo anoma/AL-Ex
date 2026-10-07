@@ -875,7 +875,8 @@ defmodule AL do
       | reductions: state.reductions + steps,
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
-          | store: AL.JAM.snapshot_store(snapshot)
+          | progress: AL.JAM.completed_goals(snapshot),
+            store: AL.JAM.snapshot_store(snapshot)
         }
     }
 
@@ -888,7 +889,11 @@ defmodule AL do
     state = %AL{
       state
       | reductions: state.reductions + steps,
-        active_choicepoint: %AL.Choicepoint{choice | store: AL.JAM.snapshot_store(snapshot)}
+        active_choicepoint: %AL.Choicepoint{
+          choice
+          | progress: AL.JAM.completed_goals(snapshot),
+            store: AL.JAM.snapshot_store(snapshot)
+        }
     }
 
     state =
@@ -1021,7 +1026,11 @@ defmodule AL do
     %AL{
       state
       | reductions: state.reductions + steps,
-        active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: store}
+        active_choicepoint: %AL.Choicepoint{
+          state.active_choicepoint
+          | progress: length(state.program),
+            store: store
+        }
     }
   end
 
@@ -1079,6 +1088,7 @@ defmodule AL do
           {:resume, AL.JAM.without_suspensions(snapshot)}
           | state.active_choicepoint.goals
         ],
+        progress: AL.JAM.completed_goals(snapshot),
         store: AL.JAM.snapshot_store(snapshot),
         clause: AL.JAM.Trace.seq_of(elem(snapshot, 0)),
         scope_pointer:
