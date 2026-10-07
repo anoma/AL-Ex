@@ -58,7 +58,7 @@ defmodule Bench.Sudoku do
   def seventeen_puzzle, do: @seventeen_puzzle
 
   def solve(branch, givens) do
-    run branch: branch.id, trace_mode: :no_trace do
+    run branch: branch.id, trace: [] do
       ~AL"""
       new sudoku_puzzle #{givens => ^givens} Puzzle.
       solve Puzzle Solved.
@@ -68,7 +68,7 @@ defmodule Bench.Sudoku do
 
   def check_solution(result, givens) do
     {bindings, _, _} = Bench.Support.assert_atomic!(result)
-    rows = bindings[:"$Solved"]
+    rows = bindings["$Solved"]
 
     unless is_list(rows) and length(rows) == 9 and
              Enum.all?(rows, &(is_list(&1) and length(&1) == 9)),

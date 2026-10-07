@@ -34,8 +34,8 @@ defmodule Examples.ALCategories do
         """
       end
 
-    assert Map.get(bindings, :"$GreetingA") == :hello
-    assert Map.get(bindings, :"$GreetingB") == :hello
+    assert Map.get(bindings, "$GreetingA") == :hello
+    assert Map.get(bindings, "$GreetingB") == :hello
     :ok
   end
 
@@ -62,7 +62,7 @@ defmodule Examples.ALCategories do
         """
       end
 
-    assert Map.get(bindings, :"$Unrelated") == true
+    assert Map.get(bindings, "$Unrelated") == true
     :ok
   end
 
@@ -77,7 +77,7 @@ defmodule Examples.ALCategories do
         """
       end
 
-    assert Map.get(bindings, :"$Kind") == :category
+    assert Map.get(bindings, "$Kind") == :category
     :ok
   end
 
@@ -103,9 +103,9 @@ defmodule Examples.ALCategories do
         """
       end
 
-    candidates = Map.get(b1, :"$Candidates")
+    candidates = Map.get(b1, "$Candidates")
     refute :counts_behaviour in candidates
-    assert Map.get(b1, :"$Instance") in candidates
+    assert Map.get(b1, "$Instance") in candidates
     :ok
   end
 end

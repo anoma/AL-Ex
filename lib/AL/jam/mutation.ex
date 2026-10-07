@@ -230,7 +230,7 @@ defmodule AL.JAM.Mutation do
     for {:class, _o, _seq, class} <-
           AL.Object.scan_class(
             o,
-            AL.Var.fresh(:"$direct_class_check", Integer.to_string(scope)),
+            AL.Var.fresh({:"$var", "direct_class_check"}, Integer.to_string(scope)),
             branch
           ),
         do: class

@@ -25,14 +25,14 @@ defmodule Examples.ALOutputBindings do
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)
 
-    pairs = [Map.get(b1, :"$Pair"), Map.get(b2, :"$Pair")]
+    pairs = [Map.get(b1, "$Pair"), Map.get(b2, "$Pair")]
 
-    # both solutions come back as ground lists, not [:"$S", :"$S"]
+    # both solutions come back as ground lists, not [{:"$var", "S"}, {:"$var", "S"}]
     assert Enum.sort(pairs) == [[:alpha, :alpha], [:beta, :beta]]
     :ok
   end
 
-  # :"$_" never binds (unify/4's first clause), so standardize_apart must
+  # {:"$var", "_"} never binds (unify/4's first clause), so standardize_apart must
   # never rename it either -- else two wildcards collapse onto one fresh var.
   example findall_wildcard_placeholders_stay_independent() do
     {:atomic, {bindings, _constraints, _}} =
@@ -42,7 +42,7 @@ defmodule Examples.ALOutputBindings do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == [[1, :"$_1", :"$_2"]]
+    assert Map.get(bindings, "$Result") == [[1, {:"$var", "_1"}, {:"$var", "_2"}]]
     :ok
   end
 
@@ -56,8 +56,8 @@ defmodule Examples.ALOutputBindings do
         """
       end
 
-    assert Map.get(bindings, :"$Y") == :"$Y"
-    assert Map.get(bindings, :"$X") == [3, :"$Y", 1, 2]
+    assert Map.get(bindings, "$Y") == {:"$var", "Y"}
+    assert Map.get(bindings, "$X") == [3, {:"$var", "Y"}, 1, 2]
     :ok
   end
 end

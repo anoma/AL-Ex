@@ -93,7 +93,7 @@ defmodule AL.JAM.Scan do
   def enter(_, _, _, _, _, _, _, _), do: :fallback
 
   defp fresh?(value, store),
-    do: Var.var?(value) and value != :"$_" and not Map.has_key?(store, value)
+    do: Var.var?(value) and value != {:"$var", "_"} and not Map.has_key?(store, value)
 
   defp prepare(nil, _, _, _, _, _), do: :fallback
 
@@ -115,7 +115,7 @@ defmodule AL.JAM.Scan do
               put_elem(
                 slots,
                 index,
-                Var.fresh(:"$Region", scope <> ":" <> Integer.to_string(index))
+                Var.fresh({:"$var", "Region"}, scope <> ":" <> Integer.to_string(index))
               )
             end)
 
@@ -191,7 +191,7 @@ defmodule AL.JAM.Scan do
 
   defp consumption_prefix(_, _, _, _), do: :fallback
 
-  def emit(%{interface: %{mode: :integer_prefix_fresh_rest}} = plan) do
+  def emit(%{mode: :integer_prefix_fresh_rest} = plan) do
     fallback =
       Enum.map(plan.tests, fn
         {:dif, value} -> {:dif, {:register, 2}, {:constant, value}}
@@ -199,7 +199,7 @@ defmodule AL.JAM.Scan do
       end)
       |> List.to_tuple()
 
-    start = if plan.blocks.answers.minimum == 0, do: [{:try, :answer, [0, 1]}], else: []
+    start = if plan.minimum == 0, do: [{:try, :answer, [0, 1]}], else: []
 
     instructions =
       start ++
@@ -222,13 +222,14 @@ defmodule AL.JAM.Scan do
   end
 
   def emit(plan) do
-    names = %{:"$Tail" => 0, :"$Rest" => 2, :"$Value" => 3}
+    names = %{{:"$var", "Tail"} => 0, {:"$var", "Rest"} => 2, {:"$var", "Value"} => 3}
 
     {suffix, _last, names} =
-      Enum.reduce(plan.suffix, {[], :"$Tail", names}, fn {selector, check}, {ops, input, names} ->
-        output = Var.fresh(:"$Suffix", Integer.to_string(map_size(names)))
+      Enum.reduce(plan.suffix, {[], {:"$var", "Tail"}, names}, fn {selector, check},
+                                                                  {ops, input, names} ->
+        output = Var.fresh({:"$var", "Suffix"}, Integer.to_string(map_size(names)))
         names = Map.put(names, output, 11 + map_size(names))
-        pattern = %AL.Goal.Compound{name: check, args: [:"$Value"]}
+        pattern = %AL.Goal.Compound{name: check, args: [{:"$var", "Value"}]}
         op = IR.operation(:send, selector, [plan.receiver, [input, output, pattern]])
         {ops ++ [IR.emit(op, names)], output, names}
       end)

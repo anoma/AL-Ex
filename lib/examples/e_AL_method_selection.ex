@@ -76,9 +76,9 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert bindings[:"$Parent"] == :parent
-    assert bindings[:"$Override"] == :override
-    assert bindings[:"$Inherited"] == :parent
+    assert bindings["$Parent"] == :parent
+    assert bindings["$Override"] == :override
+    assert bindings["$Inherited"] == :parent
   end
 
   example open_dispatch_partitions_objects_by_effective_provider() do
@@ -91,7 +91,7 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert MapSet.new(bindings[:"$Answers"]) ==
+    assert MapSet.new(bindings["$Answers"]) ==
              MapSet.new([
                [:selection_parent_object, :parent],
                [:selection_override_object, :override],
@@ -110,8 +110,8 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert bindings[:"$ExactResults"] == [:parent]
-    assert MapSet.new(bindings[:"$IsaResults"]) == MapSet.new([:parent, :override])
+    assert bindings["$ExactResults"] == [:parent]
+    assert MapSet.new(bindings["$IsaResults"]) == MapSet.new([:parent, :override])
   end
 
   example a_later_exact_receiver_binding_reselects_the_effective_method() do
@@ -125,8 +125,8 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert bindings[:"$Receiver"] == :selection_override_object
-    assert bindings[:"$Result"] == :override
+    assert bindings["$Receiver"] == :selection_override_object
+    assert bindings["$Result"] == :override
   end
 
   example multiple_selector_constraints_intersect_at_a_common_class() do
@@ -141,7 +141,7 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert bindings[:"$Receiver"] == :selection_both_object
+    assert bindings["$Receiver"] == :selection_both_object
   end
 
   example repeated_selection_of_one_selector_cannot_change_provider() do
@@ -158,7 +158,7 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert bindings[:"$Receivers"] == []
+    assert bindings["$Receivers"] == []
   end
 
   example a_nearer_method_binding_owns_its_whole_clause_region() do
@@ -185,7 +185,7 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert MapSet.new(bindings[:"$Receivers"]) ==
+    assert MapSet.new(bindings["$Receivers"]) ==
              MapSet.new([:selection_parent_object, :selection_inheritor_object])
   end
 
@@ -199,7 +199,7 @@ defmodule Examples.ALMethodSelection do
         """
       end
 
-    assert MapSet.new(bindings[:"$Answers"]) ==
+    assert MapSet.new(bindings["$Answers"]) ==
              MapSet.new([
                [:selection_parent_object, :class_instance],
                [:selection_override_object, :class_instance],

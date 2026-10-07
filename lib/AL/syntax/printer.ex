@@ -168,6 +168,9 @@ defmodule AL.Syntax.Printer do
   defp goal(%Goal.Compound{name: name, args: args}, indent, context),
     do: call(name, args, indent, context)
 
+  defp goal({:"$var", _} = variable, indent, context), do: term(variable, indent, context)
+  defp goal({:"$fresh", _, _} = variable, indent, context), do: term(variable, indent, context)
+
   defp goal(goal, indent, context)
        when goal in [:cut, :fail, :pass] or (is_tuple(goal) and not is_struct(goal)),
        do: goal(load(goal), indent, context)
@@ -246,7 +249,7 @@ defmodule AL.Syntax.Printer do
       not is_list(args) ->
         call(:send, [object, method, args], indent, context)
 
-      not is_atom(method) or AL.Var.var?(method) or Syntax.reserved?(method) ->
+      not is_atom(method) or Syntax.reserved?(method) ->
         if args == [],
           do: call(:send, [object, method], indent, context),
           else: call(:send, [object, method, args], indent, context)
@@ -475,6 +478,9 @@ defmodule AL.Syntax.Printer do
 
   defp term(term, indent, context) when is_struct(term), do: goal(term, indent, context)
 
+  defp term({:"$var", _} = term, _indent, _context), do: variable(term)
+  defp term({:"$fresh", _, _} = term, _indent, _context), do: variable(term)
+
   defp term(term, indent, context) when is_tuple(term) do
     case Goal.from_stored(term) do
       goal when is_struct(goal) -> term(goal, indent, context)
@@ -496,9 +502,7 @@ defmodule AL.Syntax.Printer do
   defp term(term, indent, _context) when is_list(term),
     do: layout("[", items(term, indent <> "  "), "]", indent)
 
-  defp term(term, _indent, _context) when is_atom(term) do
-    if AL.Var.var?(term), do: variable(term), else: atom(term)
-  end
+  defp term(term, _indent, _context) when is_atom(term), do: atom(term)
 
   defp term(term, _indent, _context) when is_number(term) or is_binary(term), do: literal(term)
 
@@ -527,7 +531,7 @@ defmodule AL.Syntax.Printer do
   end
 
   defp variable(var) do
-    name = var |> Atom.to_string() |> String.trim_leading("$")
+    name = AL.Var.name(var)
 
     cond do
       String.starts_with?(name, "_@") -> "_"

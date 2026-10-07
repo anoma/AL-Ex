@@ -145,7 +145,7 @@ end
 AL.notrace()
 ```
 
-`run` accepts a set of trace flags. With no flags it retains no execution history. `:domino` retains structured method/clause and constraint evidence; `:vm` interleaves every raw goal into the same chronological event stream. The flags compose, so `trace: [:domino, :vm]` gives the former full trace. Every event is tagged as either `:domino` or `:vm`; when both flags are enabled, Domino owns constraint evidence so it is retained only once. A future query explainer can join this same system as another producer. The old `trace_mode:` values remain compatibility shorthands.
+`run` accepts a set of trace flags. With no flags it retains no execution history. `:domino` retains structured method/clause and constraint evidence; `:vm` interleaves every raw goal into the same chronological event stream. The flags compose, so `trace: [:domino, :vm]` gives the former full trace. Every event is tagged as either `:domino` or `:vm`; when both flags are enabled, Domino owns constraint evidence so it is retained only once. A future query explainer can join this same system as another producer.
 
 Dispatch on an open receiver can have several candidate legs- a value/ephemeral leg and a durable leg, at minimum. Tracing shows which legs are being considered before a match is even found.
 

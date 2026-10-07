@@ -7,7 +7,7 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:schedule_transaction, [status, effect, head, goals], store, _branch) do
-    future = AL.Var.var("future_transaction_#{AL.fresh_scope()}")
+    future = AL.Var.fresh({:"$var", "future_transaction"}, Integer.to_string(AL.fresh_scope()))
 
     {:goals, store,
      [
@@ -23,16 +23,12 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:command, [transaction, time, operation], store, branch) do
-    rows =
-      case AL.Var.deref(store, transaction) do
-        open when is_atom(open) ->
-          if AL.Var.var?(open),
-            do: AL.Command.commands_since(0, branch),
-            else: AL.Command.commands_for_transaction(open, branch)
+    resolved = AL.Var.deref(store, transaction)
 
-        bound ->
-          AL.Command.commands_for_transaction(bound, branch)
-      end
+    rows =
+      if AL.Var.var?(resolved),
+        do: AL.Command.commands_since(0, branch),
+        else: AL.Command.commands_for_transaction(resolved, branch)
 
     {:stores,
      Enum.map(rows, fn {:command, command_time, command_transaction, command_operation} ->
@@ -74,7 +70,7 @@ defmodule AL.JAM.Relation do
 
   def execute(:slot, [object, key, value, :auto], store, branch) do
     storage =
-      if is_atom(object) and not AL.Var.var?(object) and not AL.Var.var?(key),
+      if is_atom(object) and not AL.Var.var?(key),
         do: AL.Dispatch.ivar_storage(object, key, branch),
         else: :aos
 
@@ -91,11 +87,12 @@ defmodule AL.JAM.Relation do
       )
 
   def execute(:slot, [object, key, value, :aos], store, branch) do
-    if object != :"$_" and AL.Var.var?(object) and key != :"$_" and not AL.Var.var?(key) do
+    if object != {:"$var", "_"} and AL.Var.var?(object) and key != {:"$var", "_"} and
+         not AL.Var.var?(key) do
       next = AL.Var.add_slot_link(store, object, {:slot, key, value}, branch)
 
       next =
-        if next && AL.Var.var?(value) && value != :"$_",
+        if next && AL.Var.var?(value) && value != {:"$var", "_"},
           do: AL.Var.add_slot_link(next, value, {:slot_value, key, object}, branch),
           else: next
 
@@ -188,7 +185,7 @@ defmodule AL.JAM.Relation do
     known_direct = AL.Var.direct_classes_of(store, object)
 
     cond do
-      AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class) ->
+      AL.Var.var?(object) and object != {:"$var", "_"} and not AL.Var.var?(class) ->
         if AL.Dispatch.isa_conflict?(known_isa, class, branch) do
           {:ok, nil}
         else
@@ -211,7 +208,7 @@ defmodule AL.JAM.Relation do
           {:ok, result}
         end
 
-      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class) and
+      AL.Var.var?(object) and object != {:"$var", "_"} and AL.Var.var?(class) and
           not Enum.empty?(known_direct) ->
         classes =
           known_direct
@@ -220,11 +217,11 @@ defmodule AL.JAM.Relation do
 
         {:stores, Enum.map(classes, &AL.Var.unify(class, &1, store, branch))}
 
-      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class) and
+      AL.Var.var?(object) and object != {:"$var", "_"} and AL.Var.var?(class) and
           not Enum.empty?(known_isa) ->
         {:stores, Enum.map(MapSet.to_list(known_isa), &AL.Var.unify(class, &1, store, branch))}
 
-      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class) ->
+      AL.Var.var?(object) and object != {:"$var", "_"} and AL.Var.var?(class) ->
         next =
           store
           |> AL.Var.add_isa(object, class)
@@ -252,14 +249,16 @@ defmodule AL.JAM.Relation do
     known = AL.Var.direct_classes_of(store, object)
 
     cond do
-      AL.Var.var?(object) and object != :"$_" and not AL.Var.var?(class) ->
+      AL.Var.var?(object) and object != {:"$var", "_"} and not AL.Var.var?(class) ->
         {store, _} = AL.Var.add_direct_class(store, object, class)
         {:ok, if(AL.Var.direct_class_conflict?(store, object), do: nil, else: store)}
 
-      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class) and not Enum.empty?(known) ->
+      AL.Var.var?(object) and object != {:"$var", "_"} and AL.Var.var?(class) and
+          not Enum.empty?(known) ->
         {:stores, Enum.map(known, &AL.Var.unify(class, &1, store, branch))}
 
-      AL.Var.var?(object) and object != :"$_" and AL.Var.var?(class) and class != :"$_" ->
+      AL.Var.var?(object) and object != {:"$var", "_"} and AL.Var.var?(class) and
+          class != {:"$var", "_"} ->
         {store, _} = AL.Var.add_direct_class(store, object, class)
         store = AL.Var.add_isa(store, class, {:object_link, object})
         {:ok, if(AL.Var.direct_class_conflict?(store, object), do: nil, else: store)}
@@ -275,7 +274,8 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:super, [object, super], store, branch) do
-    if object != :"$_" and super != :"$_" and AL.Var.var?(object) and AL.Var.var?(super) do
+    if object != {:"$var", "_"} and super != {:"$var", "_"} and AL.Var.var?(object) and
+         AL.Var.var?(super) do
       store =
         store
         |> AL.Var.add_super_link(object, {:super, super})
@@ -293,7 +293,7 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:method, [object, name, id], store, branch) do
-    if AL.Var.var?(object) and object != :"$_" do
+    if AL.Var.var?(object) and object != {:"$var", "_"} do
       owners =
         AL.Object.scan_method(fresh_seq(), name, id, branch)
         |> Enum.map(fn {:method, owner, _name, _id} -> owner end)
@@ -311,11 +311,11 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:clause, [object, seq, head, body], store, branch) do
-    if AL.Var.var?(object) and object != :"$_" do
+    if AL.Var.var?(object) and object != {:"$var", "_"} do
       pattern = {:oapply, object, seq, head, body}
 
       owners =
-        AL.scan_clauses(fresh_seq(), seq, head, body, branch)
+        AL.JAM.Clauses.scan_clauses(fresh_seq(), seq, head, body, branch)
         |> Enum.filter(fn row ->
           AL.Var.unify(AL.standardize_apart(row), pattern, store, branch) != nil
         end)
@@ -327,7 +327,7 @@ defmodule AL.JAM.Relation do
       pattern = {:oapply, object, seq, head, body}
 
       stores =
-        Enum.map(AL.scan_clauses(object, seq, head, body, branch), fn row ->
+        Enum.map(AL.JAM.Clauses.scan_clauses(object, seq, head, body, branch), fn row ->
           AL.Var.unify(AL.standardize_apart(row), pattern, store, branch)
         end)
 
@@ -410,7 +410,7 @@ defmodule AL.JAM.Relation do
     (MapSet.to_list(AL.Var.direct_classes_of(store, object)) ++
        MapSet.to_list(AL.Var.isa_of(store, object)))
     |> Enum.map(&AL.Var.deref(store, &1))
-    |> Enum.filter(&(is_atom(&1) and not AL.Var.var?(&1)))
+    |> Enum.filter(&is_atom(&1))
     |> Enum.uniq()
     |> Enum.flat_map(&AL.Dispatch.ivar_specs_for_classes([&1], branch))
     |> Enum.uniq()
@@ -496,5 +496,5 @@ defmodule AL.JAM.Relation do
   defp scan(rows, pattern, store, branch),
     do: {:stores, Enum.map(rows, &AL.Var.unify(&1, pattern, store, branch))}
 
-  defp fresh_seq(), do: AL.Var.fresh(:"$seq", Integer.to_string(AL.fresh_scope()))
+  defp fresh_seq(), do: AL.Var.fresh({:"$var", "seq"}, Integer.to_string(AL.fresh_scope()))
 end

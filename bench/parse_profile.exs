@@ -14,21 +14,23 @@ Bench.Language.isolated(fn ->
   expected =
     parsed.program
     |> Enum.reject(&match?(%AL.Goal.Compound{name: :clear_method}, &1))
-    |> AL.Goal.map(fn term ->
+    |> AL.Term.map(fn term ->
       if AL.Var.var?(term),
         do: %AL.Goal.Compound{
           name: :var,
-          args: [term |> Atom.to_string() |> String.trim_leading("$") |> String.to_atom()]
+          args: [AL.Var.name(term)]
         },
         else: term
     end)
 
   program =
-    Bench.Language.program("parse al_grammar (program Items) Source.", %{:"$Source" => source})
+    Bench.Language.program("parse al_grammar (program Items) Source.", %{
+      {:"$var", "Source"} => source
+    })
 
   parse = fn ->
     bindings = Bench.Language.bindings(AL.eval(program))
-    if bindings[:"$Items"] != expected, do: raise("AL grammar disagrees with AL.Syntax")
+    if bindings["$Items"] != expected, do: raise("AL grammar disagrees with AL.Syntax")
   end
 
   for _ <- 1..3, do: parse.()
@@ -44,7 +46,7 @@ Bench.Language.isolated(fn ->
     :eprof.stop_profiling()
 
     for result <- results do
-      if Bench.Language.bindings(result)[:"$Items"] != expected,
+      if Bench.Language.bindings(result)["$Items"] != expected,
         do: raise("profiled AL grammar disagrees with AL.Syntax")
     end
 

@@ -10,10 +10,10 @@ defmodule AL.JAM.IRProgramTest do
   end
 
   defp collect({:ok, store, _}, choices),
-    do: [AL.Var.subst(:"$Output", store) | remaining(choices)]
+    do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(choices)]
 
   defp collect({:answers, store, alternatives, _}, choices),
-    do: [AL.Var.subst(:"$Output", store) | remaining(alternatives ++ choices)]
+    do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(alternatives ++ choices)]
 
   defp collect({:commit, snapshot, alternatives, _}, choices) do
     [_ | remaining] = Enum.drop_while(alternatives ++ choices, &(&1 != :implies_mark))
@@ -29,16 +29,16 @@ defmodule AL.JAM.IRProgramTest do
 
   test "ordered alternatives share a continuation and preserve duplicate answers" do
     choice = %Goal.Or{
-      or: [%Goal.Eq{a: :"$Value", b: :first}],
+      or: [%Goal.Eq{a: {:"$var", "Value"}, b: :first}],
       then: [
         %Goal.Or{
-          or: [%Goal.Eq{a: :"$Value", b: :first}],
-          then: [%Goal.Eq{a: :"$Value", b: :second}]
+          or: [%Goal.Eq{a: {:"$var", "Value"}, b: :first}],
+          then: [%Goal.Eq{a: {:"$var", "Value"}, b: :second}]
         }
       ]
     }
 
-    program = Program.lower([choice, %Goal.Eq{a: :"$Output", b: :"$Value"}])
+    program = Program.lower([choice, %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
     assert {:choice, left, right, join} = program.blocks[program.entry].exit
     assert join in Program.successors(program.blocks[left])
     assert {:choice, _, _, ^join} = program.blocks[right].exit
@@ -46,13 +46,13 @@ defmodule AL.JAM.IRProgramTest do
   end
 
   test "an IR value rewrite compiles without returning to the AST" do
-    program = Program.lower([%Goal.Eq{a: :"$Output", b: :"$Input"}])
-    program = Program.subst(program, %{:"$Input" => :specialized})
+    program = Program.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Input"}}])
+    program = Program.subst(program, %{{:"$var", "Input"} => :specialized})
     assert answers(program) == [:specialized]
-    assert Program.variables(program) == MapSet.new([:"$Output"])
+    assert Program.variables(program) == MapSet.new([{:"$var", "Output"}])
 
     assert {[{_, _, _, _, code, _}], _} =
-             AL.JAM.Compiler.compile([{:oapply, :ir_only, 0, [:"$Output"], program}])
+             AL.JAM.Compiler.compile([{:oapply, :ir_only, 0, [{:"$var", "Output"}], program}])
 
     assert tuple_size(code) == 1
   end
@@ -61,13 +61,13 @@ defmodule AL.JAM.IRProgramTest do
     prefix =
       Program.lower([
         %Goal.Implies{
-          condition: [%Goal.Eq{a: :"$Local", b: :chosen}],
-          then: [%Goal.Eq{a: :"$Value", b: :"$Local"}],
-          otherwise: [%Goal.Eq{a: :"$Value", b: :wrong}]
+          condition: [%Goal.Eq{a: {:"$var", "Local"}, b: :chosen}],
+          then: [%Goal.Eq{a: {:"$var", "Value"}, b: {:"$var", "Local"}}],
+          otherwise: [%Goal.Eq{a: {:"$var", "Value"}, b: :wrong}]
         }
       ])
 
-    suffix = Program.lower([%Goal.Eq{a: :"$Output", b: :"$Value"}])
+    suffix = Program.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
     assert answers(Program.concat(prefix, suffix)) == [:chosen]
 
     failing =
@@ -75,24 +75,22 @@ defmodule AL.JAM.IRProgramTest do
         %Goal.Implies{
           condition: [%Goal.Fail{}],
           then: [%Goal.Fail{}],
-          otherwise: [%Goal.Eq{a: :"$Value", b: :fallback}]
+          otherwise: [%Goal.Eq{a: {:"$var", "Value"}, b: :fallback}]
         }
       ])
 
     assert answers(Program.concat(failing, suffix)) == [:fallback]
   end
 
-  test "calls expose continuations and a selected region exposes its outgoing edge" do
+  test "calls expose continuations" do
     program =
       Program.lower([
-        %Goal.Send{object: :receiver, method: :selector, args: [:"$Output"]},
-        %Goal.Atom{term: :"$Output"}
+        %Goal.Send{object: :receiver, method: :selector, args: [{:"$var", "Output"}]},
+        %Goal.Atom{term: {:"$var", "Output"}}
       ])
 
     assert {:call, %IR{kind: :send}, next} = program.blocks[program.entry].exit
-    region = Region.select(program, program.entry, [program.entry])
-    assert region.exits == [{program.entry, next}]
-    assert MapSet.member?(region.outputs, :"$Output")
+    assert Map.has_key?(program.blocks, next)
     assert program.blocks[program.entry].failure == :backtrack
     assert program.blocks[program.entry].suspension == :resume
   end
@@ -100,7 +98,10 @@ defmodule AL.JAM.IRProgramTest do
   test "scoped code is a nested IR program and effects are conservative" do
     program =
       Program.lower([
-        %Goal.Forall{condition: [%Goal.Pass{}], body: [%Goal.Eq{a: :"$Output", b: :value}]},
+        %Goal.Forall{
+          condition: [%Goal.Pass{}],
+          body: [%Goal.Eq{a: {:"$var", "Output"}, b: :value}]
+        },
         %Goal.SetClass{object: :object, class: :class}
       ])
 
@@ -108,7 +109,8 @@ defmodule AL.JAM.IRProgramTest do
     assert %Program{} = operation.regions.condition
     assert %Program{} = operation.regions.body
     assert IR.effects(operation) == :scoped
-    assert is_nil(operation.source)
+    assert operation.retained_goals == []
+    assert operation.fallback == []
     assert Program.any?(program, &(IR.effects(&1) == :write))
     refute Program.any?(program, &(&1.kind == :unsupported))
   end
@@ -116,69 +118,79 @@ defmodule AL.JAM.IRProgramTest do
   test "equal branch facts reach the join without losing duplicate answers" do
     program =
       Program.lower([
-        %Goal.Or{or: [%Goal.Eq{a: :"$Tag", b: :same}], then: [%Goal.Eq{a: :"$Tag", b: :same}]},
-        %Goal.Eq{a: :"$Output", b: :"$Tag"}
+        %Goal.Or{
+          or: [%Goal.Eq{a: {:"$var", "Tag"}, b: :same}],
+          then: [%Goal.Eq{a: {:"$var", "Tag"}, b: :same}]
+        },
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Tag"}}
       ])
 
-    optimized = Dataflow.specialize(program, MapSet.new([:"$Output"]))
+    optimized = Dataflow.specialize(program, MapSet.new([{:"$var", "Output"}]))
     assert answers(optimized) == [:same, :same]
-    refute MapSet.member?(Program.variables(optimized), :"$Tag")
+    refute MapSet.member?(Program.variables(optimized), {:"$var", "Tag"})
     assert {:choice, _, _, _} = optimized.blocks[optimized.entry].exit
   end
 
   test "conflicting branch facts retain the shared variable" do
     program =
       Program.lower([
-        %Goal.Or{or: [%Goal.Eq{a: :"$Tag", b: :first}], then: [%Goal.Eq{a: :"$Tag", b: :second}]},
-        %Goal.Eq{a: :"$Output", b: :"$Tag"}
+        %Goal.Or{
+          or: [%Goal.Eq{a: {:"$var", "Tag"}, b: :first}],
+          then: [%Goal.Eq{a: {:"$var", "Tag"}, b: :second}]
+        },
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Tag"}}
       ])
 
-    optimized = Dataflow.specialize(program, MapSet.new([:"$Output"]))
+    optimized = Dataflow.specialize(program, MapSet.new([{:"$var", "Output"}]))
     assert answers(optimized) == [:first, :second]
-    assert MapSet.member?(Program.variables(optimized), :"$Tag")
+    assert MapSet.member?(Program.variables(optimized), {:"$var", "Tag"})
   end
 
   test "condition facts do not leak into the otherwise branch" do
     program =
       Program.lower([
         %Goal.Implies{
-          condition: [%Goal.Eq{a: :"$Tag", b: :wrong}, %Goal.Fail{}],
-          then: [%Goal.Eq{a: :"$Output", b: :wrong}],
-          otherwise: [%Goal.Eq{a: :"$Tag", b: :right}, %Goal.Eq{a: :"$Output", b: :"$Tag"}]
+          condition: [%Goal.Eq{a: {:"$var", "Tag"}, b: :wrong}, %Goal.Fail{}],
+          then: [%Goal.Eq{a: {:"$var", "Output"}, b: :wrong}],
+          otherwise: [
+            %Goal.Eq{a: {:"$var", "Tag"}, b: :right},
+            %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Tag"}}
+          ]
         }
       ])
 
-    assert answers(Dataflow.specialize(program, MapSet.new([:"$Output"]))) == [:right]
+    assert answers(Dataflow.specialize(program, MapSet.new([{:"$var", "Output"}]))) == [:right]
   end
 
   test "caller-visible bindings survive propagation and dead binding elimination" do
     program =
       Program.lower([
         %Goal.Or{
-          or: [%Goal.Eq{a: :"$Output", b: :first}],
-          then: [%Goal.Eq{a: :"$Output", b: :second}]
+          or: [%Goal.Eq{a: {:"$var", "Output"}, b: :first}],
+          then: [%Goal.Eq{a: {:"$var", "Output"}, b: :second}]
         }
       ])
 
-    assert answers(Dataflow.specialize(program, MapSet.new([:"$Output"]))) == [:first, :second]
+    assert answers(Dataflow.specialize(program, MapSet.new([{:"$var", "Output"}]))) == [
+             :first,
+             :second
+           ]
   end
 
   test "liveness excludes a later fresh definition from a region interface" do
     program =
       Program.lower([
-        %Goal.Eq{a: :"$Dead", b: :unused},
-        %Goal.Eq{a: :"$Value", b: :used},
-        %Goal.Eq{a: :"$Output", b: :"$Value"}
+        %Goal.Eq{a: {:"$var", "Dead"}, b: :unused},
+        %Goal.Eq{a: {:"$var", "Value"}, b: :used},
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}
       ])
 
     {:jump, middle} = program.blocks[program.entry].exit
     {:jump, final} = program.blocks[middle].exit
-    region = Region.select(program, program.entry, [program.entry], MapSet.new([:"$Output"]))
-    refute MapSet.member?(region.inputs, :"$Value")
-    refute MapSet.member?(region.outputs, :"$Dead")
-    analysis = Dataflow.analyze(program, MapSet.new([:"$Output"]), false)
-    assert MapSet.member?(analysis.live.in[final], :"$Value")
-    assert region.outputs == MapSet.new([:"$Output"])
+    analysis = Dataflow.analyze(program, MapSet.new([{:"$var", "Output"}]), false)
+    assert MapSet.member?(analysis.live.in[final], {:"$var", "Value"})
+    refute MapSet.member?(analysis.live.in[program.entry], {:"$var", "Value"})
+    refute MapSet.member?(analysis.live.out[program.entry], {:"$var", "Dead"})
   end
 
   test "effects on a failed alternative still invalidate dispatch assumptions" do
@@ -188,11 +200,11 @@ defmodule AL.JAM.IRProgramTest do
           or: [%Goal.SetClass{object: :object, class: :class}, %Goal.Fail{}],
           then: [%Goal.Pass{}]
         },
-        %Goal.Eq{a: :"$Output", b: :value}
+        %Goal.Eq{a: {:"$var", "Output"}, b: :value}
       ])
 
     {:choice, _, _, join} = program.blocks[program.entry].exit
-    analysis = Dataflow.analyze(program, MapSet.new([:"$Output"]))
+    analysis = Dataflow.analyze(program, MapSet.new([{:"$var", "Output"}]))
     refute analysis.before[join].stable
     assert Program.any?(analysis.program, &(IR.effects(&1) == :write))
   end
@@ -200,20 +212,20 @@ defmodule AL.JAM.IRProgramTest do
   test "region compilation removes fresh shape and alias intermediates" do
     program =
       Program.lower([
-        %Goal.Eq{a: :"$Shape", b: [:tag, :"$Input"]},
-        %Goal.Eq{a: :"$Alias", b: :"$Shape"},
-        %Goal.Eq{a: :"$Output", b: :"$Alias"}
+        %Goal.Eq{a: {:"$var", "Shape"}, b: [:tag, {:"$var", "Input"}]},
+        %Goal.Eq{a: {:"$var", "Alias"}, b: {:"$var", "Shape"}},
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Alias"}}
       ])
 
-    interface = MapSet.new([:"$Input", :"$Output"])
+    interface = MapSet.new([{:"$var", "Input"}, {:"$var", "Output"}])
     optimized = Region.compile(program, interface)
-    refute MapSet.member?(Program.variables(optimized), :"$Shape")
-    refute MapSet.member?(Program.variables(optimized), :"$Alias")
-    assert answers(Program.subst(optimized, %{:"$Input" => 42})) == [[:tag, 42]]
+    refute MapSet.member?(Program.variables(optimized), {:"$var", "Shape"})
+    refute MapSet.member?(Program.variables(optimized), {:"$var", "Alias"})
+    assert answers(Program.subst(optimized, %{{:"$var", "Input"} => 42})) == [[:tag, 42]]
 
     assert {[{_, _, _, _, code, _}], _} =
              AL.JAM.Compiler.compile([
-               {:oapply, :region, 0, [:"$Input", :"$Output"], program}
+               {:oapply, :region, 0, [{:"$var", "Input"}, {:"$var", "Output"}], program}
              ])
 
     assert tuple_size(code) == 1
@@ -222,38 +234,38 @@ defmodule AL.JAM.IRProgramTest do
   test "ground arithmetic is evaluated before propagating its result" do
     program =
       Program.lower([
-        %Goal.Eq{a: :"$Sum", b: %Goal.Compound{name: :+, args: [2, 3]}},
-        %Goal.Eq{a: :"$Output", b: [:"$Sum"]}
+        %Goal.Eq{a: {:"$var", "Sum"}, b: %Goal.Compound{name: :+, args: [2, 3]}},
+        %Goal.Eq{a: {:"$var", "Output"}, b: [{:"$var", "Sum"}]}
       ])
 
     assert answers(program) == [[5]]
-    optimized = Region.compile(program, MapSet.new([:"$Output"]))
+    optimized = Region.compile(program, MapSet.new([{:"$var", "Output"}]))
     assert answers(optimized) == [[5]]
-    refute MapSet.member?(Program.variables(optimized), :"$Sum")
+    refute MapSet.member?(Program.variables(optimized), {:"$var", "Sum"})
   end
 
   test "unresolved arithmetic retains its constraint and region boundary" do
     program =
       Program.lower([
-        %Goal.Eq{a: :"$Sum", b: %Goal.Compound{name: :+, args: [:"$Input", 3]}},
-        %Goal.Eq{a: :"$Input", b: 2},
-        %Goal.Eq{a: :"$Output", b: :"$Sum"}
+        %Goal.Eq{a: {:"$var", "Sum"}, b: %Goal.Compound{name: :+, args: [{:"$var", "Input"}, 3]}},
+        %Goal.Eq{a: {:"$var", "Input"}, b: 2},
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Sum"}}
       ])
 
-    optimized = Region.compile(program, MapSet.new([:"$Output"]))
+    optimized = Region.compile(program, MapSet.new([{:"$var", "Output"}]))
     assert answers(optimized) == [5]
-    assert MapSet.member?(Program.variables(optimized), :"$Sum")
-    analysis = Dataflow.analyze(program, MapSet.new([:"$Output"]))
+    assert MapSet.member?(Program.variables(optimized), {:"$var", "Sum"})
+    analysis = Dataflow.analyze(program, MapSet.new([{:"$var", "Output"}]))
     assert analysis.inference[program.entry][0].suspension == :unknown
   end
 
   test "inference distinguishes fresh writes from caller-visible unification" do
-    op = IR.operation(:direct, :eq, [:"$Value", 4])
+    op = IR.operation(:direct, :eq, [{:"$var", "Value"}, 4])
     fresh = AL.JAM.IR.Inference.operation(op, MapSet.new())
     assert fresh.modes == [:fresh, :ground]
     assert fresh.determinism == :det
     assert fresh.suspension == :never
-    caller = AL.JAM.IR.Inference.operation(op, MapSet.new([:"$Value"]))
+    caller = AL.JAM.IR.Inference.operation(op, MapSet.new([{:"$var", "Value"}]))
     assert caller.determinism == :unknown
     assert caller.binding == nil
     test = AL.JAM.IR.Inference.operation(IR.operation(:compare, :<, [1, 2]), MapSet.new())
@@ -265,34 +277,13 @@ defmodule AL.JAM.IRProgramTest do
     program =
       Program.lower([
         %Goal.Or{or: [%Goal.Pass{}], then: [%Goal.Pass{}]},
-        %Goal.Eq{a: :"$Temporary", b: [:value]},
-        %Goal.Eq{a: :"$Output", b: :"$Temporary"}
+        %Goal.Eq{a: {:"$var", "Temporary"}, b: [:value]},
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Temporary"}}
       ])
 
-    optimized = Region.compile(program, MapSet.new([:"$Output"]))
+    optimized = Region.compile(program, MapSet.new([{:"$var", "Output"}]))
     assert answers(optimized) == [[:value], [:value]]
-    assert answers(Program.subst(optimized, %{:"$Output" => [:other]})) == []
-  end
-
-  test "a selected region exposes its inferred execution contract" do
-    program =
-      Program.lower([
-        %Goal.Eq{a: :"$Local", b: 4},
-        %Goal.Compare{op: :<, a: 1, b: 2}
-      ])
-
-    region = Region.select(program, program.entry, Program.reachable(program))
-    assert region.inference.determinism == :semidet
-    assert region.inference.suspension == :never
-
-    program =
-      Program.lower([
-        %Goal.Send{object: :receiver, method: :selector, args: []}
-      ])
-
-    region = Region.select(program, program.entry, Program.reachable(program))
-    assert region.inference.determinism == :unknown
-    assert region.inference.suspension == :unknown
+    assert answers(Program.subst(optimized, %{{:"$var", "Output"} => [:other]})) == []
   end
 
   test "callable compilation shares renamed code while preserving alias and literal differences" do
@@ -312,33 +303,47 @@ defmodule AL.JAM.IRProgramTest do
         compiled
       end
 
-      first = compile.(:"$First", :"$Second", 1)
-      assert first === compile.(:"$Receiver", :"$Result", 1)
-      refute first === compile.(:"$Same", :"$Same", 1)
-      refute first === compile.(:"$Receiver", :"$Result", 2)
+      first = compile.({:"$var", "First"}, {:"$var", "Second"}, 1)
+      assert first === compile.({:"$var", "Receiver"}, {:"$var", "Result"}, 1)
+      refute first === compile.({:"$var", "Same"}, {:"$var", "Same"}, 1)
+      refute first === compile.({:"$var", "Receiver"}, {:"$var", "Result"}, 2)
     end)
   end
 
   test "runtime capture values and variable identities share one callable body" do
     AL.ResolutionCache.with_transaction_cache(fn ->
       branch = AL.Branch.head()
-      body = [%Goal.Compound{name: :=, args: [:"$Argument", :"$Captured"]}]
+      body = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, {:"$var", "Captured"}]}]
       site = make_ref()
 
       {first, env1, targets} =
-        AL.JAM.Callable.fetch(%{}, site, [:"$Argument"], body, %{:"$Captured" => 1}, branch)
+        AL.JAM.Callable.fetch(
+          %{},
+          site,
+          [{:"$var", "Argument"}],
+          body,
+          %{{:"$var", "Captured"} => 1},
+          branch
+        )
 
       {second, env2, _} =
-        AL.JAM.Callable.fetch(targets, site, [:"$Argument"], body, %{:"$Captured" => 2}, branch)
+        AL.JAM.Callable.fetch(
+          targets,
+          site,
+          [{:"$var", "Argument"}],
+          body,
+          %{{:"$var", "Captured"} => 2},
+          branch
+        )
 
       assert first === second
       assert List.last(env1) == 1
       assert List.last(env2) == 2
 
       renamed =
-        AL.Goal.map(body, fn
-          :"$Argument" -> :"$OtherArgument"
-          :"$Captured" -> :"$OtherCapture"
+        AL.Term.map(body, fn
+          {:"$var", "Argument"} -> {:"$var", "OtherArgument"}
+          {:"$var", "Captured"} -> {:"$var", "OtherCapture"}
           value -> value
         end)
 
@@ -346,9 +351,9 @@ defmodule AL.JAM.IRProgramTest do
         AL.JAM.Callable.fetch(
           targets,
           site,
-          [:"$OtherArgument"],
+          [{:"$var", "OtherArgument"}],
           renamed,
-          %{:"$OtherCapture" => [:different, :shape]},
+          %{{:"$var", "OtherCapture"} => [:different, :shape]},
           branch
         )
 
@@ -359,14 +364,17 @@ defmodule AL.JAM.IRProgramTest do
 
   test "callable environments follow backtracking and retain captured aliases" do
     call = %Goal.Call{
-      head: [:"$Argument"],
-      body: [%Goal.Compound{name: :=, args: [:"$Argument", :"$Capture"]}],
-      args: [:"$Output"]
+      head: [{:"$var", "Argument"}],
+      body: [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, {:"$var", "Capture"}]}],
+      args: [{:"$var", "Output"}]
     }
 
     program =
       Program.lower([
-        %Goal.Or{or: [%Goal.Eq{a: :"$Capture", b: 1}], then: [%Goal.Eq{a: :"$Capture", b: 2}]},
+        %Goal.Or{
+          or: [%Goal.Eq{a: {:"$var", "Capture"}, b: 1}],
+          then: [%Goal.Eq{a: {:"$var", "Capture"}, b: 2}]
+        },
         call
       ])
 
@@ -374,8 +382,8 @@ defmodule AL.JAM.IRProgramTest do
 
     aliased =
       Program.lower([
-        %Goal.Eq{a: :"$Capture", b: [:"$Shared", :"$Shared"]},
-        %Goal.Eq{a: :"$Output", b: [1, 2]},
+        %Goal.Eq{a: {:"$var", "Capture"}, b: [{:"$var", "Shared"}, {:"$var", "Shared"}]},
+        %Goal.Eq{a: {:"$var", "Output"}, b: [1, 2]},
         call
       ])
 
@@ -384,40 +392,49 @@ defmodule AL.JAM.IRProgramTest do
     accepted =
       Program.subst(
         Program.lower([
-          %Goal.Eq{a: :"$Capture", b: [:"$Shared", :"$Shared"]},
+          %Goal.Eq{a: {:"$var", "Capture"}, b: [{:"$var", "Shared"}, {:"$var", "Shared"}]},
           call
         ]),
-        %{:"$Output" => [3, 3]}
+        %{{:"$var", "Output"} => [3, 3]}
       )
 
     assert length(answers(accepted)) == 1
   end
 
   test "static callable sites carry code and fixed capture locations" do
-    body = [%Goal.Compound{name: :=, args: [:"$Argument", :"$Capture"]}]
-    goal = %Goal.Call{head: [:"$Argument"], body: body, args: [:"$Output"]}
+    body = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, {:"$var", "Capture"}]}]
+    goal = %Goal.Call{head: [{:"$var", "Argument"}], body: body, args: [{:"$var", "Output"}]}
     {code, slots} = AL.JAM.Compiler.runtime([goal])
     assert {{:call, _, _, {:compiled_callable, {:constant, template}, _, _}, _}} = code
     assert %AL.JAM.Callable.Template{capture_slots: [0, 1]} = template
     assert AL.JAM.pending_goals({:test, code, 0, slots, [], %{}, %{}}) == [goal]
 
     for value <- [1, [:different, :shape], %{name: :value}] do
-      snapshot = {:test, code, 0, slots, [], %{:"$Capture" => value}, %{}}
+      snapshot = {:test, code, 0, slots, [], %{{:"$var", "Capture"} => value}, %{}}
       assert {:ok, store, _} = AL.JAM.resume(snapshot, AL.Branch.head(), 100)
-      assert AL.Var.subst(:"$Output", store) == value
+      assert AL.Var.subst({:"$var", "Output"}, store) == value
     end
   end
 
   test "dynamic callable bodies remain late bound across alternatives" do
-    first = [%Goal.Compound{name: :=, args: [:"$Argument", :first]}]
-    second = [%Goal.Compound{name: :=, args: [:"$Argument", :second]}]
-    call = %Goal.Call{head: [:"$Argument"], body: :"$Body", args: [:"$Output"]}
+    first = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, :first]}]
+    second = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, :second]}]
+
+    call = %Goal.Call{
+      head: [{:"$var", "Argument"}],
+      body: {:"$var", "Body"},
+      args: [{:"$var", "Output"}]
+    }
+
     {code, _} = AL.JAM.Compiler.runtime([call])
     assert {{:call, _, _, {:register, _}, _}} = code
 
     program =
       Program.lower([
-        %Goal.Or{or: [%Goal.Eq{a: :"$Body", b: first}], then: [%Goal.Eq{a: :"$Body", b: second}]},
+        %Goal.Or{
+          or: [%Goal.Eq{a: {:"$var", "Body"}, b: first}],
+          then: [%Goal.Eq{a: {:"$var", "Body"}, b: second}]
+        },
         call
       ])
 
@@ -425,58 +442,73 @@ defmodule AL.JAM.IRProgramTest do
   end
 
   test "a static callable preserves partially bound capture aliases" do
-    body = [%Goal.Compound{name: :=, args: [:"$Argument", :"$Capture"]}]
+    body = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, {:"$var", "Capture"}]}]
 
     {code, slots} =
       AL.JAM.Compiler.runtime([
-        %Goal.Call{head: [:"$Argument"], body: body, args: [:"$Output"]}
+        %Goal.Call{head: [{:"$var", "Argument"}], body: body, args: [{:"$var", "Output"}]}
       ])
 
     for value <- [1, 2] do
-      store = %{:"$Capture" => [:"$Shared", :"$Shared"], :"$Output" => [value, value]}
+      store = %{
+        {:"$var", "Capture"} => [{:"$var", "Shared"}, {:"$var", "Shared"}],
+        {:"$var", "Output"} => [value, value]
+      }
 
       assert {:ok, _, _} =
                AL.JAM.resume({:test, code, 0, slots, [], store, %{}}, AL.Branch.head(), 100)
     end
 
-    store = %{:"$Capture" => [:"$Shared", :"$Shared"], :"$Output" => [1, 2]}
+    store = %{
+      {:"$var", "Capture"} => [{:"$var", "Shared"}, {:"$var", "Shared"}],
+      {:"$var", "Output"} => [1, 2]
+    }
 
     assert {:failed, _, _} =
              AL.JAM.resume({:test, code, 0, slots, [], store, %{}}, AL.Branch.head(), 100)
   end
 
   test "runtime-supplied goals and primitive selectors use dynamic source compilation" do
-    call = %Goal.Call{head: [:"$Argument"], body: [:"$Goal"], args: [:"$Output"]}
+    call = %Goal.Call{
+      head: [{:"$var", "Argument"}],
+      body: [{:"$var", "Goal"}],
+      args: [{:"$var", "Output"}]
+    }
+
     {code, slots} = AL.JAM.Compiler.runtime([call])
     refute match?({{:call, _, _, {:compiled_callable, _, _, _}, _}}, code)
 
     for value <- [:first, :second] do
-      goal = %Goal.Compound{name: :=, args: [:"$Argument", value]}
-      snapshot = {:test, code, 0, slots, [], %{:"$Goal" => goal}, %{}}
+      goal = %Goal.Compound{name: :=, args: [{:"$var", "Argument"}, value]}
+      snapshot = {:test, code, 0, slots, [], %{{:"$var", "Goal"} => goal}, %{}}
       assert {:ok, store, _} = AL.JAM.resume(snapshot, AL.Branch.head(), 100)
-      assert AL.Var.subst(:"$Output", store) == value
+      assert AL.Var.subst({:"$var", "Output"}, store) == value
     end
 
     selected = %Goal.Call{
-      head: [:"$Argument"],
-      body: [%Goal.Compound{name: :"$Selector", args: [:"$Argument"]}],
+      head: [{:"$var", "Argument"}],
+      body: [%Goal.Compound{name: {:"$var", "Selector"}, args: [{:"$var", "Argument"}]}],
       args: [:value]
     }
 
     {code, slots} = AL.JAM.Compiler.runtime([selected])
-    snapshot = {:test, code, 0, slots, [], %{:"$Selector" => :atom}, %{}}
+    snapshot = {:test, code, 0, slots, [], %{{:"$var", "Selector"} => :atom}, %{}}
     assert {:ok, _, _} = AL.JAM.resume(snapshot, AL.Branch.head(), 100)
   end
 
   test "callable arguments follow bound spines while retaining nested aliases" do
-    call = %Goal.Call{head: [:"$Arg", :"$Arg"], body: [], args: :"$Args"}
+    call = %Goal.Call{
+      head: [{:"$var", "Arg"}, {:"$var", "Arg"}],
+      body: [],
+      args: {:"$var", "Args"}
+    }
 
     program =
       Program.lower([
-        %Goal.Eq{a: :"$Args", b: [:"$Output" | :"$Tail"]},
-        %Goal.Eq{a: :"$Tail", b: [[1, :"$Shared"]]},
+        %Goal.Eq{a: {:"$var", "Args"}, b: [{:"$var", "Output"} | {:"$var", "Tail"}]},
+        %Goal.Eq{a: {:"$var", "Tail"}, b: [[1, {:"$var", "Shared"}]]},
         call,
-        %Goal.Eq{a: :"$Shared", b: 2}
+        %Goal.Eq{a: {:"$var", "Shared"}, b: 2}
       ])
 
     assert IR.Inference.operation(IR.lower(call), MapSet.new()).access == [
@@ -489,22 +521,22 @@ defmodule AL.JAM.IRProgramTest do
   end
 
   test "callable matching completes an open argument tail" do
-    call = %Goal.Call{head: [:value], body: [], args: [:value | :"$Output"]}
+    call = %Goal.Call{head: [:value], body: [], args: [:value | {:"$var", "Output"}]}
     assert answers(Program.lower([call])) == [[]]
   end
 
   test "callable argument spines follow each backtracking alternative" do
     call = %Goal.Call{
-      head: [:"$Arg", :"$Result"],
-      body: [%Goal.Eq{a: :"$Result", b: :"$Arg"}],
-      args: :"$Args"
+      head: [{:"$var", "Arg"}, {:"$var", "Result"}],
+      body: [%Goal.Eq{a: {:"$var", "Result"}, b: {:"$var", "Arg"}}],
+      args: {:"$var", "Args"}
     }
 
     program =
       Program.lower([
         %Goal.Or{
-          or: [%Goal.Eq{a: :"$Args", b: [:first, :"$Output"]}],
-          then: [%Goal.Eq{a: :"$Args", b: [:second, :"$Output"]}]
+          or: [%Goal.Eq{a: {:"$var", "Args"}, b: [:first, {:"$var", "Output"}]}],
+          then: [%Goal.Eq{a: {:"$var", "Args"}, b: [:second, {:"$var", "Output"}]}]
         },
         call
       ])

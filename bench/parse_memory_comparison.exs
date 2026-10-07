@@ -4,7 +4,9 @@ Bench.Language.isolated(fn ->
   source = File.read!(Path.join(__DIR__, "fixtures/point.al"))
 
   program =
-    Bench.Language.program("parse al_grammar (program Items) Source.", %{:"$Source" => source})
+    Bench.Language.program("parse al_grammar (program Items) Source.", %{
+      {:"$var", "Source"} => source
+    })
 
   expected = Bench.Language.bindings(AL.eval(program))
   original = Process.info(self(), :min_heap_size) |> elem(1)

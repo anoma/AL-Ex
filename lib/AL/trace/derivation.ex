@@ -509,7 +509,10 @@ defmodule AL.Trace.Derivation do
   defp describe(_term, nil), do: nil
 
   defp describe(term, store),
-    do: term |> AL.Var.find_vars() |> Map.new(fn var -> {var, AL.describe_var(var, store)} end)
+    do:
+      term
+      |> AL.Var.find_vars()
+      |> Map.new(fn var -> {var, AL.Answer.describe_var(var, store)} end)
 
   defp method_nodes(%{kind: :method, label: {_, method, _}} = node, method),
     do: [node | Enum.flat_map(node.children, &method_nodes(&1, method))]

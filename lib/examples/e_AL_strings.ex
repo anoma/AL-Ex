@@ -18,7 +18,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$C") == :string
+    assert Map.get(bindings, "$C") == :string
   end
 
   example a_string_receives_string_methods() do
@@ -32,7 +32,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Pair") == ["hi", "hi"]
+    assert Map.get(bindings, "$Pair") == ["hi", "hi"]
   end
 
   example string_codes_relates_a_string_to_its_codepoints() do
@@ -44,8 +44,8 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Codes") == [104, 233, 108, 108, 111]
-    assert Map.get(bindings, :"$Built") == "hi"
+    assert Map.get(bindings, "$Codes") == [104, 233, 108, 108, 111]
+    assert Map.get(bindings, "$Built") == "hi"
   end
 
   example atom_string_relates_atoms_and_strings() do
@@ -58,8 +58,8 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Atom") == :hello
-    assert Map.get(bindings, :"$Text") == "world"
+    assert Map.get(bindings, "$Atom") == :hello
+    assert Map.get(bindings, "$Text") == "world"
   end
 
   example atom_string_waits_for_a_known_side() do
@@ -71,7 +71,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Atom") == :ready
+    assert Map.get(bindings, "$Atom") == :ready
   end
 
   example atom_recognizes_atoms_without_binding_variables() do
@@ -96,7 +96,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Second") == 105
+    assert Map.get(bindings, "$Second") == 105
   end
 
   example string_codes_rejects_what_is_not_text() do
@@ -135,8 +135,8 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$FromCodes") == "hi"
-    assert Map.get(bindings, :"$LaterCodes") == [111, 107]
+    assert Map.get(bindings, "$FromCodes") == "hi"
+    assert Map.get(bindings, "$LaterCodes") == [111, 107]
   end
 
   example string_codes_follows_constraints_on_its_codes() do
@@ -152,7 +152,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Strings") == ["a", "b", "c"]
+    assert Map.get(bindings, "$Strings") == ["a", "b", "c"]
   end
 
   example concat_joins_strings() do
@@ -164,8 +164,8 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Whole") == "relation"
-    assert Map.get(bindings, :"$Rest") == "tion"
+    assert Map.get(bindings, "$Whole") == "relation"
+    assert Map.get(bindings, "$Rest") == "tion"
   end
 
   example concat_enumerates_every_split_of_a_pinned_string() do
@@ -176,7 +176,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Splits") == [
+    assert Map.get(bindings, "$Splits") == [
              ["", "abc"],
              ["a", "bc"],
              ["ab", "c"],
@@ -192,7 +192,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$Splits")) ==
+    assert Enum.sort(Map.get(bindings, "$Splits")) ==
              Enum.sort([[[], "ab"], ["", "ab"], ["a", "b"], ["ab", ""]])
   end
 
@@ -206,9 +206,9 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Answers") == [["a", "b", "", "c"]]
-    assert Map.get(bindings, :"$Unsplit") == ["plain"]
-    assert Map.get(bindings, :"$Empty") == [""]
+    assert Map.get(bindings, "$Answers") == [["a", "b", "", "c"]]
+    assert Map.get(bindings, "$Unsplit") == ["plain"]
+    assert Map.get(bindings, "$Empty") == [""]
   end
 
   example split_joins_parts_with_a_separator() do
@@ -219,7 +219,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Joined") == "one, two, three"
+    assert Map.get(bindings, "$Joined") == "one, two, three"
   end
 
   example split_cuts_at_the_leftmost_separator() do
@@ -230,7 +230,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Answers") == [["a", ":b"]]
+    assert Map.get(bindings, "$Answers") == [["a", ":b"]]
   end
 
   example split_rejects_parts_that_contain_the_separator() do
@@ -259,7 +259,7 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$Parts") == [[1], [2, 3], [4]]
+    assert Map.get(bindings, "$Parts") == [[1], [2, 3], [4]]
   end
 
   example length_counts_codepoints() do
@@ -270,6 +270,6 @@ defmodule Examples.ALStrings do
         """
       end
 
-    assert Map.get(bindings, :"$N") == 5
+    assert Map.get(bindings, "$N") == 5
   end
 end

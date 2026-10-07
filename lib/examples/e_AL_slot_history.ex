@@ -20,7 +20,7 @@ defmodule Examples.ALSlotHistory do
         history = AL.Object.scan_slots_history(:current_slots_probe, branch)
         open = for {:slots, object, _, :open, slots} <- history, do: {:slots, object, slots}
         assert current == open
-        assert AL.Object.scan_slots(:current_slots_probe, :"$Slots", branch) == current
+        assert AL.Object.scan_slots(:current_slots_probe, {:"$var", "Slots"}, branch) == current
         {current, history}
       end)
     end
@@ -84,7 +84,7 @@ defmodule Examples.ALSlotHistory do
         """
       end
 
-    assert Map.get(bindings, :"$Values") == [1, 2, 3]
+    assert Map.get(bindings, "$Values") == [1, 2, 3]
     :ok
   end
 
@@ -108,7 +108,7 @@ defmodule Examples.ALSlotHistory do
         """
       end
 
-    assert Map.get(bindings, :"$Values") == [1]
+    assert Map.get(bindings, "$Values") == [1]
     :ok
   end
 
@@ -141,7 +141,7 @@ defmodule Examples.ALSlotHistory do
         """
       end
 
-    assert Map.get(bindings, :"$VAtBoundary") == 2
+    assert Map.get(bindings, "$VAtBoundary") == 2
     :ok
   end
 

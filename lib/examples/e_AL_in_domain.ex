@@ -22,7 +22,7 @@ defmodule Examples.ALInDomain do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$All")) == [:a, :b, :c]
+    assert Enum.sort(Map.get(bindings, "$All")) == [:a, :b, :c]
     :ok
   end
 
@@ -36,7 +36,7 @@ defmodule Examples.ALInDomain do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$All")) == [:c, :d]
+    assert Enum.sort(Map.get(bindings, "$All")) == [:c, :d]
     :ok
   end
 
@@ -60,7 +60,7 @@ defmodule Examples.ALInDomain do
         """
       end
 
-    assert Map.get(bindings, :"$Z") == :only_one
+    assert Map.get(bindings, "$Z") == :only_one
     :ok
   end
 
@@ -76,7 +76,7 @@ defmodule Examples.ALInDomain do
         """
       end
 
-    assert Map.get(bindings, :"$V") == :b
+    assert Map.get(bindings, "$V") == :b
     :ok
   end
 

@@ -40,12 +40,14 @@ defmodule AL.JAM.Trace do
 
   def method_call(parent, receiver, method, args, store, depth) do
     scope = AL.fresh_scope()
-    open = AL.open_positions(AL.call_positions(receiver, args), store)
+    open = AL.Answer.open_positions(AL.Answer.call_positions(receiver, args), store)
 
     update(fn trace ->
       trace
       |> port_call(:method, scope, receiver, method, args, depth)
-      |> push({:method_call, scope, receiver, method, args, AL.describe_positions(open, store)})
+      |> push(
+        {:method_call, scope, receiver, method, args, AL.Answer.describe_positions(open, store)}
+      )
       |> put_scope(scope, %{
         parent: parent,
         kind: :method,
@@ -67,12 +69,12 @@ defmodule AL.JAM.Trace do
         other -> {other, []}
       end
 
-    open = AL.open_positions(AL.call_positions(receiver, args), store)
+    open = AL.Answer.open_positions(AL.Answer.call_positions(receiver, args), store)
 
     update(fn trace ->
       trace
       |> port_call(:clause, scope, receiver, method, args, depth)
-      |> push({:clause_call, scope, method, call, AL.describe_positions(open, store)})
+      |> push({:clause_call, scope, method, call, AL.Answer.describe_positions(open, store)})
       |> put_scope(scope, %{
         parent: parent,
         kind: :clause,
@@ -138,7 +140,13 @@ defmodule AL.JAM.Trace do
 
         constraint_goal?(goal) and AL.Trace.enabled?(trace, :domino) ->
           vars = AL.Var.find_vars(goal)
-          pending = %{goal: goal, vars: vars, constraints_in: AL.describe_positions(vars, store)}
+
+          pending = %{
+            goal: goal,
+            vars: vars,
+            constraints_in: AL.Answer.describe_positions(vars, store)
+          }
+
           runtime = %AL.Trace.Runtime{trace.runtime | pending_constraint: pending}
           %AL.Trace{trace | runtime: runtime}
 
@@ -277,7 +285,7 @@ defmodule AL.JAM.Trace do
 
       %{kind: kind, open_vars: open, exited: exited?} = info ->
         tag = if kind == :method, do: :method_exit, else: :clause_exit
-        derived = AL.describe_positions(open, store)
+        derived = AL.Answer.describe_positions(open, store)
 
         trace =
           if exited?,
@@ -313,7 +321,7 @@ defmodule AL.JAM.Trace do
 
   defp finish_constraint(trace, store) do
     %{goal: goal, vars: vars, constraints_in: constraints_in} = trace.runtime.pending_constraint
-    derived = AL.describe_positions(vars, store)
+    derived = AL.Answer.describe_positions(vars, store)
     trace = %AL.Trace{trace | runtime: %AL.Trace.Runtime{trace.runtime | pending_constraint: nil}}
     push(trace, {:constraint, goal, constraints_in, derived})
   end

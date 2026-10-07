@@ -338,13 +338,9 @@ defmodule AL.ResolutionCache do
   end
 
   def invalidate_receiver_class(branch, receiver) when is_atom(receiver) do
-    if AL.Var.var?(receiver) do
-      invalidate_providers(branch)
-    else
-      clear_local(:ivar_storage)
-      clear_local({@dispatch_cache, table(:providers, branch)})
-      delete(table(:providers, branch), receiver)
-    end
+    clear_local(:ivar_storage)
+    clear_local({@dispatch_cache, table(:providers, branch)})
+    delete(table(:providers, branch), receiver)
   end
 
   def invalidate_receiver_class(branch, _receiver), do: invalidate_providers(branch)

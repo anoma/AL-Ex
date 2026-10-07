@@ -54,7 +54,7 @@ defmodule Examples.ALConstraints do
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$Domain")
+          Map.get(bindings, "$Domain")
 
         {:aborted, _} ->
           receive do
@@ -73,7 +73,7 @@ defmodule Examples.ALConstraints do
         """
       end
 
-    assert Map.get(bindings, :"$Domain") == %{class: :mapset_value, elems: %{2 => true}}
+    assert Map.get(bindings, "$Domain") == %{class: :mapset_value, elems: %{2 => true}}
 
     bindings
   end
@@ -118,7 +118,7 @@ defmodule Examples.ALConstraints do
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$Domain")
+          Map.get(bindings, "$Domain")
 
         {:aborted, _} ->
           receive do
@@ -137,7 +137,7 @@ defmodule Examples.ALConstraints do
         """
       end
 
-    assert Map.get(bindings, :"$Domain") == %{class: :mapset_value, elems: %{3 => true}}
+    assert Map.get(bindings, "$Domain") == %{class: :mapset_value, elems: %{3 => true}}
 
     bindings
   end
@@ -152,7 +152,7 @@ defmodule Examples.ALConstraints do
         """
       end
 
-    dependents = Map.get(bindings, :"$Dependents")
+    dependents = Map.get(bindings, "$Dependents")
 
     assert MapSet.new(Map.keys(dependents)) == MapSet.new([:x, :y, :x_y])
 
@@ -214,7 +214,7 @@ defmodule Examples.ALConstraints do
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$Domain")
+          Map.get(bindings, "$Domain")
 
         {:aborted, _} ->
           receive do
@@ -233,7 +233,7 @@ defmodule Examples.ALConstraints do
         """
       end
 
-    assert Map.get(bindings, :"$Domain") == %{class: :mapset_value, elems: %{2 => true}}
+    assert Map.get(bindings, "$Domain") == %{class: :mapset_value, elems: %{2 => true}}
 
     bindings
   end
@@ -248,7 +248,7 @@ defmodule Examples.ALConstraints do
         """
       end
 
-    dependents = Map.get(bindings, :"$Dependents")
+    dependents = Map.get(bindings, "$Dependents")
 
     assert MapSet.new(Map.keys(dependents)) == MapSet.new([:c, :b, :a, :ab_c, :ac_b, :bc_a])
 
@@ -306,7 +306,7 @@ defmodule Examples.ALConstraints do
     domain =
       case slot_result do
         {:atomic, {bindings, _constraints, _state}} ->
-          Map.get(bindings, :"$Domain")
+          Map.get(bindings, "$Domain")
 
         {:aborted, _} ->
           receive do
@@ -325,7 +325,7 @@ defmodule Examples.ALConstraints do
         """
       end
 
-    assert Map.get(bindings, :"$Domain") == %{class: :interval_value, lo: 4, hi: 13}
+    assert Map.get(bindings, "$Domain") == %{class: :interval_value, lo: 4, hi: 13}
 
     bindings
   end

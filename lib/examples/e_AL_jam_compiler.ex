@@ -32,12 +32,11 @@ defmodule Examples.ALJAMCompiler do
     """
 
     {:atomic, {bindings, _, state}} = evaluate(source)
-    assert bindings[:"$Tx"] == state.tx_id
-    assert bindings[:"$Object"] == state.transaction_object
+    assert bindings["$Tx"] == state.tx_id
+    assert bindings["$Object"] == state.transaction_object
     tx = state.tx_id
-    assert [[:a, ^tx, first], [:b, ^tx, second]] = bindings[:"$Rows"]
-    assert AL.Var.var?(first) and AL.Var.var?(second)
-    assert first != second
+    assert [[:a, ^tx, first], [:b, ^tx, second]] = bindings["$Rows"]
+    assert first == nil and second == nil
   end
 
   example open_receiver_continuations_run_once() do
@@ -65,7 +64,7 @@ defmodule Examples.ALJAMCompiler do
     """
 
     {:atomic, {bindings, _, _}} = evaluate(source)
-    assert bindings[:"$Count"] == 4
+    assert bindings["$Count"] == 4
   end
 
   example open_sends_preserve_overrides_late_receivers_and_map_suspension() do
@@ -105,26 +104,26 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Key": :"$Key",
-      "$Values": ~c"\b",
-      "$Receiver": :"$Receiver",
-      "$Map": %{count: 9},
-      "$Selected": 8,
-      "$MapValue": 9,
-      "$Deferred": 3,
-      "$Known": :jam_open_instance,
-      "$Stored": :"$Stored"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Key" => {:"$var", "Key"},
+      "$Values" => ~c"\b",
+      "$Receiver" => {:"$var", "Receiver"},
+      "$Map" => %{count: 9},
+      "$Selected" => 8,
+      "$MapValue" => 9,
+      "$Deferred" => 3,
+      "$Known" => :jam_open_instance,
+      "$Stored" => {:"$var", "Stored"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Values"] == [8]
-    assert actual[:"$Selected"] == 8
-    assert actual[:"$MapValue"] == 9
-    assert actual[:"$Deferred"] == 3
+    assert actual["$Values"] == [8]
+    assert actual["$Selected"] == 8
+    assert actual["$MapValue"] == 9
+    assert actual["$Deferred"] == 3
   end
 
   example compiled_gensym_preserves_generation_constraints_and_allocation() do
@@ -151,7 +150,7 @@ defmodule Examples.ALJAMCompiler do
     """
 
     {:atomic, {bindings, _, _}} = evaluate(source)
-    symbols = bindings[:"$Symbols"]
+    symbols = bindings["$Symbols"]
     assert length(symbols) == 3
     assert length(Enum.uniq(symbols)) == 3
 
@@ -160,9 +159,9 @@ defmodule Examples.ALJAMCompiler do
              &(is_atom(&1) and Regex.match?(~r/^[0-9a-f]{32}$/, Atom.to_string(&1)))
            )
 
-    assert bindings[:"$Named"] == :jam_gensym_named
-    assert bindings[:"$AnonymousValue"] == 7
-    assert bindings[:"$NamedValue"] == 9
+    assert bindings["$Named"] == :jam_gensym_named
+    assert bindings["$AnonymousValue"] == 7
+    assert bindings["$NamedValue"] == 9
   end
 
   example direct_applications_preserve_alternatives_and_method_edits() do
@@ -194,21 +193,21 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Method": :"#479",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$After": [:red, :blue, :green],
-      "$Receiver": :"$Receiver",
-      "$Selected": :blue,
-      "$_Receiver": :"$_Receiver",
-      "$Before": [:red, :blue]
+      "$Method" => :"#479",
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$After" => [:red, :blue, :green],
+      "$Receiver" => {:"$var", "Receiver"},
+      "$Selected" => :blue,
+      "$_Receiver" => {:"$var", "_Receiver"},
+      "$Before" => [:red, :blue]
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
-    assert Map.drop(actual, [:"$Method"]) == Map.drop(expected, [:"$Method"])
-    assert actual[:"$Before"] == [:red, :blue]
-    assert actual[:"$After"] == [:red, :blue, :green]
-    assert actual[:"$Selected"] == :blue
+    assert Map.drop(actual, ["$Method"]) == Map.drop(expected, ["$Method"])
+    assert actual["$Before"] == [:red, :blue]
+    assert actual["$After"] == [:red, :blue, :green]
+    assert actual["$Selected"] == :blue
   end
 
   example direct_applications_execute_open_list_and_map_heads() do
@@ -224,8 +223,8 @@ defmodule Examples.ALJAMCompiler do
     """
 
     {:atomic, {bindings, _, _}} = evaluate(source)
-    assert bindings[:"$Result"] == %{item: :a, rest: [:b]}
-    assert bindings[:"$Constructed"] == [:c]
+    assert bindings["$Result"] == %{item: :a, rest: [:b]}
+    assert bindings["$Constructed"] == [:c]
   end
 
   example direct_application_choices_survive_mutation_handoffs() do
@@ -246,7 +245,7 @@ defmodule Examples.ALJAMCompiler do
     """
 
     {:atomic, {bindings, _, _}} = evaluate(source)
-    assert bindings[:"$Results"] == [:red, :blue]
+    assert bindings["$Results"] == [:red, :blue]
   end
 
   example native_calls_preserve_answers_suspensions_cuts_and_next_provider() do
@@ -299,20 +298,20 @@ defmodule Examples.ALJAMCompiler do
       """
 
       expected = %{
-        "$First": [1],
-        "$All": [1, 2, 3, 6],
-        "$Filtered": [1, 3, 6],
-        "$Gcd": 4,
-        "$Description": "%{class: :jam_native_child}"
+        "$First" => [1],
+        "$All" => [1, 2, 3, 6],
+        "$Filtered" => [1, 3, 6],
+        "$Gcd" => 4,
+        "$Description" => "%{class: :jam_native_child}"
       }
 
       {:atomic, {actual, _, _}} = evaluate(query)
       assert actual == expected
-      assert actual[:"$All"] == [1, 2, 3, 6]
-      assert actual[:"$Filtered"] == [1, 3, 6]
-      assert actual[:"$First"] == [1]
-      assert actual[:"$Gcd"] == 4
-      assert actual[:"$Description"] == inspect(%{class: :jam_native_child})
+      assert actual["$All"] == [1, 2, 3, 6]
+      assert actual["$Filtered"] == [1, 3, 6]
+      assert actual["$First"] == [1]
+      assert actual["$Gcd"] == 4
+      assert actual["$Description"] == inspect(%{class: :jam_native_child})
 
       AL.Native.Registry.delete(value)
       {:aborted, failure} = evaluate("gcd jam_native_runner_instance Result.")
@@ -345,15 +344,15 @@ defmodule Examples.ALJAMCompiler do
       """
 
       expected = %{
-        "$_Self": :"$_Self",
-        "$Value": :"$Value",
-        "$Results": [1, 2, 3, 6]
+        "$_Self" => {:"$var", "_Self"},
+        "$Value" => {:"$var", "Value"},
+        "$Results" => [1, 2, 3, 6]
       }
 
       {:atomic, {actual, _, _}} = evaluate(source)
-      assert Map.delete(actual, :"$Method") == expected
-      assert actual[:"$Method"] == method
-      assert actual[:"$Results"] == [1, 2, 3, 6]
+      assert Map.delete(actual, "$Method") == expected
+      assert actual["$Method"] == method
+      assert actual["$Results"] == [1, 2, 3, 6]
     after
       AL.Native.retract(method, branch: branch)
     end
@@ -393,27 +392,27 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Key": :"$Key",
-      "$Entries": [[:color, :red]],
-      "$Object": :"$Object",
-      "$Color": :red,
-      "$Open": :jam_slot_instance,
-      "$Count": 7,
-      "$Choice": :red,
-      "$Counts": ~c"\a"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Key" => {:"$var", "Key"},
+      "$Entries" => [[:color, :red]],
+      "$Object" => {:"$var", "Object"},
+      "$Color" => :red,
+      "$Open" => :jam_slot_instance,
+      "$Count" => 7,
+      "$Choice" => :red,
+      "$Counts" => ~c"\a"
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Color"] == :red
-    assert actual[:"$Count"] == 7
-    assert actual[:"$Choice"] == :red
-    assert actual[:"$Counts"] == [7]
-    assert [:color, :red] in actual[:"$Entries"]
-    refute Enum.any?(actual[:"$Entries"], fn [key, _] -> key == :count end)
+    assert actual["$Color"] == :red
+    assert actual["$Count"] == 7
+    assert actual["$Choice"] == :red
+    assert actual["$Counts"] == [7]
+    assert [:color, :red] in actual["$Entries"]
+    refute Enum.any?(actual["$Entries"], fn [key, _] -> key == :count end)
   end
 
   example head_references_preserve_aliases_constraints_and_backtracking() do
@@ -446,32 +445,32 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Head": :allowed,
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Output": :"$Output",
-      "$Input": :"$Input",
-      "$Literal": [:a, :b, :c],
-      "$Tail": [:end],
-      "$Open": [:allowed, :end],
-      "$Answers": [[:first], [:second]],
-      "$Nested": [:item, %{payload: :item}],
-      "$Bound": :item,
-      "$Alias": [:allowed, :end],
-      "$Copied": [:a, :b, :c],
-      "$Resolved": [:item, %{payload: :item}]
+      "$Self" => {:"$var", "Self"},
+      "$Head" => :allowed,
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Output" => {:"$var", "Output"},
+      "$Input" => {:"$var", "Input"},
+      "$Literal" => [:a, :b, :c],
+      "$Tail" => [:end],
+      "$Open" => [:allowed, :end],
+      "$Answers" => [[:first], [:second]],
+      "$Nested" => [:item, %{payload: :item}],
+      "$Bound" => :item,
+      "$Alias" => [:allowed, :end],
+      "$Copied" => [:a, :b, :c],
+      "$Resolved" => [:item, %{payload: :item}]
     }
 
     expected_constraints = %{}
     {:atomic, {actual, actual_constraints, _}} = evaluate(source)
     assert actual == expected
     assert actual_constraints == expected_constraints
-    assert actual[:"$Copied"] == [:a, :b, :c]
-    assert actual[:"$Resolved"] == [:item, %{payload: :item}]
-    assert actual[:"$Head"] == :allowed
-    assert actual[:"$Tail"] == [:end]
-    assert actual[:"$Answers"] == [[:first], [:second]]
+    assert actual["$Copied"] == [:a, :b, :c]
+    assert actual["$Resolved"] == [:item, %{payload: :item}]
+    assert actual["$Head"] == :allowed
+    assert actual["$Tail"] == [:end]
+    assert actual["$Answers"] == [[:first], [:second]]
   end
 
   example repeated_cache_invalidation_preserves_reclassification_and_rollback() do
@@ -503,7 +502,7 @@ defmodule Examples.ALJAMCompiler do
       cached_value jam_cache_instance C.
       """)
 
-    assert [bindings[:"$A"], bindings[:"$B"], bindings[:"$C"]] == [:second, :first, :second]
+    assert [bindings["$A"], bindings["$B"], bindings["$C"]] == [:second, :first, :second]
 
     assert {:aborted, _} =
              evaluate(~S"""
@@ -547,13 +546,13 @@ defmodule Examples.ALJAMCompiler do
       {:atomic, {bindings, _, state}} =
         AL.eval_source("exercise jam_mutation_target Values.", branch)
 
-      assert bindings[:"$Values"] == [2, 3]
+      assert bindings["$Values"] == [2, 3]
       assert {:aborted, _} = AL.eval_source("abort_write jam_mutation_target.", branch)
 
       {:atomic, {afterwards, _, _}} =
         AL.eval_source("get jam_mutation_target count Value.", branch)
 
-      assert afterwards[:"$Value"] == 4
+      assert afterwards["$Value"] == 4
 
       {:atomic, operations} =
         :mnesia.transaction(fn ->
@@ -612,16 +611,16 @@ defmodule Examples.ALJAMCompiler do
 
     program = [
       %AL.Goal.Send{
-        object: setup[:"$Obj"],
+        object: setup["$Obj"],
         method: :inspect,
-        args: [state.tx_id, :"$Result"]
+        args: [state.tx_id, {:"$var", "Result"}]
       }
     ]
 
     {:atomic, {actual, _, _}} = AL.eval(program, nil, %AL.Branch{id: Examples.Support.branch()})
 
     assert actual == %{
-             "$Result": [
+             "$Result" => [
                "@jam_history_reader\n\#{super => object, ivars => [\#{name => count}]}.\n\njam_history_reader >> inspect\n| Self Tx Result |\nvm_transaction_source Tx Text Origin,\nfindall Found Matches {vm_transaction_source Found Text Origin},\nmember Matches Tx,\nmethod jam_history_reader inspect Method,\nfindall [Seq, Clause, Provenance] Clauses {vm_method_source Method Seq Clause Provenance},\nvm_slot_at Self count 1 First,\nlabel First,\n= Boundary (+ First 1),\nvm_slot_at Self count AtBoundary Boundary,\nnot {vm_slot_at Self count 1 Late, >= Late Boundary},\nnot {vm_slot_at Self missing _ _},\nnot {vm_transaction_source -1 _ _},\nfindall Value Values {vm_slot_at Self count Value _},\n= Result [Text, Clauses, AtBoundary, Values].\n\nnew jam_history_reader Obj.\nset_slot Obj count 1.\nset_slot Obj count 2.\n",
                [
                  [
@@ -635,7 +634,7 @@ defmodule Examples.ALJAMCompiler do
              ]
            }
 
-    [text, clauses, boundary, values] = actual[:"$Result"]
+    [text, clauses, boundary, values] = actual["$Result"]
     assert text == source
     assert length(clauses) == 1
     assert boundary == 2
@@ -669,7 +668,7 @@ defmodule Examples.ALJAMCompiler do
         source = "inspect \#{class => jam_branch_reader} Result."
 
         {:atomic, {actual, _, _}} = AL.eval_source(source, branch)
-        [id, keys, parents, children] = actual[:"$Result"]
+        [id, keys, parents, children] = actual["$Result"]
         assert id == branch.id
         assert :system_time in keys
         assert :fork_point in keys
@@ -706,25 +705,25 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Left": :"$Left",
-      "$Right": :"$Right",
-      "$X": :"$X",
-      "$Result": [[1, 2], [2, 1]],
-      "$Y": :"$Y",
-      "$After": :"$After",
-      "$Open": :"$Open",
-      "$Answers": :"$Answers",
-      "$Repeated": :"$Repeated",
-      "$Before": :"$Before",
-      "$Unknown": :"$Unknown",
-      "$UnknownGround": :"$UnknownGround",
-      "$Finite": :"$Finite"
+      "$_Self" => {:"$var", "_Self"},
+      "$Left" => {:"$var", "Left"},
+      "$Right" => {:"$var", "Right"},
+      "$X" => {:"$var", "X"},
+      "$Result" => [[1, 2], [2, 1]],
+      "$Y" => {:"$var", "Y"},
+      "$After" => {:"$var", "After"},
+      "$Open" => {:"$var", "Open"},
+      "$Answers" => {:"$var", "Answers"},
+      "$Repeated" => {:"$var", "Repeated"},
+      "$Before" => {:"$var", "Before"},
+      "$Unknown" => {:"$var", "Unknown"},
+      "$UnknownGround" => {:"$var", "UnknownGround"},
+      "$Finite" => {:"$var", "Finite"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert Enum.sort(actual[:"$Result"]) == [[1, 2], [2, 1]]
+    assert Enum.sort(actual["$Result"]) == [[1, 2], [2, 1]]
   end
 
   example native_domain_and_all_dif_preserve_propagation_and_backtracking() do
@@ -753,22 +752,22 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$X": :"$X",
-      "$Result": [3, 3, [[1, 2, 3], [2, 1, 3]], :blue],
-      "$Y": :"$Y",
-      "$Z": :"$Z",
-      "$Alias": :"$Alias",
-      "$Woken": :"$Woken",
-      "$Choices": :"$Choices",
-      "$Chosen": :"$Chosen",
-      "$Narrow": :"$Narrow",
-      "$Impossible": :"$Impossible"
+      "$_Self" => {:"$var", "_Self"},
+      "$X" => {:"$var", "X"},
+      "$Result" => [3, 3, [[1, 2, 3], [2, 1, 3]], :blue],
+      "$Y" => {:"$var", "Y"},
+      "$Z" => {:"$var", "Z"},
+      "$Alias" => {:"$var", "Alias"},
+      "$Woken" => {:"$var", "Woken"},
+      "$Choices" => {:"$var", "Choices"},
+      "$Chosen" => {:"$var", "Chosen"},
+      "$Narrow" => {:"$var", "Narrow"},
+      "$Impossible" => {:"$var", "Impossible"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [3, 3, [[1, 2, 3], [2, 1, 3]], :blue]
+    assert actual["$Result"] == [3, 3, [[1, 2, 3], [2, 1, 3]], :blue]
   end
 
   example class_labeling_keeps_witness_alternatives_and_suspensions() do
@@ -819,10 +818,10 @@ defmodule Examples.ALJAMCompiler do
     ]
 
     {:atomic, {actual, _, _}} = evaluate(query)
-    assert Enum.sort(actual[:"$All"]) == Enum.sort(witnesses)
-    assert length(actual[:"$All"]) == 4
-    assert actual[:"$First"] == Enum.take(actual[:"$All"], 1)
-    assert actual[:"$Filtered"] == Enum.reject(actual[:"$All"], &(&1 == :jam_label_one))
+    assert Enum.sort(actual["$All"]) == Enum.sort(witnesses)
+    assert length(actual["$All"]) == 4
+    assert actual["$First"] == Enum.take(actual["$All"], 1)
+    assert actual["$Filtered"] == Enum.reject(actual["$All"], &(&1 == :jam_label_one))
   end
 
   example native_label_preserves_domains_bounds_aliases_and_suspensions() do
@@ -855,22 +854,22 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Pairs": [[1, 2], [2, 1]],
-      "$X": :"$Alias",
-      "$Y": :"$Y",
-      "$Numbers": [1, 2, 3],
-      "$Alias": :"$Alias",
-      "$Delayed": :"$Delayed",
-      "$Woken": [1, 3]
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Pairs" => [[1, 2], [2, 1]],
+      "$X" => {:"$var", "Alias"},
+      "$Y" => {:"$var", "Y"},
+      "$Numbers" => [1, 2, 3],
+      "$Alias" => {:"$var", "Alias"},
+      "$Delayed" => {:"$var", "Delayed"},
+      "$Woken" => [1, 3]
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert Enum.sort(actual[:"$Pairs"]) == [[1, 2], [2, 1]]
-    assert actual[:"$Numbers"] == [1, 2, 3]
-    assert Enum.sort(actual[:"$Woken"]) == [1, 3]
+    assert Enum.sort(actual["$Pairs"]) == [[1, 2], [2, 1]]
+    assert actual["$Numbers"] == [1, 2, 3]
+    assert Enum.sort(actual["$Woken"]) == [1, 3]
   end
 
   example forall_templates_keep_choicepoints_and_suspensions_per_solution() do
@@ -900,22 +899,22 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Key": :"$Key",
-      "$Result": [:yes, :yes, :yes, :yes],
-      "$Map": :"$Map",
-      "$Number": :"$Number",
-      "$Color": :"$Color",
-      "$Choices": :"$Choices",
-      "$Gate": :"$Gate",
-      "$Copy": :"$Copy"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Key" => {:"$var", "Key"},
+      "$Result" => [:yes, :yes, :yes, :yes],
+      "$Map" => {:"$var", "Map"},
+      "$Number" => {:"$var", "Number"},
+      "$Color" => {:"$var", "Color"},
+      "$Choices" => {:"$var", "Choices"},
+      "$Gate" => {:"$var", "Gate"},
+      "$Copy" => {:"$var", "Copy"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [:yes, :yes, :yes, :yes]
+    assert actual["$Result"] == [:yes, :yes, :yes, :yes]
   end
 
   example native_forall_preserves_shared_elements_body_choices_and_empty_search() do
@@ -953,24 +952,24 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$M": :"$M",
-      "$Values": :"$Values",
-      "$N": :"$N",
-      "$Result": [~c"\a\a", 7, 7, [:yes, :yes, :yes, :yes]],
-      "$Item": :"$Item",
-      "$A": :"$A",
-      "$B": :"$B",
-      "$Shared": :"$Shared",
-      "$Choices": :"$Choices",
-      "$Double": :"$Double"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$M" => {:"$var", "M"},
+      "$Values" => {:"$var", "Values"},
+      "$N" => {:"$var", "N"},
+      "$Result" => [~c"\a\a", 7, 7, [:yes, :yes, :yes, :yes]],
+      "$Item" => {:"$var", "Item"},
+      "$A" => {:"$var", "A"},
+      "$B" => {:"$var", "B"},
+      "$Shared" => {:"$var", "Shared"},
+      "$Choices" => {:"$var", "Choices"},
+      "$Double" => {:"$var", "Double"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [[7, 7], 7, 7, [:yes, :yes, :yes, :yes]]
+    assert actual["$Result"] == [[7, 7], 7, 7, [:yes, :yes, :yes, :yes]]
   end
 
   example native_forall_runs_durable_updates_in_solution_order() do
@@ -992,17 +991,17 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Result": [1, 2, 3],
-      "$After": :"$After",
-      "$Item": :"$Item",
-      "$Log": :"$Log",
-      "$Before": :"$Before"
+      "$_Self" => {:"$var", "_Self"},
+      "$Result" => [1, 2, 3],
+      "$After" => {:"$var", "After"},
+      "$Item" => {:"$var", "Item"},
+      "$Log" => {:"$var", "Log"},
+      "$Before" => {:"$var", "Before"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [1, 2, 3]
+    assert actual["$Result"] == [1, 2, 3]
   end
 
   example native_isa_preserves_open_modes_enumeration_and_domain_narrowing() do
@@ -1040,33 +1039,33 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Class": :"$Class",
-      "$_Self": :"$_Self",
-      "$Classes": :"$Classes",
-      "$Result": [7, 8, [:jam_isa_child, :jam_isa_parent, :value, :object], [:number], [1, 2]],
-      "$Items": :"$Items",
-      "$Item": :"$Item",
-      "$Selected": 1,
-      "$Object": :"$Object",
-      "$Open": :"$Open",
-      "$Alias": :"$Alias",
-      "$Awoke": 1,
-      "$Unknown": :"$Unknown",
-      "$Linked": :"$Linked",
-      "$LinkedClass": :"$LinkedClass",
-      "$Known": :"$Known",
-      "$Wrong": :"$Wrong",
-      "$Conflict": :"$Conflict"
+      "$Self" => {:"$var", "Self"},
+      "$Class" => {:"$var", "Class"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Classes" => {:"$var", "Classes"},
+      "$Result" => [7, 8, [:jam_isa_child, :jam_isa_parent, :value, :object], [:number], [1, 2]],
+      "$Items" => {:"$var", "Items"},
+      "$Item" => {:"$var", "Item"},
+      "$Selected" => 1,
+      "$Object" => {:"$var", "Object"},
+      "$Open" => {:"$var", "Open"},
+      "$Alias" => {:"$var", "Alias"},
+      "$Awoke" => 1,
+      "$Unknown" => {:"$var", "Unknown"},
+      "$Linked" => {:"$var", "Linked"},
+      "$LinkedClass" => {:"$var", "LinkedClass"},
+      "$Known" => {:"$var", "Known"},
+      "$Wrong" => {:"$var", "Wrong"},
+      "$Conflict" => {:"$var", "Conflict"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert [7, 8, classes, [:number], [1, 2]] = actual[:"$Result"]
+    assert [7, 8, classes, [:number], [1, 2]] = actual["$Result"]
     assert :jam_isa_child in classes
     assert :jam_isa_parent in classes
-    assert actual[:"$Selected"] == 1
-    assert actual[:"$Awoke"] == 1
+    assert actual["$Selected"] == 1
+    assert actual["$Awoke"] == 1
   end
 
   example incremental_head_unification_preserves_map_keys_and_binding_order() do
@@ -1095,7 +1094,7 @@ defmodule Examples.ALJAMCompiler do
     """
 
     {:atomic, {actual, _, _}} = evaluate(source)
-    assert actual[:"$Result"] == [:blue, :ready, [:done], [:blue]]
+    assert actual["$Result"] == [:blue, :ready, [:done], [:blue]]
   end
 
   example variable_references_preserve_nested_terms_constraints_and_occurs_checks() do
@@ -1123,23 +1122,23 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Result": [[%{item: :blue}, :done], :blue, [:done], [:blue]],
-      "$Tail": :"$Tail",
-      "$Item": :"$Item",
-      "$Alias": :"$Alias",
-      "$Choice": :"$Choice",
-      "$Choices": :"$Choices",
-      "$Cycle": :"$Cycle",
-      "$MapCycle": :"$MapCycle",
-      "$Original": :"$Original"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Result" => [[%{item: :blue}, :done], :blue, [:done], [:blue]],
+      "$Tail" => {:"$var", "Tail"},
+      "$Item" => {:"$var", "Item"},
+      "$Alias" => {:"$var", "Alias"},
+      "$Choice" => {:"$var", "Choice"},
+      "$Choices" => {:"$var", "Choices"},
+      "$Cycle" => {:"$var", "Cycle"},
+      "$MapCycle" => {:"$var", "MapCycle"},
+      "$Original" => {:"$var", "Original"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [[%{item: :blue}, :done], :blue, [:done], [:blue]]
+    assert actual["$Result"] == [[%{item: :blue}, :done], :blue, [:done], [:blue]]
   end
 
   example compiled_methods_preserve_recursive_alternatives_repeated_variables_and_constraints() do
@@ -1162,22 +1161,22 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Head": :red,
-      "$_Self": :"$_Self",
-      "$X": :"$X",
-      "$Result": :"$Result",
-      "$Tail": [],
-      "$Selected": :blue,
-      "$Local": :"$Local",
-      "$Results": [[:value, :blue], [:value, :green]],
-      "$Members": [:red, :blue, :red]
+      "$Head" => :red,
+      "$_Self" => {:"$var", "_Self"},
+      "$X" => {:"$var", "X"},
+      "$Result" => {:"$var", "Result"},
+      "$Tail" => [],
+      "$Selected" => :blue,
+      "$Local" => {:"$var", "Local"},
+      "$Results" => [[:value, :blue], [:value, :green]],
+      "$Members" => [:red, :blue, :red]
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Results"] == [[:value, :blue], [:value, :green]]
-    assert actual[:"$Members"] == [:red, :blue, :red]
-    assert actual[:"$Head"] == :red
+    assert actual["$Results"] == [[:value, :blue], [:value, :green]]
+    assert actual["$Members"] == [:red, :blue, :red]
+    assert actual["$Head"] == :red
   end
 
   example native_suspensions_follow_aliases_and_restore_on_backtracking() do
@@ -1210,27 +1209,27 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Text": :"$Text",
-      "$Result": [:ready, "hi", [:blue], [1, 2], []],
-      "$Ready": :"$Ready",
-      "$Tail": :"$Tail",
-      "$Number": :"$Number",
-      "$Color": :"$Color",
-      "$Empty": :"$Empty",
-      "$Numbers": :"$Numbers",
-      "$Colors": :"$Colors",
-      "$Alias": :"$Alias",
-      "$Never": :"$Never",
-      "$Trigger": :"$Trigger",
-      "$Gate": :"$Gate"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Text" => {:"$var", "Text"},
+      "$Result" => [:ready, "hi", [:blue], [1, 2], []],
+      "$Ready" => {:"$var", "Ready"},
+      "$Tail" => {:"$var", "Tail"},
+      "$Number" => {:"$var", "Number"},
+      "$Color" => {:"$var", "Color"},
+      "$Empty" => {:"$var", "Empty"},
+      "$Numbers" => {:"$var", "Numbers"},
+      "$Colors" => {:"$var", "Colors"},
+      "$Alias" => {:"$var", "Alias"},
+      "$Never" => {:"$var", "Never"},
+      "$Trigger" => {:"$var", "Trigger"},
+      "$Gate" => {:"$var", "Gate"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [:ready, "hi", [:blue], [1, 2], []]
+    assert actual["$Result"] == [:ready, "hi", [:blue], [1, 2], []]
   end
 
   example native_suspensions_survive_method_returns() do
@@ -1254,18 +1253,18 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Result": :"$Result",
-      "$Alias": :go,
-      "$Handoff": :ready,
-      "$Returned": :ready,
-      "$Trigger": :go
+      "$_Self" => {:"$var", "_Self"},
+      "$Result" => {:"$var", "Result"},
+      "$Alias" => :go,
+      "$Handoff" => :ready,
+      "$Returned" => :ready,
+      "$Trigger" => :go
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Handoff"] == :ready
-    assert actual[:"$Returned"] == :ready
+    assert actual["$Handoff"] == :ready
+    assert actual["$Returned"] == :ready
   end
 
   example relational_reads_enumerate_in_order_and_freshen_each_clause() do
@@ -1302,29 +1301,29 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Class": :"$Class",
-      "$Method": :"$Method",
-      "$_Self": :"$_Self",
-      "$C": :"$C",
-      "$Parent": :"$Parent",
-      "$X": :"$X",
-      "$Result": [:jam_read_child, :jam_read_parent, [:red, :blue], [:red], :red, :blue],
-      "$A": :"$A",
-      "$B": :"$B",
-      "$Color": :"$Color",
-      "$D": :"$D",
-      "$Pair": :"$Pair",
-      "$Colors": :"$Colors",
-      "$Reds": :"$Reds",
-      "$_First": :"$_First",
-      "$_Second": :"$_Second"
+      "$Self" => {:"$var", "Self"},
+      "$Class" => {:"$var", "Class"},
+      "$Method" => {:"$var", "Method"},
+      "$_Self" => {:"$var", "_Self"},
+      "$C" => {:"$var", "C"},
+      "$Parent" => {:"$var", "Parent"},
+      "$X" => {:"$var", "X"},
+      "$Result" => [:jam_read_child, :jam_read_parent, [:red, :blue], [:red], :red, :blue],
+      "$A" => {:"$var", "A"},
+      "$B" => {:"$var", "B"},
+      "$Color" => {:"$var", "Color"},
+      "$D" => {:"$var", "D"},
+      "$Pair" => {:"$var", "Pair"},
+      "$Colors" => {:"$var", "Colors"},
+      "$Reds" => {:"$var", "Reds"},
+      "$_First" => {:"$var", "_First"},
+      "$_Second" => {:"$var", "_Second"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
 
-    assert actual[:"$Result"] == [
+    assert actual["$Result"] == [
              :jam_read_child,
              :jam_read_parent,
              [:red, :blue],
@@ -1361,21 +1360,21 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Class": :"$Class",
-      "$Method": :"$Method",
-      "$_Self": :"$_Self",
-      "$Parent": :"$Parent",
-      "$Child": :"$Child",
-      "$Other": :"$Other",
-      "$Result": [:jam_open_read_child, :jam_open_read_parent, :red],
-      "$Owner": :"$Owner",
-      "$Object": :"$Object",
-      "$Color": :"$Color"
+      "$Class" => {:"$var", "Class"},
+      "$Method" => {:"$var", "Method"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Parent" => {:"$var", "Parent"},
+      "$Child" => {:"$var", "Child"},
+      "$Other" => {:"$var", "Other"},
+      "$Result" => [:jam_open_read_child, :jam_open_read_parent, :red],
+      "$Owner" => {:"$var", "Owner"},
+      "$Object" => {:"$var", "Object"},
+      "$Color" => {:"$var", "Color"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [:jam_open_read_child, :jam_open_read_parent, :red]
+    assert actual["$Result"] == [:jam_open_read_child, :jam_open_read_parent, :red]
   end
 
   example open_owner_constraints_preserve_aliases_and_failure() do
@@ -1413,24 +1412,24 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Method": :"$Method",
-      "$_Self": :"$_Self",
-      "$Result": [[[:jam_owner_a, :owner_red], [:jam_owner_b, :owner_blue]], [], :owner_blue],
-      "$Owner": :"$Owner",
-      "$_Method": :"$_Method",
-      "$Color": :"$Color",
-      "$Empty": :"$Empty",
-      "$Answers": :"$Answers",
-      "$Alias": :"$Alias",
-      "$Chosen": :"$Chosen",
-      "$Bad": :"$Bad"
+      "$Self" => {:"$var", "Self"},
+      "$Method" => {:"$var", "Method"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Result" => [[[:jam_owner_a, :owner_red], [:jam_owner_b, :owner_blue]], [], :owner_blue],
+      "$Owner" => {:"$var", "Owner"},
+      "$_Method" => {:"$var", "_Method"},
+      "$Color" => {:"$var", "Color"},
+      "$Empty" => {:"$var", "Empty"},
+      "$Answers" => {:"$var", "Answers"},
+      "$Alias" => {:"$var", "Alias"},
+      "$Chosen" => {:"$var", "Chosen"},
+      "$Bad" => {:"$var", "Bad"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
 
-    assert actual[:"$Result"] == [
+    assert actual["$Result"] == [
              [[:jam_owner_a, :owner_red], [:jam_owner_b, :owner_blue]],
              [],
              :owner_blue
@@ -1456,19 +1455,19 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$X": :"$X",
-      "$Result": [[:blue], []],
-      "$Item": :"$Item",
-      "$Local": :"$Local",
-      "$Empty": :"$Empty",
-      "$Kept": :"$Kept",
-      "$Never": :"$Never"
+      "$_Self" => {:"$var", "_Self"},
+      "$X" => {:"$var", "X"},
+      "$Result" => [[:blue], []],
+      "$Item" => {:"$var", "Item"},
+      "$Local" => {:"$var", "Local"},
+      "$Empty" => {:"$var", "Empty"},
+      "$Kept" => {:"$var", "Kept"},
+      "$Never" => {:"$var", "Never"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [[:blue], []]
+    assert actual["$Result"] == [[:blue], []]
   end
 
   example native_failed_unification_preserves_constraint_diagnostics() do
@@ -1483,7 +1482,7 @@ defmodule Examples.ALJAMCompiler do
     rejected #{class => jam_failure_probe}.
     """
 
-    {:aborted, failure} = evaluate(source, trace_mode: :no_trace)
+    {:aborted, failure} = evaluate(source, trace: [])
     assert match?({:constraint_violated, {:dif, _, _}}, failure.reason)
   end
 
@@ -1526,20 +1525,20 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Result": :handled,
-      "$Receiver": %{class: :jam_miss_child},
-      "$Answer": :"$Answer",
-      "$Installed": :direct,
-      "$Intercepted": :intercepted
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Result" => :handled,
+      "$Receiver" => %{class: :jam_miss_child},
+      "$Answer" => {:"$var", "Answer"},
+      "$Installed" => :direct,
+      "$Intercepted" => :intercepted
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == :handled
-    assert actual[:"$Installed"] == :direct
-    assert actual[:"$Intercepted"] == :intercepted
+    assert actual["$Result"] == :handled
+    assert actual["$Installed"] == :direct
+    assert actual["$Intercepted"] == :intercepted
 
     {:aborted, failure} = evaluate(~S"attempt_absent #{class => jam_miss_child} _.")
     assert {:does_not_understand, %{class: :jam_miss_child}, :unknown, 1, _} = failure.reason
@@ -1569,7 +1568,7 @@ defmodule Examples.ALJAMCompiler do
 
     {:atomic, {actual, _, _}} = evaluate(source)
 
-    assert actual[:"$Result"] == [
+    assert actual["$Result"] == [
              [%{value: :shared}, :end],
              %{payload: [%{value: :shared}, :end]}
            ]
@@ -1608,21 +1607,21 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Parent": :"$Parent",
-      "$Results": [
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Parent" => {:"$var", "Parent"},
+      "$Results" => [
         [[:middle, :root_noise], [:middle, :red]],
         [[:middle, :root_noise], [:middle, :blue]]
       ],
-      "$Gate": :"$Gate",
-      "$Noise": :"$Noise"
+      "$Gate" => {:"$var", "Gate"},
+      "$Noise" => {:"$var", "Noise"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
 
-    assert actual[:"$Results"] == [
+    assert actual["$Results"] == [
              [[:middle, :root_noise], [:middle, :red]],
              [[:middle, :root_noise], [:middle, :blue]]
            ]
@@ -1657,19 +1656,19 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$_Args": :"$_Args",
-      "$Result": :"$Result",
-      "$Receiver": %{class: :jam_cursor_edit_child},
-      "$Results": [:old, :new],
-      "$_Selector": :"$_Selector"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$_Args" => {:"$var", "_Args"},
+      "$Result" => {:"$var", "Result"},
+      "$Receiver" => %{class: :jam_cursor_edit_child},
+      "$Results" => [:old, :new],
+      "$_Selector" => {:"$var", "_Selector"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Results"] == [:old, :new]
+    assert actual["$Results"] == [:old, :new]
   end
 
   example frozen_next_method_calls_reach_the_parent() do
@@ -1693,10 +1692,16 @@ defmodule Examples.ALJAMCompiler do
     pick #{class => jam_cursor_fallback_child} Result.
     """
 
-    expected = %{"$Self": :"$Self", "$_Self": :"$_Self", "$Result": :inherited, "$Gate": :"$Gate"}
+    expected = %{
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Result" => :inherited,
+      "$Gate" => {:"$var", "Gate"}
+    }
+
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == :inherited
+    assert actual["$Result"] == :inherited
   end
 
   example nested_provider_calls_preserve_control_scope_and_search_isolation() do
@@ -1748,25 +1753,25 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Values": [:inherited, :local],
-      "$Parent": :"$Parent",
-      "$X": :"$X",
-      "$Result": :"$Result",
-      "$Results": :"$Results",
-      "$Empty": :"$Empty",
-      "$Colors": [:red, :blue],
-      "$Isolated": [[], :parent],
-      "$Choices": [:red]
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Values" => [:inherited, :local],
+      "$Parent" => {:"$var", "Parent"},
+      "$X" => {:"$var", "X"},
+      "$Result" => {:"$var", "Result"},
+      "$Results" => {:"$var", "Results"},
+      "$Empty" => {:"$var", "Empty"},
+      "$Colors" => [:red, :blue],
+      "$Isolated" => [[], :parent],
+      "$Choices" => [:red]
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Colors"] == [:red, :blue]
-    assert actual[:"$Values"] == [:inherited, :local]
-    assert actual[:"$Isolated"] == [[], :parent]
-    assert actual[:"$Choices"] == [:red]
+    assert actual["$Colors"] == [:red, :blue]
+    assert actual["$Values"] == [:inherited, :local]
+    assert actual["$Isolated"] == [[], :parent]
+    assert actual["$Choices"] == [:red]
   end
 
   example native_map_pairs_preserves_modes_constraints_and_delayed_inputs() do
@@ -1795,10 +1800,10 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Key": :"$Key",
-      "$Result": [
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Key" => {:"$var", "Key"},
+      "$Result" => [
         [[:a, 1], [:b, 2]],
         2,
         %{k: :shared, j: :other},
@@ -1806,24 +1811,24 @@ defmodule Examples.ALJAMCompiler do
         1,
         [%{color: :red}, %{color: :blue}]
       ],
-      "$Sorted": :"$Sorted",
-      "$Map": :"$Map",
-      "$Entries": :"$Entries",
-      "$Tail": :"$Tail",
-      "$A": :"$A",
-      "$B": :"$B",
-      "$Color": :"$Color",
-      "$Built": :"$Built",
-      "$Maps": :"$Maps",
-      "$Alias": :"$Alias",
-      "$Later": :"$Later",
-      "$Constrained": :"$Constrained"
+      "$Sorted" => {:"$var", "Sorted"},
+      "$Map" => {:"$var", "Map"},
+      "$Entries" => {:"$var", "Entries"},
+      "$Tail" => {:"$var", "Tail"},
+      "$A" => {:"$var", "A"},
+      "$B" => {:"$var", "B"},
+      "$Color" => {:"$var", "Color"},
+      "$Built" => {:"$var", "Built"},
+      "$Maps" => {:"$var", "Maps"},
+      "$Alias" => {:"$var", "Alias"},
+      "$Later" => {:"$var", "Later"},
+      "$Constrained" => {:"$var", "Constrained"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
 
-    assert actual[:"$Result"] == [
+    assert actual["$Result"] == [
              [[:a, 1], [:b, 2]],
              2,
              %{k: :shared, j: :other},
@@ -1858,18 +1863,18 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$After": [:child, :replacement],
-      "$_Receiver": :"$_Receiver",
-      "$Before": :child
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$After" => [:child, :replacement],
+      "$_Receiver" => {:"$var", "_Receiver"},
+      "$Before" => :child
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Before"] == :child
-    assert actual[:"$After"] == [:child, :replacement]
+    assert actual["$Before"] == :child
+    assert actual["$After"] == [:child, :replacement]
   end
 
   example self_sends_recheck_variable_keys_when_the_receiver_class_changes() do
@@ -1892,17 +1897,17 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$Key": :class,
-      "$After": :classed,
-      "$Before": :plain
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Key" => :class,
+      "$After" => :classed,
+      "$Before" => :plain
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Before"] == :plain
-    assert actual[:"$After"] == :classed
+    assert actual["$Before"] == :plain
+    assert actual["$After"] == :classed
   end
 
   example primitive_instructions_preserve_modes_constraints_and_backtracking() do
@@ -1937,26 +1942,26 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Args": :"$Args",
-      "$_Self": :"$_Self",
-      "$Text": :"$Text",
-      "$Name": :"$Name",
-      "$Codes": :"$Codes",
-      "$Result": [:hé, [104, 233], "hello", :greet, [:world], [~c"ok"]],
-      "$Cs": :"$Cs",
-      "$Input": :"$Input",
-      "$Word": :"$Word",
-      "$Term": :"$Term",
-      "$Atom": :"$Atom",
-      "$Built": :"$Built",
-      "$Answers": :"$Answers",
-      "$Bad": :"$Bad"
+      "$Self" => {:"$var", "Self"},
+      "$Args" => {:"$var", "Args"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Text" => {:"$var", "Text"},
+      "$Name" => {:"$var", "Name"},
+      "$Codes" => {:"$var", "Codes"},
+      "$Result" => [:hé, [104, 233], "hello", :greet, [:world], [~c"ok"]],
+      "$Cs" => {:"$var", "Cs"},
+      "$Input" => {:"$var", "Input"},
+      "$Word" => {:"$var", "Word"},
+      "$Term" => {:"$var", "Term"},
+      "$Atom" => {:"$var", "Atom"},
+      "$Built" => {:"$var", "Built"},
+      "$Answers" => {:"$var", "Answers"},
+      "$Bad" => {:"$var", "Bad"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [:hé, [104, 233], "hello", :greet, [:world], [[111, 107]]]
+    assert actual["$Result"] == [:hé, [104, 233], "hello", :greet, [:world], [[111, 107]]]
   end
 
   example shallow_primitive_reads_preserve_bound_cells_and_delayed_elements() do
@@ -1997,30 +2002,30 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Head": :"$Head",
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Text": "hé",
-      "$Rest": [233],
-      "$Codes": :"$Codes",
-      "$First": 104,
-      "$Tail": :"$Tail",
-      "$Answers": [~c"hi", [104, 233]],
-      "$Bound": [104, 233],
-      "$Delayed": "hi",
-      "$Element": :allowed,
-      "$Forbidden": :"$Forbidden"
+      "$Self" => {:"$var", "Self"},
+      "$Head" => {:"$var", "Head"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Text" => "hé",
+      "$Rest" => [233],
+      "$Codes" => {:"$var", "Codes"},
+      "$First" => 104,
+      "$Tail" => {:"$var", "Tail"},
+      "$Answers" => [~c"hi", [104, 233]],
+      "$Bound" => [104, 233],
+      "$Delayed" => "hi",
+      "$Element" => :allowed,
+      "$Forbidden" => {:"$var", "Forbidden"}
     }
 
-    expected_constraints = %{"$Forbidden": %{dif: ~c"h"}}
+    expected_constraints = %{"$Forbidden" => %{dif: ~c"h"}}
     {:atomic, {actual, actual_constraints, _}} = evaluate(source)
     assert actual == expected
     assert actual_constraints == expected_constraints
-    assert actual[:"$Text"] == "hé"
-    assert actual[:"$Delayed"] == "hi"
-    assert actual[:"$Answers"] == [[104, 105], [104, 233]]
-    assert actual[:"$Element"] == :allowed
+    assert actual["$Text"] == "hé"
+    assert actual["$Delayed"] == "hi"
+    assert actual["$Answers"] == [[104, 105], [104, 233]]
+    assert actual["$Element"] == :allowed
   end
 
   example primitive_suspensions_resume_after_later_bindings() do
@@ -2051,21 +2056,21 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Args": [:world],
-      "$_Self": :"$_Self",
-      "$Text": "hi",
-      "$Name": :greet,
-      "$Term": %AL.Goal.Compound{args: [:world], name: :greet},
-      "$Tail": :"$Tail",
-      "$Atom": :ready
+      "$Args" => [:world],
+      "$_Self" => {:"$var", "_Self"},
+      "$Text" => "hi",
+      "$Name" => :greet,
+      "$Term" => %AL.Goal.Compound{args: [:world], name: :greet},
+      "$Tail" => {:"$var", "Tail"},
+      "$Atom" => :ready
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Atom"] == :ready
-    assert actual[:"$Text"] == "hi"
-    assert actual[:"$Name"] == :greet
-    assert actual[:"$Args"] == [:world]
+    assert actual["$Atom"] == :ready
+    assert actual["$Text"] == "hi"
+    assert actual["$Name"] == :greet
+    assert actual["$Args"] == [:world]
   end
 
   example indexed_heads_preserve_order_open_modes_and_dynamic_arguments() do
@@ -2109,10 +2114,10 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Args": :"$Args",
-      "$_Self": :"$_Self",
-      "$Result": [
+      "$Self" => {:"$var", "Self"},
+      "$Args" => {:"$var", "Args"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Result" => [
         [:first, :fallback],
         [:fallback, :last],
         [:first, :fallback, :last],
@@ -2122,22 +2127,22 @@ defmodule Examples.ALJAMCompiler do
         [:fallback, :last],
         [:fallback, :last]
       ],
-      "$R": :"$R",
-      "$Color": :"$Color",
-      "$Open": :"$Open",
-      "$Empty": :"$Empty",
-      "$Cons": :"$Cons",
-      "$Shapes": :"$Shapes",
-      "$Constrained": :"$Constrained",
-      "$Reds": :"$Reds",
-      "$Blues": :"$Blues",
-      "$Dynamic": :"$Dynamic"
+      "$R" => {:"$var", "R"},
+      "$Color" => {:"$var", "Color"},
+      "$Open" => {:"$var", "Open"},
+      "$Empty" => {:"$var", "Empty"},
+      "$Cons" => {:"$var", "Cons"},
+      "$Shapes" => {:"$var", "Shapes"},
+      "$Constrained" => {:"$var", "Constrained"},
+      "$Reds" => {:"$var", "Reds"},
+      "$Blues" => {:"$var", "Blues"},
+      "$Dynamic" => {:"$var", "Dynamic"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
 
-    assert actual[:"$Result"] == [
+    assert actual["$Result"] == [
              [:first, :fallback],
              [:fallback, :last],
              [:first, :fallback, :last],
@@ -2177,18 +2182,18 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$Args": :"$Args",
-      "$_Self": :"$_Self",
-      "$Rest": :"$Rest",
-      "$Result": [:blue],
-      "$Item": :"$Item",
-      "$Open": :"$Open"
+      "$Self" => {:"$var", "Self"},
+      "$Args" => {:"$var", "Args"},
+      "$_Self" => {:"$var", "_Self"},
+      "$Rest" => {:"$var", "Rest"},
+      "$Result" => [:blue],
+      "$Item" => {:"$var", "Item"},
+      "$Open" => {:"$var", "Open"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [:blue]
+    assert actual["$Result"] == [:blue]
   end
 
   example open_structured_heads_keep_generation_modes() do
@@ -2198,23 +2203,23 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Result": [:a, :b, :c],
-      "$Splits": [[[], [:a, :b]], [[:a], [:b]], [[:a, :b], []]]
+      "$Result" => [:a, :b, :c],
+      "$Splits" => [[[], [:a, :b]], [[:a], [:b]], [[:a, :b], []]]
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == [:a, :b, :c]
+    assert actual["$Result"] == [:a, :b, :c]
 
     branch = %AL.Branch{id: Examples.Support.branch()}
 
     assert {:atomic, {:ok, store, 2}} =
              :mnesia.transaction(fn ->
                {:ok, _, id} = AL.Dispatch.target([:a, :b], :concat, branch)
-               AL.JAM.run(id, [[:a, :b], [:c], :"$Result"], %{}, branch, 100)
+               AL.JAM.run(id, [[:a, :b], [:c], {:"$var", "Result"}], %{}, branch, 100)
              end)
 
-    assert AL.Var.subst(:"$Result", store) == [:a, :b, :c]
+    assert AL.Var.subst({:"$var", "Result"}, store) == [:a, :b, :c]
   end
 
   example map_heads_match_exact_keys_and_construct_shared_constrained_values() do
@@ -2242,20 +2247,20 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Value": :blue,
-      "$X": :"$X",
-      "$Read": 7,
-      "$Results": [:green],
-      "$Empty": %{},
-      "$Made": %{left: :blue, right: [:blue]}
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => :blue,
+      "$X" => {:"$var", "X"},
+      "$Read" => 7,
+      "$Results" => [:green],
+      "$Empty" => %{},
+      "$Made" => %{left: :blue, right: [:blue]}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Made"] == %{left: :blue, right: [:blue]}
-    assert actual[:"$Empty"] == %{}
-    assert actual[:"$Results"] == [:green]
+    assert actual["$Made"] == %{left: :blue, right: [:blue]}
+    assert actual["$Empty"] == %{}
+    assert actual["$Results"] == [:green]
   end
 
   example method_edits_invalidate_the_compiled_method_within_a_transaction() do
@@ -2272,7 +2277,7 @@ defmodule Examples.ALJAMCompiler do
       findall X Values {choose compiled_edit_instance X}.
       """)
 
-    assert bindings[:"$Values"] == [:old, :new]
+    assert bindings["$Values"] == [:old, :new]
   end
 
   example compiled_sends_resolve_variable_keys_inside_list_receivers() do
@@ -2292,16 +2297,16 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Key": :fixed,
-      "$Result": 7,
-      "$Receiver": :"$Receiver"
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Key" => :fixed,
+      "$Result" => 7,
+      "$Receiver" => {:"$var", "Receiver"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Result"] == 7
+    assert actual["$Result"] == 7
   end
 
   example machine_operations_preserve_alternatives_and_equality_constraints() do
@@ -2332,8 +2337,8 @@ defmodule Examples.ALJAMCompiler do
     source = "findall X Values" <> query
 
     {:atomic, {bindings, _constraints, _state}} = evaluate(source)
-    assert bindings[:"$Values"] == [:red, :blue]
-    assert bindings[:"$Selected"] == :blue
+    assert bindings["$Values"] == [:red, :blue]
+    assert bindings["$Selected"] == :blue
   end
 
   example explicit_operands_keep_shared_terms() do
@@ -2361,21 +2366,21 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$_Self": :"$_Self",
-      "$Value": :"$Value",
-      "$Key": :payload,
-      "$Values": [:shared, :shared, :end],
-      "$Result": :"$Result",
-      "$Map": :"$Map",
-      "$Tail": [:end],
-      "$Results": [%{payload: [:first, :first]}, %{payload: [:second, :second]}],
-      "$Built": %{payload: [:shared, :shared, :end]}
+      "$_Self" => {:"$var", "_Self"},
+      "$Value" => {:"$var", "Value"},
+      "$Key" => :payload,
+      "$Values" => [:shared, :shared, :end],
+      "$Result" => {:"$var", "Result"},
+      "$Map" => {:"$var", "Map"},
+      "$Tail" => [:end],
+      "$Results" => [%{payload: [:first, :first]}, %{payload: [:second, :second]}],
+      "$Built" => %{payload: [:shared, :shared, :end]}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Values"] == [:shared, :shared, :end]
-    assert actual[:"$Results"] == [%{payload: [:first, :first]}, %{payload: [:second, :second]}]
+    assert actual["$Values"] == [:shared, :shared, :end]
+    assert actual["$Results"] == [%{payload: [:first, :first]}, %{payload: [:second, :second]}]
   end
 
   example anonymous_arguments_and_open_arithmetic_stay_in_the_machine() do
@@ -2402,25 +2407,25 @@ defmodule Examples.ALJAMCompiler do
     """
 
     expected = %{
-      "$Self": :"$Self",
-      "$_Self": :"$_Self",
-      "$M": :"$M",
-      "$N": :"$N",
-      "$X": :"$X",
-      "$Y": :"$Y",
-      "$A": :"$A",
-      "$B": :"$B",
-      "$Results": [:shared, 5],
-      "$Pair": :"$Pair"
+      "$Self" => {:"$var", "Self"},
+      "$_Self" => {:"$var", "_Self"},
+      "$M" => {:"$var", "M"},
+      "$N" => {:"$var", "N"},
+      "$X" => {:"$var", "X"},
+      "$Y" => {:"$var", "Y"},
+      "$A" => {:"$var", "A"},
+      "$B" => {:"$var", "B"},
+      "$Results" => [:shared, 5],
+      "$Pair" => {:"$var", "Pair"}
     }
 
     {:atomic, {actual, _, _}} = evaluate(source)
     assert actual == expected
-    assert actual[:"$Results"] == [:shared, 5]
+    assert actual["$Results"] == [:shared, 5]
   end
 
   example retained_tracing_preserves_results() do
-    expected = %{"$Values": [:a, :b, :a]}
+    expected = %{"$Values" => [:a, :b, :a]}
 
     {:atomic, {actual, _, state}} =
       evaluate("findall X Values {member [a, b, a] X}.", trace: [:domino, :vm])

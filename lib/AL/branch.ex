@@ -230,7 +230,7 @@ defmodule AL.Branch do
 
   def registered?(id) when is_atom(id) do
     AL.ResolutionCache.fetch_branch_registration(id, fn ->
-      :mnesia.select(:branch, [{{:branch, :"$1", id}, [], [:"$1"]}]) != []
+      parent_edges(id) != []
     end)
   end
 
@@ -313,11 +313,11 @@ defmodule AL.Branch do
         parent = parent_of(branch)
 
         for child <- children_of(branch) do
-          :mnesia.delete_object(:branch, {:branch, branch, child}, :write)
+          AL.Mnesia.delete_object(:branch, {:branch, branch, child})
           :mnesia.write(:branch, {:branch, parent, child}, :write)
         end
 
-        :mnesia.delete_object(:branch, {:branch, parent, branch}, :write)
+        AL.Mnesia.delete_object(:branch, {:branch, parent, branch})
         AL.ResolutionCache.invalidate_branch_registration()
         :ok
       end)
@@ -327,16 +327,19 @@ defmodule AL.Branch do
 
   @spec parent_of(atom()) :: atom()
   defp parent_of(branch) do
-    case :mnesia.select(:branch, [{{:branch, :"$1", branch}, [], [:"$1"]}]) do
-      [parent | _] -> parent
+    case parent_edges(branch) do
+      [{:branch, parent, ^branch} | _] -> parent
       [] -> :main
     end
   end
 
   @spec children_of(atom()) :: [atom()]
   defp children_of(branch) do
-    :mnesia.select(:branch, [{{:branch, branch, :"$1"}, [], [:"$1"]}])
+    for {:branch, ^branch, child} <- :mnesia.read(:branch, branch), do: child
   end
+
+  defp parent_edges(child),
+    do: :mnesia.select(:branch, AL.Mnesia.specification({:branch, AL.Var.var("Parent"), child}))
 
   defview command_log(self = %__MODULE__{}, builder) do
     {:atomic, log} = :mnesia.transaction(fn -> AL.Command.commands_since(0, self) end)

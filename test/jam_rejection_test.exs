@@ -42,7 +42,13 @@ defmodule AL.JAM.RejectionTest do
         receiver = %{class: :rejection_probe}
         {:ok, _, id} = AL.Dispatch.target(receiver, :choose, branch)
         {clauses, index} = AL.JAM.Compiler.fetch_method(id, branch)
-        AL.JAM.IR.Rejection.select(clauses, index.rejections, [receiver, input, :"$Kind"], store)
+
+        AL.JAM.IR.Rejection.select(
+          clauses,
+          index.rejections,
+          [receiver, input, {:"$var", "Kind"}],
+          store
+        )
       end)
 
     selected
@@ -68,8 +74,8 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert bindings[:"$Atoms"] == Enum.to_list(0..68//2) ++ [0]
-    assert bindings[:"$Numbers"] == Enum.to_list(1..69//2)
+    assert bindings["$Atoms"] == Enum.to_list(0..68//2) ++ [0]
+    assert bindings["$Numbers"] == Enum.to_list(1..69//2)
   end
 
   test "one type decision rejects incompatible clauses before head matching", %{branch: branch} do
@@ -78,8 +84,14 @@ defmodule AL.JAM.RejectionTest do
     assert length(candidates(%AL.Goal.Compound{name: :item, args: [1]}, branch)) == 1
     assert candidates(42, branch) == []
     assert candidates(%{class: :compound}, branch) == []
-    assert length(candidates(:"$Input", branch)) == 5
-    assert length(candidates(:"$Alias", branch, %{:"$Alias" => :"$Input", :"$Input" => [1]})) == 1
+    assert length(candidates({:"$var", "Input"}, branch)) == 5
+
+    assert length(
+             candidates({:"$var", "Alias"}, branch, %{
+               {:"$var", "Alias"} => {:"$var", "Input"},
+               {:"$var", "Input"} => [1]
+             })
+           ) == 1
 
     assert {:atomic, {bindings, _, _}} =
              AL.eval_source(
@@ -89,7 +101,7 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert bindings[:"$Kinds"] == [:list]
+    assert bindings["$Kinds"] == [:list]
   end
 
   test "open arguments retain constraint-producing alternatives in order", %{branch: branch} do
@@ -101,12 +113,12 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert bindings[:"$Kinds"] == [:list, :open]
+    assert bindings["$Kinds"] == [:list, :open]
   end
 
   test "durable classes and unknown map classes remain runtime relations", %{branch: branch} do
     assert length(candidates(:rejection_item, branch)) == 3
-    assert length(candidates(%{class: :"$Class"}, branch)) == 2
+    assert length(candidates(%{class: {:"$var", "Class"}}, branch)) == 2
 
     assert {:atomic, {bindings, _, _}} =
              AL.eval_source(
@@ -118,8 +130,8 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert bindings[:"$Kinds"] == [:atom, :list]
-    assert bindings[:"$Class"] == :list
+    assert bindings["$Kinds"] == [:atom, :list]
+    assert bindings["$Class"] == :list
   end
 
   test "body failure remains failure when all rejection tests fail", %{branch: branch} do
@@ -208,6 +220,6 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert bindings[:"$Kinds"] == [:yes, :yes]
+    assert bindings["$Kinds"] == [:yes, :yes]
   end
 end

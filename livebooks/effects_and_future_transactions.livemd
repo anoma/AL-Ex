@@ -109,7 +109,7 @@ notebook = self()
     """
   end
 
-effect = bindings[:"$Effect"]
+effect = bindings["$Effect"]
 
 receive do
   message -> message

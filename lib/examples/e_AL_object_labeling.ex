@@ -55,7 +55,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert bindings[:"$Objects"] == [:labeling_animal_object]
+    assert bindings["$Objects"] == [:labeling_animal_object]
   end
 
   example isa_labeling_enumerates_transitive_durable_instances() do
@@ -68,7 +68,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert MapSet.new(bindings[:"$Objects"]) ==
+    assert MapSet.new(bindings["$Objects"]) ==
              MapSet.new([
                :labeling_animal_object,
                :labeling_dog_object,
@@ -89,7 +89,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert bindings[:"$Object"] == :labeling_named_dog_object
+    assert bindings["$Object"] == :labeling_named_dog_object
   end
 
   example dif_filters_durable_candidates_during_labeling() do
@@ -104,9 +104,9 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    refute :labeling_animal_object in bindings[:"$Objects"]
+    refute :labeling_animal_object in bindings["$Objects"]
 
-    assert MapSet.new(bindings[:"$Objects"]) ==
+    assert MapSet.new(bindings["$Objects"]) ==
              MapSet.new([
                :labeling_dog_object,
                :labeling_cat_object,
@@ -125,7 +125,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert bindings[:"$Shape"] == %{class: :labeling_circle, radius: 1}
+    assert bindings["$Shape"] == %{class: :labeling_circle, radius: 1}
   end
 
   example exact_value_class_labeling_initializes_that_class() do
@@ -139,7 +139,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert bindings[:"$Shape"] == %{class: :labeling_circle, radius: 1}
+    assert bindings["$Shape"] == %{class: :labeling_circle, radius: 1}
   end
 
   example incompatible_exact_and_inherited_classes_fail_before_forcing() do
@@ -172,7 +172,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert bindings[:"$Answers"] == [
+    assert bindings["$Answers"] == [
              [:labeling_dog_object, :after_label, :labeling_dog]
            ]
   end
@@ -201,7 +201,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert Enum.uniq(bindings[:"$Markers"]) == [:after_class_label]
+    assert Enum.uniq(bindings["$Markers"]) == [:after_class_label]
   end
 
   example pending_super_labeling_preserves_following_goals() do
@@ -214,7 +214,7 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert Enum.uniq(bindings[:"$Markers"]) == [:after_super_label]
+    assert Enum.uniq(bindings["$Markers"]) == [:after_super_label]
   end
 
   example pending_slot_labeling_preserves_following_goals() do
@@ -231,6 +231,6 @@ defmodule Examples.ALObjectLabeling do
         """
       end
 
-    assert bindings[:"$Answers"] == [[:labeling_dog_object, :after_slot_label]]
+    assert bindings["$Answers"] == [[:labeling_dog_object, :after_slot_label]]
   end
 end

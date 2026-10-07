@@ -41,11 +41,11 @@ defmodule Examples.ALMaps do
         """
       end
 
-    assert Map.get(bindings, :"$K") == :c or Map.get(bindings, :"$K") == :a
+    assert Map.get(bindings, "$K") == :c or Map.get(bindings, "$K") == :a
 
     {:atomic, {bindings, _constraints, program_state}} = next_solution(program_state)
 
-    assert Map.get(bindings, :"$K") == :c or Map.get(bindings, :"$K") == :a
+    assert Map.get(bindings, "$K") == :c or Map.get(bindings, "$K") == :a
 
     program_state
   end
@@ -59,8 +59,8 @@ defmodule Examples.ALMaps do
         """
       end
 
-    assert bindings[:"$Present"] == 7
-    assert bindings[:"$Missing"] == :fallback
+    assert bindings["$Present"] == 7
+    assert bindings["$Missing"] == :fallback
     :ok
   end
 
@@ -72,7 +72,7 @@ defmodule Examples.ALMaps do
         """
       end
 
-    assert bindings |> Map.get(:"$M2") |> Map.get(:c) == 4
+    assert bindings |> Map.get("$M2") |> Map.get(:c) == 4
 
     program_state
   end
@@ -91,13 +91,13 @@ defmodule Examples.ALMaps do
         """
       end
 
-    assert bindings[:"$Second"] == 1
-    assert bindings[:"$Found"] == 3
-    assert bindings[:"$Merged"] == 5
+    assert bindings["$Second"] == 1
+    assert bindings["$Found"] == 3
+    assert bindings["$Merged"] == 5
 
-    open = bindings[:"$Open"]
+    open = bindings["$Open"]
     assert AL.Var.var?(open)
-    assert Map.keys(constraints[open].keys) == [:k]
+    assert Map.keys(constraints[AL.Var.key(open)].keys) == [:k]
   end
 
   example map_pairs_relates_a_map_to_its_sorted_pairs() do
@@ -119,15 +119,15 @@ defmodule Examples.ALMaps do
         """
       end
 
-    assert bindings[:"$Pairs"] == [[:a, 1], [:b, 2]]
-    assert bindings[:"$B"] == 2
-    assert bindings[:"$Unordered"] == %{k: :v, j: :w}
-    assert bindings[:"$Partial"] == %{k: :"$Value"}
-    assert bindings[:"$Empty"] == []
-    assert bindings[:"$Built"] == %{x: 1, y: :"$Y"}
-    assert bindings[:"$Shared"] == 7
-    assert bindings[:"$Later"] == %{k: :v}
-    assert bindings[:"$A"] == 1
+    assert bindings["$Pairs"] == [[:a, 1], [:b, 2]]
+    assert bindings["$B"] == 2
+    assert bindings["$Unordered"] == %{k: :v, j: :w}
+    assert bindings["$Partial"] == %{k: {:"$var", "Value"}}
+    assert bindings["$Empty"] == []
+    assert bindings["$Built"] == %{x: 1, y: {:"$var", "Y"}}
+    assert bindings["$Shared"] == 7
+    assert bindings["$Later"] == %{k: :v}
+    assert bindings["$A"] == 1
   end
 
   example map_put_new() do
@@ -139,8 +139,8 @@ defmodule Examples.ALMaps do
         """
       end
 
-    assert bindings[:"$Preserved"] == %{present: 7}
-    assert bindings[:"$Extended"] == %{present: 7, missing: :fallback}
+    assert bindings["$Preserved"] == %{present: 7}
+    assert bindings["$Extended"] == %{present: 7, missing: :fallback}
     :ok
   end
 end

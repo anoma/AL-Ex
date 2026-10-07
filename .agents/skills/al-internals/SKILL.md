@@ -1,6 +1,6 @@
 ---
 name: al-internals
-description: Modify or debug AL's abstract machine (AL.JAM), goals, dispatch, durable command log and projections, branching, caches, source retention, or serialisation. Use for lib/AL.ex and lib/AL/{jam,dispatch,var,command_log,view,branch,cache,native,trace,serialisation}/, plus lib/AL/source_*.ex and lib/AL/serialisation.ex. For AL programs and package surface syntax, use al-practices.
+description: Modify or debug AL's abstract machine (AL.JAM), goals, dispatch, durable command log and projections, branching, caches, source retention, or serialisation. Use for lib/AL.ex and lib/AL/{jam,dispatch,var,command_log,view,branch,cache,native,trace,definition}/, plus lib/AL/source_*.ex and lib/AL/package.ex. For AL programs and package surface syntax, use al-practices.
 ---
 
 # AL internals
@@ -23,7 +23,7 @@ with Elixir-style branching merely because it lives in the bootstrap program.
 1. Read [references/architecture-map.md](references/architecture-map.md) when
    the task crosses subsystem boundaries or the relevant ownership is unclear.
 2. Inspect the narrow public boundary before its implementation. Prefer
-   `AL.Object`, `AL.SourceStore`, `AL.Serialisation.Snapshot`, or another structured
+   `AL.Object`, `AL.SourceStore`, `AL.Definition.Snapshot`, or another structured
    API over raw table access from a new caller.
 3. Identify the durable command and projection consequences before editing an
    machine path.
@@ -84,26 +84,24 @@ generative/durable/domain dispatch convergence specifically, read
   the owner's `ram_copies` tables, so replaying the log there duplicates live
   rows rather than reconstructing them.
 
-## Serialisation boundary
+## Definition and package boundary
 
-- `AL.Serialisation.Document` owns the definition file codec. A file is AL
+- `AL.Definition.Document` owns the definition file codec. A file is AL
   source read by `AL.Syntax.document/1`: leading `#` comment lines, an
   `@name` class or `@+name` extension declaration generated from live facts,
   then method clauses whose declarations and bodies are retained or
   decompiled source.
-- `AL.Serialisation.Layout` owns branch and definition paths. Keep its path
-  segments injective and unable to escape the configured root.
-- `AL.Serialisation.Snapshot` captures all live facts needed to render and diff
+- `AL.Definition.Path` owns portable definition filenames. Keep filenames
+  injective and unable to escape the package directory.
+- `AL.Definition.Snapshot` captures all live facts needed to render and diff
   definitions. Add facts here when planning otherwise needs another Mnesia
   read.
-- `AL.Serialisation.Sync.plan/3` is pure. It accepts a snapshot plus edited/deleted
+- `AL.Definition.Changes.plan/3` is pure. It accepts a snapshot plus edited/deleted
   owners and returns a deterministic transaction plan.
-- `AL.Serialisation` owns filesystem reconciliation, watching, batching, source
-  capture, and evaluation. Keep table interpretation and semantic diffing out
-  of it.
-- Transaction files remain an append-only projection of retained transaction
-  source. Definition documents are editable projections that produce new
-  transactions.
+- `AL.Package` owns package import, activation, and publication.
+  `AL.Package.Export` writes explicit export bundles. There is no automatic
+  source-directory synchronization. Definition edits produce new transactions
+  through `AL.Definition.Changes` and the package protocol.
 
 ## Change discipline
 
@@ -130,8 +128,8 @@ generative/durable/domain dispatch convergence specifically, read
   applicable.
 - Change source retention: test exact slicing, grouped clauses, failed
   transactions, missing spans, and decompiled fallback.
-- Change source synchronization: test the pure plan first, then watcher and
-  restart integration separately.
+- Change package reconciliation: test the pure definition plan, then package
+  import, activation, and export integration.
 - Fix a bug at the smallest observable boundary. Avoid tests that merely mirror
   a private implementation.
 

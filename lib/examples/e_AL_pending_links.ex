@@ -51,8 +51,8 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert bindings[:"$Object"] == %{class: :pending_value, tag: :only}
-    assert bindings[:"$ExactClass"] == :pending_value
+    assert bindings["$Object"] == %{class: :pending_value, tag: :only}
+    assert bindings["$ExactClass"] == :pending_value
   end
 
   example labeling_the_class_side_does_not_force_the_object_side() do
@@ -67,10 +67,10 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    object = bindings[:"$Object"]
+    object = bindings["$Object"]
 
     assert AL.Var.var?(object)
-    assert constraints[object].class == [:pending_value]
+    assert constraints[AL.Var.key(object)].class == [:pending_value]
   end
 
   example labeling_both_sides_of_a_class_relation_is_consistent() do
@@ -86,7 +86,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert bindings[:"$Object"] == %{class: :pending_value, tag: :only}
+    assert bindings["$Object"] == %{class: :pending_value, tag: :only}
   end
 
   example a_known_subclass_determines_its_direct_superclass() do
@@ -100,7 +100,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert bindings[:"$Superclass"] == :pending_unique_parent
+    assert bindings["$Superclass"] == :pending_unique_parent
   end
 
   example a_superclass_with_one_child_determines_that_child() do
@@ -114,7 +114,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert bindings[:"$Subclass"] == :pending_unique_child
+    assert bindings["$Subclass"] == :pending_unique_child
   end
 
   example an_ambiguous_superclass_leaves_its_child_symbolic() do
@@ -128,10 +128,10 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    subclass = bindings[:"$Subclass"]
+    subclass = bindings["$Subclass"]
 
     assert AL.Var.var?(subclass)
-    assert constraints[subclass].super == :pending_shared_parent
+    assert constraints[AL.Var.key(subclass)].super == :pending_shared_parent
   end
 
   example labeling_an_ambiguous_child_enumerates_every_real_edge() do
@@ -148,7 +148,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert MapSet.new(bindings[:"$Subclasses"]) ==
+    assert MapSet.new(bindings["$Subclasses"]) ==
              MapSet.new([:pending_shared_child_a, :pending_shared_child_b])
   end
 
@@ -162,7 +162,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert Enum.count(bindings[:"$Superclasses"], &(&1 == :pending_shared_parent)) == 1
+    assert Enum.count(bindings["$Superclasses"], &(&1 == :pending_shared_parent)) == 1
   end
 
   example labeling_an_impossible_super_relation_fails() do
@@ -191,7 +191,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert bindings[:"$Value"] == :unique_value
+    assert bindings["$Value"] == :unique_value
   end
 
   example a_unique_slot_value_determines_its_object() do
@@ -205,7 +205,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert bindings[:"$Object"] == :pending_unique_record
+    assert bindings["$Object"] == :pending_unique_record
   end
 
   example an_ambiguous_slot_value_leaves_its_object_symbolic() do
@@ -219,10 +219,10 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    object = bindings[:"$Object"]
+    object = bindings["$Object"]
 
     assert AL.Var.var?(object)
-    assert constraints[object].slots.pending_tag == :shared_value
+    assert constraints[AL.Var.key(object)].slots.pending_tag == :shared_value
   end
 
   example labeling_an_ambiguous_slot_object_enumerates_every_real_row() do
@@ -235,7 +235,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert MapSet.new(bindings[:"$Objects"]) ==
+    assert MapSet.new(bindings["$Objects"]) ==
              MapSet.new([:pending_shared_record_a, :pending_shared_record_b])
   end
 
@@ -249,7 +249,7 @@ defmodule Examples.ALPendingLinks do
         """
       end
 
-    assert Enum.count(bindings[:"$Values"], &(&1 == :shared_value)) == 1
+    assert Enum.count(bindings["$Values"], &(&1 == :shared_value)) == 1
   end
 
   example labeling_an_impossible_slot_relation_fails() do

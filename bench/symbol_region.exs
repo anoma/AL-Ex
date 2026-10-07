@@ -18,15 +18,15 @@ defmodule Bench.SymbolRegion do
         do: "findall [Value, Rest] Answers {symbol \#{class => al_grammar} Input Rest Value}.",
         else: "symbol \#{class => al_grammar} Input Rest Value."
 
-    Bench.Language.program(source, %{:"$Input" => input})
+    Bench.Language.program(source, %{{:"$var", "Input"} => input})
   end
 
   def execute(program, demand) do
     bindings = Bench.Language.bindings(AL.eval(program))
 
     if demand == :all,
-      do: bindings[:"$Answers"],
-      else: [[bindings[:"$Value"], bindings[:"$Rest"]]]
+      do: bindings["$Answers"],
+      else: [[bindings["$Value"], bindings["$Rest"]]]
   end
 end
 
@@ -78,9 +78,9 @@ Bench.Language.isolated(fn ->
         ~c"_x",
         [],
         [0xD800],
-        [112 | :"$Tail"],
-        [:"$Code"],
-        :"$Input",
+        [112 | {:"$var", "Tail"}],
+        [{:"$var", "Code"}],
+        {:"$var", "Input"},
         [112, -1],
         [112, 0x110000]
       ] do

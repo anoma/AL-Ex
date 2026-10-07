@@ -40,8 +40,8 @@ defmodule Examples.ALTransactionPrograms do
 
       assert {:atomic, {bindings, _constraints, _}} = result
 
-      assert bindings[:"$Answer"] == 42
-      assert bindings[:"$Source"] =~ "set_slot program_created_object answer 42."
+      assert bindings["$Answer"] == 42
+      assert bindings["$Source"] =~ "set_slot program_created_object answer 42."
       assert AL.TransactionProgram.installed?(:transaction_program_fixture)
 
       assert :ok =
@@ -112,7 +112,7 @@ defmodule Examples.ALTransactionPrograms do
 
       assert {:atomic, {bindings, _constraints, _}} = result
 
-      assert bindings[:"$Text"] == retained
+      assert bindings["$Text"] == retained
 
       printed =
         ExUnit.CaptureIO.capture_io(fn ->

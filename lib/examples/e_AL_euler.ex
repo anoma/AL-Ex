@@ -18,7 +18,7 @@ defmodule Examples.ALEuler do
         """
       end
 
-    assert Map.get(bindings, :"$Sum") == 233_168
+    assert Map.get(bindings, "$Sum") == 233_168
     :ok
   end
 end

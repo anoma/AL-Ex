@@ -9,7 +9,7 @@ defmodule AL.JAM.IR.MethodIdentity do
           head
           |> Enum.with_index()
           |> Enum.flat_map(fn {variable, position} ->
-            if Var.var?(variable) and variable != :"$_" and
+            if Var.var?(variable) and variable != {:"$var", "_"} and
                  Program.any?(body, fn operation ->
                    operation.kind == :invoke and operation.name == variable and
                      argument(operation.args, position) == {:ok, variable}
@@ -61,8 +61,9 @@ defmodule AL.JAM.IR.MethodIdentity do
     with true <- proper?(head),
          {:ok, variable} <- argument(head, position),
          true <- Var.var?(variable),
-         true <- variable == :"$_" or occurrences(head, variable) == 1 do
-      body = if variable == :"$_", do: body, else: Program.subst(body, %{variable => method})
+         true <- variable == {:"$var", "_"} or occurrences(head, variable) == 1 do
+      body =
+        if variable == {:"$var", "_"}, do: body, else: Program.subst(body, %{variable => method})
 
       body = %{
         body
@@ -72,7 +73,7 @@ defmodule AL.JAM.IR.MethodIdentity do
                 case block.exit do
                   {:call, %{kind: :invoke, name: ^method} = operation, next} ->
                     if argument(operation.args, position) == {:ok, method},
-                      do: {:call, %{operation | source: {:method_identity, position}}, next},
+                      do: {:call, %{operation | method_identity: position}, next},
                       else: block.exit
 
                   _ ->
@@ -83,14 +84,14 @@ defmodule AL.JAM.IR.MethodIdentity do
             end)
       }
 
-      {:oapply, id, seq, List.replace_at(head, position, :"$_"), body}
+      {:oapply, id, seq, List.replace_at(head, position, {:"$var", "_"}), body}
     else
       _ -> :unsupported
     end
   end
 
   defp occurrences(term, variable) do
-    AL.Goal.reduce(term, 0, fn value, count ->
+    AL.Term.reduce(term, 0, fn value, count ->
       if value === variable, do: count + 1, else: count
     end)
   end

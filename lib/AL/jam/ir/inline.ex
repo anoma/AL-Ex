@@ -41,12 +41,12 @@ defmodule AL.JAM.IR.Inline do
            Enum.all?(operations, &(&1.kind in [:direct, :type, :term, :compare, :primitive])),
          parameters <- Var.find_vars(head),
          locals <- MapSet.difference(Var.find_vars(body), parameters),
-         true <- MapSet.disjoint?(MapSet.delete(locals, :"$_"), exposed) do
+         true <- MapSet.disjoint?(MapSet.delete(locals, {:"$var", "_"}), exposed) do
       scope = Integer.to_string(AL.fresh_scope())
 
       Enum.map(operations, fn operation ->
         IR.map_values(operation, fn value ->
-          if value != :"$_" and MapSet.member?(locals, value),
+          if value != {:"$var", "_"} and MapSet.member?(locals, value),
             do: Var.fresh(value, scope),
             else: value
         end)

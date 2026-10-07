@@ -23,13 +23,13 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    [h1 | t1] = Map.get(b1, :"$X")
+    [h1 | t1] = Map.get(b1, "$X")
     assert h1 == 1
     assert AL.Var.var?(t1)
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)
 
-    [h2, h3 | t2] = Map.get(b2, :"$X")
+    [h2, h3 | t2] = Map.get(b2, "$X")
     assert AL.Var.var?(h2)
     assert h3 == 1
     assert AL.Var.var?(t2)
@@ -47,7 +47,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == []
+    assert Map.get(bindings, "$X") == []
     :ok
   end
 
@@ -61,7 +61,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == [0]
+    assert Map.get(bindings, "$X") == [0]
     :ok
   end
 
@@ -75,13 +75,13 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(b1, :"$X") == []
-    assert Map.get(b1, :"$Y") == []
+    assert Map.get(b1, "$X") == []
+    assert Map.get(b1, "$Y") == []
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)
 
-    x2 = Map.get(b2, :"$X")
-    y2 = Map.get(b2, :"$Y")
+    x2 = Map.get(b2, "$X")
+    y2 = Map.get(b2, "$Y")
     assert length(x2) == 1
     assert x2 == y2
 
@@ -99,10 +99,10 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    [a, b] = Map.get(bindings, :"$Z")
+    [a, b] = Map.get(bindings, "$Z")
     assert a == b
     assert AL.Var.var?(a)
-    refute Atom.to_string(a) =~ "second"
+    refute AL.Var.name(a) =~ "second"
   end
 
   # value leg isn't :number-specific -- any class opts in via super: :value.
@@ -133,7 +133,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == %{class: :letter_chain, letter: :a}
+    assert Map.get(bindings, "$X") == %{class: :letter_chain, letter: :a}
   end
 
   example unbound_send_stays_open_with_a_dispatch_constraint() do
@@ -155,13 +155,13 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert AL.Var.var?(Map.fetch!(bindings, :"$Receiver"))
-    assert Map.fetch!(bindings, :"$Result") == :reached
+    assert AL.Var.var?(Map.fetch!(bindings, "$Receiver"))
+    assert Map.fetch!(bindings, "$Result") == :reached
 
     assert %{
              isa: isa,
              dispatch: [%{selector: :lazy_dispatch_probe, provider: :lazy_dispatch_value}]
-           } = Map.fetch!(constraints, :"$Receiver")
+           } = Map.fetch!(constraints, "$Receiver")
 
     assert :lazy_dispatch_value in isa
   end
@@ -185,8 +185,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.fetch!(bindings, :"$Receiver") == :lazy_dispatch_child_instance
-    assert Map.fetch!(bindings, :"$Result") == :parent
+    assert Map.fetch!(bindings, "$Receiver") == :lazy_dispatch_child_instance
+    assert Map.fetch!(bindings, "$Result") == :parent
   end
 
   example overridden_open_send_uses_the_later_receivers_selected_method() do
@@ -211,8 +211,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.fetch!(bindings, :"$Receiver") == :lazy_override_child_instance
-    assert Map.fetch!(bindings, :"$Result") == :child
+    assert Map.fetch!(bindings, "$Receiver") == :lazy_override_child_instance
+    assert Map.fetch!(bindings, "$Result") == :child
   end
 
   example open_dispatch_partitions_by_the_effective_provider() do
@@ -241,7 +241,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert MapSet.new(Map.fetch!(bindings, :"$Answers")) ==
+    assert MapSet.new(Map.fetch!(bindings, "$Answers")) ==
              MapSet.new([
                [:dispatch_partition_parent_instance, :parent],
                [:dispatch_partition_override_instance, :override],
@@ -272,7 +272,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.fetch!(bindings, :"$Object") == %{class: :label_common_child}
+    assert Map.fetch!(bindings, "$Object") == %{class: :label_common_child}
   end
 
   # A bare atom in a value class's own literal clause is structurally
@@ -327,7 +327,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == :letter_word_real_instance
+    assert Map.get(bindings, "$X") == :letter_word_real_instance
   end
 
   # value candidate's isa constraint attaches before its clause runs, live for
@@ -365,7 +365,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == %{class: :letter_chain_reflective, letter: :a}
+    assert Map.get(bindings, "$X") == %{class: :letter_chain_reflective, letter: :a}
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -374,8 +374,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$C") == :letter_chain_reflective
-    assert AL.Var.var?(Map.get(bindings, :"$Y"))
+    assert Map.get(bindings, "$C") == :letter_chain_reflective
+    assert AL.Var.var?(Map.get(bindings, "$Y"))
   end
 
   # Two unrelated `super: :value` classes are mutually exclusive on the same
@@ -462,7 +462,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert length(Map.get(bindings, :"$Xs")) == 1
+    assert length(Map.get(bindings, "$Xs")) == 1
   end
 
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do
@@ -475,8 +475,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert %{class: :card} = Map.get(bindings, :"$X")
-    assert AL.Var.var?(Map.get(bindings, :"$Suit"))
+    assert %{class: :card} = Map.get(bindings, "$X")
+    assert AL.Var.var?(Map.get(bindings, "$Suit"))
     :ok
   end
 
@@ -489,10 +489,10 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == []
+    assert Map.get(bindings, "$X") == []
 
     {:atomic, {next_bindings, _constraints, _}} = next_solution(state)
-    [_head | tail] = Map.get(next_bindings, :"$X")
+    [_head | tail] = Map.get(next_bindings, "$X")
     assert AL.Var.var?(tail)
     :ok
   end
@@ -537,7 +537,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert %{class: :inherited_value_child} = Map.get(bindings, :"$X")
+    assert %{class: :inherited_value_child} = Map.get(bindings, "$X")
     :ok
   end
 
@@ -552,9 +552,9 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 2
+    assert Map.get(bindings, "$X") == 2
     {:atomic, {next_bindings, _constraints, _}} = next_solution(state)
-    assert Map.get(next_bindings, :"$X") == 3
+    assert Map.get(next_bindings, "$X") == 3
     :ok
   end
 
@@ -569,7 +569,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    obj = Map.get(bindings, :"$Obj")
+    obj = Map.get(bindings, "$Obj")
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -579,7 +579,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == obj
+    assert Map.get(bindings, "$X") == obj
     :ok
   end
 
@@ -600,7 +600,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    obj = Map.get(bindings, :"$Obj")
+    obj = Map.get(bindings, "$Obj")
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -611,8 +611,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$X") == obj
-    assert Map.get(bindings, :"$R") == :hit
+    assert Map.get(bindings, "$X") == obj
+    assert Map.get(bindings, "$R") == :hit
     :ok
   end
 
@@ -661,7 +661,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$Obj"))
+    assert AL.Var.var?(Map.get(bindings, "$Obj"))
   end
 
   # one clause, two directions: forward is ordinary dispatch (real square
@@ -703,7 +703,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$A") == 16
+    assert Map.get(bindings, "$A") == 16
 
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -712,7 +712,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    invented = Map.get(bindings, :"$X")
+    invented = Map.get(bindings, "$X")
     assert invented.side == 4
   end
 
@@ -753,7 +753,7 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    combos = Map.get(bindings, :"$All")
+    combos = Map.get(bindings, "$All")
 
     assert Enum.all?(combos, fn combo -> Enum.sum(combo) == 30 end)
     assert [25, 5] in combos
@@ -782,8 +782,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$O"))
-    assert constraints == %{"$O": %{isa: [:class]}}
+    assert AL.Var.var?(Map.get(bindings, "$O"))
+    assert constraints == %{"$O" => %{isa: [:class]}}
     :ok
   end
 
@@ -813,8 +813,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.fetch!(bindings, :"$Vehicle") == :labeled_car
-    assert Map.fetch!(bindings, :"$Color") == :red
+    assert Map.fetch!(bindings, "$Vehicle") == :labeled_car
+    assert Map.fetch!(bindings, "$Color") == :red
     :ok
   end
 
@@ -839,8 +839,8 @@ defmodule Examples.ALGenerative do
         """
       end
 
-    assert Map.get(bindings, :"$Exact") == [:vehicle]
-    assert Enum.sort(Map.get(bindings, :"$Inherited")) == [:car, :vehicle]
+    assert Map.get(bindings, "$Exact") == [:vehicle]
+    assert Enum.sort(Map.get(bindings, "$Inherited")) == [:car, :vehicle]
   end
 
   example value_membership_uses_its_explicit_branch() do

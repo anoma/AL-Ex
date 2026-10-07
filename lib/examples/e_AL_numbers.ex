@@ -19,8 +19,8 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$IntegerClass") == :number
-    assert Map.get(bindings, :"$FloatClass") == :number
+    assert Map.get(bindings, "$IntegerClass") == :number
+    assert Map.get(bindings, "$FloatClass") == :number
     :ok
   end
 
@@ -36,7 +36,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == 42
+    assert Map.get(bindings, "$Out") == 42
     :ok
   end
 
@@ -59,10 +59,10 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$X") == -3
-    assert Map.get(bindings, :"$Y") == 2
-    assert Map.get(bindings, :"$Z") == 4
-    assert Map.get(bindings, :"$Sign") == :negative
+    assert Map.get(bindings, "$X") == -3
+    assert Map.get(bindings, "$Y") == 2
+    assert Map.get(bindings, "$Z") == 4
+    assert Map.get(bindings, "$Sign") == :negative
     :ok
   end
 
@@ -74,7 +74,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    info = Map.get(bindings, :"$Info")
+    info = Map.get(bindings, "$Info")
     assert info.id == 3
     assert info.classes == [:number]
     :ok
@@ -88,7 +88,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == 120
+    assert Map.get(bindings, "$Out") == 120
     :ok
   end
 
@@ -100,7 +100,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 1
+    assert Map.get(bindings, "$X") == 1
     :ok
   end
 
@@ -112,7 +112,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$N") == 5
+    assert Map.get(bindings, "$N") == 5
     :ok
   end
 
@@ -142,7 +142,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$N") == 10
+    assert Map.get(bindings, "$N") == 10
     :ok
   end
 
@@ -154,7 +154,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == 21
+    assert Map.get(bindings, "$Out") == 21
     :ok
   end
 
@@ -166,7 +166,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings, :"$N") == 8
+    assert Map.get(bindings, "$N") == 8
     :ok
   end
 
@@ -221,7 +221,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert AL.Var.subst(Map.get(bindings, :"$Values"), bindings) == [[2], [3], [4], [5]]
+    assert AL.Var.subst(Map.get(bindings, "$Values"), bindings) == [[2], [3], [4], [5]]
     :ok
   end
 
@@ -233,7 +233,7 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$X"))
+    assert AL.Var.var?(Map.get(bindings, "$X"))
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -251,6 +251,6 @@ defmodule Examples.ALNumbers do
         """
       end
 
-    assert Map.get(bindings2, :"$X") == 7
+    assert Map.get(bindings2, "$X") == 7
   end
 end

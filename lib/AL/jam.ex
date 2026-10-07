@@ -1596,7 +1596,7 @@ defmodule AL.JAM do
             else: [object | resolve_args(Operand.read(args, slots), store)]
 
         target =
-          if AL.Var.var?(object) and object != :"$_",
+          if AL.Var.var?(object) and object != {:"$var", "_"},
             do: {:open, AL.Dispatch.open_targets(object, method, store, branch)},
             else:
               target(targets, key, object, method, args, not traced? and pending == %{}, branch)
@@ -2039,7 +2039,8 @@ defmodule AL.JAM do
       Enum.find_value(destinations, fn destination ->
         variable = elem(caller_slots, destination)
 
-        if AL.Var.var?(variable) and variable != :"$_" and not Map.has_key?(store, variable) do
+        if AL.Var.var?(variable) and variable != {:"$var", "_"} and
+             not Map.has_key?(store, variable) do
           Enum.find_value(outputs, fn {source, specialized} ->
             if elem(callee_slots, source) == variable, do: {source, destination, specialized}
           end)
@@ -2148,13 +2149,16 @@ defmodule AL.JAM do
   defp return_value({:arguments, positions}, call, outputs, store) do
     Enum.find_value(positions, :error, fn position ->
       case argument_at(call, position) do
-        {:ok, :"$_"} ->
+        {:ok, {:"$var", "_"}} ->
           nil
 
         {:ok, value} ->
           if AL.Var.var?(value) do
             resolved = AL.Var.deref(store, value)
-            if resolved == :"$_" or Map.has_key?(outputs, value), do: nil, else: {:ok, resolved}
+
+            if resolved == {:"$var", "_"} or Map.has_key?(outputs, value),
+              do: nil,
+              else: {:ok, resolved}
           else
             {:ok, value}
           end
@@ -2230,7 +2234,12 @@ defmodule AL.JAM do
 
   defp materialize_local(slots, index) do
     if elem(slots, index) == nil,
-      do: put_elem(slots, index, AL.Var.fresh(:"$Local", Integer.to_string(AL.fresh_scope()))),
+      do:
+        put_elem(
+          slots,
+          index,
+          AL.Var.fresh({:"$var", "Local"}, Integer.to_string(AL.fresh_scope()))
+        ),
       else: slots
   end
 
@@ -2246,7 +2255,7 @@ defmodule AL.JAM do
     value = AL.JAM.IR.Access.resolve(:direct, :eq, source, slots, store)
 
     cond do
-      value == :"$_" ->
+      value == {:"$var", "_"} ->
         {:registers, store, materialize_local(slots, index)}
 
       AL.Var.Bounds.arithmetic?(value) ->
@@ -2307,7 +2316,8 @@ defmodule AL.JAM do
   defp execute({:local, index, {:primitive, name, operands} = operation}, slots, store, branch) do
     destination = elem(slots, index)
 
-    if AL.Var.var?(destination) and destination != :"$_" and not Map.has_key?(store, destination) do
+    if AL.Var.var?(destination) and destination != {:"$var", "_"} and
+         not Map.has_key?(store, destination) do
       position = Enum.find_index(operands, &(&1 == {:register, index}))
       arguments = AL.JAM.Primitive.arguments(name, operands, slots, store)
 
@@ -2509,7 +2519,7 @@ defmodule AL.JAM do
     case Map.fetch(map, key) do
       {:ok, value} ->
         case AL.Var.subst(value, store) do
-          :"$_" -> {:registers, store, slots}
+          {:"$var", "_"} -> {:registers, store, slots}
           resolved -> {:registers, store, put_elem(slots, index, resolved)}
         end
 
@@ -2669,7 +2679,7 @@ defmodule AL.JAM do
       |> Enum.map(fn {value, index} ->
         if AL.Var.var?(value) and index not in heads,
           do: value,
-          else: AL.Var.fresh(:"$forall", scope <> ":" <> Integer.to_string(index))
+          else: AL.Var.fresh({:"$var", "forall"}, scope <> ":" <> Integer.to_string(index))
       end)
       |> List.to_tuple()
 

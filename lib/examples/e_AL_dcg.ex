@@ -7,20 +7,20 @@ defmodule Examples.ALDCG do
     {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, term]}]}} =
       AL.Syntax.parse("= _ " <> source <> ".")
 
-    AL.Goal.map(term, fn leaf ->
+    AL.Term.map(term, fn leaf ->
       if AL.Var.var?(leaf), do: quoted(leaf), else: leaf
     end)
   end
 
   defp statement(source) do
     {:ok, %{program: [statement]}} = AL.Syntax.parse(source)
-    AL.Goal.map(statement, fn leaf -> if AL.Var.var?(leaf), do: quoted(leaf), else: leaf end)
+    AL.Term.map(statement, fn leaf -> if AL.Var.var?(leaf), do: quoted(leaf), else: leaf end)
   end
 
   defp clause(source) do
     {:ok, %{program: [_clear, method]}} = AL.Syntax.parse(source)
 
-    AL.Goal.map(method, fn leaf ->
+    AL.Term.map(method, fn leaf ->
       if AL.Var.var?(leaf), do: quoted(leaf), else: leaf
     end)
   end
@@ -28,9 +28,9 @@ defmodule Examples.ALDCG do
   defp quoted(variable), do: %AL.Goal.Compound{name: :var, args: [variable_name(variable)]}
 
   defp variable_name(variable) do
-    case Atom.to_string(variable) do
-      "$_@" <> _ -> :_
-      "$" <> name -> String.to_atom(name)
+    case AL.Var.name(variable) do
+      "_@" <> _ -> "_"
+      name -> name
     end
   end
 
@@ -57,11 +57,11 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Parsed"] == :red
-    assert bindings[:"$Word"] == :abc
-    assert bindings[:"$Receiver"] == %{class: :colors}
-    assert bindings[:"$Generated"] == "blue"
-    assert bindings[:"$Pairs"] == [["red", :red], ["blue", :blue]]
+    assert bindings["$Parsed"] == :red
+    assert bindings["$Word"] == :abc
+    assert bindings["$Receiver"] == %{class: :colors}
+    assert bindings["$Generated"] == "blue"
+    assert bindings["$Pairs"] == [["red", :red], ["blue", :blue]]
   end
 
   example a_recursive_nonterminal_parses_zero_or_more_as() do
@@ -80,9 +80,9 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Empty"] == []
-    assert bindings[:"$Parsed"] == [:a, :a, :a]
-    assert bindings[:"$Generated"] == "aaa"
+    assert bindings["$Empty"] == []
+    assert bindings["$Parsed"] == [:a, :a, :a]
+    assert bindings["$Generated"] == "aaa"
   end
 
   example grammar_rules_compose_using_the_remaining_codes() do
@@ -104,9 +104,9 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Parsed"] == [:a, :b]
-    assert bindings[:"$Generated"] == "b-a"
-    assert bindings[:"$Remainder"] == [33]
+    assert bindings["$Parsed"] == [:a, :b]
+    assert bindings["$Generated"] == "b-a"
+    assert bindings["$Remainder"] == [33]
   end
 
   example phrase_runs_a_grammar_over_any_list() do
@@ -127,11 +127,11 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Sum"] == [1, 2]
-    assert bindings[:"$Tokens"] == [3, :plus, 4]
-    assert bindings[:"$Prefix"] == [5, 6]
-    assert bindings[:"$Rest"] == [:times, 7]
-    assert bindings[:"$Terminal"] == [:a, :b]
+    assert bindings["$Sum"] == [1, 2]
+    assert bindings["$Tokens"] == [3, :plus, 4]
+    assert bindings["$Prefix"] == [5, 6]
+    assert bindings["$Rest"] == [:times, 7]
+    assert bindings["$Terminal"] == [:a, :b]
   end
 
   example a_grammar_rewrites_one_ast_into_another() do
@@ -167,16 +167,16 @@ defmodule Examples.ALDCG do
     num = fn n -> %{num: n} end
     apply = fn op, args -> %{op: op, args: args} end
 
-    assert bindings[:"$Ast"] == term(source)
+    assert bindings["$Ast"] == term(source)
 
-    assert bindings[:"$Tree"] ==
+    assert bindings["$Tree"] ==
              apply.(:add, [
                num.(1),
                apply.(:sub, [num.(0), apply.(:mul, [num.(2), %{ref: :x}])])
              ])
 
-    assert bindings[:"$Backs"] == [term(source), term("(add 1 (sub 0 (mul 2 x)))")]
-    assert bindings[:"$Texts"] == [source, "(add 1 (sub 0 (mul 2 x)))"]
+    assert bindings["$Backs"] == [term(source), term("(add 1 (sub 0 (mul 2 x)))")]
+    assert bindings["$Texts"] == [source, "(add 1 (sub 0 (mul 2 x)))"]
   end
 
   example a_rule_captures_values_without_capturing_syntax() do
@@ -197,8 +197,8 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Parsed"] == [:a, :b]
-    assert bindings[:"$Generated"] == "(b,a)"
+    assert bindings["$Parsed"] == [:a, :b]
+    assert bindings["$Generated"] == "(b,a)"
   end
 
   example a_grammar_rule_overrides_its_parents_and_next_reaches_them() do
@@ -241,11 +241,11 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Base"] == [:b, :c, :d]
-    assert bindings[:"$Extended"] == [:a, :b, :c, :d]
-    assert bindings[:"$Overridden"] == [:a]
-    assert bindings[:"$Prefixed"] == [["ab", :b], ["ac", :c], ["ad", :d]]
-    assert bindings[:"$Renamed"] == [:x, :c]
+    assert bindings["$Base"] == [:b, :c, :d]
+    assert bindings["$Extended"] == [:a, :b, :c, :d]
+    assert bindings["$Overridden"] == [:a]
+    assert bindings["$Prefixed"] == [["ab", :b], ["ac", :c], ["ad", :d]]
+    assert bindings["$Renamed"] == [:x, :c]
   end
 
   example the_lisp_core_reads_parentheses_as_compounds() do
@@ -268,13 +268,13 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Ast"] == term(source)
-    assert bindings[:"$Generated"] == source
-    assert bindings[:"$Called"] == term("(f)")
-    assert bindings[:"$ListCall"] == term("(list a)")
-    assert bindings[:"$Spaced"] == term(source)
-    assert bindings[:"$Symbols"] == %AL.Goal.Compound{name: :+, args: [:"1", :"foo-bar", :Baz]}
-    assert bindings[:"$GeneratedSymbols"] == "(- 2 Qux)"
+    assert bindings["$Ast"] == term(source)
+    assert bindings["$Generated"] == source
+    assert bindings["$Called"] == term("(f)")
+    assert bindings["$ListCall"] == term("(list a)")
+    assert bindings["$Spaced"] == term(source)
+    assert bindings["$Symbols"] == %AL.Goal.Compound{name: :+, args: [:"1", :"foo-bar", :Baz]}
+    assert bindings["$GeneratedSymbols"] == "(- 2 Qux)"
   end
 
   example the_tag_reader_adds_lisp_lists_and_maps() do
@@ -294,15 +294,15 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Nil"] == []
-    assert bindings[:"$List"] == [:a, term("(b c)")]
-    assert bindings[:"$Cons"] == [:a, :b | :c]
-    assert bindings[:"$Map"] == %{k: :v, j: :w}
-    assert bindings[:"$Call"] == term("(f [a])")
-    assert bindings[:"$GeneratedNil"] == "()"
-    assert bindings[:"$GeneratedList"] == "(list add (list mul x y))"
-    assert bindings[:"$GeneratedCons"] == "(list* a b)"
-    assert bindings[:"$GeneratedMap"] == "(map (k v))"
+    assert bindings["$Nil"] == []
+    assert bindings["$List"] == [:a, term("(b c)")]
+    assert bindings["$Cons"] == [:a, :b | :c]
+    assert bindings["$Map"] == %{k: :v, j: :w}
+    assert bindings["$Call"] == term("(f [a])")
+    assert bindings["$GeneratedNil"] == "()"
+    assert bindings["$GeneratedList"] == "(list add (list mul x y))"
+    assert bindings["$GeneratedCons"] == "(list* a b)"
+    assert bindings["$GeneratedMap"] == "(map (k v))"
   end
 
   example the_list_reader_adds_bracketed_lists() do
@@ -319,12 +319,12 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Empty"] == []
-    assert bindings[:"$List"] == term("[a, (b c), d]")
-    assert bindings[:"$Cons"] == [:a, :b | :c]
-    assert bindings[:"$Tight"] == [term("(f [a, b . c])")]
-    assert bindings[:"$ListCall"] == term("(list a)")
-    assert bindings[:"$Generated"] == "[a, [b . c]]"
+    assert bindings["$Empty"] == []
+    assert bindings["$List"] == term("[a, (b c), d]")
+    assert bindings["$Cons"] == [:a, :b | :c]
+    assert bindings["$Tight"] == [term("(f [a, b . c])")]
+    assert bindings["$ListCall"] == term("(list a)")
+    assert bindings["$Generated"] == "[a, [b . c]]"
   end
 
   example each_reader_mixin_adds_one_form() do
@@ -347,16 +347,16 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Brace"] == :"{f}"
-    assert bindings[:"$Block"] == term("{f a, g}")
-    assert bindings[:"$Bracket"] == :"[a]"
-    assert bindings[:"$Map"] == %{k: :v}
-    assert bindings[:"$Numbers"] == term("(f 1 -2 v)")
+    assert bindings["$Brace"] == :"{f}"
+    assert bindings["$Block"] == term("{f a, g}")
+    assert bindings["$Bracket"] == :"[a]"
+    assert bindings["$Map"] == %{k: :v}
+    assert bindings["$Numbers"] == term("(f 1 -2 v)")
 
-    assert bindings[:"$Variables"] == term("(f a V _ V)")
-    assert bindings[:"$GeneratedBlock"] == "{f a, g}"
-    assert bindings[:"$GeneratedMap"] == map_source
-    assert bindings[:"$GeneratedNumbers"] == "(f 1 -2 v)"
+    assert bindings["$Variables"] == term("(f a V _ V)")
+    assert bindings["$GeneratedBlock"] == "{f a, g}"
+    assert bindings["$GeneratedMap"] == map_source
+    assert bindings["$GeneratedNumbers"] == "(f 1 -2 v)"
   end
 
   example the_string_reader_adds_string_literals_to_lisp() do
@@ -383,14 +383,14 @@ defmodule Examples.ALDCG do
     {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, decoded]}]}} =
       AL.Syntax.parse("= _ " <> escaped <> ".")
 
-    assert bindings[:"$Plain"] == "abc"
-    assert bindings[:"$Escaped"] == decoded
-    assert bindings[:"$Escaped"] == "a\"b\\c\nd\#{e}"
-    assert bindings[:"$Hash"] == "a#b"
-    assert bindings[:"$Called"] == term(~S[(f "x y")])
-    assert bindings[:"$Listed"] == [:a, "b c"]
-    assert bindings[:"$Generated"] == inspect(decoded)
-    assert bindings[:"$GeneratedList"] == listed
+    assert bindings["$Plain"] == "abc"
+    assert bindings["$Escaped"] == decoded
+    assert bindings["$Escaped"] == "a\"b\\c\nd\#{e}"
+    assert bindings["$Hash"] == "a#b"
+    assert bindings["$Called"] == term(~S[(f "x y")])
+    assert bindings["$Listed"] == [:a, "b c"]
+    assert bindings["$Generated"] == inspect(decoded)
+    assert bindings["$GeneratedList"] == listed
   end
 
   example the_declaration_reader_reads_declarations_as_the_al_reader_does() do
@@ -426,8 +426,8 @@ defmodule Examples.ALDCG do
           """
         end
 
-      assert bindings[:"$Statements"] == [expected]
-      if source in canonical, do: assert(bindings[:"$Generated"] == source)
+      assert bindings["$Statements"] == [expected]
+      if source in canonical, do: assert(bindings["$Generated"] == source)
     end
 
     {:atomic, _} =
@@ -483,8 +483,8 @@ defmodule Examples.ALDCG do
           """
         end
 
-      assert bindings[:"$Clauses"] == [expected]
-      assert bindings[:"$Generated"] == text
+      assert bindings["$Clauses"] == [expected]
+      assert bindings["$Generated"] == text
     end
   end
 
@@ -506,14 +506,14 @@ defmodule Examples.ALDCG do
         """
       end
 
-    assert bindings[:"$Tree"] == term("[a, {g x}]")
-    assert bindings[:"$Term"] == "[a, {g x}]"
-    assert bindings[:"$Lisp"] == "(list a (list (g x)))"
-    assert bindings[:"$Anonymous"] == "[a, b]"
-    assert bindings[:"$MapTerm"] == ~S"#{k => [v]}"
-    assert bindings[:"$Shared"] == term("(f 1 foo [a, -2])")
-    assert bindings[:"$Termed"] == "(f 1 foo [a, -2])"
-    assert bindings[:"$Lisped"] == "(f 1 foo (list a -2))"
+    assert bindings["$Tree"] == term("[a, {g x}]")
+    assert bindings["$Term"] == "[a, {g x}]"
+    assert bindings["$Lisp"] == "(list a (list (g x)))"
+    assert bindings["$Anonymous"] == "[a, b]"
+    assert bindings["$MapTerm"] == ~S"#{k => [v]}"
+    assert bindings["$Shared"] == term("(f 1 foo [a, -2])")
+    assert bindings["$Termed"] == "(f 1 foo [a, -2])"
+    assert bindings["$Lisped"] == "(f 1 foo (list a -2))"
   end
 
   example the_term_reader_reads_what_the_al_reader_reads() do
@@ -557,16 +557,16 @@ defmodule Examples.ALDCG do
       run branch: Examples.Support.branch() do
         ~AL"""
         parse term_syntax (expr Anonymous) "[_, _]".
-        parse term_syntax (expr [a, (var 'X'), (var '_')]) Quoted.
+        parse term_syntax (expr [a, (var "X"), (var "_")]) Quoted.
         parse term_syntax (expr -12) GeneratedNumber.
         parse term_syntax (expr [42, (f x), [a . b], #{k => [(g a)]}]) Generated.
         """
       end
 
-    assert bindings[:"$Anonymous"] == term("[_, _]")
-    assert bindings[:"$Quoted"] == "[a, X, _]"
-    assert bindings[:"$GeneratedNumber"] == "-12"
-    assert bindings[:"$Generated"] == ~S"[42, (f x), [a . b], #{k => {g a}}]"
+    assert bindings["$Anonymous"] == term("[_, _]")
+    assert bindings["$Quoted"] == "[a, X, _]"
+    assert bindings["$GeneratedNumber"] == "-12"
+    assert bindings["$Generated"] == ~S"[42, (f x), [a . b], #{k => {g a}}]"
   end
 
   example the_bootstrap_reader_reads_al_definitions() do
@@ -619,9 +619,9 @@ defmodule Examples.ALDCG do
       end
 
     assert [%AL.Goal.Compound{name: :defclass}, %AL.Goal.Compound{name: :defmethod}] =
-             bindings[:"$Parsed"]
+             bindings["$Parsed"]
 
     assert {:ok, _} = AL.Syntax.document(source)
-    assert {:ok, _} = AL.Syntax.document(bindings[:"$Generated"])
+    assert {:ok, _} = AL.Syntax.document(bindings["$Generated"])
   end
 end

@@ -16,20 +16,24 @@ defmodule Examples.ALBootstrap do
   # rather than one per table.
   example bootstrapped_facts_exist_in_every_relation_table() do
     {:atomic, class_results} =
-      :mnesia.transaction(fn -> AL.Object.scan_class(:"$object", :"$class") end)
+      :mnesia.transaction(fn -> AL.Object.scan_class({:"$var", "object"}, {:"$var", "class"}) end)
 
     assert Enum.any?(class_results, &match?({:class, :object, _seq, :class}, &1))
     assert Enum.any?(class_results, &match?({:class, :behaviour, _seq, :class}, &1))
 
     {:atomic, super_results} =
-      :mnesia.transaction(fn -> AL.Object.scan_super(:"$object", :"$super") end)
+      :mnesia.transaction(fn -> AL.Object.scan_super({:"$var", "object"}, {:"$var", "super"}) end)
 
     assert Enum.any?(super_results, &match?({:super, :class, _seq, :object}, &1))
     assert Enum.any?(super_results, &match?({:super, :behaviour, _seq, :object}, &1))
 
     {:atomic, method_results} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_method(:"$object", :"$method_name", :"$method_id")
+        AL.Object.scan_method(
+          {:"$var", "object"},
+          {:"$var", "method_name"},
+          {:"$var", "method_id"}
+        )
       end)
 
     assert {:method, :object, :defmethod, :defmethod} in method_results
@@ -37,7 +41,12 @@ defmodule Examples.ALBootstrap do
 
     {:atomic, oapply_results} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_oapply(:"$object", :"$seq", :"$head", :"$body")
+        AL.Object.scan_oapply(
+          {:"$var", "object"},
+          {:"$var", "seq"},
+          {:"$var", "head"},
+          {:"$var", "body"}
+        )
       end)
 
     assert Enum.any?(oapply_results, fn {:oapply, id, _seq, head, _body} ->
@@ -67,22 +76,58 @@ defmodule Examples.ALBootstrap do
       {:atomic, id} =
         :mnesia.transaction(fn ->
           [{:method, :projection_read_probe, :value, id}] =
-            AL.Object.scan_method(:projection_read_probe, :value, :"$Id", branch)
+            AL.Object.scan_method(:projection_read_probe, :value, {:"$var", "Id"}, branch)
 
-          methods = AL.Object.scan_method(:"$Owner", :"$Name", :"$Id", branch)
+          methods =
+            AL.Object.scan_method({:"$var", "Owner"}, {:"$var", "Name"}, {:"$var", "Id"}, branch)
+
           assert {:method, :projection_read_probe, :value, id} in methods
 
-          assert AL.Object.scan_method(:projection_read_probe, :"$Same", :"$Same", branch) ==
+          assert AL.Object.scan_method(
+                   :projection_read_probe,
+                   {:"$var", "Same"},
+                   {:"$var", "Same"},
+                   branch
+                 ) ==
                    [{:method, :projection_read_probe, :same, :same}]
 
-          assert AL.Object.scan_method(:projection_read_probe, :"$tx_from", :"$seq", branch) ==
+          assert AL.Object.scan_method(
+                   :projection_read_probe,
+                   {:"$var", "tx_from"},
+                   {:"$var", "seq"},
+                   branch
+                 ) ==
                    Enum.filter(methods, &(elem(&1, 1) == :projection_read_probe))
 
-          clauses = AL.Object.scan_oapply(id, :"$Seq", :"$Head", :"$Body", branch)
+          clauses =
+            AL.Object.scan_oapply(
+              id,
+              {:"$var", "Seq"},
+              {:"$var", "Head"},
+              {:"$var", "Body"},
+              branch
+            )
+
           assert length(clauses) == 2
-          assert clauses == AL.Object.scan_oapply(id, :"$_", :"$_", :"$_", branch)
-          assert AL.Object.scan_oapply(id, :"$Seq", :"$Same", :"$Same", branch) == []
-          assert AL.Object.scan_method(:projection_read_probe, :value, :"$Id") == []
+
+          assert clauses ==
+                   AL.Object.scan_oapply(
+                     id,
+                     {:"$var", "_"},
+                     {:"$var", "_"},
+                     {:"$var", "_"},
+                     branch
+                   )
+
+          assert AL.Object.scan_oapply(
+                   id,
+                   {:"$var", "Seq"},
+                   {:"$var", "Same"},
+                   {:"$var", "Same"},
+                   branch
+                 ) == []
+
+          assert AL.Object.scan_method(:projection_read_probe, :value, {:"$var", "Id"}) == []
           id
         end)
 
@@ -98,12 +143,26 @@ defmodule Examples.ALBootstrap do
       {:atomic, _} =
         :mnesia.transaction(fn ->
           [{:method, :projection_read_probe, :value, ^id}] =
-            AL.Object.scan_method(:projection_read_probe, :value, :"$Id", branch)
+            AL.Object.scan_method(:projection_read_probe, :value, {:"$var", "Id"}, branch)
 
           [{:oapply, ^id, _, [_self, :green], []}] =
-            AL.Object.scan_oapply(id, :"$Seq", :"$Head", :"$Body", branch)
+            AL.Object.scan_oapply(
+              id,
+              {:"$var", "Seq"},
+              {:"$var", "Head"},
+              {:"$var", "Body"},
+              branch
+            )
 
-          assert length(AL.Object.scan_oapply_history(id, :"$Seq", :"$Head", :"$Body", branch)) ==
+          assert length(
+                   AL.Object.scan_oapply_history(
+                     id,
+                     {:"$var", "Seq"},
+                     {:"$var", "Head"},
+                     {:"$var", "Body"},
+                     branch
+                   )
+                 ) ==
                    3
         end)
     after

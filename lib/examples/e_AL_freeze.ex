@@ -18,7 +18,7 @@ defmodule Examples.ALFreeze do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$Y") == 4
+    assert Map.fetch!(bindings, "$Y") == 4
     :ok
   end
 
@@ -31,7 +31,7 @@ defmodule Examples.ALFreeze do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$Y") == 4
+    assert Map.fetch!(bindings, "$Y") == 4
     :ok
   end
 
@@ -45,7 +45,7 @@ defmodule Examples.ALFreeze do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$Y") == 56
+    assert Map.fetch!(bindings, "$Y") == 56
     :ok
   end
 
@@ -63,7 +63,7 @@ defmodule Examples.ALFreeze do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$W") == 6
+    assert Map.fetch!(bindings, "$W") == 6
     :ok
   end
 
@@ -92,7 +92,7 @@ defmodule Examples.ALFreeze do
                     """
                   end
 
-                {AL.Var.deref(b, :"$A"), AL.Var.deref(b, :"$B")}
+                {Map.fetch!(b, "$A"), Map.fetch!(b, "$B")}
               end).()
 
     assert {21, 42} ==
@@ -106,7 +106,7 @@ defmodule Examples.ALFreeze do
                     """
                   end
 
-                {AL.Var.deref(b, :"$A"), AL.Var.deref(b, :"$B")}
+                {Map.fetch!(b, "$A"), Map.fetch!(b, "$B")}
               end).()
 
     :ok
@@ -123,7 +123,7 @@ defmodule Examples.ALFreeze do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$Fired") == :yes
+    assert Map.fetch!(bindings, "$Fired") == :yes
     :ok
   end
 end

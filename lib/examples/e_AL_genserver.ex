@@ -59,7 +59,9 @@ defmodule Examples.ALGenserver do
 
     {:atomic, results} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: Examples.Support.branch()})
+        AL.Object.scan_class(:my_counter, {:"$var", "class"}, %AL.Branch{
+          id: Examples.Support.branch()
+        })
       end)
 
     assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :process end)
@@ -77,7 +79,9 @@ defmodule Examples.ALGenserver do
 
     {:atomic, after_stop} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: Examples.Support.branch()})
+        AL.Object.scan_class(:my_counter, {:"$var", "class"}, %AL.Branch{
+          id: Examples.Support.branch()
+        })
       end)
 
     assert after_stop == []

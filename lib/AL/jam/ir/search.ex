@@ -42,20 +42,20 @@ defmodule AL.JAM.IR.Search do
 
   defp compile(id, selector, branch) do
     with [{:oapply, ^id, _, terminal, []}, {:oapply, ^id, _, recursive, [body]}] <-
-           AL.cached_scan_clauses(id, branch),
+           AL.JAM.Clauses.cached_scan_clauses(id, branch),
          [[element | ignored_tail] | arguments] <- terminal,
          [[ignored_head | tail] | invariants] <- recursive,
          true <- proper?(arguments) and proper?(invariants),
          true <- length(arguments) == length(invariants),
          true <- variables?([element, ignored_tail | arguments]),
          true <- variables?([ignored_head, tail | invariants]),
-         true <- element != :"$_" and tail != :"$_",
+         true <- element != {:"$var", "_"} and tail != {:"$var", "_"},
          [position] <- positions(arguments, element),
          true <- distinct?([ignored_tail | arguments]),
          true <- distinct?([ignored_head, tail | invariants]),
          %IR{kind: :send, name: ^selector, args: [^tail, next]} <- IR.lower(Goal.lower(body)),
          true <- next === invariants,
-         true <- Enum.all?(invariants, &(&1 != :"$_")),
+         true <- Enum.all?(invariants, &(&1 != {:"$var", "_"})),
          {:ok, _, ^id} <- AL.Dispatch.target([], selector, branch),
          {:ok, _, ^id} <- AL.Dispatch.target([nil], selector, branch) do
       position + 1
@@ -74,7 +74,7 @@ defmodule AL.JAM.IR.Search do
   end
 
   defp distinct?(variables) do
-    named = Enum.reject(variables, &(&1 == :"$_"))
+    named = Enum.reject(variables, &(&1 == {:"$var", "_"}))
     length(Enum.uniq(named)) == length(named)
   end
 
@@ -91,7 +91,7 @@ defmodule AL.JAM.IR.Search do
   defp argument(_, _, _), do: :error
 
   defp scalar?(value) when is_number(value) or is_binary(value), do: true
-  defp scalar?(value) when is_atom(value), do: not Var.var?(value)
+  defp scalar?(value) when is_atom(value), do: true
   defp scalar?(_), do: false
 
   defp skip([head | tail] = values, value, store, budget, used) when used < budget do

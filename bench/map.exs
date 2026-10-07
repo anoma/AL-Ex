@@ -4,13 +4,13 @@ defmodule Bench.Map do
   use AL
 
   def selector(branch, values) do
-    run branch: branch.id, trace_mode: :no_trace do
+    run branch: branch.id, trace: [] do
       map(^values, :tl, mapped)
     end
   end
 
   def anonymous_method(branch, values) do
-    run branch: branch.id, trace_mode: :no_trace do
+    run branch: branch.id, trace: [] do
       new(
         :anonymous_method,
         %{args: [], head: [value, result], body: [tl(value, result)]},
@@ -29,7 +29,7 @@ defmodule Bench.Map do
 
   def check!(result, values) do
     {bindings, _constraints, _state} = Bench.Support.assert_atomic!(result)
-    mapped = Map.fetch!(bindings, :"$mapped")
+    mapped = Map.fetch!(bindings, "$mapped")
     expected = Enum.map(values, &Kernel.tl/1)
 
     if mapped != expected do

@@ -44,7 +44,7 @@ defmodule Examples.ALEffects do
           """
         end
 
-      effect = bindings[:"$Effect"]
+      effect = bindings["$Effect"]
 
       assert {:ok, "alpha\nbeta\n"} =
                AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -66,7 +66,7 @@ defmodule Examples.ALEffects do
         end
 
       assert {:ok, ^path} =
-               AL.await_effect(bindings[:"$Write"],
+               AL.await_effect(bindings["$Write"],
                  branch: Examples.Support.branch(),
                  timeout: 1000
                )
@@ -79,7 +79,7 @@ defmodule Examples.ALEffects do
         end
 
       assert {:ok, entries} =
-               AL.await_effect(bindings[:"$List"],
+               AL.await_effect(bindings["$List"],
                  branch: Examples.Support.branch(),
                  timeout: 1000
                )
@@ -101,7 +101,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    effect = bindings[:"$Effect"]
+    effect = bindings["$Effect"]
 
     assert {:ok, false} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -151,7 +151,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    effect = bindings[:"$Effect"]
+    effect = bindings["$Effect"]
 
     assert {:ok, :from_method} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -186,7 +186,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    effect = bindings[:"$Effect"]
+    effect = bindings["$Effect"]
     assert_receive {:effect_pending, context, :later}, 1000
     assert context.effect_id == effect
     assert :pending = effect_status(effect)
@@ -206,7 +206,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    effect = bindings[:"$Effect"]
+    effect = bindings["$Effect"]
 
     assert {:ok, :initialized} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -236,7 +236,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    effect = bindings[:"$Effect"]
+    effect = bindings["$Effect"]
     assert_receive {:effect_pending, context, :object_effect}, 1000
 
     {:atomic, {pending, _constraints, _state}} =
@@ -256,9 +256,9 @@ defmodule Examples.ALEffects do
         """
       end
 
-    assert pending[:"$Status"] == :pending
-    assert pending[:"$Outcome"] == :none
-    assert pending[:"$CompletedBy"] == :none
+    assert pending["$Status"] == :pending
+    assert pending["$Outcome"] == :none
+    assert pending["$CompletedBy"] == :none
     assert :ok = AL.Edge.complete(context, {:ok, :changed})
 
     {:atomic, {completed, _constraints, _state}} =
@@ -269,8 +269,8 @@ defmodule Examples.ALEffects do
         """
       end
 
-    assert completed[:"$Status"] == :completed
-    assert completed[:"$Outcome"] == %{status: :ok, value: :changed}
+    assert completed["$Status"] == :completed
+    assert completed["$Outcome"] == %{status: :ok, value: :changed}
   end
 
   example provider_exception_is_recorded_as_the_effect_outcome() do
@@ -283,7 +283,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    effect = bindings[:"$Effect"]
+    effect = bindings["$Effect"]
 
     assert {:error, {:effect_exception, "provider failed"}} =
              AL.await_effect(effect, branch: Examples.Support.branch(), timeout: 1000)
@@ -300,8 +300,8 @@ defmodule Examples.ALEffects do
         """
       end
 
-    first = bindings[:"$First"]
-    second = bindings[:"$Second"]
+    first = bindings["$First"]
+    second = bindings["$Second"]
     assert first != second
 
     assert {:ok, :first} =
@@ -368,7 +368,7 @@ defmodule Examples.ALEffects do
             """
           end
 
-        effect = bindings[:"$Effect"]
+        effect = bindings["$Effect"]
         assert {:ok, child_id} = AL.await_effect(effect, branch: child.id, timeout: 1000)
         assert child_id == child.id
       after
@@ -392,7 +392,7 @@ defmodule Examples.ALEffects do
         """
       end
 
-    bindings[:"$Status"]
+    bindings["$Status"]
   end
 
   defp temporary_path do

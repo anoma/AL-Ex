@@ -6,7 +6,7 @@ defmodule AL.ClauseIndexTest do
       :mnesia.transaction(fn ->
         AL.ResolutionCache.with_transaction_cache(fn ->
           [{:method, ^class, ^selector, id}] =
-            AL.Object.scan_method(class, selector, :"$Id", AL.Branch.head())
+            AL.Object.scan_method(class, selector, {:"$var", "Id"}, AL.Branch.head())
 
           {clauses, index} = AL.JAM.Compiler.fetch_method(id, AL.Branch.head())
 
@@ -41,7 +41,7 @@ defmodule AL.ClauseIndexTest do
       """)
 
     pick = &sequences(:clause_index_probe, :pick, [:receiver, &1, :fallback])
-    all = pick.(:"$Color")
+    all = pick.({:"$var", "Color"})
 
     assert length(all) == 3
     assert pick.(:red) == [Enum.at(all, 0), Enum.at(all, 2)]
@@ -77,13 +77,13 @@ defmodule AL.ClauseIndexTest do
       | _Self [_Head . _Tail] green |.
       """)
 
-    choose = &sequences(:clause_shape_probe, :choose, [:receiver, &1, :"$Color"], &2)
-    open = choose.(:"$Input", %{})
+    choose = &sequences(:clause_shape_probe, :choose, [:receiver, &1, {:"$var", "Color"}], &2)
+    open = choose.({:"$var", "Input"}, %{})
 
     assert length(open) == 3
     assert choose.([], %{}) == [hd(open)]
     assert choose.([1], %{}) == tl(open)
-    assert choose.(:"$Input", %{:"$Input" => [1]}) == tl(open)
+    assert choose.({:"$var", "Input"}, %{{:"$var", "Input"} => [1]}) == tl(open)
   end
 
   test "literal decisions across positions preserve order and open modes" do
@@ -105,13 +105,19 @@ defmodule AL.ClauseIndexTest do
       """)
 
     choose = &sequences(:clause_tree_probe, :choose, [:receiver, &1, &2])
-    all = choose.(:"$Color", :"$Shape")
+    all = choose.({:"$var", "Color"}, {:"$var", "Shape"})
 
     assert length(all) == 4
     assert choose.(:red, :round) == [Enum.at(all, 0)]
     assert choose.(:blue, :square) == [Enum.at(all, 3)]
-    assert choose.(:"$Color", :round) == [Enum.at(all, 0), Enum.at(all, 2)]
-    assert choose.(:red, :"$Shape") == [Enum.at(all, 0), Enum.at(all, 1), Enum.at(all, 3)]
+    assert choose.({:"$var", "Color"}, :round) == [Enum.at(all, 0), Enum.at(all, 2)]
+
+    assert choose.(:red, {:"$var", "Shape"}) == [
+             Enum.at(all, 0),
+             Enum.at(all, 1),
+             Enum.at(all, 3)
+           ]
+
     assert choose.(1, :square) == [Enum.at(all, 3)]
   end
 
@@ -140,6 +146,6 @@ defmodule AL.ClauseIndexTest do
       findall Result Results {choose clause_tree_instance red square Result}.
       """)
 
-    assert bindings[:"$Results"] == [:exact, :fallback]
+    assert bindings["$Results"] == [:exact, :fallback]
   end
 end

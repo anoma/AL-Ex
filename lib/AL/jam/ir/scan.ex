@@ -11,8 +11,8 @@ defmodule AL.JAM.IR.Scan do
     :reject,
     :guard,
     :evidence,
-    :blocks,
-    :interface,
+    :mode,
+    :minimum,
     :suffix
   ]
 
@@ -33,7 +33,9 @@ defmodule AL.JAM.IR.Scan do
       state = %{
         receiver: receiver,
         branch: branch,
-        dependencies: %{{receiver, selector} => {root, AL.cached_scan_clauses(root, branch)}},
+        dependencies: %{
+          {receiver, selector} => {root, AL.JAM.Clauses.cached_scan_clauses(root, branch)}
+        },
         classes: %{},
         evidence: [],
         suffix: []
@@ -42,7 +44,7 @@ defmodule AL.JAM.IR.Scan do
       {definitions, state} = Enum.map_reduce(ids, state, &definition/2)
       {tests, scan_guard, state} = base(List.last(definitions), state)
       {reject, state} = wrappers(Enum.drop(definitions, -1), state)
-      rows = Enum.map(ids, &{&1, AL.cached_scan_clauses(&1, branch)})
+      rows = Enum.map(ids, &{&1, AL.JAM.Clauses.cached_scan_clauses(&1, branch)})
 
       guard = %{
         scan_guard
@@ -58,13 +60,8 @@ defmodule AL.JAM.IR.Scan do
         tests: tests,
         reject: reject,
         guard: guard,
-        interface: %{input: 1, rest: 2, output: 3, mode: :ground_characters_fresh_rest},
-        blocks: %{
-          classify: %{reject: reject, success: :scan, failure: :fallback},
-          scan: %{tests: tests, consume: :scan, stop: :answers},
-          answers: %{order: :longest_first, minimum: 1, next: :bind},
-          bind: %{conversion: [:string_codes, :atom_string], resume: :answers}
-        },
+        mode: :ground_characters_fresh_rest,
+        minimum: 1,
         suffix: state.suffix,
         evidence: Enum.reverse(state.evidence)
       }
@@ -117,11 +114,8 @@ defmodule AL.JAM.IR.Scan do
         guard: guard,
         reject: [],
         suffix: [],
-        interface: %{input: 1, rest: 2, mode: :integer_prefix_fresh_rest},
-        blocks: %{
-          scan: %{tests: tests, consume: :scan, stop: :answers},
-          answers: %{order: :longest_first, minimum: minimum}
-        },
+        mode: :integer_prefix_fresh_rest,
+        minimum: minimum,
         evidence: [{:consume, step, repeat, values}]
       }
     catch
@@ -185,7 +179,7 @@ defmodule AL.JAM.IR.Scan do
         state =
           put_in(
             state.dependencies[{state.receiver, selector}],
-            {id, AL.cached_scan_clauses(id, state.branch)}
+            {id, AL.JAM.Clauses.cached_scan_clauses(id, state.branch)}
           )
 
         {rows, state} = definition(id, state)
@@ -209,7 +203,7 @@ defmodule AL.JAM.IR.Scan do
         scope = Integer.to_string(AL.fresh_scope())
 
         body =
-          Goal.map(body, fn value ->
+          AL.Term.map(body, fn value ->
             if MapSet.member?(locals, value), do: Var.fresh(value, scope), else: value
           end)
 
@@ -311,7 +305,35 @@ defmodule AL.JAM.IR.Scan do
 
   defp wrappers(rows, state) do
     Enum.map_reduce(rows, state, fn clauses, state ->
-      case clauses do
+      case bound_input_clauses(clauses) do
+        [
+          {[self, input, _rest, %Goal.Compound{}],
+           [%IR{kind: :send, name: first, args: [self, [input | _]]} | _]},
+          {[fallback_self, fallback_input, fallback_rest, value],
+           [
+             %IR{
+               kind: :send,
+               name: negator,
+               args: [fallback_self, [fallback_input, after_check, check]]
+             },
+             %IR{
+               kind: :control,
+               name: :next,
+               args: [fallback_self, [after_check, fallback_rest, value]]
+             }
+           ]}
+        ]
+        when is_atom(check) ->
+          require!(
+            distinct_vars?([fallback_self, fallback_input, after_check, fallback_rest, value])
+          )
+
+          {first_paths, state} = first_tests(first, state, [])
+          {check_paths, state} = first_tests(check, state, [])
+          state = lookahead(negator, state) |> then(&no_collection_class(check, &1))
+          tests = first_paths ++ check_paths
+          {tests, evidence(state, {:reject, check, tests})}
+
         [
           {[self, input, rest, value],
            [
@@ -346,6 +368,43 @@ defmodule AL.JAM.IR.Scan do
           unsupported()
       end
     end)
+  end
+
+  defp bound_input_clauses(clauses) do
+    Enum.flat_map(clauses, fn
+      {[_self, input | _], [%IR{kind: :direct, name: :is_var, args: [input]} | _]} ->
+        []
+
+      {[_self, input | _] = head, [guard | rest] = body} ->
+        [{head, if(not_var?(guard, input), do: rest, else: body)}]
+
+      clause ->
+        [clause]
+    end)
+  end
+
+  defp lookahead(selector, state) do
+    {rows, state} = fetch(selector, state)
+
+    case rows do
+      [
+        {[self, tail, tail, pattern],
+         [%IR{kind: :scope, name: :negate, regions: %{condition: condition}}]}
+      ] ->
+        require!(distinct_vars?([self, tail, pattern]))
+
+        case operations(condition) do
+          [%IR{kind: :send, name: matcher, args: [^self, [^pattern, ^tail, ignored]]}] ->
+            require!(distinct_vars?([self, tail, pattern, ignored]))
+            matcher(matcher, state)
+
+          _ ->
+            unsupported()
+        end
+
+      _ ->
+        unsupported()
+    end
   end
 
   defp negative(
@@ -504,7 +563,11 @@ defmodule AL.JAM.IR.Scan do
       ] ->
         require!(Var.var?(base_tail))
         require!(distinct_vars?([head, tail, other, output]))
-        put_in(state.dependencies[{[], selector}], {id, AL.cached_scan_clauses(id, state.branch)})
+
+        put_in(
+          state.dependencies[{[], selector}],
+          {id, AL.JAM.Clauses.cached_scan_clauses(id, state.branch)}
+        )
 
       _ ->
         unsupported()
@@ -519,6 +582,12 @@ defmodule AL.JAM.IR.Scan do
       case head do
         [_self, [code | _], _rest | _] when is_integer(code) ->
           {paths ++ [[{:eq, code}]], state}
+
+        [_self, [code | _], _rest | _] ->
+          require!(Var.var?(code))
+          tests = tests(body, code, [[]])
+          require!(tests != [] and Enum.all?(tests, &(&1 != [])))
+          {paths ++ tests, state}
 
         [self, input, _rest | _] ->
           require!(Var.var?(input))
@@ -588,7 +657,7 @@ defmodule AL.JAM.IR.Scan do
 
   defp distinct_vars?(terms),
     do:
-      Enum.all?(terms, &(Var.var?(&1) and &1 != :"$_")) and
+      Enum.all?(terms, &(Var.var?(&1) and &1 != {:"$var", "_"})) and
         length(Enum.uniq(terms)) == length(terms)
 
   defp proper?([]), do: true

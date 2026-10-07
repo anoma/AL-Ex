@@ -26,7 +26,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Result") == [3, 2, 1]
+    assert Map.get(b, "$Result") == [3, 2, 1]
     b
   end
 
@@ -54,7 +54,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Ts") == [:first, :second]
+    assert Map.get(b, "$Ts") == [:first, :second]
     :ok
   end
 
@@ -93,7 +93,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Ts") == [:first, :second]
+    assert Map.get(b, "$Ts") == [:first, :second]
 
     AL.Branch.discard(tip)
     AL.Branch.discard(base)
@@ -142,7 +142,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Ts") == [:second, :first]
+    assert Map.get(b, "$Ts") == [:second, :first]
     :ok
   end
 
@@ -177,7 +177,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$SeqAfter") > Map.get(b, :"$SeqBefore")
+    assert Map.get(b, "$SeqAfter") > Map.get(b, "$SeqBefore")
     :ok
   end
 
@@ -207,7 +207,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Seqs") == [0, 1]
+    assert Map.get(b, "$Seqs") == [0, 1]
     :ok
   end
 
@@ -254,7 +254,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Ts") == [:second, :first]
+    assert Map.get(b, "$Ts") == [:second, :first]
     :ok
   end
 
@@ -271,7 +271,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(b, :"$Heads") != []
+    assert Map.get(b, "$Heads") != []
     :ok
   end
 
@@ -298,7 +298,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert %AL.Goal.Compound{name: :wrap} = b[:"$Same"]
+    assert %AL.Goal.Compound{name: :wrap} = b["$Same"]
   end
 
   example unused_head_variables_preserve_open_calls_and_live_variables() do
@@ -327,7 +327,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert bindings[:"$Echo"] == 4
+    assert bindings["$Echo"] == 4
   end
 
   example prepared_clause_cache_tracks_clause_replacement() do
@@ -416,7 +416,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == [1, 2, 3]
+    assert Map.get(bindings, "$Out") == [1, 2, 3]
     :ok
   end
 
@@ -429,7 +429,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    Enum.map(Map.get(b, :"$Heads"), &length/1)
+    Enum.map(Map.get(b, "$Heads"), &length/1)
   end
 
   defp swap_first_two_at_clauses() do
@@ -441,7 +441,7 @@ defmodule Examples.ALClauses do
         """
       end
 
-    [x, y, z] = Map.get(b, :"$Clauses")
+    [x, y, z] = Map.get(b, "$Clauses")
     reordered = [y, x, z]
 
     {:atomic, _} =

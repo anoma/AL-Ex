@@ -135,7 +135,7 @@ defmodule AL.Native do
   end
 
   defp find_or_create_method_id(class, selector, tx_id, branch) do
-    case AL.Object.scan_method(class, selector, :"$id", branch) do
+    case AL.Object.scan_method(class, selector, {:"$var", "id"}, branch) do
       [{:method, ^class, ^selector, id} | _] ->
         id
 
@@ -148,7 +148,14 @@ defmodule AL.Native do
   end
 
   defp has_interpreted_clauses?(method_id, branch),
-    do: AL.Object.scan_oapply(method_id, :"$seq", :"$head", :"$body", branch) != []
+    do:
+      AL.Object.scan_oapply(
+        method_id,
+        {:"$var", "seq"},
+        {:"$var", "head"},
+        {:"$var", "body"},
+        branch
+      ) != []
 
   @doc "Un-declares a native: closes the durable fact, removes the ephemeral implementation."
   @spec retract(term(), keyword()) :: :ok

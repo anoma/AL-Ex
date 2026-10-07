@@ -22,7 +22,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$I") == %{class: :interval_value, lo: 1, hi: 4}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: 1, hi: 4}
     :ok
   end
 
@@ -34,7 +34,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$I") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: :empty, hi: :empty}
     :ok
   end
 
@@ -52,7 +52,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$Checked") == true
+    assert Map.get(bindings, "$Checked") == true
     :ok
   end
 
@@ -67,7 +67,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$Checked") == true
+    assert Map.get(bindings, "$Checked") == true
     :ok
   end
 
@@ -81,7 +81,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$I") == %{class: :interval_value, lo: 3, hi: 5}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: 3, hi: 5}
     :ok
   end
 
@@ -96,7 +96,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$I1") == Map.get(bindings, :"$I2")
+    assert Map.get(bindings, "$I1") == Map.get(bindings, "$I2")
     :ok
   end
 
@@ -110,7 +110,7 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$I") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: :empty, hi: :empty}
     :ok
   end
 
@@ -125,8 +125,8 @@ defmodule Examples.ALInterval do
         """
       end
 
-    assert Map.get(bindings, :"$I1") == %{class: :interval_value, lo: :empty, hi: :empty}
-    assert Map.get(bindings, :"$I2") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I1") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I2") == %{class: :interval_value, lo: :empty, hi: :empty}
     :ok
   end
 end

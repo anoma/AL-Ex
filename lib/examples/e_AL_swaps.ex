@@ -28,7 +28,7 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert bindings[:"$DollarsReceived"] > 60
+    assert bindings["$DollarsReceived"] > 60
   end
 
   example the_same_transaction_constraints_solve_for_input() do
@@ -51,7 +51,7 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert length(bindings[:"$Trades"]) == 4
+    assert length(bindings["$Trades"]) == 4
   end
 
   example find_all_pools_offering_at_least_two_dollars_per_eth() do
@@ -89,7 +89,7 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert bindings[:"$Choices"] == [[:good_price_pool, 60], [:best_price_pool, 80]]
+    assert bindings["$Choices"] == [[:good_price_pool, 60], [:best_price_pool, 80]]
     :ok
   end
 
@@ -128,8 +128,8 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert before_stream[:"$ReadyBefore"] == []
-    assert before_stream[:"$OpenOrders"] == [:limit_order]
+    assert before_stream["$ReadyBefore"] == []
+    assert before_stream["$OpenOrders"] == [:limit_order]
 
     {:atomic, {_bindings, _constraints, streamed}} =
       run branch: Examples.Support.branch() do
@@ -158,8 +158,8 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert filled[:"$EthReceived"] == 20
-    assert filled[:"$StandingOrders"] == []
+    assert filled["$EthReceived"] == 20
+    assert filled["$StandingOrders"] == []
     %{pool: :streamed_pool, streamed_at: transaction_end(streamed)}
   end
 
@@ -187,7 +187,7 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert past[:"$OldAnswers"] == []
+    assert past["$OldAnswers"] == []
 
     {:atomic, {changed, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -206,7 +206,7 @@ defmodule Examples.ALSwaps do
         """
       end
 
-    assert changed[:"$EthReceived"] == 20
+    assert changed["$EthReceived"] == 20
     :ok
   end
 

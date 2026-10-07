@@ -211,7 +211,9 @@ Bench.Language.isolated(fn ->
   source = File.read!(path)
 
   program =
-    Bench.Language.program("parse al_grammar (program Items) Source.", %{:"$Source" => source})
+    Bench.Language.program("parse al_grammar (program Items) Source.", %{
+      {:"$var", "Source"} => source
+    })
 
   expected = Bench.Language.bindings(AL.eval(program))
   for _ <- 1..2, do: Bench.Language.bindings(AL.eval(program))

@@ -313,7 +313,7 @@ defmodule AL.Edge do
   defp valid_notification?(_notification), do: false
 
   defp call_reply(bindings, reply) do
-    case Map.fetch(bindings, reply) do
+    case Map.fetch(bindings, AL.Var.key(reply)) do
       {:ok, value} ->
         with :ok <- validate_outcome({:ok, value}) do
           {:ok, value}

@@ -67,8 +67,8 @@ defmodule Examples.ALControlFlow do
       end
 
     # the cut in the first clause prunes the second; without it, both are found
-    assert Map.get(cut_bindings, :"$Xs") == [:a]
-    assert Enum.sort(Map.get(plain_bindings, :"$Xs")) == [:a, :b]
+    assert Map.get(cut_bindings, "$Xs") == [:a]
+    assert Enum.sort(Map.get(plain_bindings, "$Xs")) == [:a, :b]
     :ok
   end
 
@@ -80,7 +80,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == :then_ran
+    assert Map.get(bindings, "$Out") == :then_ran
     :ok
   end
 
@@ -92,7 +92,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == :else_ran
+    assert Map.get(bindings, "$Out") == :else_ran
     :ok
   end
 
@@ -105,7 +105,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == :second
+    assert Map.get(bindings, "$Out") == :second
     :ok
   end
 
@@ -121,7 +121,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert length(Map.get(bindings, :"$Results")) == 1
+    assert length(Map.get(bindings, "$Results")) == 1
     :ok
   end
 
@@ -133,7 +133,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == :hello
+    assert Map.get(bindings, "$Out") == :hello
     :ok
   end
 
@@ -148,7 +148,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == :hello
+    assert Map.get(bindings, "$Out") == :hello
     :ok
   end
 
@@ -161,7 +161,7 @@ defmodule Examples.ALControlFlow do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == :then_ran_and_passed
+    assert Map.get(bindings, "$Out") == :then_ran_and_passed
     :ok
   end
 end

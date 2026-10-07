@@ -1,5 +1,5 @@
 defmodule AL.JAM.IR.Loop do
-  alias AL.{Goal, Var}
+  alias AL.Var
   alias AL.JAM.IR
 
   defstruct [
@@ -34,7 +34,7 @@ defmodule AL.JAM.IR.Loop do
         arguments
         |> Enum.with_index()
         |> Enum.filter(fn {value, _} ->
-          is_atom(value) and not Var.var?(value)
+          is_atom(value)
         end)
 
       key = {:compiled_loop, id, receiver_key, selector, length(arguments), static}
@@ -77,16 +77,16 @@ defmodule AL.JAM.IR.Loop do
         arguments
         |> Enum.with_index(1)
         |> Enum.filter(fn {value, _} ->
-          is_atom(value) and not Var.var?(value)
+          is_atom(value)
         end)
         |> Map.new(fn {value, index} -> {index, value} end)
 
       list_receiver? = is_list(receiver)
 
       template = [
-        if(list_receiver?, do: Var.fresh(:"$Argument", "loop_receiver"), else: receiver)
+        if(list_receiver?, do: Var.fresh({:"$var", "Argument"}, "loop_receiver"), else: receiver)
         | for index <- 1..length(arguments)//1 do
-            Map.get(static, index, Var.fresh(:"$Argument", "loop_#{index}"))
+            Map.get(static, index, Var.fresh({:"$var", "Argument"}, "loop_#{index}"))
           end
       ]
 
@@ -118,7 +118,7 @@ defmodule AL.JAM.IR.Loop do
     plan.branch == branch and
       Enum.all?(plan.dependencies, fn {{receiver, selector}, {id, clauses}} ->
         case AL.Dispatch.target(receiver, selector, branch) do
-          {:ok, _, ^id} -> AL.cached_scan_clauses(id, branch) === clauses
+          {:ok, _, ^id} -> AL.JAM.Clauses.cached_scan_clauses(id, branch) === clauses
           _ -> false
         end
       end)
@@ -127,7 +127,7 @@ defmodule AL.JAM.IR.Loop do
   def apply(%__MODULE__{} = plan, call, store, branch, budget) do
     output = Enum.at(call, plan.output)
 
-    if Var.var?(output) and output != :"$_" and not Map.has_key?(store, output) and
+    if Var.var?(output) and output != {:"$var", "_"} and not Map.has_key?(store, output) and
          (plan.driver == 0 or hd(call) === plan.receiver) and
          Enum.all?(plan.static, fn {index, value} -> Enum.at(call, index) === value end) do
       values = Var.deref(store, Enum.at(call, plan.driver))
@@ -360,7 +360,7 @@ defmodule AL.JAM.IR.Loop do
     b = Var.deref(state.bindings, b)
 
     cond do
-      a == :"$_" or b == :"$_" ->
+      a == {:"$var", "_"} or b == {:"$var", "_"} ->
         unsupported()
 
       a === b ->
@@ -420,7 +420,7 @@ defmodule AL.JAM.IR.Loop do
       do: unsupported()
 
     case AL.Dispatch.target(receiver, selector, branch) do
-      {:ok, _, id} -> {id, AL.cached_scan_clauses(id, branch)}
+      {:ok, _, id} -> {id, AL.JAM.Clauses.cached_scan_clauses(id, branch)}
       _ -> unsupported()
     end
   end
@@ -428,8 +428,8 @@ defmodule AL.JAM.IR.Loop do
   defp rename(head, body) do
     scope = Integer.to_string(AL.fresh_scope())
 
-    Goal.map({head, body}, fn term ->
-      if Var.var?(term) and term != :"$_", do: Var.fresh(term, scope), else: term
+    AL.Term.map({head, body}, fn term ->
+      if Var.var?(term) and term != {:"$var", "_"}, do: Var.fresh(term, scope), else: term
     end)
   end
 

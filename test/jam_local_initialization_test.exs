@@ -51,7 +51,7 @@ defmodule AL.JAM.LocalInitializationTest do
                branch
              )
 
-    assert bindings[:"$Output"] == [[:bound], [:a, :b]]
+    assert bindings["$Output"] == [[:bound], [:a, :b]]
   end
 
   test "earlier reads and wildcard assignment retain logical variables", %{branch: branch} do
@@ -64,8 +64,8 @@ defmodule AL.JAM.LocalInitializationTest do
                branch
              )
 
-    assert bindings[:"$Observed"] == [:value]
-    assert bindings[:"$Wildcard"] == :actual
+    assert bindings["$Observed"] == [:value]
+    assert bindings["$Wildcard"] == :actual
   end
 
   test "branch-local assignments retain both answers", %{branch: branch} do
@@ -77,7 +77,7 @@ defmodule AL.JAM.LocalInitializationTest do
                branch
              )
 
-    assert bindings[:"$Answers"] == [[:a], [:b]]
+    assert bindings["$Answers"] == [[:a], [:b]]
   end
 
   test "unresolved arithmetic materializes a constrained local", %{branch: branch} do
@@ -87,7 +87,7 @@ defmodule AL.JAM.LocalInitializationTest do
                branch
              )
 
-    assert bindings[:"$Input"] == 4
-    assert bindings[:"$Output"] == 5
+    assert bindings["$Input"] == 4
+    assert bindings["$Output"] == 5
   end
 end

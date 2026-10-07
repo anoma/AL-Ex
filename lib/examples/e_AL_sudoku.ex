@@ -54,7 +54,7 @@ defmodule Examples.ALSudoku do
         """
       end
 
-    assert Map.get(bindings, :"$Solved") == @solved
+    assert Map.get(bindings, "$Solved") == @solved
     :ok
   end
 
@@ -84,7 +84,7 @@ defmodule Examples.ALSudoku do
         """
       end
 
-    assert Map.get(bindings, :"$Solved") == [
+    assert Map.get(bindings, "$Solved") == [
              [8, 6, 7, 9, 1, 2, 3, 4, 5],
              [9, 1, 5, 4, 3, 8, 6, 7, 2],
              [4, 3, 2, 6, 7, 5, 8, 9, 1],
@@ -124,7 +124,7 @@ defmodule Examples.ALSudoku do
         """
       end
 
-    assert Map.get(bindings, :"$Solved") == [
+    assert Map.get(bindings, "$Solved") == [
              [9, 8, 7, 6, 5, 4, 3, 2, 1],
              [2, 4, 6, 1, 7, 3, 9, 8, 5],
              [3, 5, 1, 9, 2, 8, 7, 4, 6],

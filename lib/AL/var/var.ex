@@ -7,13 +7,14 @@ defmodule AL.Var do
   The store is a forest of variable references where the leaves are ground
   terms and act as roots of the reference chain.
 
-  Vars look like :"$<string>"; a freshened var wraps its original as
+  Vars look like {:"$var", "<string>"}; a freshened var wraps its original as
   {:"$fresh", base, scope}, so resolution mints no atoms.
   """
 
   alias AL.Var.ConstraintSet
+  @compile {:inline, deref: 2}
 
-  @type variable() :: atom() | {:"$fresh", variable(), String.t()}
+  @type variable() :: {:"$var", String.t()} | {:"$fresh", variable(), String.t()}
   @type t() :: atom() | number() | binary() | maybe_improper_list(t(), t()) | tuple() | map()
 
   # Binding = most-specific case of "what's known" about a var, same as
@@ -37,7 +38,7 @@ defmodule AL.Var do
   @spec var?(term()) :: boolean()
   def var?({:"$fresh", _base, _scope}), do: true
 
-  def var?(x) when is_atom(x), do: x >= :"$" and x < :%
+  def var?({:"$var", name}) when is_binary(name), do: true
 
   def var?(_x) do
     false
@@ -45,104 +46,21 @@ defmodule AL.Var do
 
   @spec var(String.t() | atom()) :: variable()
   def var(x) do
-    :"$#{x}"
+    {:"$var", to_string(x)}
   end
 
   @spec name(variable()) :: String.t()
   def name({:"$fresh", base, scope}), do: name(base) <> "_" <> scope
 
-  def name(x) do
-    "$" <> name = Atom.to_string(x)
-    name
-  end
+  def name({:"$var", name}), do: name
+
+  def key(variable), do: "$" <> name(variable)
 
   @spec fresh(variable(), String.t()) :: variable()
   def fresh(base, scope), do: {:"$fresh", base, scope}
 
-  @typep mnesia_acc() :: {pos_integer(), %{optional(variable()) => pos_integer()}}
-
-  @spec to_mnesia_pattern(t()) :: t()
-  @spec to_mnesia_pattern(t(), mnesia_acc()) :: {t(), mnesia_acc()}
-  def to_mnesia_pattern(p) do
-    {p, _acc} = to_mnesia_pattern(p, {1, %{}})
-    p
-  end
-
-  def to_mnesia_pattern({:"$fresh", _base, _scope} = v, {n, seen}) do
-    case Map.get(seen, v) do
-      nil -> {:"$#{n}", {n + 1, Map.put(seen, v, n)}}
-      existing -> {:"$#{existing}", {n, seen}}
-    end
-  end
-
-  def to_mnesia_pattern(:"$_", acc), do: {:_, acc}
-
-  def to_mnesia_pattern(v, {n, seen}) when is_atom(v) do
-    if var?(v) do
-      case Map.get(seen, v) do
-        nil -> {:"$#{n}", {n + 1, Map.put(seen, v, n)}}
-        existing -> {:"$#{existing}", {n, seen}}
-      end
-    else
-      {v, {n, seen}}
-    end
-  end
-
-  def to_mnesia_pattern([], acc), do: {[], acc}
-
-  def to_mnesia_pattern([x | xs], acc) do
-    {x1, acc1} = to_mnesia_pattern(x, acc)
-    {xs1, acc_final} = to_mnesia_pattern(xs, acc1)
-
-    {[x1 | xs1], acc_final}
-  end
-
-  def to_mnesia_pattern(xs, acc) when is_tuple(xs) do
-    {xs, acc} =
-      xs
-      |> Tuple.to_list()
-      |> to_mnesia_pattern(acc)
-
-    {List.to_tuple(xs), acc}
-  end
-
-  def to_mnesia_pattern(m, acc) when is_map(m) do
-    {kvs, acc2} =
-      m
-      |> Map.to_list()
-      |> Enum.map_reduce(acc, fn {k, v}, a ->
-        {v2, a2} = to_mnesia_pattern(v, a)
-        {{k, v2}, a2}
-      end)
-
-    {Map.new(kvs), acc2}
-  end
-
-  def to_mnesia_pattern(x, acc), do: {x, acc}
-
   @spec deref(store(), t()) :: t()
-  def deref(store, {:"$fresh", _, _} = variable), do: deref_variable(store, variable)
-
-  def deref(store, variable) when is_atom(variable) and variable >= :"$" and variable < :%,
-    do: deref_variable(store, variable)
-
-  def deref(_store, value), do: value
-
-  defp deref_variable(store, k) do
-    case Map.get(store, k) do
-      nil ->
-        k
-
-      %ConstraintSet{} ->
-        k
-
-      ^k ->
-        k
-
-      v ->
-        if var?(v), do: deref(store, v), else: v
-    end
-  end
+  defdelegate deref(store, variable), to: AL.Var.Store
 
   @spec extend(store(), t(), t(), AL.Branch.t()) :: store() | nil
   def extend(store, x, y, branch) do
@@ -311,7 +229,7 @@ defmodule AL.Var do
     else
       case AL.Goal.call_form(resolved) do
         {term_name, term_args} ->
-          unify([name, args], [term_name, term_args], store, branch, :opaque)
+          unify([name, args], [term_name, term_args], store, branch)
 
         nil ->
           nil
@@ -323,7 +241,7 @@ defmodule AL.Var do
     recorded =
       case constraint_set(store, var) do
         %ConstraintSet{functor: {known_name, known_args}} ->
-          unify([name, args], [known_name, known_args], store, branch, :opaque)
+          unify([name, args], [known_name, known_args], store, branch)
 
         %ConstraintSet{} = set ->
           store |> Map.put(var, %{set | functor: {name, args}}) |> add_isa(var, :compound)
@@ -351,7 +269,7 @@ defmodule AL.Var do
         link_functor(store, name, var)
 
       is_atom(name) ->
-        unify(var, AL.Goal.from_call_form(name, subst(args, store)), store, branch, :opaque)
+        unify(var, AL.Goal.from_call_form(name, subst(args, store)), store, branch)
 
       true ->
         nil
@@ -487,7 +405,7 @@ defmodule AL.Var do
 
   defp resolve_unique_slot_value(store, object_var, key, value, branch) do
     object_var
-    |> AL.Object.scan_slots(:"$slot_propagate_scan", branch)
+    |> AL.Object.scan_slots({:"$var", "slot_propagate_scan"}, branch)
     |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.get(m, key) == value end)
     |> case do
       [{:slots, object, _m}] -> bind(store, object_var, object, branch)
@@ -509,12 +427,7 @@ defmodule AL.Var do
 
   # `def`, not `defp` — `AL.Var.Bounds` reads a var's existing `ConstraintSet`
   # (its propagators, its current bounds) the same way `bind/4` does here.
-  def constraint_set(store, var) do
-    case Map.get(store, var) do
-      %ConstraintSet{} = set -> set
-      _ -> nil
-    end
-  end
+  defdelegate constraint_set(store, var), to: AL.Var.Store, as: :constraints
 
   # `extend/4` picks which of two still-open vars becomes the alias and which
   # stays live by argument position, not by which one carries a constraint —
@@ -987,8 +900,7 @@ defmodule AL.Var do
   defp scan(_var, term, _store) when is_number(term) or is_binary(term), do: :ground
   defp scan(var, {:"$fresh", _, _} = term, store), do: scan_var(var, term, store)
 
-  defp scan(var, term, store) when is_atom(term),
-    do: if(var?(term), do: scan_var(var, term, store), else: :ground)
+  defp scan(var, {:"$var", _name} = term, store), do: scan_var(var, term, store)
 
   defp scan(var, term, store) when is_list(term), do: scan_list(var, term, store, :ground)
 
@@ -1035,59 +947,14 @@ defmodule AL.Var do
 
   @spec unify(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
-    do: unify(x, y, store, branch, :opaque)
+    do: AL.Var.Unification.unify(x, y, store, branch, :opaque)
 
   @spec unify_value(t(), t(), store(), AL.Branch.t()) :: store() | nil
-  def unify_value(x, y, store, branch), do: unify(x, y, store, branch, :value)
+  def unify_value(x, y, store, branch), do: AL.Var.Unification.unify(x, y, store, branch, :value)
 
   @spec unify_structural(t(), t(), store(), AL.Branch.t()) :: store() | nil
-  def unify_structural(x, y, store, branch), do: unify(x, y, store, branch, :opaque)
-
-  # `:value` interprets arithmetic and is used only by a running `=` goal;
-  # `:opaque` is plain structural matching, the mode of every other unify.
-  defp unify(x, y, store, branch, mode) do
-    cond do
-      x == :"$_" || y == :"$_" ->
-        store
-
-      mode == :value && (AL.Var.Bounds.arithmetic?(x) || AL.Var.Bounds.arithmetic?(y)) ->
-        AL.Var.Bounds.equal(store, x, y, branch)
-
-      var?(x) || var?(y) ->
-        extend(store, x, y, branch)
-
-      is_list(x) && is_list(y) && x != [] && y != [] ->
-        [x | xs] = x
-        [y | ys] = y
-
-        case unify(x, y, store, branch, mode) do
-          nil -> nil
-          new_store -> unify(xs, ys, new_store, branch, mode)
-        end
-
-      is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        unify(Tuple.to_list(x), Tuple.to_list(y), store, branch, mode)
-
-      is_map(x) && is_map(y) && map_size(x) == map_size(y) &&
-          Enum.all?(Map.keys(x), &Map.has_key?(y, &1)) ->
-        keys = Map.keys(x)
-        mode = if AL.Goal.compound?(x) or AL.Goal.compound?(y), do: :opaque, else: mode
-
-        unify(
-          Enum.map(keys, fn k -> Map.get(x, k) end),
-          Enum.map(keys, fn k -> Map.get(y, k) end),
-          store,
-          branch,
-          mode
-        )
-
-      x == y ->
-        store
-
-      true ->
-        nil
-    end
-  end
+  def unify_structural(x, y, store, branch),
+    do: AL.Var.Unification.unify(x, y, store, branch, :opaque)
 
   @spec subst(t(), store()) :: t()
   def subst(term, store), do: subst(term, store, & &1)
@@ -1111,9 +978,8 @@ defmodule AL.Var do
   defp subst_walk({:"$fresh", _base, _scope} = leaf, store, rewrite),
     do: changed(leaf, subst_leaf(leaf, store, rewrite))
 
-  defp subst_walk(term, store, rewrite) when is_atom(term) do
-    if var?(term), do: changed(term, subst_leaf(term, store, rewrite)), else: :same
-  end
+  defp subst_walk({:"$var", _name} = term, store, rewrite),
+    do: changed(term, subst_leaf(term, store, rewrite))
 
   defp subst_walk([head | tail], store, rewrite) when is_integer(head) do
     case subst_walk(tail, store, rewrite) do
@@ -1205,7 +1071,7 @@ defmodule AL.Var do
       variables
       |> Enum.sort()
       |> Map.new(fn variable ->
-        {variable, fresh(:"$_G", Integer.to_string(AL.fresh_scope()))}
+        {variable, fresh({:"$var", "_G"}, Integer.to_string(AL.fresh_scope()))}
       end)
 
     rewrite = fn variable -> Map.get(renaming, variable, variable) end
@@ -1228,7 +1094,7 @@ defmodule AL.Var do
   defp reachable_constraint_variables(term, store) do
     term
     |> find_vars()
-    |> MapSet.delete(:"$_")
+    |> MapSet.delete({:"$var", "_"})
     |> MapSet.to_list()
     |> collect_constraint_variables(store, MapSet.new())
   end
@@ -1239,7 +1105,7 @@ defmodule AL.Var do
     variable = deref(store, variable)
 
     cond do
-      not var?(variable) or variable == :"$_" or MapSet.member?(seen, variable) ->
+      not var?(variable) or variable == {:"$var", "_"} or MapSet.member?(seen, variable) ->
         collect_constraint_variables(rest, store, seen)
 
       true ->
@@ -1249,7 +1115,7 @@ defmodule AL.Var do
               set
               |> subst(store)
               |> find_vars()
-              |> MapSet.delete(:"$_")
+              |> MapSet.delete({:"$var", "_"})
               |> MapSet.to_list()
 
             nil ->
@@ -1271,7 +1137,7 @@ defmodule AL.Var do
     end
   end
 
-  defp subst_leaf(leaf, store, rewrite_unbound) when is_atom(leaf) do
+  defp subst_leaf({:"$var", _name} = leaf, store, rewrite_unbound) do
     case deref(store, leaf) do
       ^leaf ->
         rewrite_unbound.(leaf)
@@ -1286,15 +1152,15 @@ defmodule AL.Var do
   def find_vars(term), do: find_vars(term, MapSet.new())
 
   def find_vars(term, acc) do
-    AL.Goal.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
+    AL.Term.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
   end
 
   # Wrapping rather than minting keeps the atom table flat; a
   # re-freshened var nests, so distinct scopes stay distinct.
   @spec freshen(t(), String.t()) :: t()
   def freshen(term, f) do
-    AL.Goal.map(term, fn
-      :"$_" -> :"$_"
+    AL.Term.map(term, fn
+      {:"$var", "_"} -> {:"$var", "_"}
       {:"$fresh", _base, _scope} = leaf -> fresh(leaf, f)
       leaf -> if var?(leaf), do: fresh(leaf, f), else: leaf
     end)
@@ -1302,8 +1168,8 @@ defmodule AL.Var do
 
   @spec freshen(t(), String.t(), MapSet.t(variable())) :: t()
   def freshen(term, f, only) do
-    AL.Goal.map(term, fn
-      :"$_" -> :"$_"
+    AL.Term.map(term, fn
+      {:"$var", "_"} -> {:"$var", "_"}
       leaf -> if MapSet.member?(only, leaf), do: fresh(leaf, f), else: leaf
     end)
   end

@@ -13,7 +13,7 @@ defmodule Examples.ALTrace do
 
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+        run branch: Examples.Support.branch(), trace: [:domino] do
           ~AL"""
           new cell #{name => traced} C.
           """
@@ -31,7 +31,7 @@ defmodule Examples.ALTrace do
 
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+        run branch: Examples.Support.branch(), trace: [:domino] do
           ~AL"""
           member [a, b] z.
           """
@@ -55,13 +55,13 @@ defmodule Examples.ALTrace do
   # clause exits, even though dispatch never had its own return address.
   example fibonacci_trace_shows_clause_level_ports() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci 3 X.
         """
       end
 
-    assert Map.get(bindings, :"$X") == 2
+    assert Map.get(bindings, "$X") == 2
 
     kinds =
       state.trace.events
@@ -84,7 +84,7 @@ defmodule Examples.ALTrace do
   # go hunt down the matching Call event to know which var to look up.
   example fibonacci_base_case_derives_a_bound_value_at_its_own_exit() do
     {:atomic, {_bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci 3 X.
         """
@@ -105,7 +105,7 @@ defmodule Examples.ALTrace do
 
   example dispatch_trace_closes_the_failed_method() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @redo_probe_class
         #{super => value}.
@@ -116,7 +116,7 @@ defmodule Examples.ALTrace do
       end
 
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         redo_probe X Tag.
         = Tag not_a.
@@ -144,7 +144,7 @@ defmodule Examples.ALTrace do
   # single forward walk.
   example full_trace_interleaves_raw_goals_into_trace() do
     {:atomic, {_bindings, _constraints, plain_state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci 3 X.
         """
@@ -157,7 +157,7 @@ defmodule Examples.ALTrace do
     assert plain_state.trace.flags == MapSet.new([:domino])
 
     {:atomic, {_bindings, _constraints, traced_state}} =
-      run branch: Examples.Support.branch(), trace_mode: :full_trace do
+      run branch: Examples.Support.branch(), trace: [:domino, :vm] do
         ~AL"""
         fibonacci 3 X.
         """
@@ -245,7 +245,7 @@ defmodule Examples.ALTrace do
         """
       end
 
-    assert Map.get(bindings, :"$Xs") == [1, 2]
+    assert Map.get(bindings, "$Xs") == [1, 2]
 
     chronological = state.trace.events |> Enum.reverse() |> AL.Trace.payloads()
     assert Enum.any?(chronological, &match?(%AL.Goal.Findall{}, &1))
@@ -267,15 +267,15 @@ defmodule Examples.ALTrace do
         """
       end
 
-    assert Map.get(bindings, :"$Xs") == [1, 2]
+    assert Map.get(bindings, "$Xs") == [1, 2]
 
     [collection] = AL.Trace.derivation_tree(state)
     assert collection.kind == :collection
     assert [findall_answer] = collection.children
-    assert Map.fetch!(findall_answer.derived, :"$Xs") == {:bound, [1, 2]}
+    assert Map.fetch!(findall_answer.derived, {:"$var", "Xs"}) == {:bound, [1, 2]}
 
     member = Enum.find(findall_answer.children, &match?(%{label: {_, :member, _}}, &1))
-    answers = Enum.map(member.children, &Map.fetch!(&1.derived, :"$X"))
+    answers = Enum.map(member.children, &Map.fetch!(&1.derived, {:"$var", "X"}))
 
     assert answers == [{:bound, 1}, {:bound, 2}]
   end
@@ -288,20 +288,20 @@ defmodule Examples.ALTrace do
         """
       end
 
-    assert Map.get(bindings, :"$Xs") == [1, 2]
+    assert Map.get(bindings, "$Xs") == [1, 2]
 
     [collection] = AL.Trace.derivation_tree(state)
     assert [findall_answer] = collection.children
-    assert Map.fetch!(findall_answer.derived, :"$Xs") == {:bound, [1, 2]}
+    assert Map.fetch!(findall_answer.derived, {:"$var", "Xs"}) == {:bound, [1, 2]}
 
     nodes = derivation_nodes(findall_answer)
     lower = Enum.find(nodes, &match?(%{label: %AL.Goal.Compare{op: :>}}, &1))
     upper = Enum.find(nodes, &match?(%{label: %AL.Goal.Compare{op: :<}}, &1))
 
-    assert Map.fetch!(lower.constraints_in, :"$X") == {:open, %{}}
-    assert Map.fetch!(lower.derived, :"$X") == {:open, %{bounds: {1, nil}}}
-    assert Map.fetch!(upper.constraints_in, :"$X") == {:open, %{bounds: {1, nil}}}
-    assert Map.fetch!(upper.derived, :"$X") == {:open, %{bounds: {1, 2}}}
+    assert Map.fetch!(lower.constraints_in, {:"$var", "X"}) == {:open, %{}}
+    assert Map.fetch!(lower.derived, {:"$var", "X"}) == {:open, %{bounds: {1, nil}}}
+    assert Map.fetch!(upper.constraints_in, {:"$var", "X"}) == {:open, %{bounds: {1, nil}}}
+    assert Map.fetch!(upper.derived, {:"$var", "X"}) == {:open, %{bounds: {1, 2}}}
 
     assert labeled_values(findall_answer) == [1, 2]
   end
@@ -314,7 +314,7 @@ defmodule Examples.ALTrace do
         """
       end
 
-    assert length(Map.fetch!(bindings, :"$Xs")) == 11
+    assert length(Map.fetch!(bindings, "$Xs")) == 11
 
     nodes = state |> AL.Trace.derivation_tree() |> derivation_nodes()
     min_by = Enum.find(nodes, &match?(%{label: {_, :min_by, _}}, &1))
@@ -329,8 +329,8 @@ defmodule Examples.ALTrace do
 
     lower_bounds =
       nodes
-      |> Enum.filter(&match?(%{label: %AL.Goal.Compare{a: :"$X", op: :>}}, &1))
-      |> Enum.map(&Map.fetch!(&1.derived, :"$X"))
+      |> Enum.filter(&match?(%{label: %AL.Goal.Compare{a: {:"$var", "X"}, op: :>}}, &1))
+      |> Enum.map(&Map.fetch!(&1.derived, {:"$var", "X"}))
 
     assert lower_bounds == [{:open, %{bounds: {1, nil}}}]
   end
@@ -352,15 +352,15 @@ defmodule Examples.ALTrace do
     upper =
       Enum.find(findall_answer.children, &match?(%{label: %AL.Goal.Compare{op: :<}}, &1))
 
-    assert Map.fetch!(lower.constraints_in, :"$X") == {:open, %{}}
-    assert Map.fetch!(lower.derived, :"$X") == {:open, %{bounds: {1, nil}}}
-    assert Map.fetch!(upper.constraints_in, :"$X") == {:open, %{bounds: {1, nil}}}
-    assert Map.fetch!(upper.derived, :"$X") == {:open, %{bounds: {1, 10}}}
+    assert Map.fetch!(lower.constraints_in, {:"$var", "X"}) == {:open, %{}}
+    assert Map.fetch!(lower.derived, {:"$var", "X"}) == {:open, %{bounds: {1, nil}}}
+    assert Map.fetch!(upper.constraints_in, {:"$var", "X"}) == {:open, %{bounds: {1, nil}}}
+    assert Map.fetch!(upper.derived, {:"$var", "X"}) == {:open, %{bounds: {1, 10}}}
 
     min_by = Enum.find(findall_answer.children, &match?(%{label: {_, :min_by, _}}, &1))
     assert Enum.all?(min_by.children, &match?(%{kind: :answer, clause: 0}, &1))
 
-    method_derivations = Enum.map(min_by.children, &Map.fetch!(&1.derived, :"$X"))
+    method_derivations = Enum.map(min_by.children, &Map.fetch!(&1.derived, {:"$var", "X"}))
 
     assert method_derivations == [
              {:open, %{bounds: {3, 10}}},
@@ -421,7 +421,7 @@ defmodule Examples.ALTrace do
       try do
         capture_io(fn ->
           {:atomic, {_bindings, _constraints, state}} =
-            run branch: Examples.Support.branch(), trace_mode: :no_trace do
+            run branch: Examples.Support.branch(), trace: [] do
               ~AL"""
               fibonacci 3 X.
               """
@@ -440,33 +440,13 @@ defmodule Examples.ALTrace do
     assert state.trace.runtime.traced_calls == %{}
   end
 
-  example trace_mode_rejects_unknown_values() do
-    assert_raise ArgumentError, ~r/trace_mode must be/, fn ->
-      run branch: Examples.Support.branch(), trace_mode: :unknown do
-        ~AL"""
-        pass.
-        """
-      end
-    end
-  end
-
-  example trace_flags_reject_unknown_values_and_conflicting_legacy_mode() do
+  example trace_flags_reject_unknown_values() do
     assert_raise ArgumentError, ~r/unknown trace flags/, fn ->
       run branch: Examples.Support.branch(), trace: [:unknown] do
         ~AL"""
         pass.
         """
       end
-    end
-
-    assert_raise ArgumentError, ~r/cannot be used together/, fn ->
-      AL.eval(
-        [%AL.Goal.Pass{}],
-        nil,
-        %AL.Branch{id: Examples.Support.branch()},
-        trace: [:vm],
-        trace_mode: :full_trace
-      )
     end
   end
 
@@ -478,7 +458,7 @@ defmodule Examples.ALTrace do
   # per `fibonacci` call, not two.
   example fibonacci_derivation_tree_collapses_and_nests() do
     {:atomic, {_bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci 3 X.
         """
@@ -510,13 +490,13 @@ defmodule Examples.ALTrace do
   # opened them, with the final bound answer on the root itself.
   example fibonacci_backward_search_derivation_tree_is_one_root() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci X 8.
         """
       end
 
-    assert Map.get(bindings, :"$X") == 6
+    assert Map.get(bindings, "$X") == 6
 
     [root] = AL.Trace.derivation_tree(state)
 
@@ -533,13 +513,13 @@ defmodule Examples.ALTrace do
 
   example fibonacci_deep_backward_search_survives_fail_after_exit() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci X 21.
         """
       end
 
-    assert Map.get(bindings, :"$X") == 8
+    assert Map.get(bindings, "$X") == 8
 
     roots = AL.Trace.derivation_tree(state)
     assert length(roots) == 1
@@ -568,14 +548,14 @@ defmodule Examples.ALTrace do
   # Fibonacci sequence up to their own target.
   example method_values_reads_intermediate_calls_either_direction() do
     {:atomic, {_bindings, _constraints, forward_state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci 3 X.
         """
       end
 
     {:atomic, {_bindings, _constraints, backward_state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         fibonacci X 8.
         """
@@ -600,7 +580,7 @@ defmodule Examples.ALTrace do
   # handling (reset children, keep the node) is correct, not just Call/Exit.
   example derivation_tree_keeps_only_the_winning_redo_attempt() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @redo_demo
         #{super => object}.
@@ -614,7 +594,7 @@ defmodule Examples.ALTrace do
       end
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         new redo_demo #{} Obj.
         pick Obj Result.
@@ -622,7 +602,7 @@ defmodule Examples.ALTrace do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == :second
+    assert Map.get(bindings, "$Result") == :second
 
     roots = AL.Trace.derivation_tree(state)
     pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
@@ -633,7 +613,7 @@ defmodule Examples.ALTrace do
 
   example free_ask_keeps_every_call_under_the_frame_that_made_it() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @chain_box
         #{super => object}.
@@ -656,14 +636,14 @@ defmodule Examples.ALTrace do
       end
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         new chain_box #{} Obj.
         chain Obj N 21.
         """
       end
 
-    assert Map.get(bindings, :"$N") == 8
+    assert Map.get(bindings, "$N") == 8
 
     frames =
       AL.Trace.derivation_tree(state)
@@ -697,7 +677,7 @@ defmodule Examples.ALTrace do
 
   example call_node_names_the_clause_that_fired() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @pick_box
         #{super => object}.
@@ -714,7 +694,7 @@ defmodule Examples.ALTrace do
       end
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         new pick_box #{} Obj.
         pick Obj Chosen.
@@ -722,7 +702,7 @@ defmodule Examples.ALTrace do
         """
       end
 
-    assert Map.get(bindings, :"$Chosen") == :third
+    assert Map.get(bindings, "$Chosen") == :third
 
     roots = AL.Trace.derivation_tree(state)
     pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
@@ -733,7 +713,7 @@ defmodule Examples.ALTrace do
 
   example node_names_the_committed_clause_not_the_one_abandoned_mid_body() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @attempt_box
         #{super => object}.
@@ -753,14 +733,14 @@ defmodule Examples.ALTrace do
       end
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         new attempt_box #{} Obj.
         try Obj Answer.
         """
       end
 
-    assert Map.get(bindings, :"$Answer") == :committed
+    assert Map.get(bindings, "$Answer") == :committed
 
     roots = AL.Trace.derivation_tree(state)
     try_node = Enum.find(roots, &match?(%{label: {_, :try, _}}, &1))
@@ -771,7 +751,7 @@ defmodule Examples.ALTrace do
 
   example derivation_tree_keeps_the_committed_chain_after_a_failed_attempt() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @probe_box
         #{super => object}.
@@ -801,14 +781,14 @@ defmodule Examples.ALTrace do
       end
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         new probe_box #{} Obj.
         probe_answer Obj R.
         """
       end
 
-    assert Map.get(bindings, :"$R") == 102
+    assert Map.get(bindings, "$R") == 102
 
     roots = AL.Trace.derivation_tree(state)
     answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
@@ -833,7 +813,7 @@ defmodule Examples.ALTrace do
   # would force the lazy scan it's meant to avoid.
   example trace_shows_dispatch_legs() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @trace_leg_class
         #{super => value}.
@@ -847,7 +827,7 @@ defmodule Examples.ALTrace do
 
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+        run branch: Examples.Support.branch(), trace: [:domino] do
           ~AL"""
           trace_next X #{class => trace_leg_class, letter => b}.
           """
@@ -862,7 +842,7 @@ defmodule Examples.ALTrace do
 
   example constraint_goals_are_retained_in_derivation_mode() do
     {:atomic, {_bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         = X 5.
         = Y (+ X 1).
@@ -889,26 +869,26 @@ defmodule Examples.ALTrace do
 
   example derivation_tree_includes_constraint_nodes_with_resolved_values() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         = Y 5.
         = X (* Y 3).
         """
       end
 
-    assert Map.get(bindings, :"$X") == 15
+    assert Map.get(bindings, "$X") == 15
 
     roots = AL.Trace.derivation_tree(state)
 
     [constraint_node] = roots
     assert constraint_node.kind == :constraint
     assert %AL.Goal.Eq{b: %AL.Goal.Compound{name: :*}} = constraint_node.label
-    assert Map.get(constraint_node.derived, :"$X") == {:bound, 15}
+    assert Map.get(constraint_node.derived, {:"$var", "X"}) == {:bound, 15}
   end
 
   example derivation_tree_nests_constraint_goals_under_their_scope() do
     {:atomic, _} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         @triple_class
         #{super => object}.
@@ -920,14 +900,14 @@ defmodule Examples.ALTrace do
       end
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace_mode: :derivation_trace do
+      run branch: Examples.Support.branch(), trace: [:domino] do
         ~AL"""
         new triple_class #{} Obj.
         triple Obj 4 R.
         """
       end
 
-    assert Map.get(bindings, :"$R") == 12
+    assert Map.get(bindings, "$R") == 12
 
     roots = AL.Trace.derivation_tree(state)
 

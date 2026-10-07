@@ -35,8 +35,8 @@ the same evaluator.
 | Classes, supers, methods, clauses, native declarations | command log | `AL.Object` over branch `soa` | dispatch and resolution caches |
 | Object slots | command log | `AL.Object` over branch `aos`/`soa` according to ivar storage | dispatch, object views |
 | Retained source text and definition spans | source-related commands | `AL.SourceStore`, `AL.Source` | GT views, serialised files |
-| Definition documents | command log plus source projections | `AL.Serialisation.Snapshot` | `AL.Serialisation`, tooling |
-| Source edit transaction plan | snapshot plus edited documents | `AL.Serialisation.Sync` | serialiser now; Mix/MCP later |
+| Definition documents | command log plus source projections | `AL.Definition.Snapshot` | packages, tooling |
+| Source edit transaction plan | snapshot plus edited documents | `AL.Definition.Changes` | package activation |
 | Resolution memoization | none | `AL.ResolutionCache` | dispatch only |
 
 The command log owns history. A table projection may expose transaction-time
@@ -47,20 +47,22 @@ history, but it does not replace the command that produced it.
 | Area | Start with | Continue into |
 |---|---|---|
 | Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/jam.ex`, `lib/AL/jam/`, `lib/AL/trace/domino.ex` |
+| Answer presentation and failure reports | `lib/AL/answer.ex`, `lib/AL/diagnostics.ex` | trace and residual constraints |
 | Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/syntax.ex`, `lib/AL/jam/mutation.ex` |
 | Dispatch and method order | `lib/AL/dispatch/dispatch.ex` | `lib/AL/dispatch/`, `lib/AL/cache/` |
-| Variables and constraints | `lib/AL/var/var.ex` | `lib/AL/var/`, relation handlers |
+| Terms, variables, and constraints | `lib/AL/term.ex`, `lib/AL/var/var.ex` | `var/store.ex`, `var/unification.ex`, constraint modules |
+| Projection storage access | `lib/AL/mnesia.ex` | literal-safe match specifications and exact deletion; keyed reads in `AL.Object` |
 | Durable writes and replay | `lib/AL/command_log/command.ex` | hydration modules, `lib/AL/view/object.ex` |
 | Branch creation and isolation | `lib/AL/branch.ex` | command/view table naming and copying |
 | Source reading, capture and printing | `lib/AL/syntax.ex` | `lib/AL/syntax/printer.ex`, `lib/AL/view/source.ex`, `source_store.ex` |
-| Definition serialisation codec | `lib/AL/serialisation/document.ex` | `serialisation/layout.ex`, `serialisation/snapshot.ex`, `serialisation/sync.ex` |
-| Filesystem synchronization | `lib/AL/serialisation.ex` | file-system dependency and application supervision |
+| Definition serialisation codec | `lib/AL/definition/document.ex` | `definition/path.ex`, `definition/snapshot.ex`, `definition/changes.ex` |
+| Package bundle writing | `lib/AL/package/export.ex` | definition documents and filenames |
 | GT inspection | `lib/AL/gt_bridge.ex` | `lib/AL/view/` |
 | Bootstrap language behavior | `priv/programs/bootstrap.al` | `lib/AL/transaction_program.ex` and `al-practices` |
 | Package object protocol | `priv/programs/package_system.al` | `lib/examples/e_AL_packages.ex` |
 | Host package discovery | `lib/AL/package/discovery.ex` | package catalog/channel/provider structs and document codecs |
 | Package resolution | `lib/AL/package/resolver.ex` | the AL package resolver object, build specs, and content addresses |
-| Package orchestration and import | `lib/AL/package.ex` | catalog registration, realisation, activation, and the package object protocol |
+| Package orchestration and import | `lib/AL/package.ex` | `package/composition.ex`, `package/activation.ex`, `package/publication.ex`, and the package object protocol |
 
 ## Durable mutation checklist
 
@@ -112,13 +114,14 @@ transaction source_text
   + source_span keyed by command time
   + live method/class projection
       -> AL.Source resolves retained text or decompiles
-      -> AL.Serialisation.Snapshot builds owner documents and diff facts
-      -> AL.Serialisation.Document renders/parses the file format
+      -> AL.Definition.Snapshot builds owner documents and diff facts
+      -> AL.Definition.Document renders/parses the file format
 
 edited documents + old snapshot
-      -> AL.Serialisation.Sync.plan/3
+      -> AL.Definition.Changes.plan/3
       -> source chunks + direct prefix goals
-      -> AL.Serialisation captures method ranges and evaluates one transaction
+      -> AL.Definition.Changes.compile/1 produces goals and source metadata
+      -> AL.Package evaluates the activation transaction
       -> new command/source facts
       -> regenerated documents
 ```
@@ -137,17 +140,16 @@ revision is an optimistic concurrency check against its snapshot.
   command time, then `AL.Source.method_clause_source/5`.
 - Find a dispatch discrepancy: inspect direct classes/supers/method bindings,
   then `AL.Dispatch.MethodOrder` and relevant resolution-cache entries.
-- Find a workspace discrepancy: compare `AL.Serialisation.Snapshot.capture/1`, parsed
-  `AL.Serialisation.Document`, and `AL.Serialisation.Sync.plan/3` before inspecting watcher
-  timing.
+- Find a package definition discrepancy: compare `AL.Definition.Snapshot.capture/1`, parsed
+  `AL.Definition.Document`, and `AL.Definition.Changes.plan/3` against the package activation plan.
 
 ## Verification
 
 Use the smallest relevant test first:
 
 ```console
-.agents/skills/al-internals/scripts/test.sh test/serialisation_sync_test.exs
-.agents/skills/al-internals/scripts/test.sh test/serialisation_test.exs:100
+.agents/skills/al-internals/scripts/test.sh test/definition_changes_test.exs
+.agents/skills/al-internals/scripts/test.sh test/definition_document_test.exs
 .agents/skills/al-internals/scripts/test.sh
 ```
 

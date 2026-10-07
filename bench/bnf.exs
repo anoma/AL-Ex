@@ -9,7 +9,7 @@ Bench.Language.isolated(fn ->
 
   [
     Bench.Language.measure("generate complete BNF", fn -> AL.eval(program) end, fn result ->
-      if Bench.Language.bindings(result)[:"$Text"] != expected,
+      if Bench.Language.bindings(result)["$Text"] != expected,
         do: raise("BNF output differs from lib/AL/syntax.bnf")
     end)
   ]

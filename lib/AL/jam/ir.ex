@@ -2,7 +2,15 @@ defmodule AL.JAM.IR do
   alias AL.JAM.Operand
 
   @enforce_keys [:kind, :name, :args]
-  defstruct [:kind, :name, :args, :source, regions: %{}]
+  defstruct [
+    :kind,
+    :name,
+    :args,
+    :method_identity,
+    retained_goals: [],
+    fallback: [],
+    regions: %{}
+  ]
 
   def invoke(method, args), do: %__MODULE__{kind: :invoke, name: method, args: args}
   def operation(kind, name, args), do: %__MODULE__{kind: kind, name: name, args: args}
@@ -68,9 +76,10 @@ defmodule AL.JAM.IR do
   def map_values(operation, fun) do
     %{
       operation
-      | name: AL.Goal.map(operation.name, fun),
-        args: AL.Goal.map(operation.args, fun),
-        source: AL.Goal.map(operation.source, fun),
+      | name: AL.Term.map(operation.name, fun),
+        args: AL.Term.map(operation.args, fun),
+        retained_goals: AL.Term.map(operation.retained_goals, fun),
+        fallback: Enum.map(operation.fallback, &map_values(&1, fun)),
         regions:
           Map.new(operation.regions, fn {key, program} ->
             {key, AL.JAM.IR.Program.map_values(program, fun)}
@@ -79,7 +88,8 @@ defmodule AL.JAM.IR do
   end
 
   def variables(operation) do
-    initial = AL.Var.find_vars([operation.name, operation.args, operation.source])
+    initial = AL.Var.find_vars([operation.name, operation.args, operation.retained_goals])
+    initial = Enum.reduce(operation.fallback, initial, &MapSet.union(variables(&1), &2))
 
     Enum.reduce(operation.regions, initial, fn {_, program}, vars ->
       MapSet.union(vars, AL.JAM.IR.Program.variables(program))

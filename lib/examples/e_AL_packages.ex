@@ -11,7 +11,7 @@ defmodule Examples.ALPackages do
     branch = Examples.Support.isolated_branch()
 
     try do
-      {:atomic, {%{:"$Build" => build}, _constraints, _state}} =
+      {:atomic, {%{"$Build" => build}, _constraints, _state}} =
         run branch: branch.id do
           ~AL"""
           new package #{name => managed_package, open_build => true} managed_package.
@@ -143,9 +143,9 @@ defmodule Examples.ALPackages do
       end
 
     assert {:atomic, {bindings, _constraints, _state}} = result
-    assert Enum.sort(bindings[:"$Classes"]) == [:owned, :user]
+    assert Enum.sort(bindings["$Classes"]) == [:owned, :user]
 
-    assert Enum.sort(bindings[:"$Methods"]) ==
+    assert Enum.sort(bindings["$Methods"]) ==
              Enum.sort([
                [:owned, :does_not_understand],
                [:owned, :guarded_send],
@@ -153,9 +153,9 @@ defmodule Examples.ALPackages do
                [:owned, :update]
              ])
 
-    assert bindings[:"$Extensions"] == []
+    assert bindings["$Extensions"] == []
 
-    assert Enum.sort(bindings[:"$Superclasses"]) ==
+    assert Enum.sort(bindings["$Superclasses"]) ==
              Enum.sort([[:owned, :object], [:user, :object]])
 
     :ok
@@ -203,7 +203,7 @@ defmodule Examples.ALPackages do
         end
 
       assert {:atomic, {creation_bindings, _constraints, _}} = creation
-      build = creation_bindings[:"$Build"]
+      build = creation_bindings["$Build"]
 
       assert {:ok,
               %{
@@ -326,7 +326,7 @@ defmodule Examples.ALPackages do
         end
 
       assert {:atomic, {bindings, _constraints, _}} = result
-      assert bindings[:"$Extensions"] == [:composable_widget]
+      assert bindings["$Extensions"] == [:composable_widget]
 
       assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_core, branch: branch)
       assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_rendering, branch: branch)
@@ -655,14 +655,14 @@ defmodule Examples.ALPackages do
           """
         end
 
-      assert bindings[:"$Providers"] == [current_provider]
+      assert bindings["$Providers"] == [current_provider]
 
       expected =
         Enum.map(current_catalog.providers, fn provider ->
           [provider.document.name, provider.id]
         end)
 
-      assert MapSet.new(bindings[:"$Available"]) == MapSet.new(expected)
+      assert MapSet.new(bindings["$Available"]) == MapSet.new(expected)
       :ok
     after
       AL.Branch.checkout(previous)
@@ -855,7 +855,7 @@ defmodule Examples.ALPackages do
       end
 
     assert {:atomic, {bindings, _constraints, _}} = result
-    bindings[:"$Parts"]
+    bindings["$Parts"]
   end
 
   defp write_bundle(root, name, deps) do

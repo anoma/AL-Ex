@@ -56,8 +56,8 @@ defmodule AL.JAM.PrimitiveOutputTest do
                branch
              )
 
-    assert bindings[:"$Atom"] == :"λ😀"
-    assert bindings[:"$Codes"] == [955, 128_512]
+    assert bindings["$Atom"] == :"λ😀"
+    assert bindings["$Codes"] == [955, 128_512]
   end
 
   test "suspended outputs preserve aliases and later bindings", %{branch: branch} do
@@ -69,8 +69,8 @@ defmodule AL.JAM.PrimitiveOutputTest do
                branch
              )
 
-    assert bindings[:"$Codes"] == [97]
-    assert bindings[:"$Text"] == "a"
+    assert bindings["$Codes"] == [97]
+    assert bindings["$Text"] == "a"
 
     assert {:aborted, _} =
              AL.eval_source(
@@ -92,8 +92,8 @@ defmodule AL.JAM.PrimitiveOutputTest do
                branch
              )
 
-    assert bindings[:"$Pairs"] == [[:a, :bound], [:b, :bound]]
-    assert bindings[:"$Map"] == %{a: :bound, b: :bound}
+    assert bindings["$Pairs"] == [[:a, :bound], [:b, :bound]]
+    assert bindings["$Map"] == %{a: :bound, b: :bound}
   end
 
   test "invalid codepoints and duplicate map keys still fail", %{branch: branch} do
@@ -126,6 +126,6 @@ defmodule AL.JAM.PrimitiveOutputTest do
                branch
              )
 
-    assert bindings[:"$Answers"] == [:a, :b]
+    assert bindings["$Answers"] == [:a, :b]
   end
 end

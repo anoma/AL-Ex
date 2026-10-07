@@ -97,7 +97,7 @@ Bench.Language.isolated(fn ->
 
   program =
     Bench.Language.program("parse al_grammar (program Items) Source.", %{
-      :"$Source" => File.read!(path)
+      {:"$var", "Source"} => File.read!(path)
     })
 
   expected = Bench.Language.bindings(AL.eval(program))

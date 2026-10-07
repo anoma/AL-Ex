@@ -15,17 +15,19 @@ Bench.Language.isolated(fn ->
   expected =
     parsed.program
     |> Enum.reject(&match?(%AL.Goal.Compound{name: :clear_method}, &1))
-    |> AL.Goal.map(fn term ->
+    |> AL.Term.map(fn term ->
       if AL.Var.var?(term),
         do: %AL.Goal.Compound{
           name: :var,
-          args: [term |> Atom.to_string() |> String.trim_leading("$") |> String.to_atom()]
+          args: [AL.Var.name(term)]
         },
         else: term
     end)
 
   program =
-    Bench.Language.program("parse al_grammar (program Items) Source.", %{:"$Source" => source})
+    Bench.Language.program("parse al_grammar (program Items) Source.", %{
+      {:"$var", "Source"} => source
+    })
 
   IO.puts("File: #{path} (#{byte_size(source)} bytes); file read and runtime startup excluded")
 
@@ -38,7 +40,7 @@ Bench.Language.isolated(fn ->
       end
     ),
     Bench.Language.measure("parse file with AL grammar", fn -> AL.eval(program) end, fn result ->
-      if Bench.Language.bindings(result)[:"$Items"] != expected,
+      if Bench.Language.bindings(result)["$Items"] != expected,
         do: raise("grammar output differs from the reader")
     end)
   ]
@@ -50,7 +52,7 @@ Bench.Language.isolated(fn ->
           "parse file without regions",
           fn -> AL.eval(program) end,
           fn result ->
-            if Bench.Language.bindings(result)[:"$Items"] != expected,
+            if Bench.Language.bindings(result)["$Items"] != expected,
               do: raise("baseline grammar output differs from the reader")
           end
         )

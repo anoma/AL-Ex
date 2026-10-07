@@ -398,7 +398,7 @@ defmodule AL.Var.Bounds do
 
   def eval(a, _store) when is_number(a), do: a
 
-  def eval(a, store) when is_atom(a) do
+  def eval({:"$var", _name} = a, store) do
     case AL.Var.deref(store, a) do
       x when is_number(x) -> x
       _ -> :error

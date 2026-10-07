@@ -208,13 +208,22 @@ defmodule AL.JAM.IR.Program do
 
   defp map_targets(exit, _), do: exit
 
-  def emit(program, slots), do: emit_from(program, program.entry, nil, slots)
+  def emit(program, slots), do: emit_from(program, program.entry, nil, slots, :code)
 
-  defp emit_from(_program, stop, stop, _slots), do: []
+  def usage(program, slots, observable) do
+    analysis = IR.Dataflow.analyze(program, observable, false)
+    emit_from(program, program.entry, nil, Map.put(slots, :jam_analysis, analysis), :usage)
+  end
 
-  defp emit_from(program, id, stop, slots) do
+  defp emit_from(_program, stop, stop, _slots, _mode), do: []
+
+  defp emit_from(program, id, stop, slots, mode) do
     block = Map.fetch!(program.blocks, id)
-    operations = Enum.map(block.operations, &AL.JAM.IR.Emit.operation(&1, slots))
+
+    operations =
+      block.operations
+      |> Enum.with_index()
+      |> Enum.map(fn {operation, index} -> emit_operation(operation, slots, mode, id, index) end)
 
     tail =
       case block.exit do
@@ -225,29 +234,54 @@ defmodule AL.JAM.IR.Program do
           []
 
         :fail ->
-          [:fail]
+          [if(mode == :code, do: :fail, else: %IR.Usage{})]
 
         {:jump, next} ->
-          emit_from(program, next, stop, slots)
+          emit_from(program, next, stop, slots, mode)
 
         {kind, operation, next} when kind in [:call, :execute] ->
-          [AL.JAM.IR.Emit.operation(operation, slots) | emit_from(program, next, stop, slots)]
+          [
+            emit_operation(operation, slots, mode, id, :exit)
+            | emit_from(program, next, stop, slots, mode)
+          ]
 
         {:choice, left, right, next} ->
-          left = emit_from(program, left, next, slots) |> List.to_tuple()
-          right = emit_from(program, right, next, slots) |> List.to_tuple()
-          [{:branch, left, right} | emit_from(program, next, stop, slots)]
+          left = emit_from(program, left, next, slots, mode) |> List.to_tuple()
+          right = emit_from(program, right, next, slots, mode) |> List.to_tuple()
+          [emit_control(:branch, left, right, mode) | emit_from(program, next, stop, slots, mode)]
 
         {:condition, condition, yes, no, next} ->
-          yes = emit_from(program, yes, next, slots) |> List.to_tuple()
+          yes = emit_from(program, yes, next, slots, mode) |> List.to_tuple()
 
           condition =
-            (emit_from(program, condition, nil, slots) ++ [{:commit, yes}]) |> List.to_tuple()
+            (emit_from(program, condition, nil, slots, mode) ++
+               [if(mode == :code, do: {:commit, yes}, else: merge_usage(yes))])
+            |> List.to_tuple()
 
-          no = emit_from(program, no, next, slots) |> List.to_tuple()
-          [{:condition, condition, no} | emit_from(program, next, stop, slots)]
+          no = emit_from(program, no, next, slots, mode) |> List.to_tuple()
+
+          [
+            emit_control(:condition, condition, no, mode)
+            | emit_from(program, next, stop, slots, mode)
+          ]
       end
 
     operations ++ tail
   end
+
+  defp emit_operation(operation, slots, :code, _id, _index),
+    do: IR.Emit.operation(operation, slots)
+
+  defp emit_operation(operation, slots, :usage, id, index) do
+    inference = get_in(slots.jam_analysis.inference, [id, index])
+    operation |> IR.Usage.operation(inference) |> IR.Usage.registers(slots)
+  end
+
+  defp emit_control(kind, left, right, :code), do: {kind, left, right}
+
+  defp emit_control(_kind, left, right, :usage),
+    do: IR.Usage.merge(merge_usage(left), merge_usage(right))
+
+  defp merge_usage(code),
+    do: code |> Tuple.to_list() |> Enum.reduce(%IR.Usage{}, &IR.Usage.merge/2)
 end

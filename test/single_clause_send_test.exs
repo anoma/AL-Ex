@@ -39,8 +39,8 @@ defmodule AL.SingleClauseSendTest do
       findall X Choices {choose send_plan_child_instance X}.
       """)
 
-    assert bindings[:"$Description"] == [:child, :parent]
-    assert bindings[:"$Choices"] == [:red, :blue]
+    assert bindings["$Description"] == [:child, :parent]
+    assert bindings["$Choices"] == [:red, :blue]
   end
 
   test "open arguments retain multiple matching clauses in source order" do
@@ -59,7 +59,7 @@ defmodule AL.SingleClauseSendTest do
       choose send_mode_instance blue blue.
       """)
 
-    assert bindings[:"$Colors"] == [:red, :blue]
+    assert bindings["$Colors"] == [:red, :blue]
   end
 
   test "next-method dispatch works inside a nested goal" do
@@ -80,6 +80,6 @@ defmodule AL.SingleClauseSendTest do
       describe nested_next_instance Description.
       """)
 
-    assert bindings[:"$Description"] == [:child, :parent]
+    assert bindings["$Description"] == [:child, :parent]
   end
 end

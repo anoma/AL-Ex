@@ -22,10 +22,11 @@ defmodule AL.Source do
   def method_sources(class, branch) do
     {:atomic, rows} =
       :mnesia.transaction(fn ->
-        for {:method, _o, name, id} <- AL.Object.scan_method(class, :"$n", :"$id", branch) do
+        for {:method, _o, name, id} <-
+              AL.Object.scan_method(class, {:"$var", "n"}, {:"$var", "id"}, branch) do
           source =
             id
-            |> AL.Object.scan_oapply(:"$seq", :"$h", :"$b", branch)
+            |> AL.Object.scan_oapply({:"$var", "seq"}, {:"$var", "h"}, {:"$var", "b"}, branch)
             |> Enum.map(fn {:oapply, _id, _seq, h, b} -> defmethod_source(class, name, h, b) end)
             |> Enum.join("\n\n")
 
@@ -48,18 +49,22 @@ defmodule AL.Source do
   def method_source_rows(class, branch) do
     case :mnesia.transaction(fn ->
            name_pattern =
-             AL.Var.fresh(:"$source_method_name", Integer.to_string(AL.fresh_scope()))
+             AL.Var.fresh({:"$var", "source_method_name"}, Integer.to_string(AL.fresh_scope()))
 
-           id_pattern = AL.Var.fresh(:"$source_method_id", Integer.to_string(AL.fresh_scope()))
+           id_pattern =
+             AL.Var.fresh({:"$var", "source_method_id"}, Integer.to_string(AL.fresh_scope()))
 
            for {:method, ^class, name, _method_seq, _method_t, :open, method_id} <-
                  AL.Object.scan_open_method_versions(class, name_pattern, id_pattern, branch),
                {:oapply, ^method_id, clause_seq, _row_seq, command_t, :open, head, body} <-
                  AL.Object.scan_open_oapply_versions(
                    method_id,
-                   AL.Var.fresh(:"$source_clause_seq", Integer.to_string(AL.fresh_scope())),
-                   AL.Var.fresh(:"$source_head", Integer.to_string(AL.fresh_scope())),
-                   AL.Var.fresh(:"$source_body", Integer.to_string(AL.fresh_scope())),
+                   AL.Var.fresh(
+                     {:"$var", "source_clause_seq"},
+                     Integer.to_string(AL.fresh_scope())
+                   ),
+                   AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.fresh_scope())),
+                   AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.fresh_scope())),
                    branch
                  ) do
              result = retained_method_source(class, name, head, body, command_t, branch)
@@ -87,17 +92,17 @@ defmodule AL.Source do
   def method_object_source_rows(method_id, branch \\ AL.Branch.head()) do
     for {:method, class, name, ^method_id} <-
           AL.Object.scan_method(
-            AL.Var.fresh(:"$method_source_class", Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh(:"$method_source_name", Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_class"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_name"}, Integer.to_string(AL.fresh_scope())),
             method_id,
             branch
           ),
         {:oapply, ^method_id, clause_seq, _row_seq, command_t, :open, head, body} <-
           AL.Object.scan_open_oapply_versions(
             method_id,
-            AL.Var.fresh(:"$method_source_seq", Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh(:"$method_source_head", Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh(:"$method_source_body", Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_seq"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_head"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_body"}, Integer.to_string(AL.fresh_scope())),
             branch
           ) do
       result = retained_method_source(class, name, head, body, command_t, branch)
@@ -203,8 +208,8 @@ defmodule AL.Source do
     case AL.Object.scan_open_oapply_versions(
            method_id,
            clause_seq,
-           AL.Var.fresh(:"$source_head", Integer.to_string(AL.fresh_scope())),
-           AL.Var.fresh(:"$source_body", Integer.to_string(AL.fresh_scope())),
+           AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.fresh_scope())),
+           AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.fresh_scope())),
            branch
          ) do
       [{:oapply, ^method_id, ^clause_seq, _seq, command_t, :open, head, body} | _] ->
@@ -456,7 +461,7 @@ defmodule AL.Source do
   #
   # `freshen/2` (AL.Var) wraps rather than replaces: {:"$fresh", base, scope}
   # nests arbitrarily deep across call scopes, but `base` always bottoms out
-  # at the bare `:"$name"` atom the author typed. Peel every wrapper off and
+  # at the `{:"$var", "name"}` variable the author typed. Peel every wrapper off and
   # reuse that name; only two *different* vars sharing one authored name
   # (freshened copies from different scopes) get a numeric suffix.
   @spec rename(term()) :: term()
@@ -478,20 +483,15 @@ defmodule AL.Source do
   @spec base_name(AL.Var.t()) :: String.t()
   defp base_name({:"$fresh", base, _scope}), do: base_name(base)
 
-  defp base_name(atom) when is_atom(atom) do
-    case Atom.to_string(atom) do
-      "$" <> name -> name
-      other -> other
-    end
-  end
+  defp base_name({:"$var", name}), do: name
 
   # Vars in first-appearance order (with dups; caller dedups).
   @spec collect(any()) :: [AL.Var.t()]
   defp collect(term) do
-    AL.Goal.reduce(term, [], fn leaf, acc -> if AL.Var.var?(leaf), do: [leaf | acc], else: acc end)
+    AL.Term.reduce(term, [], fn leaf, acc -> if AL.Var.var?(leaf), do: [leaf | acc], else: acc end)
     |> Enum.reverse()
   end
 
   @spec sub(term(), %{optional(atom()) => atom()}) :: term()
-  defp sub(term, map), do: AL.Goal.map(term, fn leaf -> Map.get(map, leaf, leaf) end)
+  defp sub(term, map), do: AL.Term.map(term, fn leaf -> Map.get(map, leaf, leaf) end)
 end

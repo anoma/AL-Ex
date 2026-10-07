@@ -40,7 +40,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
+    assert Map.get(bindings, "$X") == 5
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -66,7 +66,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
+    assert Map.get(bindings, "$X") == 5
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -94,7 +94,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 2
+    assert Map.get(bindings, "$X") == 2
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -132,8 +132,8 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
-    assert Map.get(bindings, :"$Z") == 6
+    assert Map.get(bindings, "$X") == 5
+    assert Map.get(bindings, "$Z") == 6
     :ok
   end
 
@@ -149,7 +149,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
+    assert Map.get(bindings, "$X") == 5
     :ok
   end
 
@@ -169,7 +169,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == :already_ground_atom
+    assert Map.get(bindings, "$X") == :already_ground_atom
     :ok
   end
 
@@ -185,7 +185,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 3
+    assert Map.get(bindings, "$X") == 3
 
     {:atomic, {bindings2, _constraints, _state2}} =
       run branch: Examples.Support.branch() do
@@ -197,7 +197,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings2, :"$X") == 5
+    assert Map.get(bindings2, "$X") == 5
   end
 
   # A domain that's still open on at least one side has nothing finite to
@@ -230,7 +230,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 4
+    assert Map.get(bindings, "$X") == 4
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -255,7 +255,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 3
+    assert Map.get(bindings, "$X") == 3
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -301,8 +301,8 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$T") == 5
-    assert Map.get(bindings, :"$A") == 3
+    assert Map.get(bindings, "$T") == 5
+    assert Map.get(bindings, "$A") == 3
     :ok
   end
 
@@ -317,7 +317,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$N1") == 4
+    assert Map.get(bindings, "$N1") == 4
     :ok
   end
 
@@ -332,7 +332,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$Y") == 7
+    assert Map.get(bindings, "$Y") == 7
     :ok
   end
 
@@ -362,7 +362,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
+    assert Map.get(bindings, "$X") == 5
     :ok
   end
 
@@ -381,7 +381,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$Z") == 5
+    assert Map.get(bindings, "$Z") == 5
     :ok
   end
 
@@ -399,9 +399,9 @@ defmodule Examples.ALBounds do
 
     assert MapSet.new(constraints.relations) ==
              MapSet.new([
-               %{op: :=, terms: %{"$X": 1, "$Y": 1}, value: 22},
-               %{op: :=, terms: %{"$H": 3, "$X": -2}, value: 0},
-               %{op: :=, terms: %{"$H": 5, "$Y": -4}, value: 0}
+               %{op: :=, terms: %{{:"$var", "X"} => 1, {:"$var", "Y"} => 1}, value: 22},
+               %{op: :=, terms: %{{:"$var", "H"} => 3, {:"$var", "X"} => -2}, value: 0},
+               %{op: :=, terms: %{{:"$var", "H"} => 5, {:"$var", "Y"} => -4}, value: 0}
              ])
   end
 
@@ -419,7 +419,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$Z") == 6
+    assert Map.get(bindings, "$Z") == 6
     :ok
   end
 
@@ -448,7 +448,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == 21
+    assert Map.get(bindings, "$Out") == 21
     :ok
   end
 
@@ -477,7 +477,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == 1596
+    assert Map.get(bindings, "$Out") == 1596
     :ok
   end
 
@@ -520,7 +520,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$Y") == 100
+    assert Map.get(bindings, "$Y") == 100
 
     {:aborted, _trace} =
       run branch: Examples.Support.branch() do
@@ -548,7 +548,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$B") == 7
+    assert Map.get(bindings, "$B") == 7
     :ok
   end
 
@@ -576,8 +576,8 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$A"))
-    assert AL.Var.var?(Map.get(bindings, :"$B"))
+    assert AL.Var.var?(Map.get(bindings, "$A"))
+    assert AL.Var.var?(Map.get(bindings, "$B"))
     :ok
   end
 
@@ -593,7 +593,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    assert Map.get(bindings, :"$B") == 7
+    assert Map.get(bindings, "$B") == 7
     :ok
   end
 
@@ -620,7 +620,7 @@ defmodule Examples.ALBounds do
         """
       end
 
-    values = Map.get(bindings, :"$Candidates")
+    values = Map.get(bindings, "$Candidates")
 
     assert values == Enum.uniq(values)
     assert Enum.sort(values) == [3, 5, 6, 9, 10, 12, 15, 18]

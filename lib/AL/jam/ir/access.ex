@@ -4,7 +4,10 @@ defmodule AL.JAM.IR.Access do
   def modes(%IR{kind: :callable, args: [_, _, _]}), do: [:deep, :deep, :reference]
 
   def modes(%IR{kind: kind, name: name, args: args}),
-    do: Enum.map(args, fn _ -> mode(kind, name) end)
+    do: Enum.map(values(%IR{kind: kind, name: name, args: args}), fn _ -> mode(kind, name) end)
+
+  def values(%IR{kind: :invoke, name: method, args: args}), do: [method, args]
+  def values(%IR{args: args}), do: args
 
   def mode(:direct, name) when name in [:eq, :dif], do: :shallow
   def mode(:type, :atom), do: :shallow

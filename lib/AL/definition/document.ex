@@ -191,7 +191,7 @@ defmodule AL.Definition.Document do
   end
 
   defp ground(options) do
-    if AL.Goal.reduce(options, false, &(&2 or AL.Var.var?(&1))),
+    if AL.Term.reduce(options, false, &(&2 or AL.Var.var?(&1))),
       do: invalid("a declaration cannot hold variables"),
       else: :ok
   end

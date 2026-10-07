@@ -97,7 +97,7 @@ defmodule Examples.ALFailures do
       end
 
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace: [] do
         ~AL"""
         new no_trace_failbody Obj.
         trigger Obj.
@@ -128,7 +128,7 @@ defmodule Examples.ALFailures do
       end
 
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace: [] do
         ~AL"""
         set_slot failure_domain_instance state sideways.
         """
@@ -144,14 +144,14 @@ defmodule Examples.ALFailures do
 
   example label_of_an_unconstrained_var_is_blamed_over_the_search_that_ran_out() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace: [] do
         ~AL"""
         member [1, 2, 3] M.
         label X.
         """
       end
 
-    assert reason.reason == {:label_unconstrained, :"$X"}
+    assert reason.reason == {:label_unconstrained, {:"$var", "X"}}
     assert reason.message =~ "nothing to enumerate"
     refute reason.message =~ "member"
 
@@ -163,7 +163,7 @@ defmodule Examples.ALFailures do
         """
       end
 
-    assert traced.reason == {:label_unconstrained, :"$X"}
+    assert traced.reason == {:label_unconstrained, {:"$var", "X"}}
 
     {:aborted, aliased} =
       run branch: Examples.Support.branch() do
@@ -173,14 +173,14 @@ defmodule Examples.ALFailures do
         """
       end
 
-    assert aliased.reason == {:label_unconstrained, :"$X"}
-    assert aliased.message =~ "label(:\"$X\")"
+    assert aliased.reason == {:label_unconstrained, {:"$var", "X"}}
+    assert aliased.message =~ "label(X)"
     :ok
   end
 
   example no_trace_preserves_does_not_understand_errors() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace_mode: :no_trace do
+      run branch: Examples.Support.branch(), trace: [] do
         ~AL"""
         greett 1 world.
         """
@@ -292,11 +292,11 @@ defmodule Examples.ALFailures do
         """
       end
 
-    assert Map.take(bindings, [:"$First", :"$Second", :"$Third", :"$Fourth"]) == %{
-             :"$First" => :inherited,
-             :"$Second" => :own,
-             :"$Third" => :inherited,
-             :"$Fourth" => :inherited
+    assert Map.take(bindings, ["$First", "$Second", "$Third", "$Fourth"]) == %{
+             "$First" => :inherited,
+             "$Second" => :own,
+             "$Third" => :inherited,
+             "$Fourth" => :inherited
            }
   end
 end

@@ -20,7 +20,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$S") == %{
+    assert Map.get(bindings, "$S") == %{
              class: :mapset_value,
              elems: %{1 => true, 2 => true, 3 => true}
            }
@@ -40,7 +40,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$Checked") == true
+    assert Map.get(bindings, "$Checked") == true
     :ok
   end
 
@@ -54,7 +54,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$Checked") == true
+    assert Map.get(bindings, "$Checked") == true
     :ok
   end
 
@@ -67,7 +67,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$S") == %{class: :mapset_value, elems: %{4 => true}}
+    assert Map.get(bindings, "$S") == %{class: :mapset_value, elems: %{4 => true}}
     :ok
   end
 
@@ -80,7 +80,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$S2") == Map.get(bindings, :"$S")
+    assert Map.get(bindings, "$S2") == Map.get(bindings, "$S")
     :ok
   end
 
@@ -93,7 +93,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$Grown") == %{class: :mapset_value, elems: %{4 => true, 7 => true}}
+    assert Map.get(bindings, "$Grown") == %{class: :mapset_value, elems: %{4 => true, 7 => true}}
     :ok
   end
 
@@ -107,7 +107,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$U") == %{class: :mapset_value, elems: %{4 => true}}
+    assert Map.get(bindings, "$U") == %{class: :mapset_value, elems: %{4 => true}}
     :ok
   end
 
@@ -121,7 +121,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$U") == %{class: :mapset_value, elems: %{4 => true, 7 => true}}
+    assert Map.get(bindings, "$U") == %{class: :mapset_value, elems: %{4 => true, 7 => true}}
     :ok
   end
 
@@ -149,7 +149,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(b1, :"$X") == %{class: :mapset_value, elems: %{7 => true}}
+    assert Map.get(b1, "$X") == %{class: :mapset_value, elems: %{7 => true}}
     :ok
   end
 
@@ -175,7 +175,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$Elems") == []
+    assert Map.get(bindings, "$Elems") == []
     :ok
   end
 
@@ -188,7 +188,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$Elems")) == [4, 7]
+    assert Enum.sort(Map.get(bindings, "$Elems")) == [4, 7]
     :ok
   end
 
@@ -200,7 +200,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$S") == %{
+    assert Map.get(bindings, "$S") == %{
              class: :mapset_value,
              elems: %{1 => true, 2 => true, 3 => true}
            }
@@ -218,7 +218,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$I") == %{class: :mapset_value, elems: %{3 => true}}
+    assert Map.get(bindings, "$I") == %{class: :mapset_value, elems: %{3 => true}}
     :ok
   end
 
@@ -232,7 +232,7 @@ defmodule Examples.ALMapset do
         """
       end
 
-    assert Map.get(bindings, :"$I") == %{class: :mapset_value, elems: %{}}
+    assert Map.get(bindings, "$I") == %{class: :mapset_value, elems: %{}}
     :ok
   end
 end

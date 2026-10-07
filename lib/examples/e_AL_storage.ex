@@ -50,10 +50,10 @@ defmodule Examples.ALStorage do
         """
       end
 
-    assert Map.get(bindings, :"$Regulators") == [:geneA]
-    assert Map.get(bindings, :"$Concentration") == 5
-    assert Map.get(bindings, :"$RegulatorsDirect") == [:geneA]
-    assert Map.get(bindings, :"$ConcentrationDirect") == 5
+    assert Map.get(bindings, "$Regulators") == [:geneA]
+    assert Map.get(bindings, "$Concentration") == 5
+    assert Map.get(bindings, "$RegulatorsDirect") == [:geneA]
+    assert Map.get(bindings, "$ConcentrationDirect") == 5
     :ok
   end
 
@@ -83,10 +83,10 @@ defmodule Examples.ALStorage do
         """
       end
 
-    assert Map.get(bindings, :"$RegulatorsDirect") == [:geneA]
-    assert Map.get(bindings, :"$ConcentrationDirect") == 5
+    assert Map.get(bindings, "$RegulatorsDirect") == [:geneA]
+    assert Map.get(bindings, "$ConcentrationDirect") == 5
     # `concentration` never enters the `slots` map at all -- only `regulators` does.
-    assert Map.get(bindings, :"$AllSlots") == [[:regulators, [:geneA]]]
+    assert Map.get(bindings, "$AllSlots") == [[:regulators, [:geneA]]]
     :ok
   end
 
@@ -118,8 +118,8 @@ defmodule Examples.ALStorage do
         """
       end
 
-    assert Map.get(bindings, :"$Concentration") == 5
-    assert Map.get(bindings, :"$Regulators") == [:geneA, :geneB]
+    assert Map.get(bindings, "$Concentration") == 5
+    assert Map.get(bindings, "$Regulators") == [:geneA, :geneB]
     :ok
   end
 end

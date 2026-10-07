@@ -51,7 +51,7 @@ defmodule Examples.ALSyntax do
           branch
         )
 
-      assert Map.get(bindings, :"$Count") == 5
+      assert Map.get(bindings, "$Count") == 5
     after
       AL.Branch.discard(branch)
     end
@@ -74,7 +74,7 @@ defmodule Examples.ALSyntax do
         """
       end
 
-    assert bindings[:"$Y"] == :small
+    assert bindings["$Y"] == :small
     :ok
   end
 
@@ -87,7 +87,7 @@ defmodule Examples.ALSyntax do
         """
       end
 
-    assert bindings[:"$X"] == 2
+    assert bindings["$X"] == 2
     :ok
   end
 
@@ -149,7 +149,7 @@ defmodule Examples.ALSyntax do
           """
         end
 
-      assert Map.get(bindings, :"$Picks") == [:first, :second]
+      assert Map.get(bindings, "$Picks") == [:first, :second]
 
       {:atomic, {bindings, _constraints, _}} =
         run branch: branch.id do
@@ -159,7 +159,7 @@ defmodule Examples.ALSyntax do
           """
         end
 
-      assert Map.get(bindings, :"$Picks") == [:first, :second, :third]
+      assert Map.get(bindings, "$Picks") == [:first, :second, :third]
       bindings
     after
       AL.Branch.discard(branch)
@@ -177,9 +177,9 @@ defmodule Examples.ALSyntax do
         """
       end
 
-    assert bindings[:"$Total"] == 10
-    assert bindings[:"$First"] == 10
-    assert bindings[:"$Rest"] == [7]
+    assert bindings["$Total"] == 10
+    assert bindings["$First"] == 10
+    assert bindings["$Rest"] == [7]
     :ok
   end
 
@@ -249,12 +249,12 @@ defmodule Examples.ALSyntax do
   end
 
   defp authored(term) do
-    AL.Goal.map(term, fn
+    AL.Term.map(term, fn
       {:"$fresh", base, _scope} -> authored(base)
       leaf -> leaf
     end)
   end
 
   defp anonymous(term),
-    do: AL.Goal.map(term, fn leaf -> if AL.Var.var?(leaf), do: :_, else: leaf end)
+    do: AL.Term.map(term, fn leaf -> if AL.Var.var?(leaf), do: :_, else: leaf end)
 end

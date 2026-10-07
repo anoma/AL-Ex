@@ -26,21 +26,21 @@ defmodule Examples.ALBnf do
         """
       end
 
-    assert bindings[:"$Dashed"] ==
+    assert bindings["$Dashed"] ==
              ~S"""
              <letter> ::= "a" | "b"
              <pair> ::= <letter> "-" <letter>
              """
              |> String.trim_trailing()
 
-    assert bindings[:"$MoreDashed"] ==
+    assert bindings["$MoreDashed"] ==
              ~S"""
              <letter> ::= "c" | "x" "a" | "x" "b"
              <pair> ::= <letter> "-" <letter>
              """
              |> String.trim_trailing()
 
-    assert bindings[:"$Lisp"] ==
+    assert bindings["$Lisp"] ==
              ~S"""
              <blank> ::= " " | "\n" | "\t" | "\r"
              <blanks> ::= <blank> <blanks> | ""
@@ -69,7 +69,7 @@ defmodule Examples.ALBnf do
         """
       end
 
-    assert bindings[:"$Read"] == [
+    assert bindings["$Read"] == [
              rule(:list, [
                [
                  terminal("["),
@@ -82,8 +82,8 @@ defmodule Examples.ALBnf do
              rule(:item, [[compound(:any, [])]])
            ]
 
-    assert bindings[:"$Again"] == bindings[:"$Rules"]
-    assert bindings[:"$Text"] =~ ~S(<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}")
+    assert bindings["$Again"] == bindings["$Rules"]
+    assert bindings["$Text"] =~ ~S(<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}")
   end
 
   example the_al_grammar_reads_a_program_as_the_al_reader_does() do
@@ -101,11 +101,11 @@ defmodule Examples.ALBnf do
     expected =
       statements
       |> Enum.reject(&match?(%AL.Goal.Compound{name: :clear_method}, &1))
-      |> AL.Goal.map(fn leaf ->
+      |> AL.Term.map(fn leaf ->
         if AL.Var.var?(leaf),
           do:
             compound(:var, [
-              leaf |> Atom.to_string() |> String.trim_leading("$") |> String.to_atom()
+              AL.Var.name(leaf)
             ]),
           else: leaf
       end)
@@ -117,7 +117,7 @@ defmodule Examples.ALBnf do
         """
       end
 
-    assert bindings[:"$Items"] == expected
+    assert bindings["$Items"] == expected
   end
 
   defp rule(name, alternatives), do: compound(:rule, [name, alternatives])

@@ -21,7 +21,7 @@ defmodule Examples.ALBlackjack do
         """
       end
 
-    assert Map.get(bindings, :"$Total") == 20
+    assert Map.get(bindings, "$Total") == 20
     :ok
   end
 
@@ -37,7 +37,7 @@ defmodule Examples.ALBlackjack do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$Completions")) == [10, :jack, :king, :queen]
+    assert Enum.sort(Map.get(bindings, "$Completions")) == [10, :jack, :king, :queen]
     :ok
   end
 
@@ -52,8 +52,8 @@ defmodule Examples.ALBlackjack do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$Suit"))
-    assert AL.Var.var?(Map.get(bindings, :"$Rank"))
+    assert AL.Var.var?(Map.get(bindings, "$Suit"))
+    assert AL.Var.var?(Map.get(bindings, "$Rank"))
     :ok
   end
 
@@ -69,7 +69,7 @@ defmodule Examples.ALBlackjack do
         """
       end
 
-    assert Map.get(bindings, :"$C") != nil
+    assert Map.get(bindings, "$C") != nil
     :ok
   end
 
@@ -81,7 +81,7 @@ defmodule Examples.ALBlackjack do
         """
       end
 
-    triples = Map.fetch!(bindings, :"$Triples")
+    triples = Map.fetch!(bindings, "$Triples")
 
     assert Enum.map(Enum.take(triples, 5), fn [_card, rank, value] -> [rank, value] end) == [
              [:jack, 10],
@@ -94,10 +94,10 @@ defmodule Examples.ALBlackjack do
     [first_card, :jack, 10] = hd(triples)
     [last_card, last_rank, last_rank] = List.last(triples)
 
-    assert %{slots: %{rank: :jack}} = Map.fetch!(constraints, first_card)
-    assert %{slots: %{rank: ^last_rank}} = Map.fetch!(constraints, last_card)
+    assert %{slots: %{rank: :jack}} = Map.fetch!(constraints, AL.Var.key(first_card))
+    assert %{slots: %{rank: ^last_rank}} = Map.fetch!(constraints, AL.Var.key(last_card))
 
-    assert %{domain: domain, isa: isa} = Map.fetch!(constraints, last_rank)
+    assert %{domain: domain, isa: isa} = Map.fetch!(constraints, AL.Var.key(last_rank))
     assert domain == Enum.to_list(2..10)
     assert :number in isa
     :ok
@@ -112,11 +112,11 @@ defmodule Examples.ALBlackjack do
         """
       end
 
-    assert Map.fetch!(bindings, :"$Value") == 10
-    assert Map.fetch!(bindings, :"$Rank") == :jack
+    assert Map.fetch!(bindings, "$Value") == 10
+    assert Map.fetch!(bindings, "$Rank") == :jack
 
     assert %{slots: %{rank: :jack}} =
-             Map.fetch!(constraints, :"$Card")
+             Map.fetch!(constraints, "$Card")
   end
 
   example labeling_a_symbolic_slot_value_uses_the_value_witness_domain() do
@@ -136,7 +136,7 @@ defmodule Examples.ALBlackjack do
         [:ace, 1]
       ] ++ Enum.map(2..10, &[&1, &1])
 
-    assert MapSet.new(Map.fetch!(bindings, :"$Pairs")) == MapSet.new(expected)
+    assert MapSet.new(Map.fetch!(bindings, "$Pairs")) == MapSet.new(expected)
   end
 
   # No rank produces 29 -- domain rejects it before any clause's guard runs.

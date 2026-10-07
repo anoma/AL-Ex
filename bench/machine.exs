@@ -76,7 +76,7 @@ try do
     %AL.Goal.Send{
       object: :compiled_walk_instance,
       method: :callable_walk,
-      args: [Enum.to_list(1..1000), definitions[:"$Mapper"]]
+      args: [Enum.to_list(1..1000), definitions[{:"$var", "Mapper"}]]
     }
   ]
 

@@ -63,6 +63,6 @@ defmodule AL.JAM.InlineDispatchTest do
                branch
              )
 
-    assert bindings[:"$Values"] == [1, 3]
+    assert bindings["$Values"] == [1, 3]
   end
 end

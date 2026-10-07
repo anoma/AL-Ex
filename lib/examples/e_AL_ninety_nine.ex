@@ -24,7 +24,7 @@ defmodule Examples.ALNinetyNine do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == :c
+    assert Map.get(bindings, "$Result") == :c
     :ok
   end
 end

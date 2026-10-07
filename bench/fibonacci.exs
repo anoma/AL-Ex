@@ -4,7 +4,7 @@ defmodule Bench.Fibonacci do
   use AL
 
   def forward(branch, n) do
-    run branch: branch.id, trace_mode: :no_trace do
+    run branch: branch.id, trace: [] do
       ~AL"""
       fibonacci ^n Out.
       """
@@ -12,7 +12,7 @@ defmodule Bench.Fibonacci do
   end
 
   def backward(branch, target) do
-    run branch: branch.id, trace_mode: :no_trace do
+    run branch: branch.id, trace: [] do
       ~AL"""
       fibonacci N ^target.
       """
@@ -23,13 +23,13 @@ defmodule Bench.Fibonacci do
     {bindings, _, _} = Bench.Support.assert_atomic!(result)
     expected = fibonacci_number(n)
 
-    if bindings[:"$Out"] != expected,
+    if bindings["$Out"] != expected,
       do: raise("incorrect forward Fibonacci result: #{inspect(bindings)}; expected #{expected}")
   end
 
   def check_backward(result, n) do
     {bindings, _, _} = Bench.Support.assert_atomic!(result)
-    found = bindings[:"$N"]
+    found = bindings["$N"]
     target = fibonacci_number(n)
 
     unless is_integer(found) and found > 0 and fibonacci_number(found) == target,

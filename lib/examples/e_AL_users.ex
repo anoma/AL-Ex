@@ -18,8 +18,8 @@ defmodule Examples.ALUsers do
         """
       end
 
-    assert Map.get(b, :"$Owner") == Map.get(b, :"$Alice")
-    assert Map.get(b, :"$C") == :owned
+    assert Map.get(b, "$Owner") == Map.get(b, "$Alice")
+    assert Map.get(b, "$C") == :owned
     :ok
   end
 
@@ -39,7 +39,7 @@ defmodule Examples.ALUsers do
         """
       end
 
-    object = Map.fetch!(creation_bindings, :"$Object")
+    object = Map.fetch!(creation_bindings, "$Object")
 
     {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -48,7 +48,7 @@ defmodule Examples.ALUsers do
         """
       end
 
-    assert Map.get(slot_bindings, :"$Slots") == [[:items, []]]
+    assert Map.get(slot_bindings, "$Slots") == [[:items, []]]
 
     {:atomic, {get_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -57,7 +57,7 @@ defmodule Examples.ALUsers do
         """
       end
 
-    assert Map.get(get_bindings, :"$Items") == []
+    assert Map.get(get_bindings, "$Items") == []
     :ok
   end
 
@@ -71,9 +71,9 @@ defmodule Examples.ALUsers do
         """
       end
 
-    charlie = Map.get(b, :"$Charlie")
-    bob = Map.get(b, :"$Bob")
-    obj = Map.get(b, :"$Obj")
+    charlie = Map.get(b, "$Charlie")
+    bob = Map.get(b, "$Bob")
+    obj = Map.get(b, "$Obj")
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
@@ -89,7 +89,7 @@ defmodule Examples.ALUsers do
         """
       end
 
-    assert Map.get(b2, :"$D") == %{label: :updated}
+    assert Map.get(b2, "$D") == %{label: :updated}
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
@@ -112,7 +112,7 @@ defmodule Examples.ALUsers do
         """
       end
 
-    obj = Map.get(b, :"$Obj")
+    obj = Map.get(b, "$Obj")
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
@@ -128,7 +128,7 @@ defmodule Examples.ALUsers do
         """
       end
 
-    assert Map.get(b2, :"$D") == %{label: :guarded}
+    assert Map.get(b2, "$D") == %{label: :guarded}
     :ok
   end
 end

@@ -440,40 +440,6 @@ defmodule AL.Goal do
     field(:text, String.t())
   end
 
-  @doc "Transform every leaf of a goal term with `fun`."
-  @spec map(term(), (term() -> term())) :: term()
-  def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
-  def map([], _fun), do: []
-  def map([head | tail], fun), do: [map(head, fun) | map(tail, fun)]
-
-  def map(term, fun) when is_struct(term),
-    do: struct(term.__struct__, Map.new(Map.from_struct(term), fn {k, v} -> {k, map(v, fun)} end))
-
-  def map(term, fun) when is_map(term),
-    do: Map.new(term, fn {k, v} -> {map(k, fun), map(v, fun)} end)
-
-  def map(term, fun) when is_tuple(term),
-    do: term |> Tuple.to_list() |> Enum.map(&map(&1, fun)) |> List.to_tuple()
-
-  def map(leaf, fun), do: fun.(leaf)
-
-  @doc "Fold `fun` over every leaf of a goal term, in the same order as map/2."
-  @spec reduce(term(), acc, (term(), acc -> acc)) :: acc when acc: var
-  def reduce({:"$fresh", _base, _scope} = leaf, acc, fun), do: fun.(leaf, acc)
-  def reduce([], acc, _fun), do: acc
-  def reduce([head | tail], acc, fun), do: reduce(tail, reduce(head, acc, fun), fun)
-
-  def reduce(term, acc, fun) when is_struct(term),
-    do: Enum.reduce(Map.from_struct(term), acc, fn {_k, v}, a -> reduce(v, a, fun) end)
-
-  def reduce(term, acc, fun) when is_map(term),
-    do: Enum.reduce(term, acc, fn {k, v}, a -> reduce(v, reduce(k, a, fun), fun) end)
-
-  def reduce(term, acc, fun) when is_tuple(term),
-    do: term |> Tuple.to_list() |> reduce(acc, fun)
-
-  def reduce(leaf, acc, fun), do: fun.(leaf, acc)
-
   # struct <-> stored tuple. `:term` fields copy as-is, `:goals` fields recurse.
   @forms [
     {SetClass, :set_class, [object: :term, class: :term]},
@@ -542,7 +508,7 @@ defmodule AL.Goal do
     {:class, GetClass, [:object, :class], %{}},
     {:super, GetSuper, [:object, :super], %{}},
     {:method, GetMethod, [:object, :name, :id], %{}},
-    {:clause, GetOapply, [:object, :head, :body], %{seq: :"$_"}},
+    {:clause, GetOapply, [:object, :head, :body], %{seq: {:"$var", "_"}}},
     {:clause, GetOapply, [:object, :seq, :head, :body], %{}},
     {:slot, GetSlots, [:object, :key, :value], %{store: :auto}},
     {:slot, GetSlots, [:object, :key, :value, :store], %{}},
@@ -739,7 +705,7 @@ defmodule AL.Goal do
   defp goals(goals) when is_list(goals), do: goals
   defp goals(goal), do: if(AL.Var.var?(goal), do: goal, else: [goal])
 
-  defp named?(name), do: is_atom(name) and not AL.Var.var?(name)
+  defp named?(name), do: is_atom(name)
 
   defp constraint(%Eq{a: a, b: b}), do: %Compare{op: :=, a: a, b: b}
   defp constraint(goal), do: goal

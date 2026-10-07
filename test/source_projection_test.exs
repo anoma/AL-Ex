@@ -67,8 +67,10 @@ defmodule ALSourceProjectionTest do
   end
 
   test "ground goals retain their primitive meaning when decompiled" do
-    body = [{:ground, :"$Caller"}]
-    rendered = AL.Source.defmethod_source(:owned, :may, [:"$Self", :"$Caller"], body)
+    body = [{:ground, {:"$var", "Caller"}}]
+
+    rendered =
+      AL.Source.defmethod_source(:owned, :may, [{:"$var", "Self"}, {:"$var", "Caller"}], body)
 
     assert rendered =~ "ground Caller"
 
@@ -107,14 +109,21 @@ defmodule ALSourceProjectionTest do
                {:compound, :comment, [" trailing note"]}
              ]
 
-      rendered = AL.Source.defmethod_source(:object, :commented_example, [:"$Self", :"$X"], body)
+      rendered =
+        AL.Source.defmethod_source(
+          :object,
+          :commented_example,
+          [{:"$var", "Self"}, {:"$var", "X"}],
+          body
+        )
+
       assert rendered =~ "# leading note"
       assert rendered =~ "# trailing note"
 
       assert {:atomic, {bindings, _constraints, _state}} =
                AL.eval_source("commented_example object Answer.\n", branch)
 
-      assert Map.get(bindings, :"$Answer") == 1
+      assert Map.get(bindings, "$Answer") == 1
     after
       AL.Branch.discard(branch)
     end

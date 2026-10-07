@@ -36,7 +36,7 @@ defmodule Examples.ALDif do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 2
+    assert Map.get(bindings, "$X") == 2
   end
 
   example dif_fails_a_conflicting_binding() do
@@ -64,7 +64,7 @@ defmodule Examples.ALDif do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 2
+    assert Map.get(bindings, "$X") == 2
   end
 
   # Two constraints parked on the same still-open var: both have to survive
@@ -98,7 +98,7 @@ defmodule Examples.ALDif do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 3
+    assert Map.get(bindings, "$X") == 3
   end
 
   # An unbound receiver's generative dispatch offers each durable object
@@ -129,7 +129,7 @@ defmodule Examples.ALDif do
         """
       end
 
-    os = Map.get(bindings, :"$Os")
+    os = Map.get(bindings, "$Os")
     assert :dif_dispatch_ping_b in os
     refute :dif_dispatch_ping_a in os
   end
@@ -147,6 +147,6 @@ defmodule Examples.ALDif do
         """
       end
 
-    assert length(Map.get(bindings, :"$X")) == 1
+    assert length(Map.get(bindings, "$X")) == 1
   end
 end

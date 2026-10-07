@@ -5,8 +5,8 @@ defmodule AL.JAM.SelectionTest do
 
   defp range do
     Program.lower([
-      %Goal.Compare{op: :<=, a: 1, b: :"$Value"},
-      %Goal.Compare{op: :<, a: :"$Value", b: 4}
+      %Goal.Compare{op: :<=, a: 1, b: {:"$var", "Value"}},
+      %Goal.Compare{op: :<, a: {:"$var", "Value"}, b: 4}
     ])
   end
 
@@ -28,14 +28,14 @@ defmodule AL.JAM.SelectionTest do
              AL.JAM.pending_goals(snapshot(range(), %{}))
 
     for value <- [1, 2.5, 3] do
-      store = %{:"$Value" => value}
+      store = %{{:"$var", "Value"} => value}
       assert run(selected, store) == run(range(), store)
     end
   end
 
   test "failed comparisons retain the original goal and step count" do
     for value <- [0, 4, :not_a_number] do
-      store = %{:"$Value" => value}
+      store = %{{:"$var", "Value"} => value}
       assert {:failed, original, steps} = run(range(), store)
       assert {:failed, selected, ^steps} = run(Selection.select(range()), store)
       assert AL.JAM.failed_goal(selected) == AL.JAM.failed_goal(original)
@@ -44,16 +44,16 @@ defmodule AL.JAM.SelectionTest do
   end
 
   test "open values retain constraint propagation" do
-    program = Program.concat(range(), Program.lower([%Goal.Eq{a: :"$Value", b: 2}]))
+    program = Program.concat(range(), Program.lower([%Goal.Eq{a: {:"$var", "Value"}, b: 2}]))
     assert {:ok, original, steps} = run(program, %{})
     assert {:ok, selected, ^steps} = run(Selection.select(program), %{})
-    assert AL.Var.subst(:"$Value", selected) == 2
+    assert AL.Var.subst({:"$var", "Value"}, selected) == 2
     assert selected == original
   end
 
   test "small budgets suspend at the same original comparison" do
     for budget <- [0, 1] do
-      store = %{:"$Value" => 2}
+      store = %{{:"$var", "Value"} => 2}
       assert {:suspend, original, [], steps} = run(range(), store, budget)
       assert {:suspend, selected, [], ^steps} = run(Selection.select(range()), store, budget)
       assert AL.JAM.pending_goals(selected) == AL.JAM.pending_goals(original)
@@ -66,10 +66,10 @@ defmodule AL.JAM.SelectionTest do
   test "selection does not move tests across an operation or combine different operands" do
     program =
       Program.lower([
-        %Goal.Compare{op: :>=, a: :"$Value", b: 1},
-        %Goal.Eq{a: :"$Output", b: :"$Value"},
-        %Goal.Compare{op: :<, a: :"$Value", b: 4},
-        %Goal.Compare{op: :<, a: :"$Other", b: 5}
+        %Goal.Compare{op: :>=, a: {:"$var", "Value"}, b: 1},
+        %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}},
+        %Goal.Compare{op: :<, a: {:"$var", "Value"}, b: 4},
+        %Goal.Compare{op: :<, a: {:"$var", "Other"}, b: 5}
       ])
 
     selected = Selection.select(program)
@@ -78,7 +78,7 @@ defmodule AL.JAM.SelectionTest do
 
   test "tracing observes both original comparisons" do
     trace = AL.Trace.new(MapSet.new([:vm]))
-    store = %{:"$Value" => 2}
+    store = %{{:"$var", "Value"} => 2}
     {original, original_trace} = AL.JAM.Trace.run(trace, fn -> run(range(), store) end)
 
     {selected, selected_trace} =
@@ -91,14 +91,14 @@ defmodule AL.JAM.SelectionTest do
   test "numeric exclusions preserve open and nonnumeric behavior and diagnostics" do
     original =
       Program.lower([
-        %Goal.Dif{a: :"$Value", b: 1},
-        %Goal.Dif{a: 2, b: :"$Value"}
+        %Goal.Dif{a: {:"$var", "Value"}, b: 1},
+        %Goal.Dif{a: 2, b: {:"$var", "Value"}}
       ])
 
     selected = Selection.select(original)
 
     for value <- [0, 1, 1.0, 2, 3, :atom, [1]] do
-      store = %{:"$Value" => value}
+      store = %{{:"$var", "Value"} => value}
 
       case {run(original, store), run(selected, store)} do
         {{:ok, expected, steps}, {:ok, actual, steps}} ->
@@ -112,8 +112,13 @@ defmodule AL.JAM.SelectionTest do
 
     assert run(selected, %{}) == run(original, %{})
     trace = AL.Trace.new(MapSet.new([:vm]))
-    {_, original_trace} = AL.JAM.Trace.run(trace, fn -> run(original, %{:"$Value" => 3}) end)
-    {_, selected_trace} = AL.JAM.Trace.run(trace, fn -> run(selected, %{:"$Value" => 3}) end)
+
+    {_, original_trace} =
+      AL.JAM.Trace.run(trace, fn -> run(original, %{{:"$var", "Value"} => 3}) end)
+
+    {_, selected_trace} =
+      AL.JAM.Trace.run(trace, fn -> run(selected, %{{:"$var", "Value"} => 3}) end)
+
     assert selected_trace.events == original_trace.events
   end
 end

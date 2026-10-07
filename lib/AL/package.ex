@@ -2,7 +2,6 @@ defmodule AL.Package do
   @moduledoc "Discovers, resolves, realises, and activates definition packages."
 
   alias AL.Package.Catalog
-  alias AL.Package.ContentAddress
   alias AL.Package.Discovery
   alias AL.Package.Document
   alias AL.Package.Plan
@@ -72,9 +71,9 @@ defmodule AL.Package do
     with {:ok, directory} <- export_directory(opts),
          {:ok, owners} <- export_owners(opts),
          {:ok, document, manifest_text} <- export_document(name, version, deps),
-         {:ok, snapshot} <- Snapshot.capture(branch),
+         {:ok, snapshot} <- Snapshot.capture(branch, owners),
          {:ok, definitions} <- export_definitions(snapshot, owners),
-         :ok <- write_export_bundle(directory, manifest_text, definitions) do
+         :ok <- AL.Package.Export.write(directory, manifest_text, definitions) do
       {:ok,
        %{
          package: name,
@@ -90,13 +89,13 @@ defmodule AL.Package do
 
     with {:ok, directory} <- export_directory(opts),
          {:ok, state} <- package_source_state(name, branch),
-         {:ok, snapshot} <- current_package_snapshot(name, state),
+         {:ok, snapshot} <- SourceSnapshot.current(name, state),
          {:ok, defaults} <- package_export_metadata(state),
          version = Keyword.get(opts, :version, defaults.version),
          deps = Keyword.get(opts, :deps, defaults.deps),
          {:ok, document, manifest_text} <- export_document(name, version, deps),
          definitions <- render_package_definitions(snapshot.documents),
-         :ok <- write_export_bundle(directory, manifest_text, definitions),
+         :ok <- AL.Package.Export.write(directory, manifest_text, definitions),
          {:ok, publication} <-
            seal_exported_open_build(name, state, directory, document, branch) do
       {:ok,
@@ -117,7 +116,7 @@ defmodule AL.Package do
     branch = Keyword.get(opts, :branch, AL.Branch.head())
 
     with {:ok, state} <- package_source_state(name, branch),
-         {:ok, snapshot} <- current_package_snapshot(name, state) do
+         {:ok, snapshot} <- SourceSnapshot.current(name, state) do
       {:ok, snapshot}
     end
   end
@@ -128,7 +127,7 @@ defmodule AL.Package do
     branch = Keyword.get(opts, :branch, AL.Branch.head())
 
     with {:ok, state} <- package_source_state(name, branch),
-         {:ok, current} <- current_package_snapshot(name, state),
+         {:ok, current} <- SourceSnapshot.current(name, state),
          {:ok, reference} <- parse_provider_documents(state.provider, state.provider_slots) do
       classes =
         definition_changes(reference_classes(reference), reference_classes(current.documents))
@@ -396,7 +395,7 @@ defmodule AL.Package do
     Enum.reduce_while(owners, {:ok, []}, fn owner, {:ok, definitions} ->
       case Map.fetch(documents, owner) do
         {:ok, document} ->
-          path = Path.join("definitions", DefinitionPath.filename(owner))
+          path = Path.join("definitions", DefinitionPath.filename(owner, document.kind))
           definition = %{owner: owner, path: path, text: DefinitionDocument.render(document)}
           {:cont, {:ok, [definition | definitions]}}
 
@@ -427,69 +426,6 @@ defmodule AL.Package do
        do: Document.parse(manifest)
 
   defp provider_document(_slots), do: {:error, :package_provider_source_unavailable}
-
-  defp write_export_bundle(directory, manifest_text, definitions) do
-    definition_directory = Path.join(directory, "definitions")
-
-    with :ok <- File.mkdir_p(definition_directory),
-         {:ok, _path} <- write_export_file(Path.join(directory, "package.al"), manifest_text),
-         {:ok, paths} <- write_export_definitions(directory, definitions),
-         :ok <- prune_export_definitions(definition_directory, paths) do
-      :ok
-    else
-      {:error, {:file_write, _path, _reason} = reason} -> {:error, reason}
-      {:error, reason} -> {:error, {:package_export_write, directory, reason}}
-    end
-  end
-
-  defp write_export_definitions(directory, definitions) do
-    Enum.reduce_while(definitions, {:ok, []}, fn definition, {:ok, paths} ->
-      path = Path.join(directory, definition.path)
-
-      case write_export_file(path, definition.text) do
-        {:ok, ^path} -> {:cont, {:ok, [path | paths]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, paths} -> {:ok, Enum.reverse(paths)}
-      error -> error
-    end
-  end
-
-  defp prune_export_definitions(directory, paths) do
-    retained = MapSet.new(paths)
-
-    directory
-    |> Path.join("**/*.al")
-    |> Path.wildcard()
-    |> Enum.reduce_while(:ok, fn path, :ok ->
-      if MapSet.member?(retained, path) do
-        {:cont, :ok}
-      else
-        case File.rm(path) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, {:file_remove, path, reason}}}
-        end
-      end
-    end)
-  end
-
-  defp write_export_file(path, text) do
-    temporary = "#{path}.tmp-#{System.unique_integer([:positive])}"
-
-    try do
-      with :ok <- File.mkdir_p(Path.dirname(path)),
-           :ok <- File.write(temporary, text),
-           :ok <- File.rename(temporary, path) do
-        {:ok, path}
-      else
-        {:error, reason} -> {:error, {:file_write, path, reason}}
-      end
-    after
-      File.rm(temporary)
-    end
-  end
 
   defp package_source_state(name, branch) do
     case :mnesia.transaction(fn ->
@@ -568,25 +504,18 @@ defmodule AL.Package do
              %Catalog{channels: [provider.channel], providers: [provider]},
              branch
            ),
-         [%Provider{id: provider_id} = provider] <- catalog.providers,
+         [%Provider{} = provider] <- catalog.providers,
          {:ok, dependency_inputs} <-
            open_build_dependency_inputs(document.deps, build_slots.dependency_builds, branch),
-         build_digest =
-           ContentAddress.digest({:package_build, 1, provider.source_digest, dependency_inputs}),
-         slots = %{
-           version: document.version,
-           requirements: al_requirements(document.deps),
-           digest: build_digest,
-           provider: provider_id,
-           status: :complete
-         },
+         publication <-
+           AL.Package.Publication.plan(name, build, provider, document, dependency_inputs),
          :ok <-
            evaluate_chunks(
-             [{"set_slots #{literal(build)} #{literal(slots)}.", nil}],
-             package_publication_origin(name, build, provider, build_digest),
+             publication.chunks,
+             publication.origin,
              branch
            ) do
-      {:ok, %{provider: provider_id, digest: build_digest}}
+      {:ok, publication.result}
     else
       {:error, _reason} = error -> error
       _ -> {:error, {:package_publication_failed, name}}
@@ -612,113 +541,6 @@ defmodule AL.Package do
       end)
     else
       {:error, {:open_package_dependencies_unresolved, required_names, selected_names}}
-    end
-  end
-
-  defp current_package_snapshot(name, state) do
-    with {:ok, classes} <- definition_class_set(state.originated_classes),
-         {:ok, methods} <- definition_relation_set(state.added_methods),
-         {:ok, superclasses} <- definition_relation_set(state.added_superclasses) do
-      owners =
-        classes
-        |> MapSet.union(methods |> Map.keys() |> MapSet.new())
-        |> MapSet.union(superclasses |> Map.keys() |> MapSet.new())
-        |> Enum.sort_by(&:erlang.term_to_binary/1)
-
-      documents =
-        Enum.flat_map(owners, fn owner ->
-          current_package_document(
-            state.snapshot,
-            owner,
-            classes,
-            Map.get(methods, owner, MapSet.new()),
-            Map.get(superclasses, owner, MapSet.new()),
-            state.foreign_methods,
-            state.foreign_superclasses
-          )
-        end)
-
-      {:ok,
-       %SourceSnapshot{
-         package: name,
-         build: state.build,
-         provider: state.provider,
-         documents: documents
-       }}
-    end
-  end
-
-  defp definition_class_set(classes) do
-    if duplicated?(classes),
-      do: {:error, :invalid_package_build_definitions},
-      else: {:ok, MapSet.new(classes)}
-  end
-
-  defp definition_relation_set(relations) do
-    Enum.reduce_while(relations, {:ok, %{}}, fn
-      [owner, value], {:ok, by_owner} ->
-        values = Map.get(by_owner, owner, MapSet.new())
-
-        if MapSet.member?(values, value) do
-          {:halt, {:error, :invalid_package_build_definitions}}
-        else
-          {:cont, {:ok, Map.put(by_owner, owner, MapSet.put(values, value))}}
-        end
-
-      _relation, _acc ->
-        {:halt, {:error, :invalid_package_build_definitions}}
-    end)
-  end
-
-  defp current_package_document(
-         %Snapshot{documents: documents},
-         owner,
-         classes,
-         selectors,
-         superclasses,
-         foreign_methods,
-         foreign_superclasses
-       ) do
-    case Map.fetch(documents, owner) do
-      {:ok, document} ->
-        owns_class? = MapSet.member?(classes, owner)
-
-        methods =
-          Enum.filter(document.methods, fn method ->
-            MapSet.member?(selectors, method.selector) or
-              (owns_class? and not MapSet.member?(foreign_methods, {owner, method.selector}))
-          end)
-
-        supers =
-          Enum.filter(document.supers, fn superclass ->
-            MapSet.member?(superclasses, superclass) or
-              (owns_class? and
-                 not MapSet.member?(foreign_superclasses, {owner, superclass}))
-          end)
-
-        cond do
-          owns_class? and document.kind == :class ->
-            [%{document | supers: supers, methods: methods}]
-
-          methods != [] or supers != [] ->
-            [
-              %DefinitionDocument{
-                kind: :extension,
-                owner: owner,
-                metaclass: nil,
-                supers: supers,
-                ivars: [],
-                comment: nil,
-                methods: methods
-              }
-            ]
-
-          true ->
-            []
-        end
-
-      :error ->
-        []
     end
   end
 
@@ -888,7 +710,7 @@ defmodule AL.Package do
 
         with {:ok, {bindings, _constraints, _state}} <-
                evaluate_chunks_result(chunks, channel_origin(channel), branch) do
-          {:ok, Map.fetch!(bindings, :"$ChannelInstance")}
+          {:ok, Map.fetch!(bindings, "$ChannelInstance")}
         end
 
       [%{id: id, slots: ^slots}] ->
@@ -973,7 +795,7 @@ defmodule AL.Package do
 
         with {:ok, {bindings, _constraints, _state}} <-
                evaluate_chunks_result(chunks, provider_origin(provider, channel), branch) do
-          id = Map.fetch!(bindings, :"$PackageProvider")
+          id = Map.fetch!(bindings, "$PackageProvider")
           {:ok, %{provider | id: id, channel: channel}}
         end
 
@@ -1098,7 +920,7 @@ defmodule AL.Package do
 
     with {:ok, {bindings, _constraints, _state}} <-
            evaluate_chunks_result(chunks, build_origin(build, args), branch) do
-      {:ok, Map.fetch!(bindings, :"$PackageBuild")}
+      {:ok, Map.fetch!(bindings, "$PackageBuild")}
     end
   end
 
@@ -1125,19 +947,8 @@ defmodule AL.Package do
          {:ok, old_sources} <- sources_for_builds(current, branch),
          {:ok, new_sources} <- sources_for_builds(final, branch),
          snapshot <- Snapshot.capture_in_transaction(branch),
-         runtime <- runtime_definition_sources(old_sources, new_sources, snapshot),
-         {:ok, old_documents} <- compose_build_documents(runtime ++ old_sources),
-         {:ok, new_documents} <- compose_build_documents(runtime ++ new_sources),
-         deleted <-
-           old_documents
-           |> Map.keys()
-           |> Kernel.--(Map.keys(new_documents))
-           |> Enum.sort_by(&:erlang.term_to_binary/1),
-         definitions <-
-           new_documents
-           |> Map.values()
-           |> Enum.sort_by(&:erlang.term_to_binary(&1.owner)),
-         {:ok, definition_chunks} <- Changes.plan(snapshot, definitions, deleted),
+         {:ok, definition_chunks} <-
+           AL.Package.Activation.plan(old_sources, new_sources, snapshot),
          {:ok, membership_chunks} <- build_definition_chunks(final, branch),
          pointer_chunks <- active_pointer_chunks(current, final),
          :ok <-
@@ -1179,7 +990,7 @@ defmodule AL.Package do
     |> Enum.reduce_while({:ok, []}, fn {package, build}, {:ok, sources} ->
       with {:ok, build_slots} <- build_slots(build, branch),
            {:ok, build_documents} <- build_source_documents(build, build_slots, branch),
-           :ok <- validate_unique_build_documents(build, build_documents) do
+           :ok <- AL.Package.Composition.validate_unique_build_documents(build, build_documents) do
         source = %{
           package: package,
           build: build,
@@ -1193,165 +1004,6 @@ defmodule AL.Package do
       end
     end)
   end
-
-  defp runtime_definition_sources(old_sources, new_sources, snapshot) do
-    documents = Enum.flat_map(old_sources ++ new_sources, & &1.documents)
-    origins = documents |> Enum.filter(&(&1.kind == :class)) |> MapSet.new(& &1.owner)
-
-    old_extensions =
-      old_sources
-      |> Enum.flat_map(& &1.documents)
-      |> Enum.filter(&(&1.kind == :extension))
-      |> Enum.group_by(& &1.owner)
-
-    documents
-    |> Enum.filter(&(&1.kind == :extension and not MapSet.member?(origins, &1.owner)))
-    |> Enum.uniq_by(& &1.owner)
-    |> Enum.flat_map(fn extension ->
-      case Map.get(snapshot.documents, extension.owner) do
-        %DefinitionDocument{kind: :class} = document ->
-          previous = Map.get(old_extensions, document.owner, [])
-          methods = previous |> Enum.flat_map(& &1.methods) |> MapSet.new(& &1.selector)
-          supers = previous |> Enum.flat_map(& &1.supers) |> MapSet.new()
-
-          base = %{
-            document
-            | methods: Enum.reject(document.methods, &MapSet.member?(methods, &1.selector)),
-              supers: Enum.reject(document.supers, &MapSet.member?(supers, &1))
-          }
-
-          [%{package: nil, build: nil, dependencies: [], documents: [base]}]
-
-        _ ->
-          []
-      end
-    end)
-  end
-
-  defp validate_unique_build_documents(build, documents) do
-    owners = Enum.map(documents, & &1.owner)
-
-    if duplicated?(owners),
-      do: {:error, {:duplicate_package_definition_owner, build}},
-      else: :ok
-  end
-
-  defp compose_build_documents(sources) do
-    contributions =
-      Enum.flat_map(sources, fn source ->
-        Enum.map(source.documents, &Map.put(source, :document, &1))
-      end)
-
-    with {:ok, origins} <- class_origins(contributions),
-         :ok <- validate_extension_dependencies(contributions, origins, sources) do
-      contributions
-      |> Enum.group_by(& &1.document.owner)
-      |> Enum.reduce_while({:ok, %{}}, fn {owner, owner_contributions}, {:ok, documents} ->
-        case compose_owner_document(owner, owner_contributions) do
-          {:ok, document} -> {:cont, {:ok, Map.put(documents, owner, document)}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-    end
-  end
-
-  defp class_origins(contributions) do
-    contributions
-    |> Enum.filter(&(&1.document.kind == :class))
-    |> Enum.reduce_while({:ok, %{}}, fn contribution, {:ok, origins} ->
-      owner = contribution.document.owner
-
-      if Map.has_key?(origins, owner) do
-        {:halt, {:error, {:multiple_package_class_origins, owner}}}
-      else
-        {:cont, {:ok, Map.put(origins, owner, contribution)}}
-      end
-    end)
-  end
-
-  defp validate_extension_dependencies(contributions, origins, sources) do
-    dependencies = Map.new(sources, &{&1.build, &1.dependencies})
-
-    contributions
-    |> Enum.filter(&(&1.document.kind == :extension))
-    |> Enum.reduce_while(:ok, fn extension, :ok ->
-      owner = extension.document.owner
-
-      case Map.fetch(origins, owner) do
-        {:ok, %{build: nil, document: runtime}} ->
-          shared_supers = Enum.filter(extension.document.supers, &(&1 in runtime.supers))
-
-          if shared_supers == [] do
-            {:cont, :ok}
-          else
-            {:halt, {:error, {:duplicate_runtime_superclass_contribution, owner, shared_supers}}}
-          end
-
-        {:ok, origin} ->
-          reachable = dependency_builds(extension.build, dependencies, MapSet.new())
-
-          if MapSet.member?(reachable, origin.build) do
-            {:cont, :ok}
-          else
-            {:halt,
-             {:error,
-              {:package_extension_missing_dependency, extension.build, owner, origin.build}}}
-          end
-
-        :error ->
-          {:halt, {:error, {:package_extension_without_origin, extension.build, owner}}}
-      end
-    end)
-  end
-
-  defp dependency_builds(build, dependencies, seen) do
-    Enum.reduce(Map.get(dependencies, build, []), seen, fn {_package, dependency}, reachable ->
-      if MapSet.member?(reachable, dependency) do
-        reachable
-      else
-        dependency_builds(dependency, dependencies, MapSet.put(reachable, dependency))
-      end
-    end)
-  end
-
-  defp compose_owner_document(owner, contributions) do
-    case Enum.split_with(contributions, &(&1.document.kind == :class)) do
-      {[origin], extensions} -> merge_definition_contributions(origin.document, extensions)
-      {[], _extensions} -> {:error, {:package_extension_without_origin, owner}}
-      {_origins, _extensions} -> {:error, {:multiple_package_class_origins, owner}}
-    end
-  end
-
-  defp merge_definition_contributions(origin, extensions) do
-    Enum.reduce_while(extensions, {:ok, origin, method_selectors(origin)}, fn extension,
-                                                                              {:ok, document,
-                                                                               selectors} ->
-      extension_selectors = method_selectors(extension.document)
-      duplicate_selectors = MapSet.intersection(selectors, extension_selectors)
-
-      if MapSet.size(duplicate_selectors) == 0 do
-        merged = %{
-          document
-          | supers: Enum.uniq(document.supers ++ extension.document.supers),
-            methods: document.methods ++ extension.document.methods
-        }
-
-        {:cont, {:ok, merged, MapSet.union(selectors, extension_selectors)}}
-      else
-        {:halt,
-         {:error,
-          {:duplicate_package_method_contribution, document.owner,
-           duplicate_selectors |> MapSet.to_list() |> Enum.sort()}}}
-      end
-    end)
-    |> case do
-      {:ok, document, _selectors} -> {:ok, document}
-      error -> error
-    end
-  end
-
-  defp method_selectors(document),
-    do: document.methods |> Enum.map(& &1.selector) |> MapSet.new()
 
   defp build_source_documents(_build, %{provider: provider}, branch) when is_atom(provider) do
     with {:ok, slots} <- package_provider_slots(provider, branch),
@@ -1373,7 +1025,7 @@ defmodule AL.Package do
        ) do
     with {:ok, foreign} <- foreign_build_contributions(build, branch),
          {:ok, snapshot} <-
-           current_package_snapshot(package, %{
+           SourceSnapshot.current(package, %{
              build: build,
              provider: nil,
              originated_classes: classes,
@@ -1691,19 +1343,6 @@ defmodule AL.Package do
       channel: build.provider.channel.name,
       channel_revision: build.provider.channel.revision,
       dependency_builds: args.dependency_builds
-    }
-  end
-
-  defp package_publication_origin(package, build, provider, build_digest) do
-    %{
-      kind: :package_publication,
-      package: package,
-      build: build,
-      provider: provider.id,
-      source_digest: provider.source_digest,
-      digest: build_digest,
-      channel: provider.channel.name,
-      channel_revision: provider.channel.revision
     }
   end
 

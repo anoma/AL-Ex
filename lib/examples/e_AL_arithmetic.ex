@@ -26,14 +26,14 @@ defmodule Examples.ALArithmetic do
         """
       end
 
-    assert Map.get(bindings, :"$A") == 125
-    assert Map.get(bindings, :"$F") == 9997
-    assert Map.get(bindings, :"$B") == 137
-    assert Map.get(bindings, :"$C") == 18770
-    assert Map.get(bindings, :"$D") == 6256
-    assert Map.get(bindings, :"$E") == 56312
-    assert Map.get(bindings, :"$G") == -7
-    assert Map.get(bindings, :"$H") == 7
+    assert Map.get(bindings, "$A") == 125
+    assert Map.get(bindings, "$F") == 9997
+    assert Map.get(bindings, "$B") == 137
+    assert Map.get(bindings, "$C") == 18770
+    assert Map.get(bindings, "$D") == 6256
+    assert Map.get(bindings, "$E") == 56312
+    assert Map.get(bindings, "$G") == -7
+    assert Map.get(bindings, "$H") == 7
     result
   end
 
@@ -46,7 +46,7 @@ defmodule Examples.ALArithmetic do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
+    assert Map.get(bindings, "$X") == 5
     :ok
   end
 
@@ -70,8 +70,8 @@ defmodule Examples.ALArithmetic do
         """
       end
 
-    assert Map.get(bindings, :"$A") == 1
-    assert Map.get(bindings, :"$B") == 0
+    assert Map.get(bindings, "$A") == 1
+    assert Map.get(bindings, "$B") == 0
     :ok
   end
 
@@ -98,7 +98,7 @@ defmodule Examples.ALArithmetic do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 5
+    assert Map.get(bindings, "$X") == 5
     :ok
   end
 
@@ -137,7 +137,7 @@ defmodule Examples.ALArithmetic do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings, :"$Y"))
+    assert AL.Var.var?(Map.get(bindings, "$Y"))
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do

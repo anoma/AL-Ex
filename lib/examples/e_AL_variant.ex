@@ -57,8 +57,8 @@ defmodule Examples.ALVariant do
         """
       end
 
-    assert Map.get(bindings, :"$Y") == :"$Y"
-    assert Map.get(bindings, :"$Z") == :"$Z"
+    assert Map.get(bindings, "$Y") == {:"$var", "Y"}
+    assert Map.get(bindings, "$Z") == {:"$var", "Z"}
   end
 
   example separately_retrieved_clauses_are_variants_but_not_equal() do

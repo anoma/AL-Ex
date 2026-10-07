@@ -64,6 +64,6 @@ defmodule Bench.Language do
 
   def program(source, inputs \\ %{}) do
     {:ok, parsed} = AL.Syntax.parse(source)
-    AL.Goal.map(parsed.program, &Map.get(inputs, &1, &1))
+    AL.Term.map(parsed.program, &Map.get(inputs, &1, &1))
   end
 end

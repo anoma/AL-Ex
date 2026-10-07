@@ -1,7 +1,5 @@
 defmodule AL.JAM.IR.Region do
-  alias AL.{JAM.IR, Var}
-
-  defstruct [:entry, :blocks, :inputs, :outputs, :exits, :inference]
+  alias AL.JAM.IR
 
   def compile(program, observable \\ MapSet.new()) do
     if candidate?(program, observable) do
@@ -26,7 +24,7 @@ defmodule AL.JAM.IR.Region do
   end
 
   defp fresh_candidate?(term, observable),
-    do: Var.var?(term) and term != :"$_" and not MapSet.member?(observable, term)
+    do: IR.Binding.fresh?(term, observable)
 
   def combine_blocks(program) do
     predecessors =
@@ -54,73 +52,4 @@ defmodule AL.JAM.IR.Region do
   end
 
   defp combine(block, _blocks, _predecessors), do: block
-
-  def select(program, entry, members, observable \\ MapSet.new()) do
-    members = MapSet.new(members)
-
-    if not MapSet.member?(members, entry),
-      do: raise(ArgumentError, "region entry must be a member")
-
-    analysis = AL.JAM.IR.Dataflow.analyze(program, observable, false)
-
-    if not MapSet.subset?(members, MapSet.new(Map.keys(analysis.live.in))),
-      do: raise(ArgumentError, "region members must be reachable blocks")
-
-    blocks = Map.take(program.blocks, MapSet.to_list(members))
-
-    exits =
-      for {id, _block} <- blocks,
-          next <- Map.fetch!(analysis.live.successors, id),
-          not MapSet.member?(members, next),
-          do: {id, next}
-
-    outputs =
-      Enum.reduce(exits, MapSet.new(), fn {_, target}, live ->
-        MapSet.union(live, Map.fetch!(analysis.live.in, target))
-      end)
-
-    outputs =
-      if Enum.any?(blocks, fn {_, block} -> block.exit == :return end),
-        do: MapSet.union(outputs, observable),
-        else: outputs
-
-    inferred =
-      blocks
-      |> Enum.flat_map(fn {id, _} -> Map.values(Map.get(analysis.inference, id, %{})) end)
-      |> AL.JAM.IR.Inference.sequence()
-
-    inferred =
-      if Enum.any?(blocks, fn {_, block} ->
-           match?({:choice, _, _, _}, block.exit) or
-             match?({:condition, _, _, _, _}, block.exit) or block.exit == :fail
-         end),
-         do: %{inferred | determinism: :unknown},
-         else: inferred
-
-    %__MODULE__{
-      entry: entry,
-      blocks: blocks,
-      inputs: Map.fetch!(analysis.live.in, entry),
-      outputs: outputs,
-      exits: exits,
-      inference: inferred
-    }
-  end
-
-  def bind(a, b, protected) do
-    cond do
-      local?(a, b, protected) -> {:ok, %{a => b}}
-      local?(b, a, protected) -> {:ok, %{b => a}}
-      true -> :runtime
-    end
-  end
-
-  def escape(operation, protected), do: MapSet.union(protected, IR.variables(operation))
-
-  defp local?(variable, value, protected) do
-    Var.var?(variable) and variable != :"$_" and
-      not MapSet.member?(protected, variable) and
-      not MapSet.member?(Var.find_vars(value), variable) and
-      not MapSet.member?(Var.find_vars(value), :"$_")
-  end
 end

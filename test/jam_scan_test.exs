@@ -252,13 +252,13 @@ defmodule AL.JAM.ScanTest do
     for input <- [~c"point\n", ~c"p_42 ", ~c"pλ ", ~c"Point ", ~c"123 ", ~c" "] do
       program = [
         %AL.Goal.Findall{
-          template: [:"$Value", :"$Rest"],
-          result: :"$Answers",
+          template: [{:"$var", "Value"}, {:"$var", "Rest"}],
+          result: {:"$var", "Answers"},
           condition: [
             %AL.Goal.Send{
               object: %{class: :al_grammar},
               method: :symbol,
-              args: [input, :"$Rest", :"$Value"]
+              args: [input, {:"$var", "Rest"}, {:"$var", "Value"}]
             }
           ]
         }
@@ -285,7 +285,7 @@ defmodule AL.JAM.ScanTest do
                branch
              )
 
-    assert bindings[:"$Input"] == ~c"point"
+    assert bindings["$Input"] == ~c"point"
   end
 
   test "bound and constrained results retain prefix order and aliases", %{branch: branch} do
@@ -293,10 +293,10 @@ defmodule AL.JAM.ScanTest do
           {:get, []},
           {:ge, []},
           {:missing, []},
-          {:"$Value", [%AL.Goal.Dif{a: :"$Value", b: :get}]},
-          {:"$Value", [%AL.Goal.Eq{a: :"$Value", b: :"$Alias"}]},
-          {:"$Rest", []},
-          {%AL.Goal.Compound{name: :var, args: [:"$Rest"]}, []}
+          {{:"$var", "Value"}, [%AL.Goal.Dif{a: {:"$var", "Value"}, b: :get}]},
+          {{:"$var", "Value"}, [%AL.Goal.Eq{a: {:"$var", "Value"}, b: {:"$var", "Alias"}}]},
+          {{:"$var", "Rest"}, []},
+          {%AL.Goal.Compound{name: :var, args: [{:"$var", "Rest"}]}, []}
         ] do
       condition =
         constraints ++
@@ -304,14 +304,14 @@ defmodule AL.JAM.ScanTest do
             %AL.Goal.Send{
               object: %{class: :al_grammar},
               method: :symbol,
-              args: [~c"get ", :"$Rest", output]
+              args: [~c"get ", {:"$var", "Rest"}, output]
             }
           ]
 
       program = [
         %AL.Goal.Findall{
-          template: [output, :"$Rest"],
-          result: :"$Answers",
+          template: [output, {:"$var", "Rest"}],
+          result: {:"$var", "Answers"},
           condition: condition
         }
       ]
@@ -334,7 +334,7 @@ defmodule AL.JAM.ScanTest do
                      callee,
                      receiver,
                      :symbol,
-                     {:constant, [~c"get ", :"$Rest", value]},
+                     {:constant, [~c"get ", {:"$var", "Rest"}, value]},
                      {},
                      %{},
                      branch,
@@ -343,8 +343,11 @@ defmodule AL.JAM.ScanTest do
                  end
 
                  assert {:region, _, _, _, _, _, _} = enter.(:get)
-                 assert :fallback = enter.(:"$Rest")
-                 assert :fallback = enter.(%AL.Goal.Compound{name: :var, args: [:"$Rest"]})
+                 assert :fallback = enter.({:"$var", "Rest"})
+
+                 assert :fallback =
+                          enter.(%AL.Goal.Compound{name: :var, args: [{:"$var", "Rest"}]})
+
                  :ok
                end)
              end)
@@ -356,16 +359,16 @@ defmodule AL.JAM.ScanTest do
 
     program = [
       %AL.Goal.Findall{
-        template: [:"$Value", :"$Rest"],
-        result: :"$Answers",
+        template: [{:"$var", "Value"}, {:"$var", "Rest"}],
+        result: {:"$var", "Answers"},
         condition: [
           %AL.Goal.Send{
             object: %{class: :al_grammar},
             method: :symbol,
-            args: [~c"point\n", :"$Rest", :"$Value"]
+            args: [~c"point\n", {:"$var", "Rest"}, {:"$var", "Value"}]
           },
           %AL.Goal.Implies{
-            condition: [%AL.Goal.Eq{a: :"$Value", b: :point}],
+            condition: [%AL.Goal.Eq{a: {:"$var", "Value"}, b: :point}],
             then: mutation.program ++ [%AL.Goal.Fail{}],
             otherwise: [%AL.Goal.Pass{}]
           }
@@ -373,9 +376,20 @@ defmodule AL.JAM.ScanTest do
       }
     ]
 
-    assert {:atomic, {bindings, _, _}} = AL.eval(program, nil, branch)
+    reference_branch = AL.Branch.fork(:tip, branch)
 
-    assert bindings[:"$Answers"] ==
+    reference =
+      try do
+        assert {:atomic, {bindings, _, _}} = AL.eval(program, nil, reference_branch, trace: [:vm])
+        bindings["$Answers"]
+      after
+        AL.Branch.discard(reference_branch)
+      end
+
+    assert {:atomic, {bindings, _, _}} = AL.eval(program, nil, branch)
+    assert bindings["$Answers"] == reference
+
+    assert bindings["$Answers"] ==
              Enum.flat_map(
                [
                  [:poin, ~c"t\n"],
@@ -386,9 +400,7 @@ defmodule AL.JAM.ScanTest do
                fn [atom, rest] ->
                  [
                    [atom, rest],
-                   [atom, [999 | rest]],
-                   [atom, [999 | rest]],
-                   [atom, [999, 999 | rest]]
+                   [atom, [999 | rest]]
                  ]
                end
              )
@@ -403,27 +415,30 @@ defmodule AL.JAM.ScanTest do
   } do
     {:ok, mutation} =
       AL.Syntax.parse("""
-      variable_syntax >> variable_name
-      | _Self _Input _Rest _Name |
+      variable_syntax >> variable_start
+      | _Self _Input _Rest |
       (fail).
       """)
 
     program = [
       %AL.Goal.Findall{
-        template: [:"$Value", :"$Rest"],
-        result: :"$Answers",
+        template: [{:"$var", "Value"}, {:"$var", "Rest"}],
+        result: {:"$var", "Answers"},
         condition: [
           %AL.Goal.Send{
             object: %{class: :al_grammar},
             method: :symbol,
-            args: [~c"Point\n", :"$Rest", :"$Value"]
+            args: [~c"Point\n", {:"$var", "Rest"}, {:"$var", "Value"}]
           },
           %AL.Goal.Implies{
             condition: [
-              %AL.Goal.Eq{a: :"$Value", b: %AL.Goal.Compound{name: :var, args: [:Point]}}
+              %AL.Goal.Eq{
+                a: {:"$var", "Value"},
+                b: %AL.Goal.Compound{name: :var, args: ["Point"]}
+              }
             ],
             then: mutation.program ++ [%AL.Goal.Fail{}],
-            otherwise: [%AL.Goal.Pass{}]
+            otherwise: [%AL.Goal.Atom{term: {:"$var", "Value"}}]
           }
         ]
       }
@@ -435,7 +450,7 @@ defmodule AL.JAM.ScanTest do
       try do
         assert {:atomic, {bindings, _, _}} = AL.eval(program, nil, isolated, opts)
 
-        assert bindings[:"$Answers"] == [
+        assert bindings["$Answers"] == [
                  [:Point, ~c"\n"],
                  [:Poin, ~c"t\n"],
                  [:Poi, ~c"nt\n"],

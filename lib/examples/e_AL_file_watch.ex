@@ -38,8 +38,8 @@ defmodule Examples.ALFileWatch do
           """
         end
 
-      watcher = bindings[:"$Watcher"]
-      start_effect = bindings[:"$StartEffect"]
+      watcher = bindings["$Watcher"]
+      start_effect = bindings["$StartEffect"]
       assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :watching}, 2_000
 
       {:atomic, _} =
@@ -68,7 +68,7 @@ defmodule Examples.ALFileWatch do
           """
         end
 
-      stop_effect = stop_bindings[:"$StopEffect"]
+      stop_effect = stop_bindings["$StopEffect"]
       assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :stopped}, 2_000
 
       {:atomic, _} =

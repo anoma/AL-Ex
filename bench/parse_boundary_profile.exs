@@ -70,7 +70,7 @@ defmodule Bench.ParseBoundaryProfile do
         cond do
           not AL.Var.var?(value) -> :bound
           Map.has_key?(store, value) -> :constrained_or_bound
-          value == :"$_" -> :wildcard
+          value == {:"$var", "_"} -> :wildcard
           true -> :fresh
         end
       end
@@ -323,7 +323,7 @@ Bench.Language.isolated(fn ->
 
   program =
     Bench.Language.program("parse al_grammar (program Items) Source.", %{
-      :"$Source" => File.read!(path)
+      {:"$var", "Source"} => File.read!(path)
     })
 
   expected = Bench.Language.bindings(AL.eval(program))
@@ -374,7 +374,7 @@ Bench.Language.isolated(fn ->
   {:atomic, sources} =
     :mnesia.transaction(fn ->
       Map.new(ids, fn id ->
-        rows = AL.cached_scan_clauses(id, AL.Branch.head())
+        rows = AL.JAM.Clauses.cached_scan_clauses(id, AL.Branch.head())
 
         clauses =
           Enum.map(rows, fn {:oapply, _, seq, head, body} ->

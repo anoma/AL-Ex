@@ -10,7 +10,7 @@ defmodule Bench.ScanRegion do
                  callee,
                  plan.receiver,
                  plan.selector,
-                 {:constant, [input, :"$Rest", :"$Value"]},
+                 {:constant, [input, {:"$var", "Rest"}, {:"$var", "Value"}]},
                  {},
                  %{},
                  plan.branch,
@@ -42,10 +42,14 @@ defmodule Bench.ScanRegion do
     do:
       collect(AL.JAM.resume(snapshot, branch, 1_000_000), alternatives ++ choices, branch, demand)
 
-  defp answer(store, _, _, :first), do: [AL.Var.subst([:"$Value", :"$Rest"], store)]
+  defp answer(store, _, _, :first),
+    do: [AL.Var.subst([{:"$var", "Value"}, {:"$var", "Rest"}], store)]
 
   defp answer(store, choices, branch, demand),
-    do: [AL.Var.subst([:"$Value", :"$Rest"], store) | remaining(choices, branch, demand)]
+    do: [
+      AL.Var.subst([{:"$var", "Value"}, {:"$var", "Rest"}], store)
+      | remaining(choices, branch, demand)
+    ]
 
   defp remaining([], _, _), do: []
 

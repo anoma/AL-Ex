@@ -1,7 +1,7 @@
 defmodule AL.JAM.Head do
   alias AL.JAM.Operand
 
-  def compile(:"$_", _registers, seen), do: {:ignore, seen}
+  def compile({:"$var", "_"}, _registers, seen), do: {:ignore, seen}
 
   def compile([head | tail] = pattern, registers, seen) do
     previous = seen
@@ -38,7 +38,9 @@ defmodule AL.JAM.Head do
   end
 
   defp unify_term(pattern, registers, seen) do
-    after_seen = pattern |> AL.Var.find_vars() |> MapSet.delete(:"$_") |> MapSet.union(seen)
+    after_seen =
+      pattern |> AL.Var.find_vars() |> MapSet.delete({:"$var", "_"}) |> MapSet.union(seen)
+
     {{:unify_term, construction(pattern, registers, seen, after_seen)}, after_seen}
   end
 
@@ -150,7 +152,7 @@ defmodule AL.JAM.Head do
   def match({:unify_term, construction}, call, store, registers, branch),
     do: construct(construction, call, store, registers, branch)
 
-  def match({:set_register, index, name}, :"$_", store, registers, _branch),
+  def match({:set_register, index, name}, {:"$var", "_"}, store, registers, _branch),
     do:
       {store, put_elem(registers, index, AL.Var.fresh(name, Integer.to_string(AL.fresh_scope())))}
 

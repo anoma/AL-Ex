@@ -13,10 +13,10 @@ defmodule AL.JAM.RegionCodeTest do
   end
 
   defp collect({:ok, store, _}, choices, budget),
-    do: [AL.Var.subst(:"$Output", store) | remaining(choices, budget)]
+    do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(choices, budget)]
 
   defp collect({:answers, store, alternatives, _}, choices, budget),
-    do: [AL.Var.subst(:"$Output", store) | remaining(alternatives ++ choices, budget)]
+    do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(alternatives ++ choices, budget)]
 
   defp collect({:suspend, snapshot, alternatives, _}, choices, budget),
     do:
@@ -38,7 +38,7 @@ defmodule AL.JAM.RegionCodeTest do
                  {:eq, {:register, 2},
                   {:cons, {:register, 0}, {:cons, {:register, 1}, {:constant, []}}}}
                ],
-               {1, 2, :"$Output"}
+               {1, 2, {:"$var", "Output"}}
              )
   end
 
@@ -54,7 +54,7 @@ defmodule AL.JAM.RegionCodeTest do
                  {:label, :done},
                  {:eq, {:register, 4}, {:register, 1}}
                ],
-               {[1, 2, 3], nil, nil, nil, :"$Output"},
+               {[1, 2, 3], nil, nil, nil, {:"$var", "Output"}},
                1
              )
   end
@@ -75,7 +75,7 @@ defmodule AL.JAM.RegionCodeTest do
                  {:eq, {:register, 1}, {:constant, :last}},
                  {:label, :end}
                ],
-               {:saved, :"$Output", :discarded},
+               {:saved, {:"$var", "Output"}, :discarded},
                2
              )
   end

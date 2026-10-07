@@ -68,7 +68,9 @@ Bench.Language.isolated(fn ->
   input = File.read!(Path.join(__DIR__, "fixtures/point.al"))
 
   program =
-    Bench.Language.program("parse al_grammar (program Items) Source.", %{:"$Source" => input})
+    Bench.Language.program("parse al_grammar (program Items) Source.", %{
+      {:"$var", "Source"} => input
+    })
 
   expected = Bench.Language.bindings(AL.eval(program))
   run = fn -> AL.eval(program) end

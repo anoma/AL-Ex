@@ -3,7 +3,7 @@ defmodule AL.JAM.Compiler do
 
   def fetch_ir(method_id, branch) do
     AL.ResolutionCache.fetch_dispatch(branch, {:method_ir, method_id}, fn ->
-      method_id |> AL.cached_scan_clauses(branch) |> AL.JAM.IR.Program.lower_clauses()
+      method_id |> AL.JAM.Clauses.cached_scan_clauses(branch) |> AL.JAM.IR.Program.lower_clauses()
     end)
   end
 
@@ -41,9 +41,9 @@ defmodule AL.JAM.Compiler do
     body = Enum.map(body, &Goal.from_stored/1)
 
     {variables, captures} =
-      Goal.reduce({head, body}, {%{}, []}, fn term, {variables, captures} ->
-        if term != :"$_" and AL.Var.var?(term) and not Map.has_key?(variables, term) do
-          name = AL.Var.fresh(:"$Capture", Integer.to_string(map_size(variables)))
+      AL.Term.reduce({head, body}, {%{}, []}, fn term, {variables, captures} ->
+        if term != {:"$var", "_"} and AL.Var.var?(term) and not Map.has_key?(variables, term) do
+          name = AL.Var.fresh({:"$var", "Capture"}, Integer.to_string(map_size(variables)))
           {Map.put(variables, term, name), [term | captures]}
         else
           {variables, captures}
@@ -51,7 +51,7 @@ defmodule AL.JAM.Compiler do
       end)
 
     captures = Enum.reverse(captures)
-    {head, body} = Goal.map({head, body}, &Map.get(variables, &1, &1))
+    {head, body} = AL.Term.map({head, body}, &Map.get(variables, &1, &1))
     environment = Enum.map(captures, &Map.fetch!(variables, &1))
     {head, body, environment, captures}
   end
@@ -82,8 +82,8 @@ defmodule AL.JAM.Compiler do
     clauses = prepare(clauses, captures, return_modes and not AL.JAM.Trace.active?())
 
     compiled =
-      Enum.map(clauses, fn {identity, matcher, initial, locals, code} ->
-        code = AL.JAM.Registers.specialize(code, locals)
+      Enum.map(clauses, fn {identity, matcher, initial, locals, code, usage} ->
+        code = AL.JAM.Registers.specialize(code, locals, usage)
         local_indices = MapSet.new(locals, &elem(&1, 0))
 
         variants =
@@ -91,7 +91,7 @@ defmodule AL.JAM.Compiler do
               index <- 0..(tuple_size(initial) - 1)//1,
               tuple_size(initial) > 0,
               not MapSet.member?(local_indices, index),
-              specialized = AL.JAM.Registers.specialize(code, [{index, nil}]),
+              specialized = AL.JAM.Registers.specialize(code, [{index, nil}], usage),
               Enum.any?(Enum.zip(code, specialized), fn {before, after_code} ->
                 before != after_code and elem(after_code, 0) != :send_local
               end),
@@ -110,13 +110,14 @@ defmodule AL.JAM.Compiler do
             do: AL.JAM.Head.return_arguments(matcher),
             else: %{}
 
+        locals = AL.JAM.Registers.materialized_locals(code, locals, usage)
+
         {code, initial} =
           if return_modes,
             do: AL.JAM.Self.compile(code, matcher, initial),
             else: {code, initial}
 
         matcher = AL.JAM.Head.arguments(matcher)
-        locals = AL.JAM.Registers.materialized_locals(code, locals)
         {identity, matcher, initial, locals, List.to_tuple(code), {variants, head_returns}}
       end)
 
@@ -178,7 +179,7 @@ defmodule AL.JAM.Compiler do
 
       names =
         MapSet.union(AL.Var.find_vars(head), AL.JAM.IR.Program.variables(body))
-        |> MapSet.delete(:"$_")
+        |> MapSet.delete({:"$var", "_"})
         |> MapSet.difference(captures)
         |> Enum.sort()
 
@@ -193,13 +194,20 @@ defmodule AL.JAM.Compiler do
       body_slots = Map.put(slots, :jam_head_slots, head_slots)
       builders = AL.JAM.IR.Program.emit(body, body_slots)
 
+      usage =
+        AL.JAM.IR.Program.usage(body, body_slots, MapSet.union(AL.Var.find_vars(head), captures))
+
       builders =
         if scoped?, do: [:cut_scope | builders], else: builders
 
       builders =
         if cursor?, do: [{:cursor, Map.fetch!(slots, :jam_cursor)} | builders], else: builders
 
-      {{id, seq, head, AL.JAM.Operand.compile(head, slots)}, matcher, initial, locals, builders}
+      usage = if scoped?, do: [%AL.JAM.IR.Usage{} | usage], else: usage
+      usage = if cursor?, do: [%AL.JAM.IR.Usage{} | usage], else: usage
+
+      {{id, seq, head, AL.JAM.Operand.compile(head, slots)}, matcher, initial, locals, builders,
+       usage}
     end)
   end
 
@@ -207,7 +215,10 @@ defmodule AL.JAM.Compiler do
     program = AL.JAM.IR.Program.lower(goals)
 
     variables =
-      program |> AL.JAM.IR.Program.variables() |> MapSet.delete(:"$_") |> MapSet.to_list()
+      program
+      |> AL.JAM.IR.Program.variables()
+      |> MapSet.delete({:"$var", "_"})
+      |> MapSet.to_list()
 
     slots = variables |> Enum.with_index() |> Map.new()
     {AL.JAM.IR.Program.emit(program, slots) |> List.to_tuple(), List.to_tuple(variables)}

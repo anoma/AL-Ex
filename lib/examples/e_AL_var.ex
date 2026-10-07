@@ -17,7 +17,7 @@ defmodule Examples.ALVar do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$X") == 1
+    assert Map.fetch!(bindings, "$X") == 1
     :ok
   end
 

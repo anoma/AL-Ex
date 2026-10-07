@@ -38,7 +38,12 @@ defmodule ALSyntaxReaderTest do
              %Goal.Compound{name: :clear_method, args: [:list, :fold_left]},
              %Goal.Compound{
                name: :defmethod,
-               args: [:list, :fold_left, [[], :"$_Func", :"$Acc", :"$Acc"], []]
+               args: [
+                 :list,
+                 :fold_left,
+                 [[], {:"$var", "_Func"}, {:"$var", "Acc"}, {:"$var", "Acc"}],
+                 []
+               ]
              },
              %Goal.Compound{name: :clear_method, args: [:object, :forward]},
              %Goal.Compound{
@@ -46,8 +51,8 @@ defmodule ALSyntaxReaderTest do
                args: [
                  :object,
                  :forward,
-                 [:"$Self" | :"$Args"],
-                 [%Goal.Compound{name: :ground, args: [:"$Args"]}]
+                 [{:"$var", "Self"} | {:"$var", "Args"}],
+                 [%Goal.Compound{name: :ground, args: [{:"$var", "Args"}]}]
                ]
              }
            ] = program
@@ -62,10 +67,19 @@ defmodule ALSyntaxReaderTest do
     {:ok, %{program: program}} = Syntax.parse(source)
 
     assert [
-             %Goal.Compound{name: :clear_method, args: [:"$Owner", :"$Selector"]},
-             %Goal.Compound{name: :defmethod, args: [:"$Owner", :"$Selector", [:"$Self"], _]},
+             %Goal.Compound{
+               name: :clear_method,
+               args: [{:"$var", "Owner"}, {:"$var", "Selector"}]
+             },
+             %Goal.Compound{
+               name: :defmethod,
+               args: [{:"$var", "Owner"}, {:"$var", "Selector"}, [{:"$var", "Self"}], _]
+             },
              %Goal.Compound{name: :clear_method, args: [[:owner], %{name: :value}]},
-             %Goal.Compound{name: :defmethod, args: [[:owner], %{name: :value}, [:"$Arg"], _]}
+             %Goal.Compound{
+               name: :defmethod,
+               args: [[:owner], %{name: :value}, [{:"$var", "Arg"}], _]
+             }
            ] = program
 
     assert {:ok, %{program: ^program}} = Syntax.parse(AL.Syntax.Printer.program(program))
@@ -113,7 +127,10 @@ defmodule ALSyntaxReaderTest do
     assert [
              %Goal.Compound{
                name: :=,
-               args: [[:"$H" | :"$T"], [-1, "a \"b\"", %{:k => :"odd atom", 2 => nil}, 2.5]]
+               args: [
+                 [{:"$var", "H"} | {:"$var", "T"}],
+                 [-1, "a \"b\"", %{:k => :"odd atom", 2 => nil}, 2.5]
+               ]
              }
            ] = result.program
   end
@@ -123,7 +140,12 @@ defmodule ALSyntaxReaderTest do
 
     assert %Goal.Compound{
              name: :between,
-             args: [:"$Self", %Goal.Compound{name: :+}, :"$High", :"$V"]
+             args: [
+               {:"$var", "Self"},
+               %Goal.Compound{name: :+},
+               {:"$var", "High"},
+               {:"$var", "V"}
+             ]
            } = call
 
     assert %Goal.Compound{name: :=, args: [_, %Goal.Compound{name: :foo, args: []}]} = zero
@@ -184,10 +206,12 @@ defmodule ALSyntaxReaderTest do
     {:ok, %{program: [functor, negative, negate]}} =
       Syntax.parse("functor G < [X, 10], = Y -1, = Z (- 1).")
 
-    assert %Goal.Compound{name: :functor, args: [:"$G", :<, [:"$X", 10]]} = functor
-    assert %Goal.Compound{name: :=, args: [:"$Y", -1]} = negative
+    assert %Goal.Compound{name: :functor, args: [{:"$var", "G"}, :<, [{:"$var", "X"}, 10]]} =
+             functor
 
-    assert %Goal.Compound{name: :=, args: [:"$Z", %Goal.Compound{name: :-, args: [1]}]} =
+    assert %Goal.Compound{name: :=, args: [{:"$var", "Y"}, -1]} = negative
+
+    assert %Goal.Compound{name: :=, args: [{:"$var", "Z"}, %Goal.Compound{name: :-, args: [1]}]} =
              negate
   end
 
@@ -196,7 +220,7 @@ defmodule ALSyntaxReaderTest do
 
     assert [
              %Goal.Compound{name: :clear_method},
-             %Goal.Compound{name: :defmethod, args: [:c, :m, [:"$Self"], body]},
+             %Goal.Compound{name: :defmethod, args: [:c, :m, [{:"$var", "Self"}], body]},
              %Goal.Compound{name: :=, args: [_, %{}]}
            ] = result.program
 

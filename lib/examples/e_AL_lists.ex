@@ -17,8 +17,8 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert AL.Var.deref(bindings, :"$Second") == :b
-    assert bindings |> AL.Var.deref(:"$Rest") |> AL.Var.subst(bindings) == [:c, :d]
+    assert Map.fetch!(bindings, "$Second") == :b
+    assert bindings["$Rest"] == [:c, :d]
     :ok
   end
 
@@ -38,14 +38,14 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Sum") == [:a, :b, :c, :d, :e, :f]
-    assert Map.get(bindings, :"$Reversed") == [:f, :e, :d, :c, :b]
-    assert Map.get(bindings, :"$FoldedLeft") == [:starter, :a, :b, :c, :d]
-    assert Map.get(bindings, :"$FoldedRight") == [:starter, :d, :c, :b, :a]
-    assert Map.get(bindings, :"$Flattened") == [:a, :b, :c, :d, :e]
-    assert Map.get(bindings, :"$Head") == :w
-    assert Map.get(bindings, :"$Tail") == [:x, :y, :z]
-    assert length(Map.get(bindings, :"$OfSameLength")) == 4
+    assert Map.get(bindings, "$Sum") == [:a, :b, :c, :d, :e, :f]
+    assert Map.get(bindings, "$Reversed") == [:f, :e, :d, :c, :b]
+    assert Map.get(bindings, "$FoldedLeft") == [:starter, :a, :b, :c, :d]
+    assert Map.get(bindings, "$FoldedRight") == [:starter, :d, :c, :b, :a]
+    assert Map.get(bindings, "$Flattened") == [:a, :b, :c, :d, :e]
+    assert Map.get(bindings, "$Head") == :w
+    assert Map.get(bindings, "$Tail") == [:x, :y, :z]
+    assert length(Map.get(bindings, "$OfSameLength")) == 4
 
     state
   end
@@ -58,7 +58,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Elems") == [[0, 1], [1, 2], [2, 3]]
+    assert Map.get(bindings, "$Elems") == [[0, 1], [1, 2], [2, 3]]
 
     state
   end
@@ -71,7 +71,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Sorted") == [1, 1, 2, 3, 4, 5, 6, 9]
+    assert Map.get(bindings, "$Sorted") == [1, 1, 2, 3, 4, 5, 6, 9]
     :ok
   end
 
@@ -83,7 +83,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Min") == [3, 5]
+    assert Map.get(bindings, "$Min") == [3, 5]
     :ok
   end
 
@@ -95,7 +95,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Mins") == [[1, :b], [1, :c]]
+    assert Map.get(bindings, "$Mins") == [[1, :b], [1, :c]]
     :ok
   end
 
@@ -107,7 +107,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Max") == [6, 3]
+    assert Map.get(bindings, "$Max") == [6, 3]
     :ok
   end
 
@@ -119,7 +119,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Maxes") == [[2, :b], [2, :c]]
+    assert Map.get(bindings, "$Maxes") == [[2, :b], [2, :c]]
     :ok
   end
 
@@ -133,7 +133,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    pairs = Map.get(bindings, :"$Pairs")
+    pairs = Map.get(bindings, "$Pairs")
     assert length(pairs) == 12
     assert [3, [3, 5]] in pairs
     assert [3, [3, 7]] in pairs
@@ -152,8 +152,8 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$A") == 7
-    assert Map.get(bindings, :"$B") == 7
+    assert Map.get(bindings, "$A") == 7
+    assert Map.get(bindings, "$B") == 7
     :ok
   end
 
@@ -166,7 +166,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Done") == true
+    assert Map.get(bindings, "$Done") == true
     :ok
   end
 
@@ -178,7 +178,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Deduped") == [1, 2, 3, 4]
+    assert Map.get(bindings, "$Deduped") == [1, 2, 3, 4]
     :ok
   end
 
@@ -211,7 +211,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Mapped") == [[:b, :a], [:e, :d, :c]]
+    assert Map.get(bindings, "$Mapped") == [[:b, :a], [:e, :d, :c]]
     :ok
   end
 
@@ -224,7 +224,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == [%{id: :a}, %{id: :b}, %{id: :c}]
+    assert Map.get(bindings, "$Out") == [%{id: :a}, %{id: :b}, %{id: :c}]
     :ok
   end
 
@@ -237,7 +237,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == [:c, :b, :a]
+    assert Map.get(bindings, "$Out") == [:c, :b, :a]
     :ok
   end
 
@@ -250,7 +250,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$Out") == [:a, :b, :c]
+    assert Map.get(bindings, "$Out") == [:a, :b, :c]
     :ok
   end
 
@@ -303,7 +303,7 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 2
+    assert Map.get(bindings, "$X") == 2
     :ok
   end
 
@@ -319,11 +319,11 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Map.get(bindings, :"$C") == 3
-    assert Map.get(bindings, :"$D") == 4
+    assert Map.get(bindings, "$C") == 3
+    assert Map.get(bindings, "$D") == 4
 
-    assert Enum.sort(Map.get(constraints, :"$A").domain) == [1, 2]
-    assert Enum.sort(Map.get(constraints, :"$B").domain) == [1, 2]
+    assert Enum.sort(Map.get(constraints, "$A").domain) == [1, 2]
+    assert Enum.sort(Map.get(constraints, "$B").domain) == [1, 2]
     :ok
   end
 
@@ -346,8 +346,8 @@ defmodule Examples.ALLists do
         """
       end
 
-    assert Enum.map([:"$A", :"$B", :"$C", :"$D"], &bindings[&1]) == [1, 2, 3, 4]
-    assert Enum.sort(bindings[:"$Pairs"]) == [[1, 2], [2, 1]]
+    assert Enum.map(["$A", "$B", "$C", "$D"], &bindings[&1]) == [1, 2, 3, 4]
+    assert Enum.sort(bindings["$Pairs"]) == [[1, 2], [2, 1]]
   end
 
   example all_dif_leaves_slack_domains_unpruned() do
@@ -363,9 +363,9 @@ defmodule Examples.ALLists do
       end
 
     full = [1, 2, 3, :a, :b, :c]
-    assert Enum.sort(Map.get(constraints, :"$X").domain) == full
-    assert Enum.sort(Map.get(constraints, :"$Y").domain) == full
-    assert Enum.sort(Map.get(constraints, :"$Z").domain) == full
+    assert Enum.sort(Map.get(constraints, "$X").domain) == full
+    assert Enum.sort(Map.get(constraints, "$Y").domain) == full
+    assert Enum.sort(Map.get(constraints, "$Z").domain) == full
     :ok
   end
 end

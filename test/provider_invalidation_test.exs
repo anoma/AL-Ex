@@ -71,8 +71,8 @@ defmodule AL.ProviderInvalidationTest do
                branch
              )
 
-    assert bindings[:"$Before"] == :a
-    assert bindings[:"$After"] == :b
+    assert bindings["$Before"] == :a
+    assert bindings["$After"] == :b
   end
 
   test "negative lookup is invalidated and structural receivers stay distinct", %{branch: branch} do
@@ -120,7 +120,7 @@ defmodule AL.ProviderInvalidationTest do
                branch
              )
 
-    assert bindings[:"$X"] == :changed
-    assert bindings[:"$Y"] == :changed
+    assert bindings["$X"] == :changed
+    assert bindings["$Y"] == :changed
   end
 end

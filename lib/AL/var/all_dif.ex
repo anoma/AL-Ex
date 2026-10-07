@@ -60,7 +60,7 @@ defmodule AL.Var.AllDif do
     |> Enum.reduce_while({%{}, MapSet.new(), true}, fn {v, idx}, {domains, seen, known} ->
       resolved = AL.Var.deref(store, v)
 
-      if resolved != :"$_" and MapSet.member?(seen, resolved) do
+      if resolved != {:"$var", "_"} and MapSet.member?(seen, resolved) do
         {:halt, :inconsistent}
       else
         seen = MapSet.put(seen, resolved)

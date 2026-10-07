@@ -37,8 +37,8 @@ defmodule AL.JAM.SearchTest do
                branch
              )
 
-    assert bindings[:"$Matches"] == [:yes, :yes]
-    assert bindings[:"$Values"] == [:first, :second, :first]
+    assert bindings["$Matches"] == [:yes, :yes]
+    assert bindings["$Values"] == [:first, :second, :first]
   end
 
   test "unknown elements and structural values still unify", %{branch: branch} do
@@ -52,8 +52,8 @@ defmodule AL.JAM.SearchTest do
                branch
              )
 
-    assert bindings[:"$Value"] == :found
-    assert bindings[:"$Nested"] == 7
+    assert bindings["$Value"] == :found
+    assert bindings["$Nested"] == 7
   end
 
   test "the last cell retains ordinary missing-method behavior", %{branch: branch} do
@@ -110,7 +110,7 @@ defmodule AL.JAM.SearchTest do
                branch
              )
 
-    assert bindings[:"$Output"] == [7, :atom, %{key: 8}, :end]
+    assert bindings["$Output"] == [7, :atom, %{key: 8}, :end]
     assert map_size(state.active_choicepoint.store) < 10
   end
 end

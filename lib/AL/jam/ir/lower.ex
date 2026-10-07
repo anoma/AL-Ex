@@ -80,7 +80,7 @@ defmodule AL.JAM.IR.Lower do
     do: scope(:freeze, [variable], %{body: goals})
 
   def operation(%Goal.SourceScope{capture_id: id, goals: goals}),
-    do: %{scope(:source_scope, [id], %{body: goals}) | source: goals}
+    do: %{scope(:source_scope, [id], %{body: goals}) | retained_goals: goals}
 
   def operation(goal), do: IR.operation(:unsupported, nil, [goal])
 

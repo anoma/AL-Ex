@@ -34,6 +34,8 @@ defmodule AL.JAM.Unification do
   defp resolve(term, _store) when is_atom(term) or is_number(term) or is_binary(term),
     do: term
 
+  defp resolve({:"$var", _} = term, _store), do: term
+
   defp resolve({:"$fresh", _, _} = term, _store), do: term
   defp resolve(term, store), do: AL.Var.subst(term, store)
 end

@@ -25,7 +25,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Instance") == %{class: :greeter}
+    assert Map.get(bindings, "$Instance") == %{class: :greeter}
     :ok
   end
 
@@ -39,7 +39,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$B") == :behaviour
+    assert Map.get(bindings, "$B") == :behaviour
 
     result
   end
@@ -56,8 +56,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Class") == :behaviour
-    assert Map.get(bindings, :"$Metaclass") == :class
+    assert Map.get(bindings, "$Class") == :behaviour
+    assert Map.get(bindings, "$Metaclass") == :class
     result
   end
 
@@ -82,7 +82,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    g = Map.get(b, :"$G")
+    g = Map.get(b, "$G")
 
     # head matches, body succeeds -> runs
     {:atomic, _} =
@@ -136,7 +136,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$BeforeRetract") == [:foo]
+    assert Map.get(bindings, "$BeforeRetract") == [:foo]
 
     {:atomic, _} =
       run branch: Examples.Support.branch() do
@@ -152,7 +152,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings2, :"$AfterRetract") == []
+    assert Map.get(bindings2, "$AfterRetract") == []
 
     # retracted, so reclassifying is legal again -- not a permanent lock.
     {:atomic, _} =
@@ -169,7 +169,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings3, :"$Reclassified") == [:bar]
+    assert Map.get(bindings3, "$Reclassified") == [:bar]
     :ok
   end
 
@@ -200,10 +200,10 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Direct") == []
-    assert Map.get(bindings, :"$Inherited") == [Map.get(bindings, :"$Car")]
-    assert Map.get(bindings, :"$ConstrainedFirst") == Map.get(bindings, :"$Inherited")
-    refute Map.get(bindings, :"$Hydrant") in Map.get(bindings, :"$Inherited")
+    assert Map.get(bindings, "$Direct") == []
+    assert Map.get(bindings, "$Inherited") == [Map.get(bindings, "$Car")]
+    assert Map.get(bindings, "$ConstrainedFirst") == Map.get(bindings, "$Inherited")
+    refute Map.get(bindings, "$Hydrant") in Map.get(bindings, "$Inherited")
   end
 
   example repeated_isa_checks_reuse_the_cached_hierarchy() do
@@ -282,7 +282,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$A") != Map.get(bindings, :"$B")
+    assert Map.get(bindings, "$A") != Map.get(bindings, "$B")
     :ok
   end
 
@@ -300,8 +300,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$NewPointClass") == :point
-    assert Map.get(bindings, :"$NewPointObject") == %{class: :point}
+    assert Map.get(bindings, "$NewPointClass") == :point
+    assert Map.get(bindings, "$NewPointObject") == %{class: :point}
 
     result
   end
@@ -325,8 +325,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert is_atom(Map.get(b, :"$Obj"))
-    assert Map.get(b, :"$ObjClass") == :durable_meta
+    assert is_atom(Map.get(b, "$Obj"))
+    assert Map.get(b, "$ObjClass") == :durable_meta
 
     program_state
   end
@@ -360,8 +360,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b1, :"$R") == :first
-    assert Map.get(b2, :"$R") == :second
+    assert Map.get(b1, "$R") == :first
+    assert Map.get(b2, "$R") == :second
 
     # the two defmethods accreted clauses onto one id, not two separate methods
     {:atomic, {b3, _constraints, _}} =
@@ -371,7 +371,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert length(Enum.uniq(Map.get(b3, :"$Ids"))) == 1
+    assert length(Enum.uniq(Map.get(b3, "$Ids"))) == 1
     :ok
   end
 
@@ -386,8 +386,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Classes") == [:class]
-    assert Map.get(bindings, :"$Supers") == [:object]
+    assert Map.get(bindings, "$Classes") == [:class]
+    assert Map.get(bindings, "$Supers") == [:object]
 
     {:atomic, {slot_bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -403,7 +403,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(slot_bindings, :"$DirectSlots") == [[:name, :rex]]
+    assert Map.get(slot_bindings, "$DirectSlots") == [[:name, :rex]]
 
     program_state
   end
@@ -423,8 +423,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$ObjectsBefore") == []
-    assert Map.get(bindings, :"$ObjectsAfter") == [Map.get(bindings, :"$Obj")]
+    assert Map.get(bindings, "$ObjectsBefore") == []
+    assert Map.get(bindings, "$ObjectsAfter") == [Map.get(bindings, "$Obj")]
     :ok
   end
 
@@ -457,7 +457,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    first = Map.get(b, :"$O")
+    first = Map.get(b, "$O")
 
     assert is_atom(first) and not AL.Var.var?(first)
 
@@ -468,7 +468,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    pairs = Map.get(b2, :"$Pairs")
+    pairs = Map.get(b2, "$Pairs")
     receivers = Enum.map(pairs, fn [o, _r] -> o end)
 
     assert Enum.all?(receivers, fn o -> is_atom(o) and not AL.Var.var?(o) end)
@@ -514,7 +514,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    ms = Map.get(b, :"$Ms")
+    ms = Map.get(b, "$Ms")
 
     assert Enum.all?(ms, fn m -> is_atom(m) and not AL.Var.var?(m) end)
     # :alpha and :delta accept arg :a; :beta wants :b, so it's not a match
@@ -529,7 +529,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    ms2 = Map.get(b2, :"$Ms")
+    ms2 = Map.get(b2, "$Ms")
 
     assert :beta in ms2
     refute :alpha in ms2
@@ -566,7 +566,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b, :"$S") == :generic_sound
+    assert Map.get(b, "$S") == :generic_sound
 
     # cat defines speak, shadowing animal's for felix
     {:atomic, {b2, _constraints, _}} =
@@ -576,7 +576,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b2, :"$S") == :meow
+    assert Map.get(b2, "$S") == :meow
     :ok
   end
 
@@ -611,7 +611,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    os = Map.get(b, :"$Os")
+    os = Map.get(b, "$Os")
     assert :real_pinger in os
     refute :tripwire in os
 
@@ -622,7 +622,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b2, :"$T") == :no
+    assert Map.get(b2, "$T") == :no
 
     # a directed send of the same unimplemented method *does* fire DNU
     {:atomic, _} =
@@ -639,7 +639,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b3, :"$T") == :yes
+    assert Map.get(b3, "$T") == :yes
     :ok
   end
 
@@ -666,7 +666,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b, :"$Result") == [:i_am_pet, :i_am_animal]
+    assert Map.get(b, "$Result") == [:i_am_pet, :i_am_animal]
     :ok
   end
 
@@ -701,7 +701,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$M") == %{x: 1, z: 3}
+    assert Map.get(bindings, "$M") == %{x: 1, z: 3}
 
     bindings
   end
@@ -718,7 +718,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert bindings[:"$X"] == 1
+    assert bindings["$X"] == 1
 
     {:atomic, {map_bindings, _constraints, _runtime}} =
       run branch: Examples.Support.branch() do
@@ -727,8 +727,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert map_bindings[:"$Left"] == :a
-    assert map_bindings[:"$Right"] == :b
+    assert map_bindings["$Left"] == :a
+    assert map_bindings["$Right"] == :b
   end
 
   example method_with_an_open_owner_is_a_domain_constraint() do
@@ -757,11 +757,11 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$Pingers")) == [:method_domain_both, :method_domain_ping]
-    assert Map.get(bindings, :"$Both") == [:method_domain_both]
-    assert [[:method_domain_both, id]] = Map.get(bindings, :"$PongIds")
+    assert Enum.sort(Map.get(bindings, "$Pingers")) == [:method_domain_both, :method_domain_ping]
+    assert Map.get(bindings, "$Both") == [:method_domain_both]
+    assert [[:method_domain_both, id]] = Map.get(bindings, "$PongIds")
     refute AL.Var.var?(id)
-    assert Map.get(bindings, :"$None") == []
+    assert Map.get(bindings, "$None") == []
   end
 
   example clause_with_an_open_owner_is_a_domain_constraint() do
@@ -793,14 +793,14 @@ defmodule Examples.ALObjects do
         """
       end
 
-    id_a = Map.get(bindings, :"$IdA")
-    id_b = Map.get(bindings, :"$IdB")
-    assert Enum.sort(Map.get(bindings, :"$SharedOwners")) == Enum.sort([id_a, id_b])
-    assert Map.get(bindings, :"$OnlyAOwners") == [id_a]
-    assert [[^id_a, seq]] = Map.get(bindings, :"$OnlyARows")
+    id_a = Map.get(bindings, "$IdA")
+    id_b = Map.get(bindings, "$IdB")
+    assert Enum.sort(Map.get(bindings, "$SharedOwners")) == Enum.sort([id_a, id_b])
+    assert Map.get(bindings, "$OnlyAOwners") == [id_a]
+    assert [[^id_a, seq]] = Map.get(bindings, "$OnlyARows")
     assert is_integer(seq)
-    assert Map.get(bindings, :"$None") == []
-    assert [s] = Map.get(bindings, :"$ASharedSeqs")
+    assert Map.get(bindings, "$None") == []
+    assert [s] = Map.get(bindings, "$ASharedSeqs")
     assert is_integer(s)
   end
 
@@ -820,10 +820,10 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$InstanceLegs") == []
-    assert Map.get(bindings, :"$ClassLegs") == [4]
-    assert Map.get(bindings, :"$MapLegs") == []
-    assert Map.get(bindings, :"$MapOwnLegs") == [8]
+    assert Map.get(bindings, "$InstanceLegs") == []
+    assert Map.get(bindings, "$ClassLegs") == [4]
+    assert Map.get(bindings, "$MapLegs") == []
+    assert Map.get(bindings, "$MapOwnLegs") == [8]
   end
 
   example default_ivar_copies_into_the_instance() do
@@ -841,9 +841,9 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Legs") == 4
-    assert Map.get(bindings, :"$AfterSet") == 3
-    assert Map.get(bindings, :"$ClassLegs") == []
+    assert Map.get(bindings, "$Legs") == 4
+    assert Map.get(bindings, "$AfterSet") == 3
+    assert Map.get(bindings, "$ClassLegs") == []
   end
 
   example get_does_not_fall_through_to_inherited_on_value_mismatch() do
@@ -865,7 +865,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Legs") == 8
+    assert Map.get(bindings, "$Legs") == 8
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
@@ -902,7 +902,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$State") == "off"
+    assert Map.get(bindings, "$State") == "off"
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
@@ -924,7 +924,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Value") == 42
+    assert Map.get(bindings, "$Value") == 42
     :ok
   end
 
@@ -964,7 +964,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Annotation") == :available
+    assert Map.get(bindings, "$Annotation") == :available
     :ok
   end
 
@@ -992,7 +992,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Suit") == :hearts
+    assert Map.get(bindings, "$Suit") == :hearts
     :ok
   end
 
@@ -1020,7 +1020,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Slots") == []
+    assert Map.get(bindings, "$Slots") == []
     :ok
   end
 
@@ -1072,7 +1072,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Slots") == []
+    assert Map.get(bindings, "$Slots") == []
     :ok
   end
 
@@ -1093,7 +1093,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Slots") == []
+    assert Map.get(bindings, "$Slots") == []
     :ok
   end
 
@@ -1114,7 +1114,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Count") == 0
+    assert Map.get(bindings, "$Count") == 0
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -1124,7 +1124,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings2, :"$Count") == 5
+    assert Map.get(bindings2, "$Count") == 5
     :ok
   end
 
@@ -1140,8 +1140,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    refute AL.Var.var?(Map.get(bindings, :"$Obj"))
-    assert AL.Var.var?(Map.get(bindings, :"$Tag"))
+    refute AL.Var.var?(Map.get(bindings, "$Obj"))
+    assert AL.Var.var?(Map.get(bindings, "$Tag"))
     :ok
   end
 
@@ -1175,8 +1175,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Suit") == :hearts
-    assert Map.get(bindings, :"$Count") == 0
+    assert Map.get(bindings, "$Suit") == :hearts
+    assert Map.get(bindings, "$Count") == 0
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -1187,8 +1187,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings2, :"$Suit") == :diamonds
-    assert Map.get(bindings2, :"$Count") == 3
+    assert Map.get(bindings2, "$Suit") == :diamonds
+    assert Map.get(bindings2, "$Count") == 3
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
@@ -1223,8 +1223,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Suit") == :hearts
-    assert Map.get(bindings, :"$Count") == 0
+    assert Map.get(bindings, "$Suit") == :hearts
+    assert Map.get(bindings, "$Count") == 0
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -1235,8 +1235,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings2, :"$Suit") == :diamonds
-    assert Map.get(bindings2, :"$Count") == 3
+    assert Map.get(bindings2, "$Suit") == :diamonds
+    assert Map.get(bindings2, "$Count") == 3
 
     {:aborted, _} =
       run branch: Examples.Support.branch() do
@@ -1280,7 +1280,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b1, :"$T") == :deep_trait
+    assert Map.get(b1, "$T") == :deep_trait
 
     # opt in to breadth-first on the leaf class — live, no restart — and the
     # same instance now resolves via its direct sibling before its deeper
@@ -1299,7 +1299,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(b2, :"$T") == :branch_b_trait
+    assert Map.get(b2, "$T") == :branch_b_trait
 
     {:atomic, {changed, _, _}} =
       run branch: Examples.Support.branch() do
@@ -1314,7 +1314,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Enum.map([:"$Before", :"$Unchanged", :"$Default", :"$Again"], &changed[&1]) ==
+    assert Enum.map(["$Before", "$Unchanged", "$Default", "$Again"], &changed[&1]) ==
              [:branch_b_trait, :branch_b_trait, :deep_trait, :branch_b_trait]
 
     :ok
@@ -1348,7 +1348,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Flavour") == :chocolate
+    assert Map.get(bindings, "$Flavour") == :chocolate
 
     bindings
   end
@@ -1363,7 +1363,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Chain") == [
+    assert Map.get(bindings, "$Chain") == [
              :mix_obj,
              :mix_class,
              :mix_super_1,
@@ -1391,7 +1391,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$Worked") == true
+    assert Map.get(bindings, "$Worked") == true
 
     {status, _} =
       run branch: Examples.Support.branch() do
@@ -1430,7 +1430,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 1
+    assert Map.get(bindings, "$X") == 1
     assert :mnesia.dirty_read(cache_table, :value) == []
 
     {:atomic, {bindings2, _constraints, _}} =
@@ -1440,8 +1440,8 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert AL.Var.var?(Map.get(bindings2, :"$O"))
-    assert Map.get(bindings2, :"$R") == :found
+    assert AL.Var.var?(Map.get(bindings2, "$O"))
+    assert Map.get(bindings2, "$R") == :found
     assert :mnesia.dirty_read(cache_table, :value) == []
 
     AL.Branch.discard(fork)
@@ -1487,7 +1487,7 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings, :"$X") == :isa_durable_instance_a
+    assert Map.get(bindings, "$X") == :isa_durable_instance_a
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -1497,6 +1497,6 @@ defmodule Examples.ALObjects do
         """
       end
 
-    assert Map.get(bindings2, :"$Os") == [:isa_durable_instance_a]
+    assert Map.get(bindings2, "$Os") == [:isa_durable_instance_a]
   end
 end

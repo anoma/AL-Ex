@@ -17,8 +17,8 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert Map.get(bindings, :"$Name") == :get
-    assert Map.get(bindings, :"$Args") == [:"$Self", :size, :"$Size"]
+    assert Map.get(bindings, "$Name") == :get
+    assert Map.get(bindings, "$Args") == [{:"$var", "Self"}, :size, {:"$var", "Size"}]
   end
 
   example decomposes_built_in_goals() do
@@ -31,12 +31,14 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert Map.get(bindings, :"$DifName") == :dif
-    assert Map.get(bindings, :"$DifArgs") == [:"$X", 3]
-    assert Map.get(bindings, :"$LessName") == :<
-    assert Map.get(bindings, :"$LessArgs") == [:"$X", 10]
-    assert Map.get(bindings, :"$NotName") == :not
-    assert [[%AL.Goal.Compound{name: :dif, args: [:"$X", 3]}]] = Map.get(bindings, :"$NotArgs")
+    assert Map.get(bindings, "$DifName") == :dif
+    assert Map.get(bindings, "$DifArgs") == [{:"$var", "X"}, 3]
+    assert Map.get(bindings, "$LessName") == :<
+    assert Map.get(bindings, "$LessArgs") == [{:"$var", "X"}, 10]
+    assert Map.get(bindings, "$NotName") == :not
+
+    assert [[%AL.Goal.Compound{name: :dif, args: [{:"$var", "X"}, 3]}]] =
+             Map.get(bindings, "$NotArgs")
   end
 
   example builds_the_goal_it_is_written_as() do
@@ -70,7 +72,7 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert Map.get(bindings, :"$Names") == [:get, :<]
+    assert Map.get(bindings, "$Names") == [:get, :<]
   end
 
   example builds_then_decomposes_back_to_the_same_parts() do
@@ -82,8 +84,8 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert Map.get(bindings, :"$Name") == :isa
-    assert Map.get(bindings, :"$Args") == [:"$Value", :number]
+    assert Map.get(bindings, "$Name") == :isa
+    assert Map.get(bindings, "$Args") == [{:"$var", "Value"}, :number]
   end
 
   example arithmetic_terms_pass_through_heads_as_data() do
@@ -102,8 +104,8 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert bindings[:"$Operator"] == :+
-    assert bindings[:"$Sum"] == 3
+    assert bindings["$Operator"] == :+
+    assert bindings["$Sum"] == 3
   end
 
   example compound_terms_are_values_of_class_compound() do
@@ -125,9 +127,9 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert bindings[:"$Class"] == :compound
-    assert bindings[:"$Label"] == :greet
-    assert bindings[:"$MapClass"] == :map
+    assert bindings["$Class"] == :compound
+    assert bindings["$Label"] == :greet
+    assert bindings["$MapClass"] == :map
   end
 
   example an_open_term_carries_a_functor_constraint() do
@@ -146,15 +148,15 @@ defmodule Examples.ALFunctor do
         """
       end
 
-    assert bindings[:"$Built"] == %AL.Goal.Compound{name: :greet, args: [:world]}
-    assert bindings[:"$Spined"] == %AL.Goal.Compound{name: :greet, args: [:a, :b]}
-    assert bindings[:"$Second"] == :f
-    assert bindings[:"$SecondArgs"] == [:x]
-    assert bindings[:"$Same"] == %AL.Goal.Compound{name: :f, args: [:x]}
-    assert bindings[:"$Late"] == %AL.Goal.Compound{name: :late, args: [:x]}
+    assert bindings["$Built"] == %AL.Goal.Compound{name: :greet, args: [:world]}
+    assert bindings["$Spined"] == %AL.Goal.Compound{name: :greet, args: [:a, :b]}
+    assert bindings["$Second"] == :f
+    assert bindings["$SecondArgs"] == [:x]
+    assert bindings["$Same"] == %AL.Goal.Compound{name: :f, args: [:x]}
+    assert bindings["$Late"] == %AL.Goal.Compound{name: :late, args: [:x]}
 
-    open = bindings[:"$Open"]
+    open = bindings["$Open"]
     assert AL.Var.var?(open)
-    assert constraints[open].functor == [:"$Label", :"$Parts"]
+    assert constraints[AL.Var.key(open)].functor == [{:"$var", "Label"}, {:"$var", "Parts"}]
   end
 end

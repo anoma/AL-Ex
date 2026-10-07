@@ -11,7 +11,7 @@ defmodule AL.JAM.IR.Rejection do
         with true <- proper?(head),
              {:operation, operation, _rest} <- Program.first(body),
              {test, term} <- test(operation),
-             true <- Var.var?(term) and term != :"$_",
+             true <- Var.var?(term) and term != {:"$var", "_"},
              position when is_integer(position) <- Enum.find_index(head, &(&1 === term)) do
           [{{id, seq}, {test, position}}]
         else

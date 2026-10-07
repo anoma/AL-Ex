@@ -67,7 +67,7 @@ defmodule Examples.ALJAM do
     {:atomic, {bindings, constraints, _state}} = evaluate_source(query)
     result = {bindings, constraints}
 
-    assert result == {%{"$Result": :blue, "$All": [:red, :blue], "$Chosen": :blue}, %{}}
+    assert result == {%{"$Result" => :blue, "$All" => [:red, :blue], "$Chosen" => :blue}, %{}}
   end
 
   example machine_alternatives_restore_bindings_and_nested_return_frames_in_order() do
@@ -104,7 +104,7 @@ defmodule Examples.ALJAM do
                result =
                  AL.JAM.run(
                    id,
-                   [:machine_choices_instance, :"$Pair"],
+                   [:machine_choices_instance, {:"$var", "Pair"}],
                    %{},
                    branch,
                    1000
@@ -152,12 +152,12 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Pairs": [[:red, :red], [:red, :blue], [:blue, :red], [:blue, :blue]],
-             "$Seen": [:blue, :red]
+             "$Pairs" => [[:red, :red], [:red, :blue], [:blue, :red], [:blue, :blue]],
+             "$Seen" => [:blue, :red]
            }
 
-    assert expected[:"$Pairs"] == [[:red, :red], [:red, :blue], [:blue, :red], [:blue, :blue]]
-    assert expected[:"$Seen"] == [:blue, :red]
+    assert expected["$Pairs"] == [[:red, :red], [:red, :blue], [:blue, :red], [:blue, :blue]]
+    assert expected["$Seen"] == [:blue, :red]
   end
 
   example caller_cuts_prune_compiled_alternatives() do
@@ -182,7 +182,7 @@ defmodule Examples.ALJAM do
     {:atomic, {bindings, _, _}} =
       evaluate_source("findall Color Colors {first machine_cut_instance Color}.")
 
-    assert bindings[:"$Colors"] == [:red]
+    assert bindings["$Colors"] == [:red]
   end
 
   example running_calls_keep_their_clauses_while_later_calls_see_edits() do
@@ -211,7 +211,7 @@ defmodule Examples.ALJAM do
       }.
       """)
 
-    assert bindings[:"$Pairs"] == [[:red, :old], [:blue, :old], [:blue, :new]]
+    assert bindings["$Pairs"] == [[:red, :old], [:blue, :old], [:blue, :new]]
   end
 
   example yielded_answers_pass_current_bindings_back_to_callers() do
@@ -248,10 +248,12 @@ defmodule Examples.ALJAM do
 
     expected = {bindings, constraints, state.reductions}
 
-    assert expected == {%{"$Pairs": [[:red, :red], [:blue, :blue]], "$Result": :ready}, %{}, 5}
+    assert expected ==
+             {%{"$Pairs" => [[:red, :red], [:blue, :blue]], "$Result" => :ready}, %{}, 5}
+
     {bindings, _, _} = expected
-    assert bindings[:"$Pairs"] == [[:red, :red], [:blue, :blue]]
-    assert bindings[:"$Result"] == :ready
+    assert bindings["$Pairs"] == [[:red, :red], [:blue, :blue]]
+    assert bindings["$Result"] == :ready
   end
 
   example compiled_bodies_retain_primitives_and_propagated_constraints() do
@@ -277,14 +279,14 @@ defmodule Examples.ALJAM do
 
                AL.JAM.run(
                  id,
-                 [:machine_primitive_instance, %{amount: 1}, :"$Value"],
+                 [:machine_primitive_instance, %{amount: 1}, {:"$var", "Value"}],
                  %{},
                  branch,
                  100
                )
              end)
 
-    assert AL.Var.subst(:"$Value", store) == 1
+    assert AL.Var.subst({:"$var", "Value"}, store) == 1
 
     {:atomic, {bindings, _, _}} =
       evaluate_source(~S"""
@@ -294,7 +296,7 @@ defmodule Examples.ALJAM do
       }.
       """)
 
-    assert bindings[:"$Values"] == [1, 3]
+    assert bindings["$Values"] == [1, 3]
   end
 
   example map_reads_keep_enumeration_and_ground_checks() do
@@ -324,8 +326,8 @@ defmodule Examples.ALJAM do
       }.
       """)
 
-    assert bindings[:"$Values"] == [1, 3]
-    assert Enum.sort(bindings[:"$Entries"]) == [[:a, 1], [:b, 2]]
+    assert bindings["$Values"] == [1, 3]
+    assert Enum.sort(bindings["$Entries"]) == [[:a, 1], [:b, 2]]
     bindings
   end
 
@@ -373,17 +375,17 @@ defmodule Examples.ALJAM do
 
     assert expected ==
              {%{
-                "$Results": [[:red, :first], [:red, :second], :outside],
-                "$Nested": [[:a, :c]],
-                "$Failed": [],
-                "$Restored": :restored
+                "$Results" => [[:red, :first], [:red, :second], :outside],
+                "$Nested" => [[:a, :c]],
+                "$Failed" => [],
+                "$Restored" => :restored
               }, 8}
 
     {bindings, _} = expected
-    assert bindings[:"$Results"] == [[:red, :first], [:red, :second], :outside]
-    assert bindings[:"$Failed"] == []
-    assert bindings[:"$Restored"] == :restored
-    assert bindings[:"$Nested"] == [[:a, :c]]
+    assert bindings["$Results"] == [[:red, :first], [:red, :second], :outside]
+    assert bindings["$Failed"] == []
+    assert bindings["$Restored"] == :restored
+    assert bindings["$Nested"] == [[:a, :c]]
     bindings
   end
 
@@ -414,7 +416,7 @@ defmodule Examples.ALJAM do
       findall Result Results {choose machine_branch_instance Result}.
       """)
 
-    assert bindings[:"$Results"] == [:red, :blue]
+    assert bindings["$Results"] == [:red, :blue]
     bindings
   end
 
@@ -447,23 +449,23 @@ defmodule Examples.ALJAM do
     {:atomic, {bindings, _, _}} = evaluate_source(source)
     expected = bindings
 
-    assert Map.update!(expected, :"$Entries", &Enum.sort/1) == %{
-             "$_Self": :"$_Self",
-             "$Value": :"$Value",
-             "$Key": :"$Key",
-             "$Updated": %{added: :bound, kept: 1},
-             "$Map": :"$Map",
-             "$Entries": [[:a, 1], [:b, 2]],
-             "$Selected": :blue,
-             "$Object": :"$Object",
-             "$Shared": :bound,
-             "$Durable": :durable
+    assert Map.update!(expected, "$Entries", &Enum.sort/1) == %{
+             "$_Self" => {:"$var", "_Self"},
+             "$Value" => {:"$var", "Value"},
+             "$Key" => {:"$var", "Key"},
+             "$Updated" => %{added: :bound, kept: 1},
+             "$Map" => {:"$var", "Map"},
+             "$Entries" => [[:a, 1], [:b, 2]],
+             "$Selected" => :blue,
+             "$Object" => {:"$var", "Object"},
+             "$Shared" => :bound,
+             "$Durable" => :durable
            }
 
-    assert expected[:"$Durable"] == :durable
-    assert Enum.sort(expected[:"$Entries"]) == [[:a, 1], [:b, 2]]
-    assert expected[:"$Selected"] == :blue
-    assert expected[:"$Updated"] == %{kept: 1, added: :bound}
+    assert expected["$Durable"] == :durable
+    assert Enum.sort(expected["$Entries"]) == [[:a, 1], [:b, 2]]
+    assert expected["$Selected"] == :blue
+    assert expected["$Updated"] == %{kept: 1, added: :bound}
   end
 
   example compiled_collections_preserve_duplicates_isolation_and_copied_constraints() do
@@ -499,27 +501,27 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$_Self": :"$_Self",
-             "$Values": [[:red, :red], [:red, :red], [:blue, :blue]],
-             "$X": :"$X",
-             "$Inner": :"$Inner",
-             "$Part": :"$Part",
-             "$Item": :"$Item",
-             "$A": :blue,
-             "$B": :green,
-             "$Open": :"$Open",
-             "$Empty": [],
-             "$Nested": [[:a, :a], [:b, :b]],
-             "$Committed": [:first],
-             "$Constrained": :"$Constrained",
-             "$_Tag": :"$_Tag",
-             "$Hidden": :"$Hidden"
+             "$_Self" => {:"$var", "_Self"},
+             "$Values" => [[:red, :red], [:red, :red], [:blue, :blue]],
+             "$X" => {:"$var", "X"},
+             "$Inner" => {:"$var", "Inner"},
+             "$Part" => {:"$var", "Part"},
+             "$Item" => {:"$var", "Item"},
+             "$A" => :blue,
+             "$B" => :green,
+             "$Open" => {:"$var", "Open"},
+             "$Empty" => [],
+             "$Nested" => [[:a, :a], [:b, :b]],
+             "$Committed" => [:first],
+             "$Constrained" => {:"$var", "Constrained"},
+             "$_Tag" => {:"$var", "_Tag"},
+             "$Hidden" => {:"$var", "Hidden"}
            }
 
-    assert expected[:"$Values"] == [[:red, :red], [:red, :red], [:blue, :blue]]
-    assert expected[:"$Empty"] == []
-    assert expected[:"$Nested"] == [[:a, :a], [:b, :b]]
-    assert expected[:"$Committed"] == [:first]
+    assert expected["$Values"] == [[:red, :red], [:red, :red], [:blue, :blue]]
+    assert expected["$Empty"] == []
+    assert expected["$Nested"] == [[:a, :a], [:b, :b]]
+    assert expected["$Committed"] == [:first]
   end
 
   example collection_yields_preserve_earlier_answers_and_execute_effects_once() do
@@ -546,14 +548,14 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$Values": [:first, :second, :third],
-             "$X": :"$X",
-             "$Seen": [:third, :second]
+             "$Self" => {:"$var", "Self"},
+             "$Values" => [:first, :second, :third],
+             "$X" => {:"$var", "X"},
+             "$Seen" => [:third, :second]
            }
 
-    assert expected[:"$Values"] == [:first, :second, :third]
-    assert expected[:"$Seen"] == [:third, :second]
+    assert expected["$Values"] == [:first, :second, :third]
+    assert expected["$Seen"] == [:third, :second]
   end
 
   example register_locals_keep_aliases_arithmetic_constraints_and_alternatives() do
@@ -595,24 +597,24 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$_Self": :"$_Self",
-             "$X": :"$X",
-             "$Result": :"$Result",
-             "$Input": :"$Input",
-             "$Map": :"$Map",
-             "$Sum": 5,
-             "$Local": :"$Local",
-             "$Read": :"$Read",
-             "$Open": :blue,
-             "$Results": [%{saved: :blue}, %{saved: :green}],
-             "$Shared": %{saved: :blue},
-             "$Collected": [:a, :b]
+             "$Self" => {:"$var", "Self"},
+             "$_Self" => {:"$var", "_Self"},
+             "$X" => {:"$var", "X"},
+             "$Result" => {:"$var", "Result"},
+             "$Input" => {:"$var", "Input"},
+             "$Map" => {:"$var", "Map"},
+             "$Sum" => 5,
+             "$Local" => {:"$var", "Local"},
+             "$Read" => {:"$var", "Read"},
+             "$Open" => :blue,
+             "$Results" => [%{saved: :blue}, %{saved: :green}],
+             "$Shared" => %{saved: :blue},
+             "$Collected" => [:a, :b]
            }
 
-    assert expected[:"$Results"] == [%{saved: :blue}, %{saved: :green}]
-    assert expected[:"$Sum"] == 5
-    assert expected[:"$Collected"] == [:a, :b]
+    assert expected["$Results"] == [%{saved: :blue}, %{saved: :green}]
+    assert expected["$Sum"] == 5
+    assert expected["$Collected"] == [:a, :b]
   end
 
   example register_results_follow_overrides_and_method_edits() do
@@ -638,17 +640,17 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$_Self": :"$_Self",
-             "$Value": :"$Value",
-             "$Result": :"$Result",
-             "$Local": :"$Local",
-             "$Results": [[:original, :original], [:added, :added]],
-             "$Before": [:original, :original]
+             "$Self" => {:"$var", "Self"},
+             "$_Self" => {:"$var", "_Self"},
+             "$Value" => {:"$var", "Value"},
+             "$Result" => {:"$var", "Result"},
+             "$Local" => {:"$var", "Local"},
+             "$Results" => [[:original, :original], [:added, :added]],
+             "$Before" => [:original, :original]
            }
 
-    assert expected[:"$Before"] == [:original, :original]
-    assert expected[:"$Results"] == [[:original, :original], [:added, :added]]
+    assert expected["$Before"] == [:original, :original]
+    assert expected["$Results"] == [[:original, :original], [:added, :added]]
   end
 
   example recursive_register_returns_preserve_base_cases_and_shared_outputs() do
@@ -691,23 +693,23 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$_Self": :"$_Self",
-             "$Key": :"$Key",
-             "$Keys": :"$Keys",
-             "$Rest": :"$Rest",
-             "$Output": :"$Output",
-             "$Result": %{c: :c, a: :a, b: :b},
-             "$Input": [:blue],
-             "$Local": :"$Local",
-             "$Shared": :blue,
-             "$Maps": [%{}, %{a: :a}, %{c: :c, b: :b}]
+             "$Self" => {:"$var", "Self"},
+             "$_Self" => {:"$var", "_Self"},
+             "$Key" => {:"$var", "Key"},
+             "$Keys" => {:"$var", "Keys"},
+             "$Rest" => {:"$var", "Rest"},
+             "$Output" => {:"$var", "Output"},
+             "$Result" => %{c: :c, a: :a, b: :b},
+             "$Input" => [:blue],
+             "$Local" => {:"$var", "Local"},
+             "$Shared" => :blue,
+             "$Maps" => [%{}, %{a: :a}, %{c: :c, b: :b}]
            }
 
-    assert expected[:"$Result"] == %{a: :a, b: :b, c: :c}
-    assert expected[:"$Maps"] == [%{}, %{a: :a}, %{b: :b, c: :c}]
-    assert expected[:"$Input"] == [:blue]
-    assert expected[:"$Shared"] == :blue
+    assert expected["$Result"] == %{a: :a, b: :b, c: :c}
+    assert expected["$Maps"] == [%{}, %{a: :a}, %{b: :b, c: :c}]
+    assert expected["$Input"] == [:blue]
+    assert expected["$Shared"] == :blue
   end
 
   example register_return_frames_survive_yields_suspensions_and_constraints() do
@@ -745,18 +747,18 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$_Self": :"$_Self",
-             "$Output": :"$Output",
-             "$Ready": :"$Ready",
-             "$Seen": [:once, :once],
-             "$Local": :"$Local",
-             "$Open": :"$Open",
-             "$Results": [[:blue, :blue, :awake], [:blue, :blue, :awake]]
+             "$Self" => {:"$var", "Self"},
+             "$_Self" => {:"$var", "_Self"},
+             "$Output" => {:"$var", "Output"},
+             "$Ready" => {:"$var", "Ready"},
+             "$Seen" => [:once, :once],
+             "$Local" => {:"$var", "Local"},
+             "$Open" => {:"$var", "Open"},
+             "$Results" => [[:blue, :blue, :awake], [:blue, :blue, :awake]]
            }
 
-    assert expected[:"$Results"] == [[:blue, :blue, :awake], [:blue, :blue, :awake]]
-    assert expected[:"$Seen"] == [:once, :once]
+    assert expected["$Results"] == [[:blue, :blue, :awake], [:blue, :blue, :awake]]
+    assert expected["$Seen"] == [:once, :once]
   end
 
   example receiver_shapes_preserve_bound_keys_classes_and_nested_payloads() do
@@ -821,27 +823,27 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$Class": :jam_shape_value,
-             "$_Self": :"$_Self",
-             "$Value": :blue,
-             "$Values": :"$Values",
-             "$Result": :"$Result",
-             "$Receiver": %{class: :jam_shape_value, payload: [%{inside: :blue}]},
-             "$Items": :"$Items",
-             "$Tail": :"$Tail",
-             "$Item": :"$Item",
-             "$All": [[:first, :blue], [:second, :blue]],
-             "$Read": :blue,
-             "$Repeated": [%{inside: :blue}],
-             "$ClassKey": :class,
-             "$PayloadKey": :payload,
-             "$InnerKey": :inside
+             "$Self" => {:"$var", "Self"},
+             "$Class" => :jam_shape_value,
+             "$_Self" => {:"$var", "_Self"},
+             "$Value" => :blue,
+             "$Values" => {:"$var", "Values"},
+             "$Result" => {:"$var", "Result"},
+             "$Receiver" => %{class: :jam_shape_value, payload: [%{inside: :blue}]},
+             "$Items" => {:"$var", "Items"},
+             "$Tail" => {:"$var", "Tail"},
+             "$Item" => {:"$var", "Item"},
+             "$All" => [[:first, :blue], [:second, :blue]],
+             "$Read" => :blue,
+             "$Repeated" => [%{inside: :blue}],
+             "$ClassKey" => :class,
+             "$PayloadKey" => :payload,
+             "$InnerKey" => :inside
            }
 
-    assert expected[:"$Read"] == :blue
-    assert expected[:"$Repeated"] == [%{inside: :blue}]
-    assert expected[:"$All"] == [[:first, :blue], [:second, :blue]]
+    assert expected["$Read"] == :blue
+    assert expected["$Repeated"] == [%{inside: :blue}]
+    assert expected["$All"] == [[:first, :blue], [:second, :blue]]
   end
 
   example selective_field_reads_preserve_keys_aliases_constraints_and_enumeration() do
@@ -881,37 +883,37 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$_Self": :"$_Self",
-             "$Value": :"$Value",
-             "$Name": :"$Name",
-             "$Key": :"$Key",
-             "$Other": :"$Other",
-             "$Inner": :"$Inner",
-             "$Map": :"$Map",
-             "$Entries": [[:wanted, %{nested: :blue}], [:spare, [:unrelated]]],
-             "$Read": %{nested: :blue},
-             "$Open": %{wanted: :red},
-             "$Wild": :chosen,
-             "$ViaSlot": %{nested: :blue},
-             "$Bound": :blue,
-             "$Found": :"$Found",
-             "$Collapsed": :second,
-             "$Collision": :"$Collision",
-             "$KeyA": :"$KeyA",
-             "$KeyB": :"$KeyB"
+             "$_Self" => {:"$var", "_Self"},
+             "$Value" => {:"$var", "Value"},
+             "$Name" => {:"$var", "Name"},
+             "$Key" => {:"$var", "Key"},
+             "$Other" => {:"$var", "Other"},
+             "$Inner" => {:"$var", "Inner"},
+             "$Map" => {:"$var", "Map"},
+             "$Entries" => [[:wanted, %{nested: :blue}], [:spare, [:unrelated]]],
+             "$Read" => %{nested: :blue},
+             "$Open" => %{wanted: :red},
+             "$Wild" => :chosen,
+             "$ViaSlot" => %{nested: :blue},
+             "$Bound" => :blue,
+             "$Found" => {:"$var", "Found"},
+             "$Collapsed" => :second,
+             "$Collision" => {:"$var", "Collision"},
+             "$KeyA" => {:"$var", "KeyA"},
+             "$KeyB" => {:"$var", "KeyB"}
            }
 
-    assert expected[:"$Read"] == %{nested: :blue}
-    assert expected[:"$ViaSlot"] == %{nested: :blue}
-    assert expected[:"$Bound"] == :blue
+    assert expected["$Read"] == %{nested: :blue}
+    assert expected["$ViaSlot"] == %{nested: :blue}
+    assert expected["$Bound"] == :blue
 
-    assert Enum.sort(expected[:"$Entries"]) == [
+    assert Enum.sort(expected["$Entries"]) == [
              [:spare, [:unrelated]],
              [:wanted, %{nested: :blue}]
            ]
 
-    assert expected[:"$Wild"] == :chosen
-    assert expected[:"$Open"] == %{wanted: :red}
+    assert expected["$Wild"] == :chosen
+    assert expected["$Open"] == %{wanted: :red}
   end
 
   example forwarded_arguments_preserve_open_aliases_modes_and_alternatives() do
@@ -969,27 +971,27 @@ defmodule Examples.ALJAM do
     expected = bindings
 
     assert expected == %{
-             "$Self": :"$Self",
-             "$_Self": :"$_Self",
-             "$Value": :"$Value",
-             "$Left": :"$Left",
-             "$Right": :"$Right",
-             "$_Value": :"$_Value",
-             "$Reversed": [:a, :b],
-             "$Result": :"$Result",
-             "$Input": :blue,
-             "$Local": :"$Local",
-             "$Results": [[:original], [:alternative]],
-             "$Pair": [:blue, :blue],
-             "$Fresh": [:blue, :blue],
-             "$Wild": :chosen
+             "$Self" => {:"$var", "Self"},
+             "$_Self" => {:"$var", "_Self"},
+             "$Value" => {:"$var", "Value"},
+             "$Left" => {:"$var", "Left"},
+             "$Right" => {:"$var", "Right"},
+             "$_Value" => {:"$var", "_Value"},
+             "$Reversed" => [:a, :b],
+             "$Result" => {:"$var", "Result"},
+             "$Input" => :blue,
+             "$Local" => {:"$var", "Local"},
+             "$Results" => [[:original], [:alternative]],
+             "$Pair" => [:blue, :blue],
+             "$Fresh" => [:blue, :blue],
+             "$Wild" => :chosen
            }
 
-    assert expected[:"$Pair"] == [:blue, :blue]
-    assert expected[:"$Reversed"] == [:a, :b]
-    assert expected[:"$Fresh"] == [:blue, :blue]
-    assert expected[:"$Wild"] == :chosen
-    assert expected[:"$Results"] == [[:original], [:alternative]]
+    assert expected["$Pair"] == [:blue, :blue]
+    assert expected["$Reversed"] == [:a, :b]
+    assert expected["$Fresh"] == [:blue, :blue]
+    assert expected["$Wild"] == :chosen
+    assert expected["$Results"] == [[:original], [:alternative]]
   end
 
   example callable_sites_track_captured_bindings_and_nested_dependencies() do
@@ -1035,7 +1037,7 @@ defmodule Examples.ALJAM do
     """
 
     {:atomic, {bindings, _, _}} = evaluate_source(source)
-    expected = bindings[:"$All"]
+    expected = bindings["$All"]
 
     assert expected == [[[:third], [:blue], :different, [:green, :green, :green]]]
 
@@ -1083,22 +1085,22 @@ defmodule Examples.ALJAM do
     """
 
     {:atomic, {bindings, _, _}} = evaluate_source(source)
-    expected = Map.take(bindings, [:"$Ground", :"$Delayed", :"$Alias", :"$Repeated", :"$Results"])
+    expected = Map.take(bindings, ["$Ground", "$Delayed", "$Alias", "$Repeated", "$Results"])
 
     assert expected == %{
-             "$Results": ~c"\b",
-             "$Repeated": ~c"\n\n",
-             "$Alias": 4,
-             "$Delayed": 10,
-             "$Ground": 6
+             "$Results" => ~c"\b",
+             "$Repeated" => ~c"\n\n",
+             "$Alias" => 4,
+             "$Delayed" => 10,
+             "$Ground" => 6
            }
 
     assert expected == %{
-             :"$Ground" => 6,
-             :"$Delayed" => 10,
-             :"$Alias" => 4,
-             :"$Repeated" => [10, 10],
-             :"$Results" => [8]
+             "$Ground" => 6,
+             "$Delayed" => 10,
+             "$Alias" => 4,
+             "$Repeated" => [10, 10],
+             "$Results" => [8]
            }
   end
 
@@ -1154,22 +1156,22 @@ defmodule Examples.ALJAM do
       }.
       """)
 
-    expected = Map.take(bindings, [:"$Pairs", :"$Failed", :"$Called", :"$Nested", :"$After"])
+    expected = Map.take(bindings, ["$Pairs", "$Failed", "$Called", "$Nested", "$After"])
 
     assert expected == %{
-             "$Pairs": [[:one, :red], [:two, :red]],
-             "$After": [:left, :right],
-             "$Called": [[:one, :red], [:two, :red]],
-             "$Nested": [[:red], [:red]],
-             "$Failed": []
+             "$Pairs" => [[:one, :red], [:two, :red]],
+             "$After" => [:left, :right],
+             "$Called" => [[:one, :red], [:two, :red]],
+             "$Nested" => [[:red], [:red]],
+             "$Failed" => []
            }
 
     assert expected == %{
-             :"$Pairs" => [[:one, :red], [:two, :red]],
-             :"$Failed" => [],
-             :"$Called" => [[:one, :red], [:two, :red]],
-             :"$Nested" => [[:red], [:red]],
-             :"$After" => [:left, :right]
+             "$Pairs" => [[:one, :red], [:two, :red]],
+             "$Failed" => [],
+             "$Called" => [[:one, :red], [:two, :red]],
+             "$Nested" => [[:red], [:red]],
+             "$After" => [:left, :right]
            }
   end
 
@@ -1204,7 +1206,7 @@ defmodule Examples.ALJAM do
       }.
       """)
 
-    expected = bindings[:"$Answers"]
+    expected = bindings["$Answers"]
 
     assert expected == [
              [:one, :red, :left],
@@ -1258,16 +1260,16 @@ defmodule Examples.ALJAM do
       = Guard ready.
       """)
 
-    expected = Map.take(bindings, [:"$Answers", :"$Result"])
+    expected = Map.take(bindings, ["$Answers", "$Result"])
 
     assert expected == %{
-             "$Result": :awake,
-             "$Answers": [[:red, :left, :red, :left], [:blue, :right, :blue, :right]]
+             "$Result" => :awake,
+             "$Answers" => [[:red, :left, :red, :left], [:blue, :right, :blue, :right]]
            }
 
     assert expected == %{
-             :"$Answers" => [[:red, :left, :red, :left], [:blue, :right, :blue, :right]],
-             :"$Result" => :awake
+             "$Answers" => [[:red, :left, :red, :left], [:blue, :right, :blue, :right]],
+             "$Result" => :awake
            }
   end
 
@@ -1307,20 +1309,20 @@ defmodule Examples.ALJAM do
       = GuardText "ready".
       """)
 
-    expected = Map.take(bindings, [:"$Words", :"$Entries", :"$Rejected", :"$Guard"])
+    expected = Map.take(bindings, ["$Words", "$Entries", "$Rejected", "$Guard"])
 
     assert expected == %{
-             "$Entries": [[:first, :red], [:second, :blue]],
-             "$Guard": :ready,
-             "$Rejected": ["blue"],
-             "$Words": [[:red, "red", ~c"red"], [:blue, "blue", ~c"blue"]]
+             "$Entries" => [[:first, :red], [:second, :blue]],
+             "$Guard" => :ready,
+             "$Rejected" => ["blue"],
+             "$Words" => [[:red, "red", ~c"red"], [:blue, "blue", ~c"blue"]]
            }
 
     assert expected == %{
-             :"$Words" => [[:red, "red", ~c"red"], [:blue, "blue", ~c"blue"]],
-             :"$Entries" => [[:first, :red], [:second, :blue]],
-             :"$Rejected" => ["blue"],
-             :"$Guard" => :ready
+             "$Words" => [[:red, "red", ~c"red"], [:blue, "blue", ~c"blue"]],
+             "$Entries" => [[:first, :red], [:second, :blue]],
+             "$Rejected" => ["blue"],
+             "$Guard" => :ready
            }
   end
 
@@ -1358,7 +1360,7 @@ defmodule Examples.ALJAM do
       not {choose #{class => machine_mixed_wake} red blue _}.
       """)
 
-    expected = bindings[:"$Answers"]
+    expected = bindings["$Answers"]
 
     assert expected == [[:red, :red, []], [:blue, :blue, []]]
     assert expected == [[:red, :red, []], [:blue, :blue, []]]
@@ -1368,10 +1370,12 @@ defmodule Examples.ALJAM do
     do: AL.eval_source(source, %AL.Branch{id: Examples.Support.branch()})
 
   defp machine_answers({:ok, store, _steps}, choices, branch),
-    do: [AL.Var.subst(:"$Pair", store) | remaining_answers(choices, branch)]
+    do: [AL.Var.subst({:"$var", "Pair"}, store) | remaining_answers(choices, branch)]
 
   defp machine_answers({:answers, store, alternatives, _steps}, choices, branch),
-    do: [AL.Var.subst(:"$Pair", store) | remaining_answers(alternatives ++ choices, branch)]
+    do: [
+      AL.Var.subst({:"$var", "Pair"}, store) | remaining_answers(alternatives ++ choices, branch)
+    ]
 
   defp remaining_answers([], _branch), do: []
 

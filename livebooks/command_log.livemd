@@ -131,7 +131,7 @@ Since the log is the real source of truth, the durable object tables (`class`, `
     """
   end
 
-obj = Map.get(bindings, :"$Obj")
+obj = Map.get(bindings, "$Obj")
 
 :ok = AL.Object.drop_tables(AL.Branch.head())
 :ok = AL.Object.create_tables(AL.Branch.head())
@@ -162,7 +162,7 @@ tip = AL.Branch.fork()
     """
   end
 
-Map.get(bindings, :"$X")
+Map.get(bindings, "$X")
 ```
 
 Main never saw it.

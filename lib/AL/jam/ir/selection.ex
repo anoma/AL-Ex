@@ -42,7 +42,7 @@ defmodule AL.JAM.IR.Selection do
 
           selected = %{
             IR.operation(:machine, :numeric_tests, [value, tests])
-            | source: [first | matching]
+            | fallback: [first | matching]
           }
 
           [selected | compose(tail)]

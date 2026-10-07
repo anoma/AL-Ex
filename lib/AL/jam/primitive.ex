@@ -20,7 +20,7 @@ defmodule AL.JAM.Primitive do
   end
 
   def output(:atom_string, 1, [atom, _string], _store) when is_atom(atom) do
-    if AL.Var.var?(atom), do: :fallback, else: {:ok, Atom.to_string(atom)}
+    {:ok, Atom.to_string(atom)}
   end
 
   def output(:map_pairs, 0, [_map, pairs], _store) do
@@ -42,7 +42,7 @@ defmodule AL.JAM.Primitive do
     do: if(variant_renaming(a, b, {%{}, %{}}), do: {:ok, store}, else: :fail)
 
   def execute(:atom, [term], store, _branch),
-    do: if(is_atom(term) and not AL.Var.var?(term), do: {:ok, store}, else: :fail)
+    do: if(is_atom(term), do: {:ok, store}, else: :fail)
 
   def execute(:functor, [term, name, args], store, branch),
     do: result(AL.Var.add_functor(store, term, name, args, branch))
@@ -66,7 +66,7 @@ defmodule AL.JAM.Primitive do
 
   def execute(:atom_string, [atom, string], store, branch) do
     cond do
-      is_atom(atom) and not AL.Var.var?(atom) ->
+      is_atom(atom) ->
         result(AL.Var.unify(Atom.to_string(atom), string, store, branch))
 
       AL.Var.var?(atom) and is_binary(string) and String.valid?(string) ->
@@ -167,8 +167,8 @@ defmodule AL.JAM.Primitive do
     end
   end
 
-  defp rename_variant(:"$_", _b, renaming), do: renaming
-  defp rename_variant(_a, :"$_", renaming), do: renaming
+  defp rename_variant({:"$var", "_"}, _b, renaming), do: renaming
+  defp rename_variant(_a, {:"$var", "_"}, renaming), do: renaming
 
   defp rename_variant(a, b, {forward, backward} = renaming) do
     case {Map.fetch(forward, a), Map.fetch(backward, b)} do

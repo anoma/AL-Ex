@@ -31,7 +31,7 @@ defmodule AL.JAM.Callable do
     scope = Integer.to_string(AL.fresh_scope())
 
     AL.Var.subst(captures, store, fn
-      :"$_" -> :"$_"
+      {:"$var", "_"} -> {:"$var", "_"}
       variable -> AL.Var.fresh(variable, scope)
     end)
   end

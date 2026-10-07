@@ -68,7 +68,7 @@ defmodule AL.JAM.Format do
     do: plan_directives(rest, args, ["~d" | control_acc], [arg | args_acc], pending_acc)
 
   defp plan_directives(["~", "o" | rest], [arg | args], control_acc, args_acc, pending_acc) do
-    fresh_var = AL.Var.var("format_object_#{AL.fresh_scope()}")
+    fresh_var = AL.Var.fresh({:"$var", "format_object"}, Integer.to_string(AL.fresh_scope()))
 
     plan_directives(
       rest,

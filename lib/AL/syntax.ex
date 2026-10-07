@@ -416,7 +416,8 @@ defmodule AL.Syntax do
     {name, rest} = span(text, &name_char?/1)
     stop = column + byte_size(name)
     kind = if c in ?a..?z, do: :atom, else: :var
-    token = {kind, String.to_atom(name), position(line, column), position(line, stop)}
+    value = if kind == :var, do: name, else: String.to_atom(name)
+    token = {kind, value, position(line, column), position(line, stop)}
     lex(rest, line, stop, [token | tokens])
   end
 
@@ -908,8 +909,8 @@ defmodule AL.Syntax do
     exception in ArgumentError -> error(:compile, Exception.message(exception), nil)
   end
 
-  defp number_anonymous({:var, :_, start, stop}, count),
-    do: {{:var, String.to_atom("_@#{count + 1}"), start, stop}, count + 1}
+  defp number_anonymous({:var, "_", start, stop}, count),
+    do: {{:var, "_@#{count + 1}", start, stop}, count + 1}
 
   defp number_anonymous(list, count) when is_list(list),
     do: Enum.map_reduce(list, count, &number_anonymous/2)

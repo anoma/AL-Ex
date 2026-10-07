@@ -11,7 +11,7 @@ defmodule AL.JAM.Operand do
 
   defp compile_term(term, registers) do
     cond do
-      term == :"$_" ->
+      term == {:"$var", "_"} ->
         {{:constant, term}, true}
 
       AL.Var.var?(term) ->

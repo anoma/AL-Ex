@@ -17,7 +17,7 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == [:a, :b]
+    assert Map.get(bindings, "$Result") == [:a, :b]
     :ok
   end
 
@@ -34,7 +34,7 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == [:a, :a]
+    assert Map.get(bindings, "$Result") == [:a, :a]
     :ok
   end
 
@@ -47,7 +47,7 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == 120
+    assert Map.get(bindings, "$Result") == 120
     :ok
   end
 
@@ -71,7 +71,7 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    assert bindings[:"$Result"] == [:durable]
+    assert bindings["$Result"] == [:durable]
     :ok
   end
 
@@ -89,7 +89,7 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    expected = {bindings[:"$First"], bindings[:"$Second"]}
+    expected = {bindings["$First"], bindings["$Second"]}
 
     assert expected ==
              {[[:captured, :one, :a], [:captured, :one, :b]],
@@ -115,8 +115,8 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    assert bindings[:"$Right"] == 3
-    assert bindings[:"$Values"] == [1, 3]
+    assert bindings["$Right"] == 3
+    assert bindings["$Values"] == [1, 3]
     bindings
   end
 
@@ -132,7 +132,7 @@ defmodule Examples.ALAnonymousMethods do
         """
       end
 
-    result = bindings[:"$Pairs"]
+    result = bindings["$Pairs"]
 
     assert result == [[:a, :red], [:b, :red]]
     result

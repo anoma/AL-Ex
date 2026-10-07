@@ -33,7 +33,7 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    assert bindings[:"$Values"] == [:first, :second]
+    assert bindings["$Values"] == [:first, :second]
   end
 
   test "open argument lists and aliased structured heads keep relational modes", %{branch: branch} do
@@ -51,8 +51,8 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    assert bindings[:"$Input"] == [7]
-    assert bindings[:"$Y"] == 8
+    assert bindings["$Input"] == [7]
+    assert bindings["$Y"] == 8
   end
 
   test "direct target caches refresh after method edits in the same transaction", %{
@@ -69,8 +69,8 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    assert bindings[:"$Before"] == [:first, :second]
-    assert bindings[:"$After"] == [:first, :second, :third]
+    assert bindings["$Before"] == [:first, :second]
+    assert bindings["$After"] == [:first, :second, :third]
   end
 
   test "direct calls preserve method cut scopes", %{branch: branch} do
@@ -89,7 +89,7 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    assert bindings[:"$Values"] == [[:a, :first], [:b, :first]]
+    assert bindings["$Values"] == [[:a, :first], [:b, :first]]
   end
 
   test "method identity reuse keeps public arguments and a different supplied target", %{
@@ -118,11 +118,11 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    assert bindings[:"$Done"] == :done
-    assert bindings[:"$Base"] == :done
-    assert bindings[:"$Different"] == bindings[:"$Other"]
+    assert bindings["$Done"] == :done
+    assert bindings["$Base"] == :done
+    assert bindings["$Different"] == bindings["$Other"]
 
-    method = bindings[:"$Walk"]
+    method = bindings["$Walk"]
 
     assert {:atomic, true} =
              :mnesia.transaction(fn ->
@@ -159,7 +159,7 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    assert bindings[:"$Result"] == [7, bindings[:"$Id"]]
+    assert bindings["$Result"] == [7, bindings["$Id"]]
   end
 
   test "reused identity preserves alternatives and observable argument uses", %{branch: branch} do
@@ -183,8 +183,8 @@ defmodule AL.JAM.DirectMethodTest do
                branch
              )
 
-    id = bindings[:"$Id"]
-    assert bindings[:"$Results"] == [[id, :first], [id, :second]]
+    id = bindings["$Id"]
+    assert bindings["$Results"] == [[id, :first], [id, :second]]
 
     assert {:atomic, true} =
              :mnesia.transaction(fn ->

@@ -14,11 +14,11 @@ defmodule Examples.ALSource do
   end
 
   example reverse_clause_to_source() do
-    head = [[:"$H" | :"$T"], :"$Reversed"]
+    head = [[{:"$var", "H"} | {:"$var", "T"}], {:"$var", "Reversed"}]
 
     body = [
-      {:send, :"$T", :reverse, [:"$ReversedTl"]},
-      {:send, :"$ReversedTl", :concat, [[:"$H"], :"$Reversed"]}
+      {:send, {:"$var", "T"}, :reverse, [{:"$var", "ReversedTl"}]},
+      {:send, {:"$var", "ReversedTl"}, :concat, [[{:"$var", "H"}], {:"$var", "Reversed"}]}
     ]
 
     source = AL.Source.defmethod_source(:list, :reverse, head, body)
@@ -31,13 +31,17 @@ defmodule Examples.ALSource do
   end
 
   example literal_head_to_source() do
-    source = AL.Source.defmethod_source(:zkfol, :col, [:"$Self", 1, 0, 1, [[0, 1]]], [])
+    source = AL.Source.defmethod_source(:zkfol, :col, [{:"$var", "Self"}, 1, 0, 1, [[0, 1]]], [])
     assert source == "zkfol >> col\n| Self 1 0 1 [[0, 1]] |"
     source
   end
 
   example map_patterns_with_variables_to_source() do
-    stored = [{:=, %{package: :"$Package", requirement: :"$Requirement"}, :"$Pair"}]
+    stored = [
+      {:=, %{package: {:"$var", "Package"}, requirement: {:"$var", "Requirement"}},
+       {:"$var", "Pair"}}
+    ]
+
     source = AL.Source.body_source(stored)
 
     assert source == "= \#{package => Package, requirement => Requirement} Pair"
@@ -67,13 +71,13 @@ defmodule Examples.ALSource do
   end
 
   example compare_to_source() do
-    source = AL.Source.body_source([{:compare, :>, :"$X", 1}])
+    source = AL.Source.body_source([{:compare, :>, {:"$var", "X"}, 1}])
     assert source == "> X 1"
     source
   end
 
   example freshened_vars_recover_their_authored_name() do
-    self_var = AL.Var.fresh(AL.Var.fresh(:"$Self", "3"), "7")
+    self_var = AL.Var.fresh(AL.Var.fresh({:"$var", "Self"}, "3"), "7")
 
     source = AL.Source.body_source([{:=, self_var, self_var}])
     assert source == "= Self Self"
@@ -82,8 +86,8 @@ defmodule Examples.ALSource do
   end
 
   example distinct_freshened_vars_sharing_a_name_get_suffixed() do
-    self_a = AL.Var.fresh(:"$Self", "1")
-    self_b = AL.Var.fresh(:"$Self", "2")
+    self_a = AL.Var.fresh({:"$var", "Self"}, "1")
+    self_b = AL.Var.fresh({:"$var", "Self"}, "2")
 
     source = AL.Source.body_source([{:=, self_a, self_b}])
     assert source == "= Self Self_2"
@@ -131,8 +135,8 @@ defmodule Examples.ALSource do
   end
 
   example an_op_and_a_send_of_the_same_name_decompile_differently() do
-    op = {:set_class, :"$O", :"$C"}
-    message = {:send, :"$O", :set_class, [:"$C"]}
+    op = {:set_class, {:"$var", "O"}, {:"$var", "C"}}
+    message = {:send, {:"$var", "O"}, :set_class, [{:"$var", "C"}]}
 
     assert AL.Source.body_source([op]) != AL.Source.body_source([message])
     assert round_trip([op]) == [meaning(op)]
@@ -191,57 +195,59 @@ defmodule Examples.ALSource do
   defp lowered_list(tail), do: lowered(tail)
 
   defp shape(term),
-    do: AL.Goal.map(term, fn leaf -> if AL.Var.var?(leaf), do: :_, else: leaf end)
+    do: AL.Term.map(term, fn leaf -> if AL.Var.var?(leaf), do: :_, else: leaf end)
 
   defp round_trip_cases do
     [
-      {:set_class, :"$O", :thing},
-      {:set_super, :"$O", :object},
-      {:set_slot, :"$O", :key, :"$V"},
-      {:retract_class, :"$O", :thing},
-      {:retract_super, :"$O", :object},
-      {:retract_slot, :"$O", :key},
-      {:get_method, :"$O", :sel, :"$Id"},
-      {:set_method, :"$O", :sel, :"$Id"},
-      {:retract_method, :"$O", :sel, :"$Id"},
-      {:retract_oapply, :"$O", [:"$A"]},
-      {:get_oapply, :"$O", :"$_", [:"$A"], :"$B"},
-      {:set_oapply, :"$O", :next, [:"$A"], []},
-      {:get_oapply, :"$O", 2, [:"$A"], :"$B"},
-      {:set_oapply, :"$O", 3, [:"$A"], []},
-      {:oapply, :map_get, [:"$M", :key, :"$V"]},
-      {:oapply, :vm_map_put, [:"$M", :key, :"$V", :"$Out"]},
-      {:oapply, :vm_fresh_id, [:"$Id"]},
-      {:oapply, :vm_current_tx, [:"$Tx"]},
-      {:oapply, :vm_transaction_object, [:"$Tx", :"$Object"]},
-      {:oapply, :vm_cached_ivar_specs, [:"$Class", :"$Specs"]},
-      {:oapply, :vm_cached_find_ivar_spec, [:"$O", :"$Key", :"$Spec"]},
-      {:oapply, :source_method_parts, [:"$A", :"$B", :"$C", :"$D"]},
-      {:oapply, :rem, [:"$X", 2]},
-      {:oapply, :+, [:"$X", 1]},
-      {:get_class, :"$O", :"$C"},
-      {:get_super, :"$O", :"$S"},
-      {:get_slot, :"$O", :key, :"$V", :aos},
-      {:slot_at, :"$O", :key, :"$V", 3},
-      {:ground, :"$X"},
-      {:var, :"$X"},
-      {:gensym, :"$X"},
-      {:label, :"$X"},
-      {:dif, :"$A", :"$B"},
-      {:isa, :"$O", :thing},
-      {:=, :"$A", :"$B"},
-      {:in_domain, :"$X", [1, 2]},
-      {:all_dif, [:"$A", :"$B"]},
-      {:format, "~a", [:"$X"]},
-      {:send, :"$O", :sel, [:"$A"]},
-      {:send, :"$O", :"$Selector", []},
-      {:send_async, :"$O", :sel, [:"$A"]},
-      {:send_async, :"$O", :"$Selector", []},
-      {:emit_effect, :"$Effect", :"$Provider", :"$Operation", :"$Arguments"},
-      {:compare, :>, :"$X", 1},
-      {:not, [{:get_class, :"$O", :thing}]},
-      {:findall, :"$X", [{:get_class, :"$X", :thing}], :"$Xs"},
-      {:forall, [{:get_class, :"$X", :thing}], [{:=, :"$X", 1}]}
+      {:set_class, {:"$var", "O"}, :thing},
+      {:set_super, {:"$var", "O"}, :object},
+      {:set_slot, {:"$var", "O"}, :key, {:"$var", "V"}},
+      {:retract_class, {:"$var", "O"}, :thing},
+      {:retract_super, {:"$var", "O"}, :object},
+      {:retract_slot, {:"$var", "O"}, :key},
+      {:get_method, {:"$var", "O"}, :sel, {:"$var", "Id"}},
+      {:set_method, {:"$var", "O"}, :sel, {:"$var", "Id"}},
+      {:retract_method, {:"$var", "O"}, :sel, {:"$var", "Id"}},
+      {:retract_oapply, {:"$var", "O"}, [{:"$var", "A"}]},
+      {:get_oapply, {:"$var", "O"}, {:"$var", "_"}, [{:"$var", "A"}], {:"$var", "B"}},
+      {:set_oapply, {:"$var", "O"}, :next, [{:"$var", "A"}], []},
+      {:get_oapply, {:"$var", "O"}, 2, [{:"$var", "A"}], {:"$var", "B"}},
+      {:set_oapply, {:"$var", "O"}, 3, [{:"$var", "A"}], []},
+      {:oapply, :map_get, [{:"$var", "M"}, :key, {:"$var", "V"}]},
+      {:oapply, :vm_map_put, [{:"$var", "M"}, :key, {:"$var", "V"}, {:"$var", "Out"}]},
+      {:oapply, :vm_fresh_id, [{:"$var", "Id"}]},
+      {:oapply, :vm_current_tx, [{:"$var", "Tx"}]},
+      {:oapply, :vm_transaction_object, [{:"$var", "Tx"}, {:"$var", "Object"}]},
+      {:oapply, :vm_cached_ivar_specs, [{:"$var", "Class"}, {:"$var", "Specs"}]},
+      {:oapply, :vm_cached_find_ivar_spec, [{:"$var", "O"}, {:"$var", "Key"}, {:"$var", "Spec"}]},
+      {:oapply, :source_method_parts,
+       [{:"$var", "A"}, {:"$var", "B"}, {:"$var", "C"}, {:"$var", "D"}]},
+      {:oapply, :rem, [{:"$var", "X"}, 2]},
+      {:oapply, :+, [{:"$var", "X"}, 1]},
+      {:get_class, {:"$var", "O"}, {:"$var", "C"}},
+      {:get_super, {:"$var", "O"}, {:"$var", "S"}},
+      {:get_slot, {:"$var", "O"}, :key, {:"$var", "V"}, :aos},
+      {:slot_at, {:"$var", "O"}, :key, {:"$var", "V"}, 3},
+      {:ground, {:"$var", "X"}},
+      {:var, {:"$var", "X"}},
+      {:gensym, {:"$var", "X"}},
+      {:label, {:"$var", "X"}},
+      {:dif, {:"$var", "A"}, {:"$var", "B"}},
+      {:isa, {:"$var", "O"}, :thing},
+      {:=, {:"$var", "A"}, {:"$var", "B"}},
+      {:in_domain, {:"$var", "X"}, [1, 2]},
+      {:all_dif, [{:"$var", "A"}, {:"$var", "B"}]},
+      {:format, "~a", [{:"$var", "X"}]},
+      {:send, {:"$var", "O"}, :sel, [{:"$var", "A"}]},
+      {:send, {:"$var", "O"}, {:"$var", "Selector"}, []},
+      {:send_async, {:"$var", "O"}, :sel, [{:"$var", "A"}]},
+      {:send_async, {:"$var", "O"}, {:"$var", "Selector"}, []},
+      {:emit_effect, {:"$var", "Effect"}, {:"$var", "Provider"}, {:"$var", "Operation"},
+       {:"$var", "Arguments"}},
+      {:compare, :>, {:"$var", "X"}, 1},
+      {:not, [{:get_class, {:"$var", "O"}, :thing}]},
+      {:findall, {:"$var", "X"}, [{:get_class, {:"$var", "X"}, :thing}], {:"$var", "Xs"}},
+      {:forall, [{:get_class, {:"$var", "X"}, :thing}], [{:=, {:"$var", "X"}, 1}]}
     ]
   end
 end

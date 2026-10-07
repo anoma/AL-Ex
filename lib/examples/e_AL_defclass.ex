@@ -38,8 +38,8 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$L") == :ok
-    assert Map.get(bindings, :"$Kind") == :a_widget
+    assert Map.get(bindings, "$L") == :ok
+    assert Map.get(bindings, "$Kind") == :a_widget
     :ok
   end
 
@@ -56,8 +56,8 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$Class") == :durable_thing
-    assert is_atom(Map.get(bindings, :"$Instance"))
+    assert Map.get(bindings, "$Class") == :durable_thing
+    assert is_atom(Map.get(bindings, "$Instance"))
     :ok
   end
 
@@ -77,7 +77,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$Reply") == :pong
+    assert Map.get(bindings, "$Reply") == :pong
     :ok
   end
 
@@ -103,8 +103,8 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$OnClass") == [:class_side]
-    assert Map.get(bindings, :"$OnInstance") == [:instance_side]
+    assert Map.get(bindings, "$OnClass") == [:class_side]
+    assert Map.get(bindings, "$OnInstance") == [:instance_side]
     :ok
   end
 
@@ -139,9 +139,9 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$Av") == :a_val
-    assert Map.get(bindings, :"$Bv") == :b_val
-    assert Enum.sort(Map.get(bindings, :"$Supers")) == [:multi_super_a, :multi_super_b]
+    assert Map.get(bindings, "$Av") == :a_val
+    assert Map.get(bindings, "$Bv") == :b_val
+    assert Enum.sort(Map.get(bindings, "$Supers")) == [:multi_super_a, :multi_super_b]
     :ok
   end
 
@@ -168,8 +168,8 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$R1") == :first
-    assert Map.get(bindings, :"$R2") == :second
+    assert Map.get(bindings, "$R1") == :first
+    assert Map.get(bindings, "$R2") == :second
     :ok
   end
 
@@ -188,7 +188,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 42
+    assert Map.get(bindings, "$X") == 42
     :ok
   end
 
@@ -239,8 +239,8 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$Supers") == [:value]
-    assert Map.get(bindings, :"$G") == :second
+    assert Map.get(bindings, "$Supers") == [:value]
+    assert Map.get(bindings, "$G") == :second
     :ok
   end
 
@@ -262,7 +262,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings1, :"$Count") == 99
+    assert Map.get(bindings1, "$Count") == 99
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -272,7 +272,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings2, :"$Count") == 0
+    assert Map.get(bindings2, "$Count") == 0
     :ok
   end
 
@@ -297,7 +297,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings1, :"$Count") == 99
+    assert Map.get(bindings1, "$Count") == 99
 
     {:atomic, {bindings2, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -307,7 +307,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings2, :"$Count") == 0
+    assert Map.get(bindings2, "$Count") == 0
     :ok
   end
 
@@ -339,8 +339,8 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$G1") == :hello_v1
-    assert Map.get(bindings, :"$G2") == :hello_v2
+    assert Map.get(bindings, "$G1") == :hello_v1
+    assert Map.get(bindings, "$G2") == :hello_v2
     :ok
   end
 
@@ -382,7 +382,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$Log") == [[:object], [:value]]
+    assert Map.get(bindings, "$Log") == [[:object], [:value]]
     :ok
   end
 
@@ -407,7 +407,7 @@ defmodule Examples.ALDefclass do
         """
       end
 
-    assert Map.get(bindings, :"$Count") == 0
+    assert Map.get(bindings, "$Count") == 0
     :ok
   end
 

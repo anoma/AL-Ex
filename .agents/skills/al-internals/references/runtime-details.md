@@ -139,20 +139,11 @@ also starts/stops the Outbox per branch.
   that need transaction state (`:mutation`), collection or `forall` results
   that need the driver, cuts and commits that reach driver choicepoints,
   diagnostics, failure, and a spent step budget (`:suspend`, resumed as-is).
-- **`AL.JAM.IR.Specialize`** — experimental, bounded partial evaluation of
-  pure sends, structural equality, disequality, numeric comparisons and
-  alternatives. It unfolds calls with known receivers and finite known inputs,
-  propagates symbolic bindings, and emits ordinary equality/failure goals.
-  Unsupported operations, dynamic comparisons, residual constraints, multiple
-  answers and exhausted fuel return a fallback. This is explicit compiler
-  experimentation, not an automatic JIT or a reusable loop for arbitrary
-  lengths. Plans specialize whole queries starting with fresh variables;
-  they are not replacements for arbitrary in-flight machine frames.
-  Compile and select a plan inside a Mnesia transaction with the
-  transaction cache; select and execute in the same transaction. Selection
-  validates branch, dispatch identities and exact clause definitions, and
-  returns the original goals when dependencies change or tracing is active.
-  This bounded evaluator is covered by `test/jam_specialize_test.exs`.
+- **`AL.JAM.IR.Binding`** — shared compile-time freshness, escape, and safe
+  equality propagation rules for inference, dataflow, and region planning.
+  Arithmetic is evaluated only when ground; unresolved arithmetic remains a
+  runtime constraint. Register specialization tracks slot indices after
+  lowering and keeps its separate instruction-level facts.
 - **`AL.JAM.IR.Loop`** — automatic fusion for a proven two-clause list
   recurrence. It lowers clause bodies through the semantic IR, inlines bound
   pure sends, and proves that each recursive step consumes one list cell,
@@ -435,7 +426,10 @@ also starts/stops the Outbox per branch.
   class is a relational fact costing one class-chain lookup. `AL.unify/3` (in
   `AL.ex`) is the state-aware convenience every other module calls;
   `AL.Var.unify/4` directly only when there's no `AL` state to pull
-  `store`/`branch` from. Vars are atoms starting with `$` (`:"$x"`).
+  `store`/`branch` from. Variables are `{:"$var", "x"}` with binary names; fresh variables wrap
+  them as `{:"$fresh", base, scope}`. Returned binding and constraint maps
+  use binary keys such as `"$X"`. Mnesia match-spec placeholders remain
+  Erlang atoms at the query boundary; they are not stored AL variables.
 - **`AL.Command` (lib/AL/command_log/command.ex)** — the event log. Each mutating
   goal writes a `{:command, t, tx_id, op}` row. `t` is a **global monotonic
   counter** shared across stores, so commands are globally ordered.
@@ -559,9 +553,7 @@ under `state.trace`. No flags is the default and retains no execution history.
 `:domino` records the structured call tree plus constraint evidence, and `:vm`
 interleaves every VM goal. Constraint events are classified entries, not a
 separate producer or flag. A future query explainer can add a new producer
-without another top-level state field. The old `trace_mode:` values remain
-compatibility shorthands: `:no_trace` is `[]`, `:derivation_trace` is
-`[:domino]`, and `:full_trace` is `[:domino, :vm]`. Domino traces record 4 ports
+without another top-level state field. Domino traces record 4 ports
 — Call/Exit/Redo/Fail — at 2 levels, **method** (dispatch picking a provider, can itself
 backtrack over candidate classes) wrapping **clause** (which clause of the
 chosen method runs). Same Byrd-box framing classic Prolog tracers use, doubled

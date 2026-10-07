@@ -1,7 +1,7 @@
 defmodule AL.JAM.IR.Plan do
   alias AL.{Goal, Var}
   alias AL.JAM.{Compiler, IR}
-  alias AL.JAM.IR.{Dataflow, Program, Region}
+  alias AL.JAM.IR.{Dataflow, Program}
 
   defstruct [
     :compiled,
@@ -85,7 +85,7 @@ defmodule AL.JAM.IR.Plan do
                   bindings
 
                 variable ->
-                  if Var.var?(variable) and variable != :"$_",
+                  if Var.var?(variable) and variable != {:"$var", "_"},
                     do: Map.put(bindings, variable, value),
                     else: bindings
               end
@@ -94,7 +94,7 @@ defmodule AL.JAM.IR.Plan do
           head_bindings =
             Map.filter(bindings, fn {_, value} -> MapSet.size(Var.find_vars(value)) > 0 end)
 
-          head = Goal.map(head, &Map.get(head_bindings, &1, &1))
+          head = AL.Term.map(head, &Map.get(head_bindings, &1, &1))
           {body, state} = fuse_providers(body, receiver, selector, id, state)
           body = Program.subst(body, bindings)
 
@@ -140,7 +140,7 @@ defmodule AL.JAM.IR.Plan do
           {:ok, _, ^id} ->
             AL.Dispatch.provider_cursor(receiver, selector, id, branch) === cursor and
               Enum.all?(rows, fn {provider, clauses} ->
-                AL.cached_scan_clauses(provider, branch) === clauses
+                AL.JAM.Clauses.cached_scan_clauses(provider, branch) === clauses
               end)
 
           _ ->
@@ -152,7 +152,7 @@ defmodule AL.JAM.IR.Plan do
       end) and
       Enum.all?(plan.dependencies, fn {{receiver, selector}, {id, clauses}} ->
         case AL.Dispatch.target(receiver, selector, branch) do
-          {:ok, _, ^id} -> AL.cached_scan_clauses(id, branch) === clauses
+          {:ok, _, ^id} -> AL.JAM.Clauses.cached_scan_clauses(id, branch) === clauses
           _ -> false
         end
       end)
@@ -190,7 +190,7 @@ defmodule AL.JAM.IR.Plan do
              {:ok, id, next_cursor} <- AL.Dispatch.next_provider(cursor, branch),
              [{:oapply, _, _, head, callee}] <- Compiler.fetch_ir(id, branch),
              true <- proper?(head) and length(head) == length(args) + 1,
-             true <- Enum.all?(head, &(Var.var?(&1) and &1 != :"$_")),
+             true <- Enum.all?(head, &(Var.var?(&1) and &1 != {:"$var", "_"})),
              true <- length(Enum.uniq(head)) == length(head),
              {:ok, prefix, rows} <- fuse_prefix(callee, next_cursor, branch, fuel - 1) do
           scope = Integer.to_string(AL.fresh_scope())
@@ -199,11 +199,14 @@ defmodule AL.JAM.IR.Plan do
           prefix =
             Program.map_values(prefix, fn value ->
               Map.get_lazy(bindings, value, fn ->
-                if Var.var?(value) and value != :"$_", do: Var.fresh(value, scope), else: value
+                if Var.var?(value) and value != {:"$var", "_"},
+                  do: Var.fresh(value, scope),
+                  else: value
               end)
             end)
 
-          {:ok, Program.concat(prefix, rest), [{id, AL.cached_scan_clauses(id, branch)} | rows]}
+          {:ok, Program.concat(prefix, rest),
+           [{id, AL.JAM.Clauses.cached_scan_clauses(id, branch)} | rows]}
         else
           _ -> :unsupported
         end
@@ -290,9 +293,9 @@ defmodule AL.JAM.IR.Plan do
         {[body], state}
 
       %IR{kind: :direct, name: :eq, args: [a, b]} ->
-        case Region.bind(a, b, state.protected) do
-          {:ok, bindings} -> expand(Program.subst(rest, bindings), state, stack)
-          :runtime -> boundary(goal, rest, state, stack)
+        case IR.Binding.infer(a, b, state.protected) do
+          {variable, value} -> expand(Program.subst(rest, %{variable => value}), state, stack)
+          nil -> boundary(goal, rest, state, stack)
         end
 
       %IR{kind: :direct, name: :pass} ->
@@ -312,7 +315,7 @@ defmodule AL.JAM.IR.Plan do
     do: {[Program.prepend(operation, rest)], state}
 
   defp boundary(operation, rest, state, stack) do
-    state = %{state | protected: Region.escape(operation, state.protected), stable: false}
+    state = %{state | protected: IR.Binding.escape(operation, state.protected), stable: false}
     {paths, state} = expand(rest, state, stack)
     paths = if paths == [], do: [Program.lower([IR.operation(:direct, :fail, [])])], else: paths
     {Enum.map(paths, &Program.prepend(operation, &1)), state}
@@ -336,7 +339,7 @@ defmodule AL.JAM.IR.Plan do
       known != nil and not Var.var?(known) ->
         if known == class, do: expand(rest, state, stack), else: {[], state}
 
-      state.stable and is_atom(object) and not Var.var?(object) ->
+      state.stable and is_atom(object) ->
         rows = AL.Object.scan_class(object, class, state.branch)
         state = %{state | classes: Map.put(state.classes, {object, class}, rows)}
 
@@ -364,7 +367,7 @@ defmodule AL.JAM.IR.Plan do
 
           if name !== args and
                Enum.all?(pairs, fn {variable, value} ->
-                 Var.var?(variable) and variable != :"$_" and
+                 Var.var?(variable) and variable != {:"$var", "_"} and
                    not MapSet.member?(state.protected, variable) and
                    not MapSet.member?(Var.find_vars(value), variable)
                end) do
@@ -385,7 +388,7 @@ defmodule AL.JAM.IR.Plan do
          proper?(args) do
       case AL.Dispatch.target(dispatch_receiver, selector, state.branch) do
         {:ok, _, id} ->
-          clauses = AL.cached_scan_clauses(id, state.branch)
+          clauses = AL.JAM.Clauses.cached_scan_clauses(id, state.branch)
 
           if (id not in stack or
                 (is_list(receiver) and proper?(receiver) and length(receiver) <= 4)) and
@@ -398,10 +401,12 @@ defmodule AL.JAM.IR.Plan do
                 scope = Integer.to_string(AL.fresh_scope())
 
                 rename = fn value ->
-                  if Var.var?(value) and value != :"$_", do: Var.fresh(value, scope), else: value
+                  if Var.var?(value) and value != {:"$var", "_"},
+                    do: Var.fresh(value, scope),
+                    else: value
                 end
 
-                head = Goal.map(head, rename)
+                head = AL.Term.map(head, rename)
                 body = Program.map_values(body, rename)
 
                 case match(head, [receiver | args], %{}, state.protected) do
@@ -442,7 +447,7 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
-  defp match(:"$_", _, bindings, _protected), do: {:ok, bindings}
+  defp match({:"$var", "_"}, _, bindings, _protected), do: {:ok, bindings}
 
   defp match(head, value, bindings, protected) do
     value = Var.subst(value, bindings)
@@ -495,7 +500,8 @@ defmodule AL.JAM.IR.Plan do
       variable === value ->
         {:ok, bindings}
 
-      Var.var?(variable) and variable != :"$_" and not MapSet.member?(protected, variable) and
+      Var.var?(variable) and variable != {:"$var", "_"} and
+        not MapSet.member?(protected, variable) and
           not MapSet.member?(Var.find_vars(value), variable) ->
         {:ok, Map.put(bindings, variable, value)}
 
@@ -514,8 +520,11 @@ defmodule AL.JAM.IR.Plan do
 
   defp fetch(receiver, selector, branch) do
     case AL.Dispatch.target(receiver, selector, branch) do
-      {:ok, _, id} -> {id, AL.cached_scan_clauses(id, branch), Compiler.fetch_ir(id, branch)}
-      _ -> throw(:no_plan)
+      {:ok, _, id} ->
+        {id, AL.JAM.Clauses.cached_scan_clauses(id, branch), Compiler.fetch_ir(id, branch)}
+
+      _ ->
+        throw(:no_plan)
     end
   end
 
@@ -549,7 +558,7 @@ defmodule AL.JAM.IR.Plan do
 
       case template do
         %{__struct__: tag} ->
-          if is_atom(tag) and not Var.var?(tag), do: template, else: field(path)
+          if is_atom(tag), do: template, else: field(path)
 
         _ ->
           template
@@ -566,7 +575,7 @@ defmodule AL.JAM.IR.Plan do
       depth <= 0 ->
         field(path)
 
-      is_atom(value) and not Var.var?(value) ->
+      is_atom(value) ->
         value
 
       is_number(value) ->
@@ -598,16 +607,16 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
-  defp field(path), do: Var.fresh(:"$PlanField", "query_" <> path)
+  defp field(path), do: Var.fresh({:"$var", "PlanField"}, "query_" <> path)
 
   defp literal?(_, fuel) when fuel <= 0, do: false
-  defp literal?(value, _) when is_atom(value), do: not Var.var?(value)
+  defp literal?(value, _) when is_atom(value), do: true
   defp literal?(value, _) when is_binary(value), do: byte_size(value) <= 40
   defp literal?([], _), do: true
   defp literal?([h | t], fuel), do: literal?(h, fuel - 1) and literal?(t, fuel - 1)
 
   defp literal?(%{class: class} = value, _) when map_size(value) == 1,
-    do: is_atom(class) and not Var.var?(class)
+    do: is_atom(class)
 
   defp literal?(_, _), do: false
   defp proper?([]), do: true

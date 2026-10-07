@@ -37,7 +37,7 @@ try do
       %AL.Goal.Send{
         object: :allocation_runner_instance,
         method: :make,
-        args: [class, indices, :"$Objects"]
+        args: [class, indices, {:"$var", "Objects"}]
       }
     ]
 
@@ -50,7 +50,7 @@ try do
           before = elem(Process.info(self(), :reductions), 1)
           {us, {:atomic, {bindings, _, _}}} = :timer.tc(fn -> AL.eval(program, nil, branch) end)
           reductions = elem(Process.info(self(), :reductions), 1) - before
-          objects = bindings[:"$Objects"]
+          objects = bindings["$Objects"]
           true = length(objects) == count and length(Enum.uniq(objects)) == count
 
           {:atomic, :ok} =

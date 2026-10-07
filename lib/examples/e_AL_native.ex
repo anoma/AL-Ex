@@ -42,7 +42,7 @@ defmodule Examples.ALNative do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == 4
+    assert Map.get(bindings, "$Result") == 4
 
     AL.Native.retract(method_id, branch: examples_branch())
     :ok
@@ -96,7 +96,7 @@ defmodule Examples.ALNative do
         """
       end
 
-    assert Map.get(bindings, :"$Result") == 3
+    assert Map.get(bindings, "$Result") == 3
 
     AL.Native.retract(method_id, branch: examples_branch())
     :ok
@@ -146,7 +146,7 @@ defmodule Examples.ALNative do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$All")) == [1, 2, 3, 6]
+    assert Enum.sort(Map.get(bindings, "$All")) == [1, 2, 3, 6]
 
     AL.Native.retract(method_id, branch: examples_branch())
     :ok

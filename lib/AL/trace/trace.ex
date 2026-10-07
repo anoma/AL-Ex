@@ -8,8 +8,6 @@ defmodule AL.Trace do
     * `:domino` retains method/clause ports and constraint evidence
     * `:vm` retains every raw VM goal plus backtrack/flounder markers
 
-  The legacy `trace_mode` option is normalized onto these flags by
-  `flags_from_options!/1`.
   """
 
   use TypedStruct
@@ -27,21 +25,7 @@ defmodule AL.Trace do
   end
 
   @spec flags_from_options!(keyword()) :: MapSet.t(flag())
-  def flags_from_options!(opts) do
-    case {Keyword.fetch(opts, :trace), Keyword.fetch(opts, :trace_mode)} do
-      {{:ok, _flags}, {:ok, _mode}} ->
-        raise ArgumentError, "trace and trace_mode cannot be used together"
-
-      {{:ok, flags}, :error} ->
-        normalize_flags!(flags)
-
-      {:error, {:ok, mode}} ->
-        legacy_flags!(mode)
-
-      {:error, :error} ->
-        MapSet.new()
-    end
-  end
+  def flags_from_options!(opts), do: normalize_flags!(Keyword.get(opts, :trace, []))
 
   @spec new(MapSet.t(flag())) :: t()
   def new(flags) do
@@ -91,15 +75,6 @@ defmodule AL.Trace do
       raise ArgumentError,
             "unknown trace flags #{inspect(MapSet.to_list(unknown))}; expected flags from #{inspect(MapSet.to_list(@allowed_flags))}"
     end
-  end
-
-  defp legacy_flags!(:no_trace), do: MapSet.new()
-  defp legacy_flags!(:derivation_trace), do: MapSet.new([:domino])
-  defp legacy_flags!(:full_trace), do: MapSet.new([:domino, :vm])
-
-  defp legacy_flags!(mode) do
-    raise ArgumentError,
-          "trace_mode must be :no_trace, :derivation_trace, or :full_trace, got: #{inspect(mode)}"
   end
 
   @spec trace(atom()) :: :ok
@@ -403,10 +378,11 @@ defmodule AL.Trace do
 
     cond do
       hash?(s) -> :"##{AL.Command.id_label(AL.Branch.head(), a)}"
-      AL.Var.var?(a) -> :"#{strip_freshener(s)}"
       true -> a
     end
   end
+
+  def pretty({:"$var", _name} = variable), do: variable
 
   def pretty({:"$fresh", base, _scope}), do: pretty(base)
 
@@ -431,16 +407,4 @@ defmodule AL.Trace do
   defp hash?(s) do
     byte_size(s) == 32 and Enum.all?(String.to_charlist(s), &(&1 in ?0..?9 or &1 in ?a..?f))
   end
-
-  defp strip_freshener(s) do
-    s
-    |> String.split("_")
-    |> Enum.reverse()
-    |> Enum.drop_while(&integer_segment?/1)
-    |> Enum.reverse()
-    |> Enum.join("_")
-  end
-
-  defp integer_segment?(""), do: false
-  defp integer_segment?(s), do: Enum.all?(String.to_charlist(s), &(&1 in ?0..?9))
 end

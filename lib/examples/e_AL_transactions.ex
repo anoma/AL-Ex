@@ -20,7 +20,11 @@ defmodule Examples.ALTransactions do
     {:aborted, _trace} = AL.eval([%AL.Goal.Fail{}], nil, branch)
 
     {:aborted, _trace} =
-      AL.eval([%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: :"$x"}], nil, branch)
+      AL.eval(
+        [%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: {:"$var", "x"}}],
+        nil,
+        branch
+      )
 
     :ok
   end
@@ -82,7 +86,7 @@ defmodule Examples.ALTransactions do
       end
 
     assert [[time, {:set_class, {^object, :object}}]] =
-             Enum.filter(Map.get(bindings, :"$Commands"), fn
+             Enum.filter(Map.get(bindings, "$Commands"), fn
                [_time, {:set_class, {^object, :object}}] -> true
                _command -> false
              end)

@@ -18,12 +18,11 @@
 <goal> ::= <symbol> <spaced_exprs>
 <goal_rest> ::= "" | <blanks> "," <pad> <goal> <goal_rest>
 <list_rest> ::= "" | <blanks> "," <pad> <expr> <list_rest> | <pad> "." <pad> <expr>
-<symbol> ::= <integer> | <symbol_code> <symbol_code>* <variable_name> | <symbol_code> <symbol_code>*
+<symbol> ::= <integer> | <variable_start_code> <symbol_code>* | <symbol_code> <symbol_code>*
 <integer> ::= <natural> | "-" <natural>
 <natural> ::= "0" | <digit> <digits>
 <digits> ::= "" | <digit> <digits>
 <digit> ::= /./
-<variable_name> ::= ""
 <characters> ::= "" | <character> <characters>
 <character> ::= "\\\"" | "\\\\" | "\\n" | "\\t" | "\\r" | "\\\#" | "\#" | /./
 <blank> ::= " " | "\n" | "\t" | "\r"

@@ -3,12 +3,10 @@ defmodule AL.MCP.Term do
 
   @spec encode(AL.Var.t()) :: map()
   def encode(term) when is_atom(term) do
-    if AL.Var.var?(term) do
-      %{"type" => "variable", "name" => AL.Var.name(term)}
-    else
-      %{"type" => "atom", "name" => Atom.to_string(term)}
-    end
+    %{"type" => "atom", "name" => Atom.to_string(term)}
   end
+
+  def encode({:"$var", name}), do: %{"type" => "variable", "name" => name}
 
   def encode({:"$fresh", _base, _scope} = variable) do
     %{"type" => "variable", "name" => AL.Var.name(variable)}
@@ -59,24 +57,27 @@ defmodule AL.MCP.Term do
     %{"type" => "map", "entries" => entries}
   end
 
-  @spec encode_bindings(AL.Var.store(), map()) :: map()
+  @spec encode_bindings(map(), map()) :: map()
   def encode_bindings(bindings, constraints) do
     encoded_bindings =
       bindings
-      |> Enum.sort_by(fn {variable, _value} -> AL.Var.name(variable) end)
+      |> Enum.sort_by(fn {variable, _value} -> variable end)
       |> Enum.map(fn {variable, value} ->
-        %{"variable" => encode(variable), "value" => encode(value)}
+        %{"variable" => encode_binding_key(variable), "value" => encode(value)}
       end)
 
     encoded_constraints =
       constraints
-      |> Enum.sort_by(fn {variable, _value} -> AL.Var.name(variable) end)
+      |> Enum.sort_by(fn {variable, _value} -> variable end)
       |> Enum.map(fn {variable, value} ->
-        %{"variable" => encode(variable), "value" => encode(value)}
+        %{"variable" => encode_binding_key(variable), "value" => encode(value)}
       end)
 
     %{"bindings" => encoded_bindings, "constraints" => encoded_constraints}
   end
+
+  defp encode_binding_key("$" <> name), do: %{"type" => "variable", "name" => name}
+  defp encode_binding_key(key), do: encode(key)
 
   defp list_parts([], items), do: {Enum.reverse(items), []}
   defp list_parts([head | tail], items), do: list_parts(tail, [head | items])

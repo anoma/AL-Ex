@@ -1126,8 +1126,7 @@ syntax >> word_code
 
 syntax >> variable_word
 | Self Input Rest Name |
-atom_string Name Text,
-string_codes Text [First . More],
+string_codes Name [First . More],
 variable_start_code Self Input After First,
 zero_or_more Self After Rest variable_code More.
 
@@ -1423,7 +1422,10 @@ defrule block_syntax (expr [First . More])
 defrule block_syntax (expr Term) [next].
 
 defrule block_syntax (goal Goal)
-  [where [Goal, Head, Args] {functor Goal Head Args}, symbol Head, spaced_exprs Args].
+  [where [Goal, Head, Args] {functor Goal Head Args},
+   symbol Head,
+   spaced_exprs Args,
+   where [Goal] {not {functor Goal var [Name], isa Name string}}].
 defrule block_syntax (goal_rest []) [].
 defrule block_syntax (goal_rest [Goal . More]) [blanks, ",", pad, goal Goal, goal_rest More].
 
@@ -1484,8 +1486,20 @@ defrule number_syntax (digit Digit)
 
 @variable_syntax #{super => lisp_syntax, metaclass => grammar}.
 
-defrule variable_syntax (symbol (var Name)) [next Name, variable_name Name].
-defrule variable_syntax (symbol Term) [next Term, unless (variable_name Term)].
+defrule variable_syntax (symbol (var Name))
+  [known_text,
+   variable_start_code First,
+   zero_or_more symbol_code More,
+   where [Name, First, More] {string_codes Name [First . More]}].
+defrule variable_syntax (symbol (var Name))
+  [unknown_text,
+   where [Name, First, More] {string_codes Name [First . More]},
+   variable_start_code First,
+   zero_or_more symbol_code More].
+defrule variable_syntax (symbol Term)
+  [known_text, unless variable_start, next Term].
+defrule variable_syntax (symbol Term)
+  [unknown_text, next Term, unless (variable_name Term)].
 
 defrule variable_syntax (variable_name Name)
   [where [Name, Codes] {atom Name, atom_string Name Text, string_codes Text Codes},

@@ -6,7 +6,7 @@ Bench.Language.isolated(fn ->
 
   create = fn ->
     {:atomic, {bindings, _, _}} = AL.eval(parsed.program, nil, branch)
-    Map.fetch!(bindings, :"$X")
+    Map.fetch!(bindings, "$X")
   end
 
   definitions = fn ->

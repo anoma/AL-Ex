@@ -3,13 +3,14 @@ defmodule AL.JAM.IR.Emit do
   alias AL.JAM.IR.Program
 
   def operation(
-        %IR{kind: :invoke, name: method, args: args, source: {:method_identity, position}},
+        %IR{kind: :invoke, name: method, args: args, method_identity: position},
         slots
-      ),
+      )
+      when is_integer(position),
       do: {:call_method, {:method_identity, method, position}, Operand.compile(args, slots)}
 
   def operation(
-        %IR{kind: :machine, name: :numeric_tests, args: [value, tests], source: source},
+        %IR{kind: :machine, name: :numeric_tests, args: [value, tests], fallback: source},
         slots
       ) do
     fallback = source |> Enum.map(&operation(&1, slots)) |> List.to_tuple()
@@ -48,7 +49,13 @@ defmodule AL.JAM.IR.Emit do
   end
 
   def operation(
-        %IR{kind: :scope, name: :source_scope, args: [id], source: source, regions: regions},
+        %IR{
+          kind: :scope,
+          name: :source_scope,
+          args: [id],
+          retained_goals: source,
+          regions: regions
+        },
         slots
       ) do
     id = Operand.compile(id, slots)
@@ -95,7 +102,7 @@ defmodule AL.JAM.IR.Emit do
   defp code(program, slots), do: Program.emit(program, slots) |> List.to_tuple()
 
   defp body_template(body, slots) do
-    variables = body |> Program.variables() |> MapSet.delete(:"$_") |> MapSet.to_list()
+    variables = body |> Program.variables() |> MapSet.delete({:"$var", "_"}) |> MapSet.to_list()
     registers = variables |> Enum.with_index() |> Map.new()
     values = Enum.map(variables, &Operand.compile(&1, slots))
 

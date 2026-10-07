@@ -63,7 +63,8 @@ defmodule AL.Dispatch do
   defp discovered_classes(term, branch) do
     durable =
       if is_atom(term) do
-        for {:class, ^term, _seq, class} <- AL.Object.scan_class(term, :"$direct_class", branch),
+        for {:class, ^term, _seq, class} <-
+              AL.Object.scan_class(term, {:"$var", "direct_class"}, branch),
             do: class
       else
         []
@@ -83,13 +84,13 @@ defmodule AL.Dispatch do
   @spec direct_class?(term(), atom(), AL.Branch.t()) :: boolean()
   def direct_class?(term, class, branch), do: class in direct_classes(term, branch)
 
-  defp resolved_isa_class?(existing), do: is_atom(existing) and not AL.Var.var?(existing)
+  defp resolved_isa_class?(existing), do: is_atom(existing)
 
   defp resolved_direct_classes(store, self) do
     store
     |> AL.Var.direct_classes_of(self)
     |> Enum.map(&AL.Var.deref(store, &1))
-    |> Enum.filter(&(is_atom(&1) and not AL.Var.var?(&1)))
+    |> Enum.filter(&is_atom(&1))
     |> Enum.uniq()
   end
 
@@ -106,9 +107,9 @@ defmodule AL.Dispatch do
       scope = AL.fresh_scope()
 
       AL.Object.scan_method(
-        AL.Var.var("open_provider_#{scope}"),
+        AL.Var.fresh({:"$var", "open_provider"}, Integer.to_string(scope)),
         method,
-        AL.Var.var("open_provider_method_#{scope}"),
+        AL.Var.fresh({:"$var", "open_provider_method"}, Integer.to_string(scope)),
         branch
       )
       |> Enum.map(fn {:method, provider, selector, _id} -> {provider, selector} end)
@@ -192,8 +193,8 @@ defmodule AL.Dispatch do
       scope = AL.fresh_scope()
 
       AL.Object.scan_class(
-        AL.Var.var("durable_scan_object_#{scope}"),
-        AL.Var.var("durable_scan_class_#{scope}"),
+        AL.Var.fresh({:"$var", "durable_scan_object"}, Integer.to_string(scope)),
+        AL.Var.fresh({:"$var", "durable_scan_class"}, Integer.to_string(scope)),
         branch
       )
       |> Enum.group_by(
@@ -223,7 +224,9 @@ defmodule AL.Dispatch do
   # dispatch_strategy, same immediate-classes starting point.
   @spec resolved_ivar_specs(AL.Var.t(), AL.Branch.t()) :: [term()]
   def resolved_ivar_specs(self, branch) do
-    classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
+    classes =
+      for({:class, _o, _seq, c} <- AL.Object.scan_class(self, {:"$var", "class"}, branch), do: c)
+
     ivar_specs_for_classes(classes, branch)
   end
 
@@ -293,14 +296,20 @@ defmodule AL.Dispatch do
 
   defp own_clause_self_patterns(class, branch) do
     for id <- own_method_ids(class, branch),
-        {:oapply, _id, _seq, [self_pattern | _], _body} <- AL.cached_scan_clauses(id, branch),
+        {:oapply, _id, _seq, [self_pattern | _], _body} <-
+          AL.JAM.Clauses.cached_scan_clauses(id, branch),
         do: self_pattern
   end
 
   defp own_method_ids(class, branch) do
     AL.ResolutionCache.fetch_class_methods(branch, class, fn ->
       for {:method, _o, _n, id} <-
-            AL.Object.scan_method(class, :"$isa_check_name", :"$isa_check_id", branch),
+            AL.Object.scan_method(
+              class,
+              {:"$var", "isa_check_name"},
+              {:"$var", "isa_check_id"},
+              branch
+            ),
           do: id
     end)
   end
@@ -308,14 +317,15 @@ defmodule AL.Dispatch do
   defp understood_method_names(self, branch) do
     AL.Dispatch.MethodOrder.method_scopes(self, branch)
     |> Enum.flat_map(fn scope ->
-      for {:method, _o, name, _id} <- AL.Object.scan_method(scope, :"$name", :"$id", branch),
+      for {:method, _o, name, _id} <-
+            AL.Object.scan_method(scope, {:"$var", "name"}, {:"$var", "id"}, branch),
           do: name
     end)
     |> Enum.uniq()
   end
 
-  def target(:"$_", _method, _branch), do: :miss
-  def target(_self, :"$_", _branch), do: :miss
+  def target({:"$var", "_"}, _method, _branch), do: :miss
+  def target(_self, {:"$var", "_"}, _branch), do: :miss
 
   def target(self, method, branch) do
     if AL.Var.var?(method) do
@@ -441,7 +451,8 @@ defmodule AL.Dispatch do
   end
 
   defp method_ids(obj, method, branch) do
-    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, :"$id", branch), do: id
+    for {:method, _o, _n, id} <- AL.Object.scan_method(obj, method, {:"$var", "id"}, branch),
+        do: id
   end
 
   # True whenever a durable :native fact exists for `id`, regardless of

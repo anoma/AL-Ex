@@ -178,7 +178,9 @@ defmodule Examples.ALGtBridge do
 
       try do
         assert {:atomic, [{:class, ^transaction, _seq, :transaction}]} =
-                 :mnesia.transaction(fn -> AL.Object.scan_class(transaction, :_, child) end)
+                 :mnesia.transaction(fn ->
+                   AL.Object.scan_class(transaction, AL.Var.var("_"), child)
+                 end)
 
         assert {:atomic, {:source_text, ^tx, ^source, _}} =
                  :mnesia.transaction(fn -> AL.SourceStore.text(tx, child) end)

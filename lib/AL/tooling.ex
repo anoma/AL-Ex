@@ -529,39 +529,39 @@ defmodule AL.Tooling do
 
   defp failure_state(_reason), do: nil
 
-  defp binding(bindings, :target_classes), do: Map.get(bindings, :"$TargetClasses", [])
-  defp binding(bindings, :instances), do: Map.get(bindings, :"$Instances", [])
-  defp binding(bindings, :supers), do: Map.get(bindings, :"$Supers", [])
-  defp binding(bindings, :subclasses), do: Map.get(bindings, :"$Subclasses", [])
-  defp binding(bindings, :method_bindings), do: Map.get(bindings, :"$MethodBindings", [])
-  defp binding(bindings, :clauses), do: Map.get(bindings, :"$Clauses", [])
-  defp binding(bindings, :failures), do: Map.get(bindings, :"$Failures", [])
-  defp binding(bindings, :object_classes), do: Map.get(bindings, :"$ObjectClasses", [])
-  defp binding(bindings, :object_supers), do: Map.get(bindings, :"$ObjectSupers", [])
-  defp binding(bindings, :object_methods), do: Map.get(bindings, :"$ObjectMethods", [])
-  defp binding(bindings, :object_clauses), do: Map.get(bindings, :"$ObjectClauses", [])
-  defp binding(bindings, :object_aos_slots), do: Map.get(bindings, :"$ObjectAosSlots", [])
-  defp binding(bindings, :object_soa_slots), do: Map.get(bindings, :"$ObjectSoaSlots", [])
-  defp binding(bindings, :inspected_methods), do: Map.get(bindings, :"$InspectedMethods", [])
+  defp binding(bindings, :target_classes), do: Map.get(bindings, "$TargetClasses", [])
+  defp binding(bindings, :instances), do: Map.get(bindings, "$Instances", [])
+  defp binding(bindings, :supers), do: Map.get(bindings, "$Supers", [])
+  defp binding(bindings, :subclasses), do: Map.get(bindings, "$Subclasses", [])
+  defp binding(bindings, :method_bindings), do: Map.get(bindings, "$MethodBindings", [])
+  defp binding(bindings, :clauses), do: Map.get(bindings, "$Clauses", [])
+  defp binding(bindings, :failures), do: Map.get(bindings, "$Failures", [])
+  defp binding(bindings, :object_classes), do: Map.get(bindings, "$ObjectClasses", [])
+  defp binding(bindings, :object_supers), do: Map.get(bindings, "$ObjectSupers", [])
+  defp binding(bindings, :object_methods), do: Map.get(bindings, "$ObjectMethods", [])
+  defp binding(bindings, :object_clauses), do: Map.get(bindings, "$ObjectClauses", [])
+  defp binding(bindings, :object_aos_slots), do: Map.get(bindings, "$ObjectAosSlots", [])
+  defp binding(bindings, :object_soa_slots), do: Map.get(bindings, "$ObjectSoaSlots", [])
+  defp binding(bindings, :inspected_methods), do: Map.get(bindings, "$InspectedMethods", [])
 
   defp binding(bindings, :inspected_transactions),
-    do: Map.get(bindings, :"$InspectedTransactions", [])
+    do: Map.get(bindings, "$InspectedTransactions", [])
 
   defp binding(bindings, :transaction_sources),
-    do: Map.get(bindings, :"$TransactionSources", [])
+    do: Map.get(bindings, "$TransactionSources", [])
 
   defp binding(bindings, :transaction_commands),
-    do: Map.get(bindings, :"$TransactionCommands", [])
+    do: Map.get(bindings, "$TransactionCommands", [])
 
-  defp binding(bindings, :packages), do: Map.get(bindings, :"$Packages", [])
+  defp binding(bindings, :packages), do: Map.get(bindings, "$Packages", [])
 
   defp binding(bindings, :inspected_packages),
-    do: Map.get(bindings, :"$InspectedPackages", [])
+    do: Map.get(bindings, "$InspectedPackages", [])
 
   defp binding(bindings, :lookup_providers),
-    do: Map.get(bindings, :"$LookupProviders", [])
+    do: Map.get(bindings, "$LookupProviders", [])
 
-  defp binding(bindings, :lookup_scopes), do: Map.get(bindings, :"$LookupScopes", [])
+  defp binding(bindings, :lookup_scopes), do: Map.get(bindings, "$LookupScopes", [])
 
   defp observation(%AL{} = state) do
     %{

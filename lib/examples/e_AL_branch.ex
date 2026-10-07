@@ -109,12 +109,12 @@ defmodule Examples.ALBranch do
         """
       end
 
-    assert Map.get(bindings, :"$Class") == :branch
-    assert Map.get(bindings, :"$Parent") == parent_id
-    assert Map.get(bindings, :"$Child") == child_id
-    assert Map.get(bindings, :"$Point") == at_fork
-    assert Map.get(bindings, :"$Here") == parent_id
-    assert Enum.all?([:main, parent_id, child_id], &(&1 in Map.get(bindings, :"$Branches")))
+    assert Map.get(bindings, "$Class") == :branch
+    assert Map.get(bindings, "$Parent") == parent_id
+    assert Map.get(bindings, "$Child") == child_id
+    assert Map.get(bindings, "$Point") == at_fork
+    assert Map.get(bindings, "$Here") == parent_id
+    assert Enum.all?([:main, parent_id, child_id], &(&1 in Map.get(bindings, "$Branches")))
 
     AL.Branch.discard(child)
     AL.Branch.discard(parent)
@@ -159,7 +159,7 @@ defmodule Examples.ALBranch do
           """
         end
 
-      assert Map.get(bindings, :"$Parent") == parent_id
+      assert Map.get(bindings, "$Parent") == parent_id
 
       report.("discarded", "discard #{child_id} Effect.")
       assert_receive %{event: :discarded, outcome: %{status: :ok, value: ^child_id}}, 2_000
@@ -248,7 +248,7 @@ defmodule Examples.ALBranch do
         """
       end
 
-    assert Map.get(bindings, :"$X") == 3
+    assert Map.get(bindings, "$X") == 3
 
     # main never saw :widget — the write stayed in the fork's log
     {:aborted, _} =
@@ -421,7 +421,7 @@ defmodule Examples.ALBranch do
         """
       end
 
-    assert Map.get(fork_bindings, :"$V") == true
+    assert Map.get(fork_bindings, "$V") == true
 
     {:aborted, _} =
       run do

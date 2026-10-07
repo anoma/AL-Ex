@@ -8,7 +8,7 @@ defmodule AL.JAM.IR.Dataflow do
   end
 
   def analyze(program, observable \\ MapSet.new(), rewrite \\ true) do
-    observable = MapSet.delete(observable, :"$_")
+    observable = MapSet.delete(observable, {:"$var", "_"})
     initial = %Facts{exposed: observable}
 
     state = %{
@@ -190,7 +190,7 @@ defmodule AL.JAM.IR.Dataflow do
 
     next = %Facts{
       values: if(pure, do: values, else: %{}),
-      exposed: MapSet.union(facts.exposed, variables(operation)),
+      exposed: IR.Binding.escape(operation, facts.exposed),
       stable: facts.stable and pure
     }
 
@@ -219,7 +219,7 @@ defmodule AL.JAM.IR.Dataflow do
 
   defp exit_variables(_), do: MapSet.new()
 
-  defp variables(operation), do: IR.variables(operation) |> MapSet.delete(:"$_")
+  defp variables(operation), do: IR.variables(operation) |> MapSet.delete({:"$var", "_"})
 
   defp liveness(state, observable) do
     ids = Program.reachable(state.program)

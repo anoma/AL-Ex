@@ -90,7 +90,11 @@ defmodule AL.JAM.Label.Witness do
     scope = AL.fresh_scope()
 
     declared =
-      AL.Object.scan_class(AL.Var.var("label_class_#{scope}"), :class, branch)
+      AL.Object.scan_class(
+        AL.Var.fresh({:"$var", "label_class"}, Integer.to_string(scope)),
+        :class,
+        branch
+      )
       |> Enum.map(fn {:class, class, _seq, :class} -> class end)
 
     durable =

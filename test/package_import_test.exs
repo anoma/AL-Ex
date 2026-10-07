@@ -288,7 +288,7 @@ defmodule ALPackageImportTest do
       end
 
     assert {:atomic, {bindings, _constraints, _}} = result
-    assert bindings[:"$FirstChannel"] != bindings[:"$SecondChannel"]
+    assert bindings["$FirstChannel"] != bindings["$SecondChannel"]
   end
 
   test "rejects dependency cycles", %{root: root} do
@@ -371,7 +371,7 @@ defmodule ALPackageImportTest do
 
     assert {:atomic, {bindings, _constraints, _}} = creation
 
-    owned = Map.fetch!(bindings, :"$Owned")
+    owned = Map.fetch!(bindings, "$Owned")
 
     rejected =
       AL.run branch: branch.id do

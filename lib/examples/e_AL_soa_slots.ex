@@ -66,7 +66,7 @@ defmodule Examples.ALSoaSlots do
         """
       end
 
-    assert Map.get(bindings, :"$V") == 1
+    assert Map.get(bindings, "$V") == 1
     :ok
   end
 
@@ -90,7 +90,7 @@ defmodule Examples.ALSoaSlots do
         """
       end
 
-    assert Map.get(bindings, :"$V") == 2
+    assert Map.get(bindings, "$V") == 2
     :ok
   end
 
@@ -120,11 +120,11 @@ defmodule Examples.ALSoaSlots do
 
     expected =
       Enum.sort([
-        [Map.get(bindings, :"$Obj1"), 1],
-        [Map.get(bindings, :"$Obj2"), 2]
+        [Map.get(bindings, "$Obj1"), 1],
+        [Map.get(bindings, "$Obj2"), 2]
       ])
 
-    assert Enum.sort(Map.get(bindings, :"$Results")) == expected
+    assert Enum.sort(Map.get(bindings, "$Results")) == expected
     :ok
   end
 end

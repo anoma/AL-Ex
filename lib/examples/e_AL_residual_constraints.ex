@@ -26,11 +26,11 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    assert AL.Var.var?(bindings[:"$X"])
-    assert bindings[:"$Plain"] == [:a, :b]
-    assert bindings[:"$PlainGoals"] == []
-    assert bindings[:"$Expression"] == %AL.Goal.Compound{name: :+, args: [1, 2]}
-    assert bindings[:"$ExpressionGoals"] == []
+    assert AL.Var.var?(bindings["$X"])
+    assert bindings["$Plain"] == [:a, :b]
+    assert bindings["$PlainGoals"] == []
+    assert bindings["$Expression"] == %AL.Goal.Compound{name: :+, args: [1, 2]}
+    assert bindings["$ExpressionGoals"] == []
   end
 
   example result_separates_bindings_from_constraints() do
@@ -42,11 +42,11 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    value = bindings[:"$Value"]
+    value = bindings["$Value"]
     assert AL.Var.var?(value)
-    assert Enum.sort(constraints[value].domain) == [1, 2, 3]
-    assert constraints[value].dif == [2]
-    refute Map.has_key?(bindings, :"$constraints")
+    assert Enum.sort(constraints[AL.Var.key(value)].domain) == [1, 2, 3]
+    assert constraints[AL.Var.key(value)].dif == [2]
+    refute Map.has_key?(bindings, "$constraints")
   end
 
   example aliasing_merges_constraint_sets_before_projection() do
@@ -60,10 +60,10 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    representative = bindings[:"$Left"]
-    assert bindings[:"$Right"] == representative
-    assert Enum.sort(constraints[representative].domain) == [2, 3]
-    assert constraints[representative].dif == [3]
+    representative = bindings["$Left"]
+    assert bindings["$Right"] == representative
+    assert Enum.sort(constraints[AL.Var.key(representative)].domain) == [2, 3]
+    assert constraints[AL.Var.key(representative)].dif == [3]
   end
 
   example isa_and_explicit_domains_narrow_independently_of_posting_order() do
@@ -83,13 +83,13 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    first = first_bindings[:"$Value"]
-    second = second_bindings[:"$Value"]
+    first = first_bindings["$Value"]
+    second = second_bindings["$Value"]
 
-    assert Enum.sort(first_constraints[first].domain) == [1, 2]
-    assert Enum.sort(second_constraints[second].domain) == [1, 2]
-    assert :number in first_constraints[first].isa
-    assert :number in second_constraints[second].isa
+    assert Enum.sort(first_constraints[AL.Var.key(first)].domain) == [1, 2]
+    assert Enum.sort(second_constraints[AL.Var.key(second)].domain) == [1, 2]
+    assert :number in first_constraints[AL.Var.key(first)].isa
+    assert :number in second_constraints[AL.Var.key(second)].isa
   end
 
   example grounding_removes_satisfied_residual_constraints() do
@@ -102,7 +102,7 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    assert bindings[:"$Value"] == 1
+    assert bindings["$Value"] == 1
     assert constraints == %{}
   end
 
@@ -114,8 +114,8 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    value = bindings[:"$Value"]
-    assert Enum.sort(constraints[value].domain) == [3, 4]
+    value = bindings["$Value"]
+    assert Enum.sort(constraints[AL.Var.key(value)].domain) == [3, 4]
   end
 
   example findall_copies_each_answers_constraint_graph() do
@@ -126,11 +126,11 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    [first, second] = bindings[:"$Values"]
+    [first, second] = bindings["$Values"]
     refute first == second
 
     domains =
-      [constraints[first].domain, constraints[second].domain]
+      [constraints[AL.Var.key(first)].domain, constraints[AL.Var.key(second)].domain]
       |> Enum.map(&Enum.sort/1)
       |> MapSet.new()
 
@@ -145,7 +145,7 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    [[left, right]] = bindings[:"$Answers"]
+    [[left, right]] = bindings["$Answers"]
     [relation] = constraints.relations
 
     assert relation.op == :=
@@ -169,18 +169,18 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    record = bindings[:"$Record"]
-    kind = bindings[:"$Kind"]
+    record = bindings["$Record"]
+    kind = bindings["$Kind"]
 
-    assert constraints[record].slots.kind == kind
+    assert constraints[AL.Var.key(record)].slots.kind == kind
 
-    assert MapSet.new(constraints[record].dispatch) ==
+    assert MapSet.new(constraints[AL.Var.key(record)].dispatch) ==
              MapSet.new([
                %{provider: :constraint_record, selector: :constraint_probe},
                %{provider: :object, selector: :get}
              ])
 
-    assert Enum.sort(constraints[kind].domain) == [:a, :b]
+    assert Enum.sort(constraints[AL.Var.key(kind)].domain) == [:a, :b]
   end
 
   example open_class_relations_are_public_constraints() do
@@ -191,10 +191,10 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    object = bindings[:"$Object"]
-    exact_class = bindings[:"$ExactClass"]
+    object = bindings["$Object"]
+    exact_class = bindings["$ExactClass"]
 
-    assert constraints[object].class == [exact_class]
+    assert constraints[AL.Var.key(object)].class == [exact_class]
     refute Map.has_key?(constraints, exact_class)
   end
 
@@ -206,10 +206,10 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    object = bindings[:"$Object"]
-    ancestor = bindings[:"$Ancestor"]
+    object = bindings["$Object"]
+    ancestor = bindings["$Ancestor"]
 
-    assert constraints[object].isa == [ancestor]
+    assert constraints[AL.Var.key(object)].isa == [ancestor]
     refute Map.has_key?(constraints, ancestor)
   end
 
@@ -221,11 +221,11 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    subclass = bindings[:"$Subclass"]
-    superclass = bindings[:"$Superclass"]
+    subclass = bindings["$Subclass"]
+    superclass = bindings["$Superclass"]
 
-    assert constraints[subclass].super == superclass
-    assert constraints[superclass].subclass == subclass
+    assert constraints[AL.Var.key(subclass)].super == superclass
+    assert constraints[AL.Var.key(superclass)].subclass == subclass
   end
 
   example open_slot_relations_include_the_value_in_the_constraint_graph() do
@@ -236,10 +236,10 @@ defmodule Examples.ALResidualConstraints do
         """
       end
 
-    object = bindings[:"$Object"]
-    value = bindings[:"$Value"]
+    object = bindings["$Object"]
+    value = bindings["$Value"]
 
-    assert constraints[object].slots.title == value
-    assert constraints[value].slot_of.title == object
+    assert constraints[AL.Var.key(object)].slots.title == value
+    assert constraints[AL.Var.key(value)].slot_of.title == object
   end
 end

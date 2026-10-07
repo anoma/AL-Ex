@@ -10,7 +10,7 @@ defmodule AL.JAM.Forall do
   end
 
   def instances(raw_condition, raw_body, body, visible, solutions) do
-    raw_vars = AL.Var.find_vars({raw_condition, raw_body}) |> MapSet.delete(:"$_")
+    raw_vars = AL.Var.find_vars({raw_condition, raw_body}) |> MapSet.delete({:"$var", "_"})
     body_vars = AL.Var.find_vars(body)
     connectable = raw_condition |> AL.Var.find_vars() |> MapSet.intersection(body_vars)
     outer = MapSet.difference(visible, raw_vars)

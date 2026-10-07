@@ -23,6 +23,30 @@ defmodule AL.Definition.Snapshot do
     end
   end
 
+  @spec capture(AL.Branch.t(), [term()]) :: {:ok, t()} | {:error, {:mnesia, term()}}
+  def capture(branch, owners) do
+    case :mnesia.transaction(fn -> capture_owners_in_transaction(branch, owners) end) do
+      {:atomic, snapshot} -> {:ok, snapshot}
+      {:aborted, reason} -> {:error, {:mnesia, reason}}
+    end
+  end
+
+  defp capture_owners_in_transaction(branch, owners) do
+    owners = Enum.uniq(owners)
+
+    bindings =
+      Enum.flat_map(owners, fn owner ->
+        AL.Object.scan_open_method_versions(
+          owner,
+          {:"$var", "definition_snapshot_selector"},
+          {:"$var", "definition_snapshot_method"},
+          branch
+        )
+      end)
+
+    %__MODULE__{documents: documents(bindings, branch, owners)}
+  end
+
   @doc false
   @spec capture_in_transaction(AL.Branch.t()) :: t()
   def capture_in_transaction(branch) do
@@ -44,15 +68,13 @@ defmodule AL.Definition.Snapshot do
     |> Enum.map(fn {owner, document} -> {owner, Document.render(document)} end)
   end
 
-  defp documents(bindings, branch) do
+  defp documents(bindings, branch, owners \\ [{:"$var", "definition_snapshot_class"}]) do
     class_metaclasses = class_metaclass_closure(branch)
 
     classes =
-      AL.Object.scan_class(
-        AL.Var.var("definition_snapshot_class"),
-        AL.Var.var("definition_snapshot_metaclass"),
-        branch
-      )
+      Enum.flat_map(owners, fn owner ->
+        AL.Object.scan_class(owner, {:"$var", "definition_snapshot_metaclass"}, branch)
+      end)
       |> Enum.filter(fn {:class, _owner, _seq, meta} ->
         MapSet.member?(class_metaclasses, meta)
       end)

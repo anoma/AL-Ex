@@ -15,11 +15,11 @@ defmodule AL.JAM.ConsumptionTest do
     result
   end
 
-  defp answers(branch, selector, input, rest \\ :"$Rest") do
+  defp answers(branch, selector, input, rest \\ {:"$var", "Rest"}) do
     program = [
       %AL.Goal.Findall{
         template: rest,
-        result: :"$Answers",
+        result: {:"$var", "Answers"},
         condition: [
           %AL.Goal.Send{object: %{class: :al_grammar}, method: selector, args: [input, rest]}
         ]
@@ -28,7 +28,7 @@ defmodule AL.JAM.ConsumptionTest do
 
     assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:vm])
     assert {:atomic, {^expected, _, _}} = AL.eval(program, nil, branch)
-    expected[:"$Answers"]
+    expected["$Answers"]
   end
 
   test "ordered prefixes and constrained or open tails agree with ordinary execution", %{
@@ -40,7 +40,14 @@ defmodule AL.JAM.ConsumptionTest do
     assert answers(branch, :gap, ~c" \tx") == [~c"x", ~c"\tx"]
 
     for selector <- [:blanks, :gap],
-        input <- [[], ~c"x", ~c"\n\r x", [32 | :"$Tail"], [32, :"$Code"], [32 | :end]] do
+        input <- [
+          [],
+          ~c"x",
+          ~c"\n\r x",
+          [32 | {:"$var", "Tail"}],
+          [32, {:"$var", "Code"}],
+          [32 | :end]
+        ] do
       answers(branch, selector, input)
     end
 
@@ -49,7 +56,7 @@ defmodule AL.JAM.ConsumptionTest do
     assert {:atomic, {bindings, _, _}} =
              AL.eval_source(~S"gap #{class => al_grammar} Input [].", branch)
 
-    assert bindings[:"$Input"] == [32]
+    assert bindings["$Input"] == [32]
   end
 
   test "local outputs survive retries while aliases and constrained outputs keep unification", %{
@@ -137,7 +144,7 @@ defmodule AL.JAM.ConsumptionTest do
   test "emitted scan can suspend inside classification without losing answers", %{branch: branch} do
     compiled = plan(branch, :blanks)
     {_, code, _, _} = AL.JAM.Scan.emit(compiled)
-    snapshot = {:test, code, 0, {~c" \tx", :"$Rest", nil, nil}, [], %{}, %{}}
+    snapshot = {:test, code, 0, {~c" \tx", {:"$var", "Rest"}, nil, nil}, [], %{}, %{}}
     assert collect(AL.JAM.resume(snapshot, branch, 1), [], branch) == [~c"x", ~c"\tx", ~c" \tx"]
   end
 
@@ -145,10 +152,10 @@ defmodule AL.JAM.ConsumptionTest do
     do: collect(AL.JAM.resume(snapshot, branch, 1), alternatives ++ choices, branch)
 
   defp collect({:answers, store, alternatives, _}, choices, branch),
-    do: [AL.Var.subst(:"$Rest", store) | remaining(alternatives ++ choices, branch)]
+    do: [AL.Var.subst({:"$var", "Rest"}, store) | remaining(alternatives ++ choices, branch)]
 
   defp collect({:ok, store, _}, choices, branch),
-    do: [AL.Var.subst(:"$Rest", store) | remaining(choices, branch)]
+    do: [AL.Var.subst({:"$var", "Rest"}, store) | remaining(choices, branch)]
 
   defp collect({:failed, _, _}, choices, branch), do: remaining(choices, branch)
   defp remaining([], _), do: []

@@ -325,5 +325,5 @@ defmodule AL.TransactionProgram do
   end
 
   defp execution_rows(branch \\ AL.Branch.head()),
-    do: AL.Object.scan_class(:"$execution", :program_execution, branch)
+    do: AL.Object.scan_class({:"$var", "execution"}, :program_execution, branch)
 end

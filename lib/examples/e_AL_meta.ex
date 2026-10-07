@@ -62,8 +62,8 @@ defmodule Examples.ALMeta do
         """
       end
 
-    assert Enum.sort(Map.get(bindings, :"$Supers")) == [:a, :b]
-    assert Map.get(bindings, :"$S") == nil
+    assert Enum.sort(Map.get(bindings, "$Supers")) == [:a, :b]
+    assert Map.get(bindings, "$S") == nil
     :ok
   end
 

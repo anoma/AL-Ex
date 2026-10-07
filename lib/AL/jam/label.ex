@@ -65,7 +65,7 @@ defmodule AL.JAM.Label do
       end
 
     object_pattern = AL.Var.deref(store, object_var)
-    slots_scope = AL.Var.var("slot_link_scan_#{AL.fresh_scope()}")
+    slots_scope = AL.Var.fresh({:"$var", "slot_link_scan"}, Integer.to_string(AL.fresh_scope()))
 
     rows =
       object_pattern
@@ -102,7 +102,7 @@ defmodule AL.JAM.Label do
     MapSet.size(AL.Var.direct_classes_of(store, term)) > 0 or
       Enum.any?(AL.Var.isa_of(store, term), fn raw ->
         resolved = AL.Var.deref(store, raw)
-        is_atom(resolved) and not AL.Var.var?(resolved)
+        is_atom(resolved)
       end)
   end
 
