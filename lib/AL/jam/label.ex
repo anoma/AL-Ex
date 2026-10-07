@@ -23,14 +23,14 @@ defmodule AL.JAM.Label do
   end
 
   defp link_stores(v, store, branch) do
-    case AL.Var.super_link_of(store, v) do
-      nil ->
+    case AL.Var.super_links_of(store, v) do
+      [] ->
         case AL.Var.slot_links_of(store, v) do
           [] -> nil
           [link | _] -> slot_link_stores(v, link, store, branch)
         end
 
-      link ->
+      [link | _] ->
         super_link_stores(v, link, store, branch)
     end
   end
@@ -58,25 +58,20 @@ defmodule AL.JAM.Label do
   end
 
   defp slot_link_stores(v, link, store, branch) do
-    {object_var, key, value_var} =
+    {object_var, key, value_var, storage} =
       case link do
-        {:slot, key, other} -> {v, key, other}
-        {:slot_value, key, other} -> {other, key, v}
+        {:slot, key, other, storage} -> {v, key, other, storage}
+        {:slot_value, key, other, storage} -> {other, key, v, storage}
       end
 
     object_pattern = AL.Var.deref(store, object_var)
-    slots_scope = AL.Var.fresh({:"$var", "slot_link_scan"}, Integer.to_string(AL.fresh_scope()))
-
-    rows =
-      object_pattern
-      |> AL.Object.scan_slots(slots_scope, branch)
-      |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.has_key?(m, key) end)
+    rows = AL.Var.SlotLink.values(object_pattern, key, storage, branch)
 
     if v == value_var and AL.Var.var?(object_pattern) do
-      distinct_stores(v, rows, store, branch, fn {:slots, _object, m} -> Map.fetch!(m, key) end)
+      distinct_stores(v, rows, store, branch, fn {_object, value} -> value end)
     else
-      Enum.flat_map(rows, fn {:slots, object, m} ->
-        edge_store([{object_var, object}, {value_var, Map.fetch!(m, key)}], store, branch)
+      Enum.flat_map(rows, fn {object, value} ->
+        edge_store([{object_var, object}, {value_var, value}], store, branch)
       end)
     end
   end

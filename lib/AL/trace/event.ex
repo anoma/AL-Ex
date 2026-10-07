@@ -5,7 +5,7 @@ defmodule AL.Trace.Event do
 
   use TypedStruct
 
-  @type kind() :: :domino | :vm
+  @type kind() :: :domino | :goals | :vm
 
   typedstruct enforce: true do
     field(:kind, kind(), enforce: true)

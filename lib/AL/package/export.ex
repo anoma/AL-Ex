@@ -25,12 +25,37 @@ defmodule AL.Package.Export do
 
   defp prepare(directory, staging) do
     if File.exists?(directory) do
-      case File.cp_r(directory, staging) do
-        {:ok, _} -> :ok
-        {:error, reason, path} -> {:error, {:package_export_copy, path, reason}}
+      with :ok <- validate_tree(directory) do
+        case File.cp_r(directory, staging) do
+          {:ok, _} -> :ok
+          {:error, reason, path} -> {:error, {:package_export_copy, path, reason}}
+        end
       end
     else
       File.mkdir_p(staging)
+    end
+  end
+
+  defp validate_tree(path) do
+    case File.lstat(path) do
+      {:ok, %{type: :symlink}} ->
+        {:error, {:package_export_symlink, path}}
+
+      {:ok, %{type: :directory}} ->
+        with {:ok, entries} <- File.ls(path) do
+          Enum.reduce_while(entries, :ok, fn entry, :ok ->
+            case validate_tree(Path.join(path, entry)) do
+              :ok -> {:cont, :ok}
+              error -> {:halt, error}
+            end
+          end)
+        end
+
+      {:ok, _} ->
+        :ok
+
+      error ->
+        error
     end
   end
 

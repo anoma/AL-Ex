@@ -16,6 +16,7 @@ defmodule AL.JAM.IR.Lower do
         {Goal.StringCodes, :primitive, :string_codes, [:string, :codes]},
         {Goal.AtomString, :primitive, :atom_string, [:atom, :string]},
         {Goal.Isa, :relation, :isa, [:object, :class]},
+        {Goal.SelectedProvider, :relation, :selected_provider, [:object, :selector, :provider]},
         {Goal.AssertValidClauseSelf, :mutation, :assert_valid_clause_self, [:class, :head]},
         {Goal.Gensym, :relation, :gensym, [:var]},
         {Goal.EmitEffect, :mutation, :emit_effect, [:effect, :provider, :operation, :arguments]},

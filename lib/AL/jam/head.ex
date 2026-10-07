@@ -119,6 +119,9 @@ defmodule AL.JAM.Head do
   defp argument_operations({:unify_constant, []}), do: {:ok, []}
   defp argument_operations(_head), do: :open
 
+  def match({:argument_transfer, transfers, fallback}, call, store, registers, branch),
+    do: AL.JAM.IR.SendPlan.match(transfers, fallback, call, store, registers, branch)
+
   def match(
         {:arguments, [receiver | operations], fallback},
         {:operands, object, args, caller},
@@ -162,13 +165,20 @@ defmodule AL.JAM.Head do
   def match({:unify_register, index}, call, store, registers, branch) do
     previous = elem(registers, index)
 
-    if previous == call do
-      {store, registers}
-    else
-      case AL.JAM.Unification.unify(previous, call, store, branch) do
-        nil -> nil
-        next -> {next, registers}
-      end
+    case {previous, call} do
+      {left, right} when left == right ->
+        {store, registers}
+
+      {left, right}
+      when (is_number(left) or is_atom(left) or is_binary(left)) and
+             (is_number(right) or is_atom(right) or is_binary(right)) ->
+        nil
+
+      _ ->
+        case AL.JAM.Unification.unify(previous, call, store, branch) do
+          nil -> nil
+          next -> {next, registers}
+        end
     end
   end
 

@@ -85,8 +85,12 @@ defmodule Examples.ALStorage do
 
     assert Map.get(bindings, "$RegulatorsDirect") == [:geneA]
     assert Map.get(bindings, "$ConcentrationDirect") == 5
-    # `concentration` never enters the `slots` map at all -- only `regulators` does.
-    assert Map.get(bindings, "$AllSlots") == [[:regulators, [:geneA]]]
+
+    assert Enum.sort(Map.get(bindings, "$AllSlots")) == [
+             [:concentration, 5],
+             [:regulators, [:geneA]]
+           ]
+
     :ok
   end
 

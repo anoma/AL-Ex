@@ -30,6 +30,18 @@ defmodule AL.JAM.LocalInitializationTest do
                = Temp (+ Input 1),
                = Input 4,
                = Output Temp.
+               local_initialization_probe >> multiply
+               | _Self A B Output |
+               = Temp (* A B),
+               = Output Temp.
+               local_initialization_probe >> subtract
+               | _Self A B Output |
+               = Temp (- A B),
+               = Output Temp.
+               local_initialization_probe >> nested
+               | _Self Input Output |
+               = Temp (* (+ Input 1) (- Input 2)),
+               = Output Temp.
                local_initialization_probe >> choose
                | _Self Output |
                {= Temp [a]} ; {= Temp [b]},
@@ -89,5 +101,57 @@ defmodule AL.JAM.LocalInitializationTest do
 
     assert bindings["$Input"] == 4
     assert bindings["$Output"] == 5
+  end
+
+  test "nested arithmetic preserves forward, delayed and backtracking answers", %{branch: branch} do
+    for opts <- [[], [trace: [:vm]]] do
+      assert {:atomic, {%{"$Answers" => [0, 4, 10]}, _, _}} =
+               AL.eval_source(
+                 ~S"findall Y Answers {in_domain X [2,3,4], label X, nested #{class => local_initialization_probe} X Y}.",
+                 branch,
+                 opts
+               )
+
+      assert {:atomic, {%{"$X" => 4, "$Y" => 10}, _, _}} =
+               AL.eval_source(
+                 ~S"nested #{class => local_initialization_probe} X Y, = X 4.",
+                 branch,
+                 opts
+               )
+
+      assert {:aborted, _} =
+               AL.eval_source(
+                 ~S"nested #{class => local_initialization_probe} 4 9.",
+                 branch,
+                 opts
+               )
+    end
+  end
+
+  test "integer instructions preserve big integers, aliases and delayed bindings", %{
+    branch: branch
+  } do
+    big = Integer.pow(2, 100)
+
+    for opts <- [[], [trace: [:vm]]] do
+      assert {:atomic, {%{"$Product" => product, "$Difference" => difference}, _, _}} =
+               AL.eval_source(
+                 "multiply \#{class => local_initialization_probe} " <>
+                   Integer.to_string(big) <>
+                   " -3 Product, subtract \#{class => local_initialization_probe} Product 7 Difference.",
+                 branch,
+                 opts
+               )
+
+      assert product == big * -3
+      assert difference == product - 7
+
+      assert {:atomic, {%{"$X" => 4, "$Product" => 12}, _, _}} =
+               AL.eval_source(
+                 ~S"multiply #{class => local_initialization_probe} X 3 Product, = X 4.",
+                 branch,
+                 opts
+               )
+    end
   end
 end

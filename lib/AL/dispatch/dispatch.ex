@@ -165,6 +165,16 @@ defmodule AL.Dispatch do
     end
   end
 
+  def constrain_provider(store, self, selector, provider, branch) do
+    if class_provider?(provider, branch) do
+      if selected_provider_for_class(provider, selector, branch) == provider,
+        do: open_class_store(store, self, selector, provider, branch)
+    else
+      if selected_provider(provider, selector, branch) == provider,
+        do: AL.Var.unify(self, provider, store, branch)
+    end
+  end
+
   defp open_class_store(store, self, method, provider, branch) do
     known_isa = resolved_isa_classes(store, self)
     known_direct = resolved_direct_classes(store, self)

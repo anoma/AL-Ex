@@ -22,12 +22,9 @@ defmodule AL.Var.ConstraintSet do
   # one can reconstruct the correct `GetSuper{object:, super:}` goal.
   @type super_link() :: {:object, AL.Var.t()} | {:super, AL.Var.t()}
 
-  # A pending `slot(object, key, value)` with `object` still open and
-  # `key` ground (`AL.JAM.Relation`'s `slot` relation) -- same shape as `super_link`, one
-  # slot each. `key` isn't itself a var here (it's the fixed context, not a
-  # domain to enumerate), so it just rides along in the tag rather than
-  # needing its own marker.
-  @type slot_link() :: {:slot, atom(), AL.Var.t()} | {:slot_value, atom(), AL.Var.t()}
+  @type slot_link() ::
+          {:slot, atom(), AL.Var.t(), :auto | :aos}
+          | {:slot_value, atom(), AL.Var.t(), :auto | :aos}
 
   @type isa_entry() ::
           atom()
@@ -43,9 +40,10 @@ defmodule AL.Var.ConstraintSet do
           isa: MapSet.t(isa_entry()),
           dispatch: MapSet.t(dispatch_entry()),
           bounds: {bound(), bound()},
+          integer: boolean(),
           props: [propagator()],
           domain: MapSet.t(AL.Var.t()) | nil,
-          super_link: super_link() | nil,
+          super_links: [super_link()],
           slot_links: [slot_link()],
           keys: %{optional(AL.Var.t()) => AL.Var.t()},
           functor: {AL.Var.t(), AL.Var.t()} | nil,
@@ -57,9 +55,10 @@ defmodule AL.Var.ConstraintSet do
             isa: MapSet.new(),
             dispatch: MapSet.new(),
             bounds: {nil, nil},
+            integer: false,
             props: [],
             domain: nil,
-            super_link: nil,
+            super_links: [],
             slot_links: [],
             keys: %{},
             functor: nil,

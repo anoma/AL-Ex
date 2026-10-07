@@ -48,10 +48,15 @@ defmodule AL.JAM.IR.Plan do
   def select(original, _, _, _, _), do: original
 
   def compile(receiver, selector, facts, branch) do
-    case compile_region(receiver, selector, facts, branch, :region) do
-      %__MODULE__{compiled: compiled} = plan when not is_nil(compiled) -> plan
-      _ -> compile_region(receiver, selector, facts, branch, :prefix)
-    end
+    plan =
+      case compile_region(receiver, selector, facts, branch, :region) do
+        %__MODULE__{compiled: compiled} = plan when not is_nil(compiled) -> plan
+        _ -> compile_region(receiver, selector, facts, branch, :prefix)
+      end
+
+    if plan && plan.compiled,
+      do: %{plan | compiled: AL.JAM.IR.SendPlan.prepare(plan.compiled)},
+      else: plan
   end
 
   def compile_ir(receiver, selector, facts, branch) do

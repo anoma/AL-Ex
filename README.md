@@ -83,6 +83,76 @@ AL.Branch.discard(fork) <- discard the fork
 
 Further isolation should be accomplished by configuration of the Mnesiastore dir.
 
+## Tracing
+
+Retain executed JAM instructions for one transaction:
+
+```elixir
+{:atomic, {_bindings, _constraints, state}} =
+  run trace: [:vm] do
+    ~AL"count_to 0 3."
+  end
+
+state.trace.events |> Enum.reverse() |> AL.Trace.render()
+```
+
+`:vm` records each executed instruction, frame, program counter, and registers
+before execution, including integer arithmetic fallback events. It preserves
+optimized execution when used alone. Raw events are available in
+`state.trace.events`, newest first. Failed transactions retain chronological
+events in `reason.trace` on the `{:aborted, reason}` result.
+
+`:goals` records reconstructed AL goals. `:domino` records method/clause ports
+and constraint evidence. Flags can be combined, but `:goals`, `:domino`, or
+active tracepoints select the semantic tracing path, which disables some
+optimizations. Use `:vm` alone without tracepoints to inspect optimized JAM.
+
+Send events also show target resolution, cache hits, and lookup fallbacks.
+Resolved plans expose the dispatch key, any exact-receiver guard, the selected
+provider frame, and clause argument-transfer layouts. Plans live in the current
+machine execution segment; mutation/resumption boundaries rebuild this cache.
+
+The JAM renderer abbreviates registers as `R0`, `R1`, and so on, and omits
+embedded fallback bodies from instruction lines. For the complete event data,
+use `AL.Trace.render(events, format: :raw)`. Rendering does not change the
+captured events.
+
+## Compile and inspect a transaction program
+
+```elixir
+{:ok, compiled} = AL.compile("count_to 0 3.")
+IO.inspect(compiled.ir, pretty: true, limit: :infinity)
+IO.inspect(compiled.jam, pretty: true, limit: :infinity)
+AL.execute(compiled, AL.Branch.head(), trace: [:vm])
+```
+
+Compilation does not execute goals or require Mnesia. The result contains the
+root program's IR, JAM instructions (including progress steps), initial register
+layout, and retained source. Sends resolve and compile their methods against the
+execution branch; the artifact does not include all transitive method bodies or
+branch-specific specialization. `AL.eval_source/3` uses the same compile/execute
+path.
+
+You can reuse the artifact or pass it to another process running the same code.
+Each execution creates a fresh transaction and bindings. This is an in-memory
+runtime artifact, not a versioned storage or network format.
+
+Static integer return summaries can be inspected against installed methods:
+
+```elixir
+:mnesia.transaction(fn ->
+  AL.JAM.Compiler.return_summary(:fibonacci, [:integer, :unknown], AL.Branch.head())
+end)
+```
+
+Modes include the receiver at position zero. The result reports input modes,
+output guarantees, recursive call summaries, and method dependencies. The
+initial analysis supports integer receivers and straight-line relational
+arithmetic bodies, including recursive sends. Unsupported operations produce
+unknown guarantees. These facts apply to successful completed calls; they do
+not prove termination or determinism. Summaries are currently inspectable
+analysis and do not remove execution guards.
+
 ## Benchmarks
 
 The benchmark suites under `bench/` use Benchee. Run a suite with `mix run`, for

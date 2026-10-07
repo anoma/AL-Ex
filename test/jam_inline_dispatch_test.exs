@@ -22,7 +22,7 @@ defmodule AL.JAM.InlineDispatchTest do
   test "a warmed optimized method retains callable events when tracing", %{branch: branch} do
     source = "check \#{class => inline_probe} 1."
     assert {:atomic, _} = AL.eval_source(source, branch)
-    assert {:atomic, {_, _, state}} = AL.eval_source(source, branch, trace: [:vm, :domino])
+    assert {:atomic, {_, _, state}} = AL.eval_source(source, branch, trace: [:goals, :domino])
     assert Enum.any?(AL.Trace.payloads(state.trace.events), &match?(%AL.Goal.Call{}, &1))
     assert {:atomic, _} = AL.eval_source(source, branch)
   end

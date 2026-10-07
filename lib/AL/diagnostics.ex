@@ -347,6 +347,14 @@ defmodule AL.Diagnostics do
     "Constraint violated: value was required to stay within bounds [#{inspect(lo)}, #{inspect(hi)}]."
   end
 
+  defp constraint_violation_message({:integer, value}) do
+    "Constraint violated: #{inspect(value)} must be an integer."
+  end
+
+  defp constraint_violation_message({:dispatch, {selector, provider}}) do
+    "Constraint violated: #{inspect(selector)} must select provider #{inspect(provider)}."
+  end
+
   defp constraint_violation_message({:domain, domain}) do
     "Constraint violated: value was required to be one of #{inspect(MapSet.to_list(domain))}."
   end
@@ -355,5 +363,7 @@ defmodule AL.Diagnostics do
   defp pretty_violation({:class, var, class}), do: {:class, AL.Trace.pretty(var), class}
   defp pretty_violation({:isa, var, class}), do: {:isa, AL.Trace.pretty(var), class}
   defp pretty_violation({:bounds, bounds}), do: {:bounds, bounds}
+  defp pretty_violation({:integer, value}), do: {:integer, value}
+  defp pretty_violation({:dispatch, dispatch}), do: {:dispatch, dispatch}
   defp pretty_violation({:domain, domain}), do: {:domain, MapSet.to_list(domain)}
 end

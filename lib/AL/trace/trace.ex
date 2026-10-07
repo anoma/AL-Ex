@@ -6,16 +6,17 @@ defmodule AL.Trace do
   Trace flags select independent detail levels:
 
     * `:domino` retains method/clause ports and constraint evidence
-    * `:vm` retains every raw VM goal plus backtrack/flounder markers
+    * `:goals` retains reconstructed goals plus backtrack/flounder markers
+    * `:vm` retains executed JAM instructions and their input registers
 
   """
 
   use TypedStruct
 
-  @type flag() :: :domino | :vm
+  @type flag() :: :domino | :goals | :vm
   @type event() :: AL.Trace.Event.t()
 
-  @allowed_flags MapSet.new([:domino, :vm])
+  @allowed_flags MapSet.new([:domino, :goals, :vm])
 
   @derive {Inspect, only: [:flags, :events]}
   typedstruct enforce: true do
@@ -162,7 +163,14 @@ defmodule AL.Trace do
   # from `format_failure/1`, or `state.trace.events` on a success reversed
   # by the caller).
   @spec render([term()]) :: :ok
-  def render(steps) do
+  def render(steps, opts \\ [])
+
+  def render(steps, format: :raw) do
+    Enum.each(steps, &IO.inspect(&1, pretty: true, limit: :infinity))
+    :ok
+  end
+
+  def render(steps, []) do
     Enum.reduce(steps, {0, %{}}, &render_step/2)
     :ok
   end
@@ -235,6 +243,28 @@ defmodule AL.Trace do
   end
 
   defp render_step({:collection_end, _scope}, acc), do: acc
+
+  defp render_step(
+         {:instruction, %{frame: frame, pc: pc, instruction: instruction, registers: registers}},
+         acc
+       ) do
+    IO.puts(
+      "JAM #{AL.JAM.Trace.Format.frame(frame)} pc=#{pc}: #{AL.JAM.Trace.Format.instruction(instruction)}"
+    )
+
+    IO.puts("  registers before: #{AL.JAM.Trace.Format.registers(registers)}")
+    acc
+  end
+
+  defp render_step({:dispatch, path, plan}, acc) do
+    IO.puts("  #{AL.JAM.Trace.Format.dispatch(path, plan)}")
+    acc
+  end
+
+  defp render_step({:fallback, context}, acc) do
+    IO.puts("  relational fallback:")
+    render_step({:instruction, context}, acc)
+  end
 
   defp render_step(entry, {depth, seen}) do
     IO.puts([String.duplicate("  ", depth), inspect(entry)])
@@ -373,6 +403,8 @@ defmodule AL.Trace do
   end
 
   @spec pretty(term()) :: term()
+  def pretty(%AL.Trace.Event{kind: :vm} = event), do: event
+
   def pretty(a) when is_atom(a) do
     s = Atom.to_string(a)
 

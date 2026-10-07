@@ -115,7 +115,7 @@ defmodule AL.Answer do
       MapSet.to_list(set.direct_class),
       MapSet.to_list(set.isa),
       if(set.domain, do: MapSet.to_list(set.domain), else: []),
-      set.super_link,
+      set.super_links,
       set.slot_links
     ]
   end
@@ -143,8 +143,10 @@ defmodule AL.Answer do
            isa: isa,
            dispatch: dispatch,
            bounds: bounds,
+           integer: integer,
+           props: props,
            domain: domain,
-           super_link: super_link,
+           super_links: super_links,
            slot_links: slot_links,
            keys: keys,
            functor: functor
@@ -156,11 +158,16 @@ defmodule AL.Answer do
     |> maybe_put_direct_class(direct_class, store, rewrite_unbound)
     |> maybe_put_isa(isa, store, rewrite_unbound)
     |> maybe_put_dispatch(dispatch)
-    |> maybe_put_super(super_link, store, rewrite_unbound)
+    |> maybe_put_super(super_links, store, rewrite_unbound)
     |> maybe_put_slots(slot_links, store, rewrite_unbound)
     |> maybe_put_keys(keys, store, rewrite_unbound)
     |> maybe_put_functor(functor, store, rewrite_unbound)
     |> maybe_put_dif(self, dif, store, rewrite_unbound)
+    |> then(fn summary ->
+      if integer and bounds == {nil, nil} and props == [],
+        do: Map.put(summary, :integer, true),
+        else: summary
+    end)
     |> maybe_put_bounds(bounds)
     |> maybe_put_domain(domain, store, rewrite_unbound)
   end
@@ -192,20 +199,31 @@ defmodule AL.Answer do
     end
   end
 
-  defp maybe_put_super(map, nil, _store, _rewrite_unbound), do: map
-
-  defp maybe_put_super(map, {side, other}, store, rewrite_unbound) do
-    key = if side == :super, do: :super, else: :subclass
-    Map.put(map, key, AL.Var.subst(other, store, rewrite_unbound))
+  defp maybe_put_super(map, links, store, rewrite_unbound) do
+    links
+    |> Enum.group_by(
+      fn {side, _} -> if side == :super, do: :super, else: :subclass end,
+      fn {_, other} -> AL.Var.subst(other, store, rewrite_unbound) end
+    )
+    |> Enum.reduce(map, fn {key, values}, acc ->
+      Map.put(
+        acc,
+        key,
+        case Enum.uniq(values) do
+          [only] -> only
+          many -> many
+        end
+      )
+    end)
   end
 
   defp maybe_put_slots(map, slot_links, store, rewrite_unbound) do
     {slots, slot_of} =
       Enum.reduce(slot_links, {%{}, %{}}, fn
-        {:slot, key, value}, {slots, slot_of} ->
+        {:slot, key, value, _storage}, {slots, slot_of} ->
           {Map.put(slots, key, AL.Var.subst(value, store, rewrite_unbound)), slot_of}
 
-        {:slot_value, key, object}, {slots, slot_of} ->
+        {:slot_value, key, object, _storage}, {slots, slot_of} ->
           {slots, Map.put(slot_of, key, AL.Var.subst(object, store, rewrite_unbound))}
       end)
 

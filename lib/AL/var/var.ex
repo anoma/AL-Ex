@@ -139,7 +139,8 @@ defmodule AL.Var do
     old_constraints = constraint_set(store, var)
     new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
 
-    with propagated_store when not is_nil(propagated_store) <-
+    with false <- invalid_integer_binding?(old_constraints, term),
+         propagated_store when not is_nil(propagated_store) <-
            propagate(old_constraints, new_store, branch),
          keyed_store when not is_nil(keyed_store) <-
            propagate_keys(old_constraints, term, propagated_store, branch),
@@ -153,9 +154,14 @@ defmodule AL.Var do
         linked_store
       end
     else
-      nil -> nil
+      _ -> nil
     end
   end
+
+  defp invalid_integer_binding?(%ConstraintSet{integer: true}, term),
+    do: not var?(term) and not is_integer(term)
+
+  defp invalid_integer_binding?(_, _), do: false
 
   defp propagate_keys(nil, _term, store, _branch), do: store
 
@@ -315,13 +321,75 @@ defmodule AL.Var do
   defp propagate_links(nil, _term, store, _branch), do: store
 
   defp propagate_links(%ConstraintSet{} = old, term, store, branch) do
-    case propagate_super_link(old.super_link, term, store, branch) do
-      nil -> nil
-      store1 -> propagate_slot_links(old.slot_links, term, store1, branch)
+    with next when not is_nil(next) <- propagate_class_links(old, term, store, branch),
+         next when not is_nil(next) <- propagate_super_links(old.super_links, term, next, branch) do
+      propagate_slot_links(old.slot_links, term, next, branch)
     end
   end
 
-  defp propagate_super_link(nil, _term, store, _branch), do: store
+  defp propagate_class_links(set, term, store, branch) do
+    term = deref(store, term)
+
+    if var?(term) do
+      store
+    else
+      links =
+        Enum.map(set.direct_class, &{:class, &1}) ++
+          Enum.flat_map(set.isa, fn
+            {:object_link, _} -> []
+            {:isa_object_link, _} -> []
+            class -> [{:isa, class}]
+          end)
+
+      Enum.reduce_while(links, store, fn {relation, raw_class}, acc ->
+        class = deref(acc, raw_class)
+
+        if var?(class) do
+          classes =
+            case relation do
+              :class ->
+                case AL.Dispatch.structural_class(term) do
+                  nil -> AL.Dispatch.direct_classes(term, branch)
+                  structural -> [structural]
+                end
+
+              :isa ->
+                AL.Dispatch.instance_classes(term, branch)
+            end
+
+          {next, _} = add_domain(acc, class, classes)
+          {next, domain} = narrow_domain(next, class, branch)
+
+          case MapSet.to_list(domain) do
+            [] ->
+              {:halt, nil}
+
+            [only] ->
+              case bind(next, class, only, branch) do
+                nil -> {:halt, nil}
+                bound -> {:cont, bound}
+              end
+
+            _ ->
+              {:cont, next}
+          end
+        else
+          {:cont, acc}
+        end
+      end)
+    end
+  end
+
+  defp propagate_super_links([], _term, store, _branch), do: store
+
+  defp propagate_super_links(links, term, store, branch) do
+    Enum.reduce_while(links, store, fn link, acc ->
+      case propagate_super_link(link, term, acc, branch) do
+        nil -> {:halt, nil}
+        next -> {:cont, next}
+      end
+    end)
+  end
 
   defp propagate_super_link({:super, z}, object_value, store, branch),
     do: resolve_super_link(store, object_value, z, branch)
@@ -334,14 +402,25 @@ defmodule AL.Var do
     super_pat = deref(store, super_)
 
     case {var?(object_pat), var?(super_pat)} do
-      {true, false} -> resolve_unique_super(store, object_pat, super_pat, branch)
-      {false, true} -> resolve_unique_super(store, object_pat, super_pat, branch)
-      _ -> store
+      {true, false} ->
+        resolve_unique_super(store, object_pat, super_pat, branch)
+
+      {false, true} ->
+        resolve_unique_super(store, object_pat, super_pat, branch)
+
+      {false, false} ->
+        if AL.Object.scan_super(object_pat, super_pat, branch) == [], do: nil, else: store
+
+      _ ->
+        store
     end
   end
 
   defp resolve_unique_super(store, object_pat, super_pat, branch) do
     case AL.Object.scan_super(object_pat, super_pat, branch) do
+      [] ->
+        nil
+
       [{:super, obj, _seq, sup}] ->
         {target_var, target_val} =
           if var?(object_pat), do: {object_pat, obj}, else: {super_pat, sup}
@@ -355,11 +434,11 @@ defmodule AL.Var do
 
   defp propagate_slot_link(nil, _term, store, _branch), do: store
 
-  defp propagate_slot_link({:slot, key, value_var}, object_value, store, branch),
-    do: resolve_slot_link(store, object_value, key, value_var, branch)
+  defp propagate_slot_link({:slot, key, value_var, storage}, object_value, store, branch),
+    do: resolve_slot_link(store, object_value, key, value_var, storage, branch)
 
-  defp propagate_slot_link({:slot_value, key, object_var}, value_value, store, branch),
-    do: resolve_slot_link(store, object_var, key, value_value, branch)
+  defp propagate_slot_link({:slot_value, key, object_var, storage}, value_value, store, branch),
+    do: resolve_slot_link(store, object_var, key, value_value, storage, branch)
 
   defp propagate_slot_links(links, term, store, branch) do
     Enum.reduce_while(links, store, fn link, acc ->
@@ -370,46 +449,29 @@ defmodule AL.Var do
     end)
   end
 
-  defp resolve_slot_link(store, object, key, value, branch) do
+  defp resolve_slot_link(store, object, key, value, storage, branch) do
     object_pat = deref(store, object)
     value_pat = deref(store, value)
 
     case {var?(object_pat), var?(value_pat)} do
-      # The value just became known -- several objects can share it, so
-      # only auto-bind the object side if exactly one real object does.
-      {true, false} -> resolve_unique_slot_value(store, object_pat, key, value_pat, branch)
-      # The object just became known -- its slots row is a single, keyed
-      # lookup, always resolvable outright if the key is set at all.
-      {false, true} -> resolve_slot_from_object(store, object_pat, key, value_pat, branch)
-      {false, false} -> resolve_slot_from_object(store, object_pat, key, value_pat, branch)
-      _ -> store
+      {true, false} ->
+        store
+
+      {false, true} ->
+        resolve_slot_from_object(store, object_pat, key, value_pat, storage, branch)
+
+      {false, false} ->
+        resolve_slot_from_object(store, object_pat, key, value_pat, storage, branch)
+
+      _ ->
+        store
     end
   end
 
-  defp resolve_slot_from_object(store, object, key, value, branch) do
-    fetched =
-      if is_map(object) do
-        Map.fetch(object, key)
-      else
-        case AL.Object.read_slots(object, branch) do
-          [{:slots, ^object, slots}] when is_map(slots) -> Map.fetch(slots, key)
-          _ -> :error
-        end
-      end
-
-    case fetched do
-      {:ok, resolved} -> unify(value, resolved, store, branch)
-      :error -> nil
-    end
-  end
-
-  defp resolve_unique_slot_value(store, object_var, key, value, branch) do
-    object_var
-    |> AL.Object.scan_slots({:"$var", "slot_propagate_scan"}, branch)
-    |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.get(m, key) == value end)
-    |> case do
-      [{:slots, object, _m}] -> bind(store, object_var, object, branch)
-      _ -> store
+  defp resolve_slot_from_object(store, object, key, value, storage, branch) do
+    case AL.Var.SlotLink.values(object, key, storage, branch) do
+      [{_, resolved}] -> unify(value, resolved, store, branch)
+      _ -> nil
     end
   end
 
@@ -454,9 +516,10 @@ defmodule AL.Var do
       isa: MapSet.union(a.isa, b.isa),
       dispatch: MapSet.union(a.dispatch, b.dispatch),
       bounds: merge_bounds(a.bounds, b.bounds),
+      integer: a.integer or b.integer,
       props: a.props ++ b.props,
       domain: merge_domains(a.domain, b.domain),
-      super_link: a.super_link || b.super_link,
+      super_links: Enum.uniq(a.super_links ++ b.super_links),
       slot_links: Enum.uniq(a.slot_links ++ b.slot_links),
       keys: a.keys,
       functor: a.functor,
@@ -548,6 +611,22 @@ defmodule AL.Var do
   # check the result is still feasible (`lo <= hi`) -- callers building a
   # choicepoint from this check that themselves and fail the choicepoint if
   # not, the same way `isa_conflict?/3` is a separate check from `add_isa`.
+  def require_integer(store, term) do
+    case deref(store, term) do
+      number when is_integer(number) ->
+        store
+
+      variable ->
+        if var?(variable) do
+          case constraint_set(store, variable) do
+            %ConstraintSet{integer: true} -> store
+            nil -> Map.put(store, variable, %ConstraintSet{integer: true})
+            set -> Map.put(store, variable, %{set | integer: true})
+          end
+        end
+    end
+  end
+
   @spec add_bounds(store(), variable(), {ConstraintSet.bound(), ConstraintSet.bound()}) ::
           store()
   def add_bounds(store, var, {lo, hi}) do
@@ -598,27 +677,20 @@ defmodule AL.Var do
   # to make on either side, just "which slot am I").
   @spec add_super_link(store(), variable(), ConstraintSet.super_link()) :: store()
   def add_super_link(store, var, link) do
-    Map.update(store, var, %ConstraintSet{super_link: link}, fn
-      %ConstraintSet{} = set -> %{set | super_link: link}
+    Map.update(store, var, %ConstraintSet{super_links: [link]}, fn
+      %ConstraintSet{} = set -> %{set | super_links: Enum.uniq([link | set.super_links])}
       other -> other
     end)
   end
 
-  # The read side of `add_super_link/3` -- `nil` if this var was never one
-  # end of a pending `super(y, z)`.
-  @spec super_link_of(store(), variable()) :: ConstraintSet.super_link() | nil
-  def super_link_of(store, var) do
+  @spec super_links_of(store(), variable()) :: [ConstraintSet.super_link()]
+  def super_links_of(store, var) do
     case constraint_set(store, var) do
-      nil -> nil
-      set -> set.super_link
+      nil -> []
+      set -> set.super_links
     end
   end
 
-  # `slot(object, key, value)` with `object` open and `key` ground
-  # (`AL.JAM.Relation`'s `slot` relation) posts one of these -- `{:slot, key, value}` on
-  # `object`, `{:slot_value, key, object}` on `value` if it's also open.
-  # Same shape as `super_link` (a directional tag, not an isa claim), `key`
-  # just rides along as fixed context rather than needing its own slot.
   @spec add_slot_link(store(), variable(), ConstraintSet.slot_link(), AL.Branch.t()) ::
           store() | nil
   def add_slot_link(store, var, link, branch) do
@@ -643,11 +715,11 @@ defmodule AL.Var do
     end
   end
 
-  defp reconcile_slot_link(store, var, {:slot, key, value}, branch) do
+  defp reconcile_slot_link(store, var, {:slot, key, value, storage}, branch) do
     store
     |> slot_links_of(var)
     |> Enum.reduce_while(store, fn
-      {:slot, ^key, existing}, acc ->
+      {:slot, ^key, existing, ^storage}, acc ->
         case unify(value, existing, acc, branch) do
           nil -> {:halt, nil}
           next -> {:cont, next}
@@ -748,6 +820,7 @@ defmodule AL.Var do
            isa: isa,
            dispatch: dispatch,
            bounds: bounds,
+           integer: integer,
            domain: domain
          },
          store,
@@ -761,6 +834,9 @@ defmodule AL.Var do
       nil ->
         if not var?(term) do
           cond do
+            integer and not is_integer(term) ->
+              {:integer, term}
+
             not in_bounds?(bounds, term) ->
               {:bounds, bounds}
 
@@ -795,7 +871,10 @@ defmodule AL.Var do
   # `def`, not `defp` — `AL.Var.Bounds` uses the same in-bounds feasibility
   # check when applying a freshly-narrowed interval, not just the constraint
   # violation check here.
-  def in_bounds?({lo, hi}, term), do: (lo == nil or term >= lo) and (hi == nil or term <= hi)
+  def in_bounds?({nil, nil}, _term), do: true
+
+  def in_bounds?({lo, hi}, term),
+    do: is_number(term) and (lo == nil or term >= lo) and (hi == nil or term <= hi)
 
   # `def`, not `defp` — this is also the diagnostic entry point
   # (`diagnose_unify_failure/4`) uses to explain *why* a bind was refused, not
@@ -844,16 +923,15 @@ defmodule AL.Var do
   defp tag_class_constraint({:isa, class}, var), do: {:isa, var, class}
   defp tag_class_constraint(other, _var), do: other
 
-  # `{:object_link, obj}` (posted on the *class* side of a still-open
-  # `class(x, y)`, see `AL.JAM.Relation`'s `class` relation) never asserts "I belong
-  # to a class" at all -- it's a directional marker, not an isa claim, so it
-  # can never be violated. Without this clause, once `obj` (or whatever it
-  # gets bound to) derefs to something concrete, the fallback clause below
-  # would wrongly treat *that* as a class name to check membership against
-  # (e.g. "is `:program_execution` an instance of `:bootstrap`") and reject an
-  # otherwise-valid bind.
-  defp isa_violation_class({:object_link, _obj}, _term, _store, _branch), do: nil
-  defp isa_violation_class({:isa_object_link, _obj}, _term, _store, _branch), do: nil
+  defp isa_violation_class({:object_link, obj}, class, store, branch) do
+    object = deref(store, obj)
+    if not var?(object) and not AL.Dispatch.direct_class?(object, class, branch), do: class
+  end
+
+  defp isa_violation_class({:isa_object_link, obj}, class, store, branch) do
+    object = deref(store, obj)
+    if not var?(object) and not AL.Dispatch.instance_of?(object, class, branch), do: class
+  end
 
   # An isa entry that's still an open var (`class(x, y)` with both sides
   # open posts `y` onto `x` this way) hasn't resolved to a class yet, so it

@@ -157,7 +157,7 @@ defmodule Examples.ALTrace do
     assert plain_state.trace.flags == MapSet.new([:domino])
 
     {:atomic, {_bindings, _constraints, traced_state}} =
-      run branch: Examples.Support.branch(), trace: [:domino, :vm] do
+      run branch: Examples.Support.branch(), trace: [:domino, :goals] do
         ~AL"""
         fibonacci 3 X.
         """
@@ -171,7 +171,7 @@ defmodule Examples.ALTrace do
              match?({:method_call, _, _, _, _, _}, AL.Trace.payload(event))
            end)
 
-    assert traced_state.trace.flags == MapSet.new([:domino, :vm])
+    assert traced_state.trace.flags == MapSet.new([:domino, :goals])
 
     output =
       capture_io(fn ->
@@ -197,25 +197,25 @@ defmodule Examples.ALTrace do
     assert Enum.any?(domino_state.trace.events, &match?(%AL.Trace.Event{kind: :domino}, &1))
     assert Enum.all?(domino_state.trace.events, &match?(%AL.Trace.Event{kind: :domino}, &1))
 
-    {:atomic, {_bindings, _constraints, vm_state}} =
-      run branch: Examples.Support.branch(), trace: [:vm] do
+    {:atomic, {_bindings, _constraints, goals_state}} =
+      run branch: Examples.Support.branch(), trace: [:goals] do
         ~AL"""
         pass.
         """
       end
 
-    assert vm_state.trace.flags == MapSet.new([:vm])
+    assert goals_state.trace.flags == MapSet.new([:goals])
 
-    assert Enum.any?(vm_state.trace.events, fn event ->
-             match?(%AL.Trace.Event{kind: :vm, payload: %AL.Goal.Pass{}}, event)
+    assert Enum.any?(goals_state.trace.events, fn event ->
+             match?(%AL.Trace.Event{kind: :goals, payload: %AL.Goal.Pass{}}, event)
            end)
 
-    refute Enum.any?(vm_state.trace.events, &match?(%AL.Trace.Event{kind: :domino}, &1))
+    refute Enum.any?(goals_state.trace.events, &match?(%AL.Trace.Event{kind: :domino}, &1))
   end
 
   example trace_flags_compose_without_duplicate_constraint_events() do
     {:atomic, {_bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace: [:domino, :vm] do
+      run branch: Examples.Support.branch(), trace: [:domino, :goals] do
         ~AL"""
         = X (+ Y 1).
         = Y 4.
@@ -239,7 +239,7 @@ defmodule Examples.ALTrace do
 
   example findall_merges_its_nested_evaluation_trace() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace: [:domino, :vm] do
+      run branch: Examples.Support.branch(), trace: [:domino, :goals] do
         ~AL"""
         findall X Xs (member [1, 2] X).
         """
@@ -261,7 +261,7 @@ defmodule Examples.ALTrace do
 
   example findall_derivation_tree_keeps_each_successful_nested_proof() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace: [:domino, :vm] do
+      run branch: Examples.Support.branch(), trace: [:domino, :goals] do
         ~AL"""
         findall X Xs (member [1, 2] X).
         """
@@ -308,7 +308,7 @@ defmodule Examples.ALTrace do
 
   example findall_derivation_tree_retains_min_by_proofs_and_answer_constraints() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch(), trace: [:domino, :vm] do
+      run branch: Examples.Support.branch(), trace: [:domino, :goals] do
         ~AL"""
         findall [M, X] Xs {> X 0, < X 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M, label X}.
         """

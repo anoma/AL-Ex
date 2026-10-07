@@ -1,6 +1,10 @@
 defmodule AL.JAM.Compiler do
   alias AL.Goal
 
+  @doc "Returns conditional integer output modes for an integer-receiver method inside a transaction."
+  def return_summary(selector, input_modes, branch),
+    do: AL.JAM.IR.ReturnSummary.infer(selector, input_modes, branch)
+
   def fetch_ir(method_id, branch) do
     AL.ResolutionCache.fetch_dispatch(branch, {:method_ir, method_id}, fn ->
       method_id |> AL.JAM.Clauses.cached_scan_clauses(branch) |> AL.JAM.IR.Program.lower_clauses()
@@ -10,7 +14,10 @@ defmodule AL.JAM.Compiler do
   def fetch_method(method_id, branch) do
     compile = fn ->
       clauses = fetch_ir(method_id, branch)
-      AL.JAM.IR.MethodIdentity.prepare(compile(clauses), clauses, method_id)
+
+      compile(clauses)
+      |> AL.JAM.IR.MethodIdentity.prepare(clauses, method_id)
+      |> AL.JAM.IR.SendPlan.prepare()
     end
 
     if AL.JAM.Trace.active?(),
@@ -117,6 +124,7 @@ defmodule AL.JAM.Compiler do
             do: AL.JAM.Self.compile(code, matcher, initial),
             else: {code, initial}
 
+        code = Enum.map(code, &AL.JAM.Arithmetic.select/1)
         matcher = AL.JAM.Head.arguments(matcher)
         {identity, matcher, initial, locals, List.to_tuple(code), {variants, head_returns}}
       end)
@@ -131,6 +139,7 @@ defmodule AL.JAM.Compiler do
         |> Tuple.to_list()
         |> Enum.drop_while(fn
           {:local, _, {:eq, _, _}} -> true
+          {:integer_arithmetic, _, _, _, _, _} -> true
           {:cursor, _} -> true
           _ -> false
         end)

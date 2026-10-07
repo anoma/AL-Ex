@@ -32,6 +32,7 @@ defmodule AL.Goal do
   @type instructions() ::
           AL.Goal.GetClass.t()
           | AL.Goal.GetSuper.t()
+          | AL.Goal.SelectedProvider.t()
           | AL.Goal.GetMethod.t()
           | AL.Goal.GetCommand.t()
           | AL.Goal.BranchEdge.t()
@@ -168,6 +169,12 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: GetSuper do
     field(:object, AL.Var.t())
     field(:super, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: SelectedProvider do
+    field(:object, AL.Var.t())
+    field(:selector, AL.Var.t())
+    field(:provider, AL.Var.t())
   end
 
   typedstruct enforce: true, module: GetMethod do
@@ -458,6 +465,7 @@ defmodule AL.Goal do
      [effect: :term, provider: :term, operation: :term, arguments: :term]},
     {GetClass, :get_class, [object: :term, class: :term]},
     {GetSuper, :get_super, [object: :term, super: :term]},
+    {SelectedProvider, :selected_provider, [object: :term, selector: :term, provider: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
     {GetCommand, :get_command, [transaction: :term, time: :term, operation: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
@@ -507,6 +515,7 @@ defmodule AL.Goal do
   @calls [
     {:class, GetClass, [:object, :class], %{}},
     {:super, GetSuper, [:object, :super], %{}},
+    {:selected_provider, SelectedProvider, [:object, :selector, :provider], %{}},
     {:method, GetMethod, [:object, :name, :id], %{}},
     {:clause, GetOapply, [:object, :head, :body], %{seq: {:"$var", "_"}}},
     {:clause, GetOapply, [:object, :seq, :head, :body], %{}},

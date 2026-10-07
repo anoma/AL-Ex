@@ -30,9 +30,7 @@ defmodule AL.JAM do
     end
   end
 
-  def query(goals) do
-    {code, slots} = AL.JAM.Compiler.runtime(goals)
-
+  def query({code, slots}) when is_tuple(code) and is_tuple(slots) do
     code =
       code
       |> Tuple.to_list()
@@ -41,6 +39,8 @@ defmodule AL.JAM do
 
     {{:root, 0}, code, 0, slots, [], nil, %{}}
   end
+
+  def query(goals), do: goals |> AL.JAM.Compiler.runtime() |> query()
 
   def resume(snapshot, branch, budget, context \\ %{}),
     do:
@@ -164,6 +164,9 @@ defmodule AL.JAM do
 
   defp instruction({:send_local, operation, _destinations}, slots),
     do: instruction(operation, slots)
+
+  defp instruction({:integer_arithmetic, _, _, _, _, fallback}, slots),
+    do: instruction(fallback, slots)
 
   defp instruction({:local, _index, operation}, slots), do: instruction(operation, slots)
 
@@ -430,6 +433,47 @@ defmodule AL.JAM do
     end
   end
 
+  defp enter_tail(
+         id,
+         {code, slots, store, _, [], head},
+         returns,
+         pending,
+         choices,
+         branch,
+         targets,
+         steps,
+         budget
+       )
+       when tuple_size(code) == 0 or
+              (elem(code, 0) != :cut_scope and elem(elem(code, 0), 0) != :cursor) do
+    loop(
+      frame_id(id, {head, slots}),
+      code,
+      0,
+      slots,
+      returns,
+      store,
+      choices,
+      branch,
+      targets,
+      steps,
+      budget,
+      pending
+    )
+  end
+
+  defp enter_tail(id, selected, returns, pending, choices, branch, targets, steps, budget) do
+    resume_call(
+      with_pending(entry(id, selected, returns), pending),
+      [],
+      choices,
+      branch,
+      targets,
+      steps,
+      budget
+    )
+  end
+
   defp resume_call(first, alternatives, choices, branch, targets, steps, budget) do
     if cut_scope?(first) or Enum.any?(alternatives, &cut_scope?/1) do
       scope = make_ref()
@@ -679,10 +723,16 @@ defmodule AL.JAM do
 
   defp step(id, code, pc, slots, returns, store, choices, branch, targets, steps, budget, pending) do
     current = {id, code, pc, slots, returns, store, pending}
-    traced? = AL.JAM.Trace.active?()
-    if traced?, do: trace_instruction(elem(code, pc), slots, store)
+    trace_mode = AL.JAM.Trace.mode()
+    traced? = trace_mode in [:semantic, :both]
 
-    case if(traced?, do: untraced_shortcut(elem(code, pc)), else: elem(code, pc)) do
+    operation =
+      if traced?, do: AL.JAM.Trace.semantic_operation(elem(code, pc)), else: elem(code, pc)
+
+    if trace_mode in [:vm, :both], do: AL.JAM.Trace.instruction(id, pc, operation, slots)
+    if traced?, do: trace_instruction(operation, slots, store)
+
+    case operation do
       {:move, destination, operand} ->
         slots = put_elem(slots, destination, Operand.read(operand, slots))
 
@@ -1098,8 +1148,8 @@ defmodule AL.JAM do
         end
 
       {:eq, a, b} ->
-        a = resolve(Operand.read(a, slots), store)
-        b = resolve(Operand.read(b, slots), store)
+        a = arithmetic_operand(a, slots, store)
+        b = arithmetic_operand(b, slots, store)
 
         case AL.Var.unify_value(a, b, store, branch) do
           nil ->
@@ -1124,6 +1174,7 @@ defmodule AL.JAM do
 
       operation
       when elem(operation, 0) in [
+             :integer_arithmetic,
              :constraint,
              :label,
              :relation,
@@ -1440,6 +1491,19 @@ defmodule AL.JAM do
                 [] ->
                   retry(current, choices, branch, targets, steps + 1, budget)
 
+                [first] when pc + 1 == tuple_size(code) ->
+                  enter_tail(
+                    method,
+                    first,
+                    returns,
+                    pending,
+                    choices,
+                    branch,
+                    targets,
+                    steps + 1,
+                    budget
+                  )
+
                 [first | rest] ->
                   returns = return_to(id, code, pc, slots, returns)
 
@@ -1599,7 +1663,16 @@ defmodule AL.JAM do
           if AL.Var.var?(object) and object != {:"$var", "_"},
             do: {:open, AL.Dispatch.open_targets(object, method, store, branch)},
             else:
-              target(targets, key, object, method, args, not traced? and pending == %{}, branch)
+              target(
+                targets,
+                key,
+                object,
+                method,
+                args,
+                not traced? and pending == %{},
+                branch,
+                trace_mode in [:vm, :both]
+              )
 
         method_scope =
           if traced?,
@@ -1860,6 +1933,19 @@ defmodule AL.JAM do
 
                   :call ->
                     case selected do
+                      [first] when destinations == [] and pc + 1 == tuple_size(code) ->
+                        enter_tail(
+                          callee_id,
+                          first,
+                          returns,
+                          pending,
+                          choices,
+                          branch,
+                          targets,
+                          steps + 1,
+                          budget
+                        )
+
                       [first | rest] ->
                         {first_entry, alternatives} =
                           if destinations == [] do
@@ -2000,9 +2086,6 @@ defmodule AL.JAM do
   defp frame_id(id, _head), do: id
 
   def failed_call({id, _code, _pc, slots, _returns, _store, _pending}), do: frame_call(id, slots)
-
-  defp untraced_shortcut({:local, _index, operation}), do: operation
-  defp untraced_shortcut(operation), do: operation
 
   defp trace_instruction({:numeric_tests, _, _, _}, _slots, _store), do: :ok
 
@@ -2250,8 +2333,7 @@ defmodule AL.JAM do
     end
   end
 
-  defp execute({:local, index, {:eq, left, right}}, slots, store, branch) do
-    source = if left == {:register, index}, do: right, else: left
+  defp assign_local(index, source, slots, store, branch) do
     value = AL.JAM.IR.Access.resolve(:direct, :eq, source, slots, store)
 
     cond do
@@ -2274,6 +2356,44 @@ defmodule AL.JAM do
 
       true ->
         {:registers, store, put_elem(slots, index, value)}
+    end
+  end
+
+  defp arithmetic_operand({:map, _} = operand, slots, store) do
+    case AL.JAM.Arithmetic.integer(operand, slots, store) do
+      value when is_integer(value) -> value
+      :fallback -> resolve(Operand.read(operand, slots), store)
+    end
+  end
+
+  defp arithmetic_operand(operand, slots, store),
+    do: resolve(Operand.read(operand, slots), store)
+
+  defp execute({:integer_arithmetic, op, destination, a, b, fallback}, slots, store, branch) do
+    left = Operand.read(a, slots)
+    right = Operand.read(b, slots)
+
+    if is_integer(left) and is_integer(right) do
+      value =
+        case op do
+          :+ -> left + right
+          :- -> left - right
+          :* -> left * right
+        end
+
+      {:registers, store, put_elem(slots, destination, value)}
+    else
+      AL.JAM.Trace.fallback(fallback, slots)
+      execute(fallback, slots, store, branch)
+    end
+  end
+
+  defp execute({:local, index, {:eq, left, right}}, slots, store, branch) do
+    source = if left == {:register, index}, do: right, else: left
+
+    case AL.JAM.Arithmetic.integer(source, slots, store) do
+      value when is_integer(value) -> {:registers, store, put_elem(slots, index, value)}
+      :fallback -> assign_local(index, source, slots, store, branch)
     end
   end
 
@@ -2901,41 +3021,18 @@ defmodule AL.JAM do
     end
   end
 
-  defp target(targets, key, object, method, operands, planning?, branch) do
-    key = if planning?, do: key, else: {:unplanned, key}
-
-    case Map.fetch(targets, key) do
-      {:ok, {id, compiled, :generic}} ->
-        {:ok, id, compiled, targets}
-
-      {:ok, {id, compiled, {:receiver, ^object}}} ->
-        {:ok, id, compiled, targets}
-
-      _ ->
-        case AL.Dispatch.target(object, method, branch) do
-          {:ok, _guard, id} ->
-            original = AL.JAM.Compiler.fetch_method(id, branch)
-
-            compiled =
-              if planning?,
-                do: AL.JAM.IR.Plan.select(original, object, method, operands, branch),
-                else: original
-
-            guard = if compiled === original, do: :generic, else: {:receiver, object}
-            frame = {:provider, id, AL.Dispatch.provider_cursor(object, method, id, branch)}
-            {:ok, frame, compiled, Map.put(targets, key, {frame, compiled, guard})}
-
-          :miss ->
-            :miss
-
-          {:selectors, names} ->
-            {:selectors, names}
-
-          {:native, id} ->
-            {:native, id}
-        end
-    end
-  end
+  defp target(targets, key, object, method, operands, planning?, branch, trace?),
+    do:
+      AL.JAM.IR.SendPlan.resolve(
+        targets,
+        key,
+        object,
+        method,
+        operands,
+        planning?,
+        branch,
+        trace?
+      )
 
   defp resolve(value, store),
     do: if(AL.Var.var?(value), do: AL.Var.deref(store, value), else: value)

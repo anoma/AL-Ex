@@ -3,6 +3,8 @@ defmodule AL.ClauseIndex do
 
   def select(_clauses, %{tree: tree}, call, store), do: select_tree(tree, call, store)
 
+  def select(clauses, %{literal: nil, list_indices: []}, _call, _store), do: clauses
+
   def select(clauses, %{literal: nil, list_indices: [index]}, call, store) do
     case indexed_argument(call, index.position) do
       {:ok, argument} ->

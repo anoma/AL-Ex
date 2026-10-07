@@ -77,7 +77,7 @@ defmodule AL.JAM.SelectionTest do
   end
 
   test "tracing observes both original comparisons" do
-    trace = AL.Trace.new(MapSet.new([:vm]))
+    trace = AL.Trace.new(MapSet.new([:goals]))
     store = %{{:"$var", "Value"} => 2}
     {original, original_trace} = AL.JAM.Trace.run(trace, fn -> run(range(), store) end)
 
@@ -111,7 +111,7 @@ defmodule AL.JAM.SelectionTest do
     end
 
     assert run(selected, %{}) == run(original, %{})
-    trace = AL.Trace.new(MapSet.new([:vm]))
+    trace = AL.Trace.new(MapSet.new([:goals]))
 
     {_, original_trace} =
       AL.JAM.Trace.run(trace, fn -> run(original, %{{:"$var", "Value"} => 3}) end)

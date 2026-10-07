@@ -66,7 +66,7 @@ defmodule AL do
   Options:
   - `branch: s` runs against branch s
   - `trace: flags` retains the requested composable trace families. Supported
-    flags are `:domino` and `:vm`; the default `[]` retains nothing
+    flags are `:domino`, `:goals`, and `:vm`; the default `[]` retains nothing
   """
   defmacro sigil_AL({:<<>>, _meta, [text]}, []) when is_binary(text), do: text
 
@@ -118,11 +118,26 @@ defmodule AL do
     end
   end
 
-  def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
+  @doc "Compiles AL source without executing goals or accessing a branch."
+  def compile(text) when is_binary(text) do
     with {:ok, result} <- AL.Syntax.parse(text),
          {:ok, source} <- AL.Source.prepare(result, %{kind: :eval_source, label: nil}, text) do
-      eval_program(source.program, nil, branch, opts, source)
+      ir = AL.JAM.IR.Program.lower(source.program)
+      {code, registers} = AL.JAM.Compiler.runtime(ir)
+      snapshot = AL.JAM.query({code, registers})
+
+      {:ok,
+       %AL.CompiledProgram{source: source, ir: ir, jam: elem(snapshot, 1), registers: registers}}
     end
+  end
+
+  @doc "Executes a compiled program in a fresh transaction on the given branch."
+  def execute(%AL.CompiledProgram{} = compiled, branch \\ AL.Branch.head(), opts \\ []) do
+    eval_program(compiled, nil, branch, opts, compiled.source)
+  end
+
+  def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
+    with {:ok, compiled} <- compile(text), do: execute(compiled, branch, opts)
   end
 
   @doc false
@@ -184,7 +199,13 @@ defmodule AL do
     end
   end
 
-  defp eval_transaction(program, initial_store, branch, opts, source) do
+  defp eval_transaction(input, initial_store, branch, opts, source) do
+    {program, compiled} =
+      case input do
+        %AL.CompiledProgram{source: source} = compiled -> {source.program, compiled}
+        program -> {program, nil}
+      end
+
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
     trace_flags = AL.Trace.flags_from_options!(opts)
@@ -216,7 +237,7 @@ defmodule AL do
               source_refs: source_refs,
               source_anchors: %{}
             }
-            |> start_program()
+            |> start_program(compiled)
             |> continue()
             |> finalize_trace()
 
@@ -504,9 +525,19 @@ defmodule AL do
   defp raw_goal({:resume, snapshot}), do: AL.JAM.pending_goals(snapshot)
   defp raw_goal(goal), do: goal
 
-  defp start_program(state) do
+  defp start_program(state, compiled) do
     choice = state.active_choicepoint
-    goals = [{:resume, AL.JAM.query(choice.goals)}]
+
+    snapshot =
+      case compiled do
+        nil ->
+          AL.JAM.query(choice.goals)
+
+        %AL.CompiledProgram{jam: code, registers: slots} ->
+          {{:root, 0}, code, 0, slots, [], nil, %{}}
+      end
+
+    goals = [{:resume, snapshot}]
     %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: goals}}
   end
 

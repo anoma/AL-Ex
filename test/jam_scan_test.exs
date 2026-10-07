@@ -264,7 +264,7 @@ defmodule AL.JAM.ScanTest do
         }
       ]
 
-      assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:vm])
+      assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:goals])
       assert {:atomic, {^expected, _, _}} = AL.eval(program, nil, branch)
     end
 
@@ -316,7 +316,7 @@ defmodule AL.JAM.ScanTest do
         }
       ]
 
-      assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:vm])
+      assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:goals])
       assert {:atomic, {^expected, _, _}} = AL.eval(program, nil, branch)
     end
   end
@@ -380,7 +380,9 @@ defmodule AL.JAM.ScanTest do
 
     reference =
       try do
-        assert {:atomic, {bindings, _, _}} = AL.eval(program, nil, reference_branch, trace: [:vm])
+        assert {:atomic, {bindings, _, _}} =
+                 AL.eval(program, nil, reference_branch, trace: [:goals])
+
         bindings["$Answers"]
       after
         AL.Branch.discard(reference_branch)
@@ -444,7 +446,7 @@ defmodule AL.JAM.ScanTest do
       }
     ]
 
-    for opts <- [[], [trace: [:vm]]] do
+    for opts <- [[], [trace: [:goals]]] do
       isolated = AL.Branch.fork(:tip, branch)
 
       try do

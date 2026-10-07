@@ -68,15 +68,6 @@ defmodule AL.JAM.Relation do
   def execute(:slot, [object, key, value, _storage], store, branch) when is_map(object),
     do: slot_entries(object, key, value, store, branch)
 
-  def execute(:slot, [object, key, value, :auto], store, branch) do
-    storage =
-      if is_atom(object) and not AL.Var.var?(key),
-        do: AL.Dispatch.ivar_storage(object, key, branch),
-        else: :aos
-
-    execute(:slot, [object, key, value, storage], store, branch)
-  end
-
   def execute(:slot, [object, key, value, :soa], store, branch),
     do:
       scan(
@@ -86,26 +77,41 @@ defmodule AL.JAM.Relation do
         branch
       )
 
-  def execute(:slot, [object, key, value, :aos], store, branch) do
+  def execute(:slot, [object, key, value, storage], store, branch)
+      when storage in [:auto, :aos] do
     if object != {:"$var", "_"} and AL.Var.var?(object) and key != {:"$var", "_"} and
          not AL.Var.var?(key) do
-      next = AL.Var.add_slot_link(store, object, {:slot, key, value}, branch)
+      next = AL.Var.add_slot_link(store, object, {:slot, key, value, storage}, branch)
 
       next =
         if next && AL.Var.var?(value) && value != {:"$var", "_"},
-          do: AL.Var.add_slot_link(next, value, {:slot_value, key, object}, branch),
+          do: AL.Var.add_slot_link(next, value, {:slot_value, key, object, storage}, branch),
           else: next
 
       if next,
         do: {:goals, next, slot_constraints(next, object, key, value, branch)},
         else: {:ok, nil}
     else
-      case AL.Object.read_slots(object, branch) do
-        [{:slots, ^object, slots}] when is_map(slots) ->
-          slot_entries(slots, key, value, store, branch)
+      if storage == :auto and AL.Var.var?(key) do
+        scan(
+          AL.Var.SlotLink.entries(object, storage, branch),
+          {object, key, value},
+          store,
+          branch
+        )
+      else
+        if storage == :auto and is_atom(object) and
+             AL.Dispatch.ivar_storage(object, key, branch) == :soa do
+          execute(:slot, [object, key, value, :soa], store, branch)
+        else
+          case AL.Object.read_slots(object, branch) do
+            [{:slots, ^object, slots}] when is_map(slots) ->
+              slot_entries(slots, key, value, store, branch)
 
-        _ ->
-          {:stores, []}
+            _ ->
+              {:stores, []}
+          end
+        end
       end
     end
   end
@@ -179,6 +185,23 @@ defmodule AL.JAM.Relation do
 
   def execute(:current_branch, [id], store, branch),
     do: {:ok, AL.Var.unify(id, branch.id, store, branch)}
+
+  def execute(:selected_provider, [object, selector, provider] = args, store, branch) do
+    cond do
+      not AL.Var.var?(object) and not AL.Var.var?(selector) ->
+        case AL.Dispatch.selected_provider(object, selector, branch) do
+          nil -> {:ok, nil}
+          actual -> {:ok, AL.Var.unify(provider, actual, store, branch)}
+        end
+
+      AL.Var.var?(object) and is_atom(selector) and is_atom(provider) ->
+        {:ok, AL.Dispatch.constrain_provider(store, object, selector, provider, branch)}
+
+      true ->
+        variable = if AL.Var.var?(selector), do: selector, else: object
+        {:goals, store, [%Goal.Freeze{var: variable, goals: [goal(:selected_provider, args)]}]}
+    end
+  end
 
   def execute(:isa, [object, class], store, branch) do
     known_isa = AL.Var.isa_of(store, object)
@@ -383,6 +406,9 @@ defmodule AL.JAM.Relation do
     do: %Goal.BranchMeta{branch: branch, key: key, value: value}
 
   def goal(:current_branch, [branch]), do: %Goal.CurrentBranch{branch: branch}
+
+  def goal(:selected_provider, [object, selector, provider]),
+    do: %Goal.SelectedProvider{object: object, selector: selector, provider: provider}
 
   def goal(:isa, [object, class]), do: %Goal.Isa{object: object, class: class}
   def goal(:class, [object, class]), do: %Goal.GetClass{object: object, class: class}

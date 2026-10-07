@@ -292,6 +292,21 @@ defmodule AL.Var.Bounds do
   """
   @spec equal(AL.Var.store(), term(), term(), AL.Branch.t()) :: AL.Var.store() | nil
   def equal(store, a, b, branch) do
+    with next when not is_nil(next) <- require_integers(store, [a, b]) do
+      equal_numbers(next, a, b, branch)
+    end
+  end
+
+  defp require_integers(store, terms) do
+    terms
+    |> AL.Var.find_vars()
+    |> Enum.reduce(store, fn variable, acc ->
+      resolved = AL.Var.deref(acc, variable)
+      if AL.Var.var?(resolved), do: AL.Var.require_integer(acc, resolved), else: acc
+    end)
+  end
+
+  defp equal_numbers(store, a, b, branch) do
     case {eval(a, store), eval(b, store)} do
       {x, y} when is_number(x) and is_number(y) ->
         if x == y, do: store, else: nil
@@ -303,10 +318,7 @@ defmodule AL.Var.Bounds do
         bind_or_post(store, a, y, a, b, branch)
 
       _ ->
-        case {affine(store, a), affine(store, b)} do
-          {{:ok, _}, {:ok, _}} -> add_compare(store, :=, a, b, branch)
-          _ -> add_product_equality(store, a, b, branch)
-        end
+        post_equality(store, a, b, branch)
     end
   end
 
@@ -349,7 +361,14 @@ defmodule AL.Var.Bounds do
 
     if AL.Var.var?(resolved),
       do: AL.Var.bind(store, resolved, value, branch),
-      else: add_compare(store, :=, a, b, branch)
+      else: post_equality(store, a, b, branch)
+  end
+
+  defp post_equality(store, a, b, branch) do
+    case {affine(store, a), affine(store, b)} do
+      {{:ok, _}, {:ok, _}} -> add_compare(store, :=, a, b, branch)
+      _ -> add_product_equality(store, a, b, branch)
+    end
   end
 
   @doc """
@@ -446,7 +465,13 @@ defmodule AL.Var.Bounds do
 
   @spec add_compare(AL.Var.store(), atom(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           AL.Var.store() | nil
-  def add_compare(store, :=, a, b, branch) do
+  def add_compare(store, op, a, b, branch) do
+    with next when not is_nil(next) <- require_integers(store, [a, b]) do
+      post_compare(next, op, a, b, branch)
+    end
+  end
+
+  defp post_compare(store, :=, a, b, branch) do
     with {:ok, a_aff} <- affine(store, a), {:ok, b_aff} <- affine(store, b) do
       # `a = b` as two simultaneous `<=` propagators (a<=b and b<=a), on the
       # same worklist fixpoint `< > <= >=` already use — narrowing one side
@@ -462,7 +487,7 @@ defmodule AL.Var.Bounds do
     end
   end
 
-  def add_compare(store, op, a, b, branch) do
+  defp post_compare(store, op, a, b, branch) do
     {lo_expr, hi_expr, strict} = normalize(op, a, b)
 
     with {:ok, lo_aff} <- affine(store, lo_expr),
@@ -480,8 +505,10 @@ defmodule AL.Var.Bounds do
   def floor_divide(store, dividend, divisor, quotient, branch) do
     prop = {:floor_divide, dividend, divisor, quotient}
 
-    with positive_divisor when not is_nil(positive_divisor) <-
-           add_compare(store, :>, divisor, 0, branch) do
+    with integers when not is_nil(integers) <-
+           require_integers(store, [dividend, divisor, quotient]),
+         positive_divisor when not is_nil(positive_divisor) <-
+           add_compare(integers, :>, divisor, 0, branch) do
       positive_divisor
       |> register_non_affine_propagator(prop)
       |> run_fixpoint(MapSet.new([prop]), branch)

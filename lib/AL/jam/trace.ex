@@ -19,7 +19,81 @@ defmodule AL.JAM.Trace do
     end
   end
 
-  def active?, do: Process.get(@key) != nil
+  def active?, do: mode() in [:semantic, :both]
+
+  def mode do
+    case Process.get(@key) do
+      nil ->
+        :off
+
+      trace ->
+        semantic =
+          AL.Trace.enabled?(trace, :domino) or AL.Trace.enabled?(trace, :goals) or
+            MapSet.size(trace.runtime.tracepoints) > 0
+
+        case {semantic, AL.Trace.enabled?(trace, :vm)} do
+          {true, true} -> :both
+          {true, false} -> :semantic
+          {false, true} -> :vm
+          {false, false} -> :off
+        end
+    end
+  end
+
+  def instruction(frame, pc, operation, slots) do
+    update(fn trace ->
+      event = {:instruction, %{frame: frame, pc: pc, instruction: operation, registers: slots}}
+      AL.Trace.push(trace, :vm, event)
+    end)
+  end
+
+  def dispatch_plan(path, plan) do
+    case Process.get(@key) do
+      %AL.Trace{} = trace ->
+        if AL.Trace.enabled?(trace, :vm) do
+          description =
+            case plan do
+              %AL.JAM.IR.SendPlan{} ->
+                %{
+                  key: plan.key,
+                  receiver_guard: plan.receiver_guard,
+                  frame: plan.frame,
+                  argument_transfers: AL.JAM.IR.SendPlan.transfers(plan.compiled)
+                }
+
+              other ->
+                other
+            end
+
+          Process.put(@key, AL.Trace.push(trace, :vm, {:dispatch, path, description}))
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  def fallback(operation, slots) do
+    update(fn trace ->
+      case trace.events do
+        [%AL.Trace.Event{kind: :vm, payload: {:instruction, context}} | _] ->
+          AL.Trace.push(
+            trace,
+            :vm,
+            {:fallback, %{context | instruction: operation, registers: slots}}
+          )
+
+        _ ->
+          trace
+      end
+    end)
+  end
+
+  def semantic_operation({:integer_arithmetic, _, _, _, _, fallback}),
+    do: semantic_operation(fallback)
+
+  def semantic_operation({:local, _, operation}), do: operation
+  def semantic_operation(operation), do: operation
 
   def scope_of({:traced, scope, _seq, _id}), do: scope
   def scope_of({:cut_scope, _ref, id}), do: scope_of(id)
@@ -126,7 +200,7 @@ defmodule AL.JAM.Trace do
             trace
         end
 
-      trace |> AL.Trace.push(:vm, :backtrack) |> unmark_exited(scope)
+      trace |> AL.Trace.push(:goals, :backtrack) |> unmark_exited(scope)
     end)
   end
 
@@ -151,7 +225,7 @@ defmodule AL.JAM.Trace do
           %AL.Trace{trace | runtime: runtime}
 
         true ->
-          AL.Trace.push(trace, :vm, goal)
+          AL.Trace.push(trace, :goals, goal)
       end
     end)
   end
@@ -164,7 +238,7 @@ defmodule AL.JAM.Trace do
     end)
   end
 
-  def flounder, do: update(&AL.Trace.push(&1, :vm, :flounder))
+  def flounder, do: update(&AL.Trace.push(&1, :goals, :flounder))
 
   def collection(kind, condition, output, fun) do
     outer = Process.get(@key)

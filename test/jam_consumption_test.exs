@@ -26,7 +26,7 @@ defmodule AL.JAM.ConsumptionTest do
       }
     ]
 
-    assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:vm])
+    assert {:atomic, {expected, _, _}} = AL.eval(program, nil, branch, trace: [:goals])
     assert {:atomic, {^expected, _, _}} = AL.eval(program, nil, branch)
     expected["$Answers"]
   end
@@ -86,7 +86,7 @@ defmodule AL.JAM.ConsumptionTest do
           ~S"findall Rest Answers {blanks #{class => al_grammar} [32, 120 . Rest] Rest}."
         ] do
       {:ok, parsed} = AL.Syntax.parse(query)
-      assert {:atomic, {expected, _, _}} = AL.eval(parsed.program, nil, branch, trace: [:vm])
+      assert {:atomic, {expected, _, _}} = AL.eval(parsed.program, nil, branch, trace: [:goals])
       assert {:atomic, {^expected, _, _}} = AL.eval(parsed.program, nil, branch)
     end
   end

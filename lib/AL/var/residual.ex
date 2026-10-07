@@ -53,13 +53,26 @@ defmodule AL.Var.Residual do
   defp constraint_set_goals(variable, set) do
     Enum.map(set.dif, fn {a, b} -> compound(:dif, [a, b]) end) ++
       Enum.map(set.direct_class, &compound(:class, [variable, &1])) ++
+      Enum.map(set.dispatch, fn {selector, provider} ->
+        compound(:selected_provider, [variable, selector, provider])
+      end) ++
       isa_goals(variable, set) ++
+      class_link_goals(variable, set.isa) ++
+      integer_goals(variable, set) ++
       bound_goals(variable, set.bounds) ++
       domain_goals(variable, set.domain) ++
-      super_link_goals(variable, set.super_link) ++
+      Enum.flat_map(set.super_links, &super_link_goals(variable, &1)) ++
       Enum.map(set.slot_links, &slot_link_goal(variable, &1)) ++
       Enum.map(set.keys, fn {key, value} -> compound(:map_get, [variable, key, value]) end) ++
       functor_goals(variable, set.functor)
+  end
+
+  defp class_link_goals(variable, entries) do
+    Enum.flat_map(entries, fn
+      {:object_link, object} -> [compound(:class, [object, variable])]
+      {:isa_object_link, object} -> [compound(:isa, [object, variable])]
+      _ -> []
+    end)
   end
 
   defp isa_goals(variable, set) do
@@ -68,6 +81,11 @@ defmodule AL.Var.Residual do
     |> Enum.reject(&(&1 == :compound and set.functor != nil))
     |> Enum.map(&compound(:isa, [variable, &1]))
   end
+
+  defp integer_goals(variable, %{integer: true, bounds: {nil, nil}, props: []}),
+    do: [compound(:floor_divide, [variable, 1, variable])]
+
+  defp integer_goals(_variable, _set), do: []
 
   defp bound_goals(variable, {lo, hi}) do
     Enum.reject(
@@ -79,14 +97,17 @@ defmodule AL.Var.Residual do
   defp domain_goals(_variable, nil), do: []
   defp domain_goals(variable, domain), do: [compound(:in_domain, [variable, Enum.sort(domain)])]
 
-  defp super_link_goals(_variable, nil), do: []
   defp super_link_goals(variable, {:super, super}), do: [compound(:super, [variable, super])]
   defp super_link_goals(variable, {:object, object}), do: [compound(:super, [object, variable])]
 
-  defp slot_link_goal(variable, {:slot, key, value}), do: compound(:slot, [variable, key, value])
+  defp slot_link_goal(variable, {:slot, key, value, storage}),
+    do: slot_goal(variable, key, value, storage)
 
-  defp slot_link_goal(variable, {:slot_value, key, object}),
-    do: compound(:slot, [object, key, variable])
+  defp slot_link_goal(variable, {:slot_value, key, object, storage}),
+    do: slot_goal(object, key, variable, storage)
+
+  defp slot_goal(object, key, value, :auto), do: compound(:slot, [object, key, value])
+  defp slot_goal(object, key, value, storage), do: compound(:slot, [object, key, value, storage])
 
   defp functor_goals(_variable, nil), do: []
   defp functor_goals(variable, {name, args}), do: [compound(:functor, [variable, name, args])]

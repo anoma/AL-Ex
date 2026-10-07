@@ -194,7 +194,7 @@ defmodule Examples.ALPendingLinks do
     assert bindings["$Value"] == :unique_value
   end
 
-  example a_unique_slot_value_determines_its_object() do
+  example labeling_a_unique_slot_value_finds_its_object() do
     pending_link_model()
 
     {:atomic, {bindings, _constraints, _}} =
@@ -202,6 +202,7 @@ defmodule Examples.ALPendingLinks do
         ~AL"""
         slot Object pending_tag Value.
         = Value unique_value.
+        label Object.
         """
       end
 
