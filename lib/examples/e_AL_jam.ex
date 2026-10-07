@@ -249,7 +249,7 @@ defmodule Examples.ALJAM do
     expected = {bindings, constraints, state.reductions}
 
     assert expected ==
-             {%{"$Pairs" => [[:red, :red], [:blue, :blue]], "$Result" => :ready}, %{}, 5}
+             {%{"$Pairs" => [[:red, :red], [:blue, :blue]], "$Result" => :ready}, %{}, 13}
 
     {bindings, _, _} = expected
     assert bindings["$Pairs"] == [[:red, :red], [:blue, :blue]]
@@ -379,7 +379,7 @@ defmodule Examples.ALJAM do
                 "$Nested" => [[:a, :c]],
                 "$Failed" => [],
                 "$Restored" => :restored
-              }, 8}
+              }, 39}
 
     {bindings, _} = expected
     assert bindings["$Results"] == [[:red, :first], [:red, :second], :outside]

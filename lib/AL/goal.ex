@@ -48,6 +48,7 @@ defmodule AL.Goal do
           | AL.Goal.Or.t()
           | AL.Goal.Forall.t()
           | AL.Goal.Findall.t()
+          | AL.Goal.FindNSols.t()
           | AL.Goal.GetSlots.t()
           | AL.Goal.GetSlotAt.t()
           | AL.Goal.Gensym.t()
@@ -256,6 +257,13 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: Forall do
     field(:condition, [AL.Goal.t()])
     field(:body, [AL.Goal.t()])
+  end
+
+  typedstruct enforce: true, module: FindNSols do
+    field(:count, AL.Var.t())
+    field(:template, AL.Var.t())
+    field(:condition, [AL.Goal.t()])
+    field(:result, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Findall do
@@ -477,6 +485,7 @@ defmodule AL.Goal do
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
     {Forall, :forall, [condition: :goals, body: :goals]},
+    {FindNSols, :findnsols, [count: :term, template: :term, result: :term, condition: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
     {GetSlotAt, :slot_at, [object: :term, key: :term, value: :term, t: :term]},
@@ -618,6 +627,14 @@ defmodule AL.Goal do
   def call_form(%Forall{condition: condition, body: body}), do: {:forall, [condition, body]}
   def call_form(%Freeze{var: var, goals: goals}), do: {:freeze, [var, goals]}
 
+  def call_form(%FindNSols{
+        count: count,
+        template: template,
+        result: result,
+        condition: condition
+      }),
+      do: {:findnsols, [count, template, result, condition]}
+
   def call_form(%Findall{template: template, condition: condition, result: result}),
     do: {:findall, [template, result, condition]}
 
@@ -672,6 +689,9 @@ defmodule AL.Goal do
     do: %Forall{condition: goals(condition), body: goals(body)}
 
   def lower(:freeze, [var, body]), do: %Freeze{var: var, goals: goals(body)}
+
+  def lower(:findnsols, [count, template, result, condition]),
+    do: %FindNSols{count: count, template: template, result: result, condition: goals(condition)}
 
   def lower(:findall, [template, result, condition]),
     do: %Findall{template: template, condition: goals(condition), result: result}

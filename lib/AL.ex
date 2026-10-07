@@ -8,6 +8,7 @@ defmodule AL do
   """
   use TypedStruct
   alias AL.Goal
+  alias AL.JAM.Frame
 
   @type scope() :: non_neg_integer()
   @type failure_call() ::
@@ -17,7 +18,11 @@ defmodule AL do
   # A resolution cursor: Necessary for `call_next_method`
 
   @type stack_entry() ::
-          AL.Choicepoint.t() | {:mark, scope()} | {:method_mark, scope()} | :implies_mark
+          AL.Choicepoint.t()
+          | {:mark, scope()}
+          | {:method_mark, scope()}
+          | {:jam_cut, reference()}
+          | :implies_mark
 
   @type failure_score() :: {non_neg_integer(), 0 | 1, non_neg_integer()}
   @type failure_candidate() ::
@@ -124,10 +129,9 @@ defmodule AL do
          {:ok, source} <- AL.Source.prepare(result, %{kind: :eval_source, label: nil}, text) do
       ir = AL.JAM.IR.Program.lower(source.program)
       {code, registers} = AL.JAM.Compiler.runtime(ir)
-      snapshot = AL.JAM.query({code, registers})
+      snapshot = AL.JAM.compile({code, registers})
 
-      {:ok,
-       %AL.CompiledProgram{source: source, ir: ir, jam: elem(snapshot, 1), registers: registers}}
+      {:ok, %AL.CompiledProgram{source: source, ir: ir, jam: snapshot.code, registers: registers}}
     end
   end
 
@@ -223,7 +227,7 @@ defmodule AL do
           result =
             %AL{
               active_choicepoint: %AL.Choicepoint{
-                goals: program,
+                continuations: [],
                 store: store,
                 scope_pointer: 0,
                 source_scopes: []
@@ -318,7 +322,7 @@ defmodule AL do
       :mnesia.transaction(fn ->
         AL.ResolutionCache.with_transaction_cache(fn ->
           tx_id = AL.Command.system_time(state.branch)
-          result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
+          result = %AL{state | tx_id: tx_id, output: []} |> backtrack() |> finalize_trace()
 
           if result.active_choicepoint.store == nil do
             :mnesia.abort(AL.Diagnostics.format_failure(result))
@@ -402,18 +406,23 @@ defmodule AL do
       %AL.Choicepoint{store: nil} ->
         backtrack(state)
 
-      %AL.Choicepoint{goals: [], suspensions: suspensions} when suspensions == %{} ->
+      %AL.Choicepoint{continuations: [], suspensions: suspensions} when suspensions == %{} ->
         state
 
-      %AL.Choicepoint{goals: []} ->
+      %AL.Choicepoint{continuations: []} ->
         state |> traced(&AL.JAM.Trace.flounder/0) |> backtrack()
 
-      %AL.Choicepoint{goals: [{:resume, snapshot} | ahead]} = choice ->
-        state = %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: ahead}}
+      %AL.Choicepoint{continuations: [{:collect_next, snapshot, count, child} | ahead]} = choice ->
+        state = %AL{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
+        child = resume_collection_child(state, child) |> backtrack()
+        continue(collect_batch(state, snapshot, count, child, false))
+
+      %AL.Choicepoint{continuations: [{:resume, snapshot} | ahead]} = choice ->
+        state = %AL{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
         snapshot = AL.JAM.with_store(snapshot, store(state))
 
-        {result, state} =
-          run_machine(state, fn ->
+        {result, trace} =
+          AL.JAM.Trace.run(state.trace, fn ->
             AL.JAM.resume(
               snapshot,
               state.branch,
@@ -422,6 +431,7 @@ defmodule AL do
             )
           end)
 
+        state = %AL{state | trace: trace}
         continue(apply_machine_result(result, release_machine_suspensions(state)))
     end
   end
@@ -522,8 +532,8 @@ defmodule AL do
   defp resolve_arg(arg, store),
     do: if(AL.Var.var?(arg), do: AL.Var.deref(store, arg), else: arg)
 
-  defp raw_goal({:resume, snapshot}), do: AL.JAM.pending_goals(snapshot)
-  defp raw_goal(goal), do: goal
+  defp continuation_goals({:collect_next, snapshot, _, _}), do: AL.JAM.failed_goal(snapshot)
+  defp continuation_goals({:resume, snapshot}), do: AL.JAM.pending_goals(snapshot)
 
   defp start_program(state, compiled) do
     choice = state.active_choicepoint
@@ -531,19 +541,18 @@ defmodule AL do
     snapshot =
       case compiled do
         nil ->
-          AL.JAM.query(choice.goals)
+          AL.JAM.compile(state.program)
 
         %AL.CompiledProgram{jam: code, registers: slots} ->
-          {{:root, 0}, code, 0, slots, [], nil, %{}}
+          %Frame{
+            id: {:root, 0},
+            code: code,
+            slots: slots
+          }
       end
 
-    goals = [{:resume, snapshot}]
-    %AL{state | active_choicepoint: %AL.Choicepoint{choice | goals: goals}}
-  end
-
-  defp run_machine(state, fun) do
-    {result, trace} = AL.JAM.Trace.run(state.trace, fun)
-    {result, %AL{state | trace: trace}}
+    continuations = [{:resume, snapshot}]
+    %AL{state | active_choicepoint: %AL.Choicepoint{choice | continuations: continuations}}
   end
 
   defp machine_context(state),
@@ -559,8 +568,6 @@ defmodule AL do
       | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | suspensions: %{}}
     }
 
-  def collection_budget, do: @max_reductions
-
   defp apply_machine_result({:cut, snapshot, [], steps, scope}, state) do
     remaining = Enum.drop_while(state.choicepoint_stack, &(&1 != scope))
 
@@ -571,7 +578,7 @@ defmodule AL do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            goals: [{:resume, snapshot} | state.active_choicepoint.goals]
+            continuations: [{:resume, snapshot} | state.active_choicepoint.continuations]
         }
     }
   end
@@ -585,7 +592,7 @@ defmodule AL do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            goals: [{:resume, snapshot} | state.active_choicepoint.goals]
+            continuations: [{:resume, snapshot} | state.active_choicepoint.continuations]
         }
     }
 
@@ -650,7 +657,7 @@ defmodule AL do
     do: result |> apply_machine_result(state) |> import_machine_suspensions(pending)
 
   defp apply_machine_result({kind, snapshot, choices, steps}, state)
-       when kind in [:suspend, :commit] and elem(snapshot, 6) != %{} do
+       when kind in [:suspend, :commit] and snapshot.pending != %{} do
     {kind, AL.JAM.without_suspensions(snapshot), choices, steps}
     |> apply_machine_result(state)
     |> import_machine_suspensions(AL.JAM.pending(snapshot))
@@ -666,39 +673,47 @@ defmodule AL do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            goals: [{:resume, next} | state.active_choicepoint.goals]
+            continuations: [{:resume, next} | state.active_choicepoint.continuations]
         }
     }
   end
 
+  defp apply_machine_result({:collect_n, snapshot, choices, steps, count, child}, state)
+       when snapshot.pending != %{} do
+    {:collect_n, AL.JAM.without_suspensions(snapshot), choices, steps, count, child}
+    |> apply_machine_result(state)
+    |> import_machine_suspensions(AL.JAM.pending(snapshot))
+  end
+
+  defp apply_machine_result({:collect_n, snapshot, choices, steps, count, child_snapshot}, state) do
+    state = install_machine_choices(state, choices)
+    state = %AL{state | reductions: state.reductions + steps}
+
+    {child_snapshot, cut_scope} = AL.JAM.collection_entry(child_snapshot)
+
+    child =
+      collection_child(state, snapshot, [{:resume, child_snapshot}], [{:jam_cut, cut_scope}])
+
+    child = if count == 0, do: child, else: continue(child)
+    collect_batch(state, snapshot, count, child, true)
+  end
+
   defp apply_machine_result({:collect, snapshot, choices, steps, child, solutions}, state)
-       when elem(snapshot, 6) != %{} do
+       when snapshot.pending != %{} do
     {:collect, AL.JAM.without_suspensions(snapshot), choices, steps, child, solutions}
     |> apply_machine_result(state)
     |> import_machine_suspensions(AL.JAM.pending(snapshot))
   end
 
   defp apply_machine_result({:collect, snapshot, choices, steps, child_result, solutions}, state) do
-    condition = AL.JAM.collection_condition(snapshot)
-
-    child = %AL{
-      active_choicepoint: %AL.Choicepoint{
-        goals: [],
-        scope_pointer: 0,
-        store: AL.JAM.snapshot_store(snapshot),
-        source_scopes: state.active_choicepoint.source_scopes
-      },
-      choicepoint_stack: [],
-      tx_id: state.tx_id,
-      branch: state.branch,
-      trace: AL.Trace.new(state.trace.flags),
-      program: condition
-    }
-
-    collected = do_collect(continue(apply_machine_result(child_result, child)), solutions)
-
     state = install_machine_choices(state, choices)
     state = %AL{state | reductions: state.reductions + steps}
+    child = collection_child(state, snapshot, [], [])
+    child = continue(apply_machine_result(child_result, child))
+    {solutions, child} = take_solutions(child, :all, solutions)
+    {state, child} = handoff_collection(state, child)
+
+    collected = if resource_limited?(child), do: :resource_limit_exceeded, else: {:ok, solutions}
 
     case collected do
       {:ok, solutions} ->
@@ -715,7 +730,7 @@ defmodule AL do
               | active_choicepoint: %AL.Choicepoint{
                   state.active_choicepoint
                   | store: new_store,
-                    goals: [{:resume, next} | state.active_choicepoint.goals]
+                    continuations: [{:resume, next} | state.active_choicepoint.continuations]
                 }
             }
           end
@@ -737,7 +752,7 @@ defmodule AL do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            goals: [{:resume, snapshot} | state.active_choicepoint.goals]
+            continuations: [{:resume, snapshot} | state.active_choicepoint.continuations]
         }
     }
   end
@@ -767,10 +782,118 @@ defmodule AL do
       | reductions: state.reductions + steps,
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
-          | goals: [{:resume, snapshot} | state.active_choicepoint.goals],
+          | continuations: [{:resume, snapshot} | state.active_choicepoint.continuations],
             store: AL.JAM.snapshot_store(snapshot)
         }
     }
+  end
+
+  defp collection_child(state, snapshot, continuations, choices) do
+    %AL{
+      active_choicepoint: %AL.Choicepoint{
+        continuations: continuations,
+        store: AL.JAM.snapshot_store(snapshot),
+        scope_pointer: 0,
+        source_scopes: state.active_choicepoint.source_scopes
+      },
+      choicepoint_stack: choices,
+      tx_id: state.tx_id,
+      branch: state.branch,
+      reductions: state.reductions,
+      source_refs: state.source_refs,
+      source_anchors: state.source_anchors,
+      trace: AL.Trace.new(state.trace.flags),
+      program: AL.JAM.collection_condition(snapshot)
+    }
+  end
+
+  defp resume_collection_child(state, child) do
+    %AL{
+      child
+      | reductions: state.reductions,
+        tx_id: state.tx_id,
+        source_refs: state.source_refs,
+        source_anchors: state.source_anchors
+    }
+  end
+
+  defp handoff_collection(state, child) do
+    state = %AL{
+      state
+      | reductions: child.reductions,
+        output: child.output ++ state.output,
+        source_refs: child.source_refs,
+        source_anchors: child.source_anchors,
+        trace: %{state.trace | events: child.trace.events ++ state.trace.events}
+    }
+
+    child = %AL{child | output: [], trace: %{child.trace | events: []}}
+    {state, child}
+  end
+
+  defp collect_batch(state, snapshot, count, child, first?) do
+    {solutions, child} = take_solutions(child, count, [])
+    {state, child} = handoff_collection(state, child)
+
+    if resource_limited?(child),
+      do: resource_limit_abort(state),
+      else: finish_batch(state, snapshot, count, child, first?, solutions)
+  end
+
+  defp finish_batch(state, snapshot, count, child, first?, solutions) do
+    if solutions == [] and not first? do
+      backtrack(state)
+    else
+      choice = state.active_choicepoint
+
+      more? =
+        count > 0 and child.active_choicepoint.store != nil and
+          Enum.any?(child.choicepoint_stack, &match?(%AL.Choicepoint{}, &1))
+
+      choices =
+        if more?,
+          do: [
+            %AL.Choicepoint{
+              choice
+              | store: AL.JAM.snapshot_store(snapshot),
+                continuations: [{:collect_next, snapshot, count, child} | choice.continuations]
+            }
+            | state.choicepoint_stack
+          ],
+          else: state.choicepoint_stack
+
+      state = %AL{state | choicepoint_stack: choices}
+      {next, next_store} = AL.JAM.collection_continuation(snapshot, solutions, state.branch)
+
+      if is_nil(next_store),
+        do: backtrack(state),
+        else: %AL{
+          state
+          | active_choicepoint: %AL.Choicepoint{
+              choice
+              | store: next_store,
+                continuations: [{:resume, next} | choice.continuations]
+            }
+        }
+    end
+  end
+
+  defp take_solutions(child, 0, acc), do: {Enum.reverse(acc), child}
+
+  defp take_solutions(%AL{active_choicepoint: %{store: nil}} = child, _, acc),
+    do: {Enum.reverse(acc), child}
+
+  defp take_solutions(child, remaining, acc) do
+    acc = [child.active_choicepoint.store | acc]
+
+    if remaining == 1 or child.choicepoint_stack == [],
+      do: {Enum.reverse(acc), child},
+      else:
+        take_solutions(
+          backtrack(child),
+          if(remaining == :all, do: :all, else: remaining - 1),
+          acc
+        )
   end
 
   defp install_machine_choices(state, choices) do
@@ -809,15 +932,15 @@ defmodule AL do
   defp machine_choice(state, snapshot) do
     %AL.Choicepoint{
       state.active_choicepoint
-      | goals: [
+      | continuations: [
           {:resume, AL.JAM.without_suspensions(snapshot)}
-          | state.active_choicepoint.goals
+          | state.active_choicepoint.continuations
         ],
         progress: AL.JAM.completed_goals(snapshot),
         store: AL.JAM.snapshot_store(snapshot),
-        clause: AL.JAM.Trace.seq_of(elem(snapshot, 0)),
+        clause: AL.JAM.Trace.seq_of(snapshot.id),
         scope_pointer:
-          AL.JAM.Trace.scope_of(elem(snapshot, 0)) || state.active_choicepoint.scope_pointer
+          AL.JAM.Trace.scope_of(snapshot.id) || state.active_choicepoint.scope_pointer
     }
     |> import_choice_suspensions(AL.JAM.pending(snapshot))
   end
@@ -844,7 +967,12 @@ defmodule AL do
   defp wake(choice) do
     {suspensions, ready} = AL.JAM.Suspension.ready(choice.suspensions, choice.store)
     woken = Enum.map(ready, &{:resume, AL.JAM.wake_frame(&1)})
-    %AL.Choicepoint{choice | suspensions: suspensions, goals: woken ++ choice.goals}
+
+    %AL.Choicepoint{
+      choice
+      | suspensions: suspensions,
+        continuations: woken ++ choice.continuations
+    }
   end
 
   # Only bindings may leave the capped process, and a refusal's goal
@@ -874,6 +1002,9 @@ defmodule AL do
 
   defp observable_vars(%Goal.Compound{} = compound, acc),
     do: observable_vars(Goal.lower(compound), acc)
+
+  defp observable_vars(%Goal.FindNSols{count: count, result: result}, acc),
+    do: AL.Var.find_vars([count, result], acc)
 
   defp observable_vars(%Goal.Findall{result: result}, acc),
     do: AL.Var.find_vars(result, acc)
@@ -905,27 +1036,6 @@ defmodule AL do
     AL.Var.subst(term, rename)
   end
 
-  # store == nil: exhausted, or this sub-search's own reduction budget ran
-  # out (e.g. open-ended findall/not) — resource_limited?/1 distinguishes,
-  # reading the freshest diagnostic.
-  defp do_collect(state, acc) do
-    cond do
-      state.active_choicepoint.store != nil ->
-        acc = [state.active_choicepoint.store | acc]
-
-        case state.choicepoint_stack do
-          [] -> {:ok, Enum.reverse(acc)}
-          _ -> do_collect(backtrack(state), acc)
-        end
-
-      resource_limited?(state) ->
-        :resource_limit_exceeded
-
-      true ->
-        {:ok, Enum.reverse(acc)}
-    end
-  end
-
   defp resource_limited?(state),
     do: match?([{:resource_limit_exceeded, _} | _], state.diagnostics)
 
@@ -941,7 +1051,7 @@ defmodule AL do
   def fresh_scope(), do: System.unique_integer([:positive, :monotonic])
 
   defp visible_vars(%AL{active_choicepoint: choice}) do
-    AL.Var.find_vars(Enum.map(choice.goals, &raw_goal/1))
+    AL.Var.find_vars(Enum.map(choice.continuations, &continuation_goals/1))
   end
 
   defp finalize_trace(state), do: %AL{state | trace: AL.JAM.Trace.finalize(state.trace)}

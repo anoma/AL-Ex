@@ -17,6 +17,7 @@ defmodule AL.Syntax.Printer do
   @syntax [
     :";",
     :->,
+    :findnsols,
     :findall,
     :forall,
     :not,
@@ -295,6 +296,23 @@ defmodule AL.Syntax.Printer do
         @semi,
         context
       )
+
+  defp goal(
+         %Goal.FindNSols{count: count, template: template, result: result, condition: condition},
+         indent,
+         context
+       ),
+       do:
+         applied(
+           :findnsols,
+           [
+             argument(count, indent),
+             argument(template, indent),
+             argument(result, indent),
+             goal_group(condition, indent)
+           ],
+           context
+         )
 
   defp goal(
          %Goal.Findall{template: template, condition: condition, result: result},

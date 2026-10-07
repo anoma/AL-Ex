@@ -6,7 +6,16 @@ defmodule AL.JAM.RegionCodeTest do
     {code, _} = Code.assemble(instructions)
 
     collect(
-      AL.JAM.resume({:region_test, code, 0, values, [], %{}, %{}}, AL.Branch.head(), budget),
+      AL.JAM.resume(
+        %AL.JAM.Frame{
+          id: :region_test,
+          code: code,
+          slots: values,
+          store: %{}
+        },
+        AL.Branch.head(),
+        budget
+      ),
       [],
       budget
     )

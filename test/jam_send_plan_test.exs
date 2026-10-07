@@ -16,7 +16,9 @@ defmodule AL.JAM.SendPlanTest do
     {rows, _index} =
       SendPlan.prepare(Compiler.compile([{:oapply, :transfer_probe, 0, [x, y], []}]))
 
-    [{_, {:argument_transfer, transfer, matcher}, initial, _, _, _}] = rows
+    [%AL.JAM.CompiledClause{matcher: {:argument_transfer, transfer, matcher}, initial: initial}] =
+      rows
+
     assert transfer != nil
 
     for call <- [[1, 2], [x, x], [AL.Var.var("_"), y], [1], [1, 2, 3], [x | y]] do

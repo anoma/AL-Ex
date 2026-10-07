@@ -121,7 +121,7 @@ defmodule AL.JAM.PlanTest do
       end)
 
     assert plan.inlined >= 4
-    [{_, _, _, _, code, _}] = elem(plan.compiled, 0)
+    [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
     assert tuple_size(code) == 1
     assert {:atomic, {%{"$Output" => :answer}, _, _}} = run(:route, [{:"$var", "Output"}], branch)
   end
@@ -288,7 +288,7 @@ defmodule AL.JAM.PlanTest do
       end)
 
     assert plan.inlined == 2
-    [{_, _, _, _, code, _}] = elem(plan.compiled, 0)
+    [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
     assert tuple_size(code) == 1
 
     assert {:atomic, {%{"$Output" => :token}, _, _}} =
@@ -319,7 +319,7 @@ defmodule AL.JAM.PlanTest do
         AL.JAM.IR.Plan.compile(receiver, :region_boundary, [{receiver, 0}], branch)
       end)
 
-    [{_, _, _, _, code, _}] = elem(plan.compiled, 0)
+    [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
     assert tuple_size(code) == 2
 
     assert {:atomic, {%{"$Output" => [:chosen, [:value]]}, _, _}} =
@@ -370,7 +370,7 @@ defmodule AL.JAM.PlanTest do
         AL.JAM.IR.Plan.compile(receiver, :region_failure, [{receiver, 0}], branch)
       end)
 
-    [{_, _, _, _, code, _}] = elem(plan.compiled, 0)
+    [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
     assert [{:ground, _}, :fail] = Tuple.to_list(code)
     assert {:aborted, _} = run(:region_failure, [:value], branch)
   end
@@ -466,7 +466,7 @@ defmodule AL.JAM.PlanTest do
       end)
 
     assert plan.inlined >= 3
-    [{_, _, _, _, code, _}] = elem(plan.compiled, 0)
+    [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
 
     refute Enum.any?(Tuple.to_list(code), fn
              {:send, _, _, _, _} -> true

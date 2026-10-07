@@ -41,7 +41,7 @@ defmodule AL.JAM.IR.Rejection do
                 clauses
                 |> Enum.with_index()
                 |> Enum.reduce(0, fn
-                  {{{id, seq, _, _}, _, _, _, _, _}, position}, mask ->
+                  {%AL.JAM.CompiledClause{method: id, sequence: seq}, position}, mask ->
                     rejected =
                       case Map.get(tests, {id, seq}) do
                         {test, _} -> rejects_tag?(test, tag)
@@ -123,7 +123,7 @@ defmodule AL.JAM.IR.Rejection do
   end
 
   def select(clauses, tests, call, store) do
-    Enum.reject(clauses, fn {{id, seq, _, _}, _, _, _, _, _} ->
+    Enum.reject(clauses, fn %AL.JAM.CompiledClause{method: id, sequence: seq} ->
       with {test, position} <- Map.get(tests, {id, seq}),
            {:ok, value} <- argument(call, position) do
         rejects?(test, Var.deref(store, value))

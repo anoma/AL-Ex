@@ -16,7 +16,8 @@ defmodule AL.JAM.IR.Loop do
   ]
 
   def run(
-        {[{{id, _, left, _}, _, _, _, _, _}, {{_, _, right, _}, _, _, _, _, _}], _},
+        {[%AL.JAM.CompiledClause{method: id, head: left}, %AL.JAM.CompiledClause{head: right}],
+         _},
         receiver,
         selector,
         operands,

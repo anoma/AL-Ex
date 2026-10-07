@@ -144,7 +144,14 @@ defmodule AL.JAM.ConsumptionTest do
   test "emitted scan can suspend inside classification without losing answers", %{branch: branch} do
     compiled = plan(branch, :blanks)
     {_, code, _, _} = AL.JAM.Scan.emit(compiled)
-    snapshot = {:test, code, 0, {~c" \tx", {:"$var", "Rest"}, nil, nil}, [], %{}, %{}}
+
+    snapshot = %AL.JAM.Frame{
+      id: :test,
+      code: code,
+      slots: {~c" \tx", {:"$var", "Rest"}, nil, nil},
+      store: %{}
+    }
+
     assert collect(AL.JAM.resume(snapshot, branch, 1), [], branch) == [~c"x", ~c"\tx", ~c" \tx"]
   end
 

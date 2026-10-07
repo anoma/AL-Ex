@@ -129,11 +129,11 @@ defmodule AL.JAM.DirectMethodTest do
                {original, %{method_identity: {2, {specialized, _}}}} =
                  AL.JAM.Compiler.fetch_method(method, branch)
 
-               assert Enum.all?(original ++ specialized, fn {{_, _, head, _}, _, _, _, _, _} ->
+               assert Enum.all?(original ++ specialized, fn %AL.JAM.CompiledClause{head: head} ->
                         length(head) == 4
                       end)
 
-               Enum.any?(specialized, fn {_, _, _, _, code, _} ->
+               Enum.any?(specialized, fn %AL.JAM.CompiledClause{code: code} ->
                  Enum.any?(Tuple.to_list(code), fn
                    {:call_method, {:method_identity, ^method, 2}, _args} -> true
                    _ -> false

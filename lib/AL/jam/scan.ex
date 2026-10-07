@@ -3,7 +3,8 @@ defmodule AL.JAM.Scan do
   alias AL.Var
 
   def enter(
-        {[{{_, _, [_, _, _, _], _}, _, _, _, _, _}, {{_, _, [_, _, _, _], _}, _, _, _, _, _}], _},
+        {[%AL.JAM.CompiledClause{head: [_, _, _, _]}, %AL.JAM.CompiledClause{head: [_, _, _, _]}],
+         _},
         receiver,
         selector,
         operands,
@@ -48,7 +49,7 @@ defmodule AL.JAM.Scan do
   end
 
   def enter(
-        {[{{_, _, [_, _, _], _}, _, _, _, _, _}, {{_, _, [_, _, _], _}, _, _, _, _, _}], _},
+        {[%AL.JAM.CompiledClause{head: [_, _, _]}, %AL.JAM.CompiledClause{head: [_, _, _]}], _},
         receiver,
         selector,
         operands,

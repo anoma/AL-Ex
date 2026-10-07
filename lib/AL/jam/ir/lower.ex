@@ -69,6 +69,14 @@ defmodule AL.JAM.IR.Lower do
   def operation(%Goal.Implies{condition: condition, then: yes, otherwise: no}),
     do: IR.operation(:condition, nil, [condition, yes, no])
 
+  def operation(%Goal.FindNSols{
+        count: count,
+        template: template,
+        result: result,
+        condition: condition
+      }),
+      do: scope(:collect_n, [count, template, result], %{condition: condition})
+
   def operation(%Goal.Findall{template: template, result: result, condition: condition}),
     do: scope(:collect, [template, result], %{condition: condition})
 

@@ -3,8 +3,10 @@ defmodule AL.JAM.IR.Search do
   alias AL.JAM.{IR, Operand}
 
   def prune(
-        {[{{id, _, [[_ | _] | _], _}, _, _, _, _, _}, {{id, _, [[_ | _] | _], _}, _, _, _, _, _}],
-         _},
+        {[
+           %AL.JAM.CompiledClause{method: id, head: [[_ | _] | _]},
+           %AL.JAM.CompiledClause{method: id, head: [[_ | _] | _]}
+         ], _},
         selector,
         {:operands, [_ | _] = receiver, operands, slots} = call,
         store,

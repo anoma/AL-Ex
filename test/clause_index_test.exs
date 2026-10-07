@@ -12,7 +12,7 @@ defmodule AL.ClauseIndexTest do
 
           clauses
           |> AL.ClauseIndex.select(index, call, store)
-          |> Enum.map(fn {{_id, sequence, _head, _operand}, _, _, _, _, _} -> sequence end)
+          |> Enum.map(fn %AL.JAM.CompiledClause{sequence: sequence} -> sequence end)
         end)
       end)
 

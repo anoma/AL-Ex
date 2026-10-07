@@ -18,6 +18,14 @@ defmodule AL.JAM.IR.Emit do
   end
 
   def operation(
+        %IR{kind: :scope, name: :collect_n, args: [count, template, result], regions: regions},
+        slots
+      ),
+      do:
+        {:collect_n, Operand.compile(count, slots), Operand.compile(template, slots),
+         Operand.compile(result, slots), code(regions.condition, Map.delete(slots, :jam_cursor))}
+
+  def operation(
         %IR{kind: :scope, name: :collect, args: [template, result], regions: regions},
         slots
       ),

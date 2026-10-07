@@ -359,5 +359,5 @@ defmodule AL.ClauseIndex do
     do: if(AL.Var.var?(value), do: AL.Var.deref(store, value), else: value)
 
   defp head({_clause, head, _plan}), do: head
-  defp head({{_id, _seq, head, _operand}, _matcher, _initial, _locals, _code, _returns}), do: head
+  defp head(%AL.JAM.CompiledClause{head: head}), do: head
 end

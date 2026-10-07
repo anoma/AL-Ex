@@ -7,12 +7,11 @@ defmodule AL.JAM.IR.Dataflow do
     defstruct values: %{}, exposed: MapSet.new(), stable: true
   end
 
-  def analyze(program, observable \\ MapSet.new(), rewrite \\ true) do
-    observable = MapSet.delete(observable, {:"$var", "_"})
-    initial = %Facts{exposed: observable}
-
-    state = %{
-      program: program,
+  defmodule Analysis do
+    @enforce_keys [:program]
+    defstruct [
+      :program,
+      :live,
       before: %{},
       uses: %{},
       defines: %{},
@@ -20,12 +19,19 @@ defmodule AL.JAM.IR.Dataflow do
       inference: %{},
       unsafe: false,
       escaped: MapSet.new(),
-      rewrite: rewrite
-    }
+      rewrite: true
+    ]
+  end
+
+  def analyze(program, observable \\ MapSet.new(), rewrite \\ true) do
+    observable = MapSet.delete(observable, {:"$var", "_"})
+    initial = %Facts{exposed: observable}
+
+    state = %Analysis{program: program, rewrite: rewrite}
 
     {_facts, state} = walk(program.entry, nil, initial, state)
     live = liveness(state, observable)
-    Map.put(state, :live, live)
+    %{state | live: live}
   end
 
   def specialize(program, observable \\ MapSet.new()) do

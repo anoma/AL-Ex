@@ -5,7 +5,12 @@ defmodule AL.JAM.InlineTest do
 
   defp run(program, store \\ %{}) do
     {code, slots} = AL.JAM.Compiler.runtime(program)
-    AL.JAM.resume({:test, code, 0, slots, [], store, %{}}, AL.Branch.head(), 1000)
+
+    AL.JAM.resume(
+      %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+      AL.Branch.head(),
+      1000
+    )
   end
 
   defp callable(body, head \\ [{:"$var", "Output"}]),

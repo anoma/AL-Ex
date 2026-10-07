@@ -86,6 +86,7 @@ defmodule AL.Syntax do
              :defprogram,
              :defpackage,
              :findall,
+             :findnsols,
              :forall,
              :not,
              :lambda,
@@ -1017,6 +1018,16 @@ defmodule AL.Syntax do
            term(class, pins),
            term(selector, pins),
            term(head, pins),
+           goals(block, pins)
+         ])
+
+  defp call(:findnsols, [count, template, result, block], _start, pins)
+       when goal_body(block),
+       do:
+         compound(:findnsols, [
+           term(count, pins),
+           term(template, pins),
+           term(result, pins),
            goals(block, pins)
          ])
 

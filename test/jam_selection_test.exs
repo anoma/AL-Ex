@@ -12,7 +12,7 @@ defmodule AL.JAM.SelectionTest do
 
   defp snapshot(program, store) do
     {code, slots} = AL.JAM.Compiler.runtime(program)
-    {:test, code, 0, slots, [], store, %{}}
+    %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store}
   end
 
   defp run(program, store, budget \\ 100),

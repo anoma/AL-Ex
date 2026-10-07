@@ -6,13 +6,13 @@ defmodule AL.JAMProgressTest do
 
     assert {:ok, %{}, _steps} =
              [%AL.Goal.Pass{}, %AL.Goal.Pass{}]
-             |> AL.JAM.query()
+             |> AL.JAM.compile()
              |> AL.JAM.with_store(%{})
              |> AL.JAM.resume(branch, 100)
 
     assert {:failed, snapshot, _steps} =
              [%AL.Goal.Pass{}, %AL.Goal.Fail{}]
-             |> AL.JAM.query()
+             |> AL.JAM.compile()
              |> AL.JAM.with_store(%{})
              |> AL.JAM.resume(branch, 100)
 

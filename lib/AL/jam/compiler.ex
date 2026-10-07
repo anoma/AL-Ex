@@ -1,5 +1,21 @@
 defmodule AL.JAM.Compiler do
   alias AL.Goal
+  alias AL.JAM.CompiledClause
+
+  defmodule PreparedClause do
+    @enforce_keys [
+      :method,
+      :sequence,
+      :head,
+      :head_operand,
+      :matcher,
+      :initial,
+      :locals,
+      :code,
+      :usage
+    ]
+    defstruct @enforce_keys
+  end
 
   @doc "Returns conditional integer output modes for an integer-receiver method inside a transaction."
   def return_summary(selector, input_modes, branch),
@@ -64,17 +80,16 @@ defmodule AL.JAM.Compiler do
   end
 
   defp compile_template(head, body, environment) do
-    {[{identity, matcher, initial, locals, code, _}], _} =
-      compile_with_captures([{:oapply, :call, 0, head, body}], false, environment)
+    {[clause], _} = compile_with_captures([{:oapply, :call, 0, head, body}], false, environment)
 
     slots = environment |> Enum.sort() |> Enum.with_index() |> Map.new()
 
     %AL.JAM.Callable.Template{
-      matcher: matcher,
-      initial: initial,
-      locals: locals,
-      code: code,
-      head: elem(identity, 3),
+      matcher: clause.matcher,
+      initial: clause.initial,
+      locals: clause.locals,
+      code: clause.code,
+      head: clause.head_operand,
       capture_slots: Enum.map(environment, &Map.fetch!(slots, &1))
     }
   end
@@ -89,7 +104,13 @@ defmodule AL.JAM.Compiler do
     clauses = prepare(clauses, captures, return_modes and not AL.JAM.Trace.active?())
 
     compiled =
-      Enum.map(clauses, fn {identity, matcher, initial, locals, code, usage} ->
+      Enum.map(clauses, fn %PreparedClause{
+                             matcher: matcher,
+                             initial: initial,
+                             locals: locals,
+                             code: code,
+                             usage: usage
+                           } = clause ->
         code = AL.JAM.Registers.specialize(code, locals, usage)
         local_indices = MapSet.new(locals, &elem(&1, 0))
 
@@ -126,7 +147,19 @@ defmodule AL.JAM.Compiler do
 
         code = Enum.map(code, &AL.JAM.Arithmetic.select/1)
         matcher = AL.JAM.Head.arguments(matcher)
-        {identity, matcher, initial, locals, List.to_tuple(code), {variants, head_returns}}
+
+        %CompiledClause{
+          method: clause.method,
+          sequence: clause.sequence,
+          head: clause.head,
+          head_operand: clause.head_operand,
+          matcher: matcher,
+          initial: initial,
+          locals: locals,
+          code: List.to_tuple(code),
+          output_variants: variants,
+          head_returns: head_returns
+        }
       end)
 
     index = AL.ClauseIndex.build(compiled)
@@ -134,7 +167,7 @@ defmodule AL.JAM.Compiler do
     index = AL.JAM.IR.Rejection.index(rejections, compiled, index)
 
     planning =
-      Enum.any?(compiled, fn {_, _, _, _, code, _} ->
+      Enum.any?(compiled, fn %CompiledClause{code: code} ->
         code
         |> Tuple.to_list()
         |> Enum.drop_while(fn
@@ -215,8 +248,17 @@ defmodule AL.JAM.Compiler do
       usage = if scoped?, do: [%AL.JAM.IR.Usage{} | usage], else: usage
       usage = if cursor?, do: [%AL.JAM.IR.Usage{} | usage], else: usage
 
-      {{id, seq, head, AL.JAM.Operand.compile(head, slots)}, matcher, initial, locals, builders,
-       usage}
+      %PreparedClause{
+        method: id,
+        sequence: seq,
+        head: head,
+        head_operand: AL.JAM.Operand.compile(head, slots),
+        matcher: matcher,
+        initial: initial,
+        locals: locals,
+        code: builders,
+        usage: usage
+      }
     end)
   end
 

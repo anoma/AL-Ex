@@ -3,6 +3,21 @@ defmodule AL.JAM.IR.Plan do
   alias AL.JAM.{Compiler, IR}
   alias AL.JAM.IR.{Dataflow, Program}
 
+  defmodule State do
+    @enforce_keys [:branch, :mode]
+    defstruct [
+      :branch,
+      :mode,
+      dependencies: %{},
+      inlined: 0,
+      classes: %{},
+      providers: %{},
+      fuel: 48,
+      stable: true,
+      protected: MapSet.new()
+    ]
+  end
+
   defstruct [
     :compiled,
     :branch,
@@ -68,15 +83,10 @@ defmodule AL.JAM.IR.Plan do
     try do
       {id, clauses, program_clauses} = fetch(receiver, selector, branch)
 
-      state = %{
+      state = %State{
         branch: branch,
-        dependencies: %{{receiver, selector} => {id, clauses}},
-        inlined: 0,
-        classes: %{},
-        providers: %{},
-        fuel: 48,
-        stable: true,
-        mode: mode
+        mode: mode,
+        dependencies: %{{receiver, selector} => {id, clauses}}
       }
 
       {rows, state} =
@@ -108,7 +118,7 @@ defmodule AL.JAM.IR.Plan do
               do: Dataflow.specialize(body, Var.find_vars(head)),
               else: body
 
-          state = state |> Map.put(:protected, Var.find_vars(head)) |> Map.put(:stable, true)
+          state = %{state | protected: Var.find_vars(head), stable: true}
           {paths, state} = expand(body, state, [id])
 
           paths =

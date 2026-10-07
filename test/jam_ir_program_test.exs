@@ -5,7 +5,7 @@ defmodule AL.JAM.IRProgramTest do
   alias AL.JAM.IR.{Dataflow, Program, Region}
 
   defp answers(program) do
-    snapshot = program |> AL.JAM.query() |> AL.JAM.with_store(%{})
+    snapshot = program |> AL.JAM.compile() |> AL.JAM.with_store(%{})
     collect(AL.JAM.resume(snapshot, AL.Branch.head(), 1000), [])
   end
 
@@ -51,7 +51,7 @@ defmodule AL.JAM.IRProgramTest do
     assert answers(program) == [:specialized]
     assert Program.variables(program) == MapSet.new([{:"$var", "Output"}])
 
-    assert {[{_, _, _, _, code, _}], _} =
+    assert {[%AL.JAM.CompiledClause{code: code}], _} =
              AL.JAM.Compiler.compile([{:oapply, :ir_only, 0, [{:"$var", "Output"}], program}])
 
     assert tuple_size(code) == 1
@@ -223,7 +223,7 @@ defmodule AL.JAM.IRProgramTest do
     refute MapSet.member?(Program.variables(optimized), {:"$var", "Alias"})
     assert answers(Program.subst(optimized, %{{:"$var", "Input"} => 42})) == [[:tag, 42]]
 
-    assert {[{_, _, _, _, code, _}], _} =
+    assert {[%AL.JAM.CompiledClause{code: code}], _} =
              AL.JAM.Compiler.compile([
                {:oapply, :region, 0, [{:"$var", "Input"}, {:"$var", "Output"}], program}
              ])
@@ -407,10 +407,18 @@ defmodule AL.JAM.IRProgramTest do
     {code, slots} = AL.JAM.Compiler.runtime([goal])
     assert {{:call, _, _, {:compiled_callable, {:constant, template}, _, _}, _}} = code
     assert %AL.JAM.Callable.Template{capture_slots: [0, 1]} = template
-    assert AL.JAM.pending_goals({:test, code, 0, slots, [], %{}, %{}}) == [goal]
+
+    assert AL.JAM.pending_goals(%AL.JAM.Frame{id: :test, code: code, slots: slots, store: %{}}) ==
+             [goal]
 
     for value <- [1, [:different, :shape], %{name: :value}] do
-      snapshot = {:test, code, 0, slots, [], %{{:"$var", "Capture"} => value}, %{}}
+      snapshot = %AL.JAM.Frame{
+        id: :test,
+        code: code,
+        slots: slots,
+        store: %{{:"$var", "Capture"} => value}
+      }
+
       assert {:ok, store, _} = AL.JAM.resume(snapshot, AL.Branch.head(), 100)
       assert AL.Var.subst({:"$var", "Output"}, store) == value
     end
@@ -456,7 +464,11 @@ defmodule AL.JAM.IRProgramTest do
       }
 
       assert {:ok, _, _} =
-               AL.JAM.resume({:test, code, 0, slots, [], store, %{}}, AL.Branch.head(), 100)
+               AL.JAM.resume(
+                 %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+                 AL.Branch.head(),
+                 100
+               )
     end
 
     store = %{
@@ -465,7 +477,11 @@ defmodule AL.JAM.IRProgramTest do
     }
 
     assert {:failed, _, _} =
-             AL.JAM.resume({:test, code, 0, slots, [], store, %{}}, AL.Branch.head(), 100)
+             AL.JAM.resume(
+               %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+               AL.Branch.head(),
+               100
+             )
   end
 
   test "runtime-supplied goals and primitive selectors use dynamic source compilation" do
@@ -480,7 +496,14 @@ defmodule AL.JAM.IRProgramTest do
 
     for value <- [:first, :second] do
       goal = %Goal.Compound{name: :=, args: [{:"$var", "Argument"}, value]}
-      snapshot = {:test, code, 0, slots, [], %{{:"$var", "Goal"} => goal}, %{}}
+
+      snapshot = %AL.JAM.Frame{
+        id: :test,
+        code: code,
+        slots: slots,
+        store: %{{:"$var", "Goal"} => goal}
+      }
+
       assert {:ok, store, _} = AL.JAM.resume(snapshot, AL.Branch.head(), 100)
       assert AL.Var.subst({:"$var", "Output"}, store) == value
     end
@@ -492,7 +515,14 @@ defmodule AL.JAM.IRProgramTest do
     }
 
     {code, slots} = AL.JAM.Compiler.runtime([selected])
-    snapshot = {:test, code, 0, slots, [], %{{:"$var", "Selector"} => :atom}, %{}}
+
+    snapshot = %AL.JAM.Frame{
+      id: :test,
+      code: code,
+      slots: slots,
+      store: %{{:"$var", "Selector"} => :atom}
+    }
+
     assert {:ok, _, _} = AL.JAM.resume(snapshot, AL.Branch.head(), 100)
   end
 

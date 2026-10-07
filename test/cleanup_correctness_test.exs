@@ -88,7 +88,7 @@ defmodule AL.CleanupCorrectnessTest do
       %Goal.Eq{a: output, b: local}
     ]
 
-    {[{_, _, _, locals, code, _}], _} =
+    {[%AL.JAM.CompiledClause{locals: locals, code: code}], _} =
       AL.JAM.Compiler.compile([{:oapply, :probe, 0, [output], body}])
 
     assert {:local, index, {:map_put, _, _, _, _}} = elem(code, 0)

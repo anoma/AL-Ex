@@ -1,7 +1,7 @@
 defmodule AL.JAM do
   alias AL.Goal
-  alias AL.JAM.Operand
-  @compile {:inline, project_send: 5, forward_outputs: 4, keep_return: 2, loop: 12}
+  alias AL.JAM.{Execution, Frame, Operand}
+  @compile {:inline, project_send: 5, forward_outputs: 4, keep_return: 2, loop: 2}
 
   defp context_method(:tx_id), do: :vm_current_tx
   defp context_method(:transaction_object), do: :vm_transaction_object
@@ -18,11 +18,11 @@ defmodule AL.JAM do
         resume_call(
           import_pending(entry(frame, first, []), context),
           choices,
-          [],
-          branch,
-          %{context: context},
-          0,
-          budget
+          %Execution{
+            branch: branch,
+            targets: %{context: context},
+            budget: budget
+          }
         )
 
       [] ->
@@ -30,21 +30,29 @@ defmodule AL.JAM do
     end
   end
 
-  def query({code, slots}) when is_tuple(code) and is_tuple(slots) do
+  def compile({code, slots}) when is_tuple(code) and is_tuple(slots) do
     code =
       code
       |> Tuple.to_list()
       |> Enum.flat_map(&[&1, :progress])
       |> List.to_tuple()
 
-    {{:root, 0}, code, 0, slots, [], nil, %{}}
+    %Frame{
+      id: {:root, 0},
+      code: code,
+      slots: slots
+    }
   end
 
-  def query(goals), do: goals |> AL.JAM.Compiler.runtime() |> query()
+  def compile(goals), do: goals |> AL.JAM.Compiler.runtime() |> compile()
 
   def resume(snapshot, branch, budget, context \\ %{}),
     do:
-      resume_entry(import_pending(snapshot, context), [], branch, %{context: context}, 0, budget)
+      resume_entry(import_pending(snapshot, context), %Execution{
+        branch: branch,
+        targets: %{context: context},
+        budget: budget
+      })
 
   defp import_pending(snapshot, context) do
     case Map.get(context, :suspensions, %{}) do
@@ -56,12 +64,17 @@ defmodule AL.JAM do
 
         with_pending(
           snapshot,
-          Map.merge(pending, elem(snapshot, 6), fn _key, older, newer -> older ++ newer end)
+          Map.merge(pending, snapshot.pending, fn _key, older, newer -> older ++ newer end)
         )
     end
   end
 
-  def pending_goals({_id, code, pc, slots, returns, _store, _pending}) do
+  def pending_goals(%Frame{
+        code: code,
+        pc: pc,
+        slots: slots,
+        returns: returns
+      }) do
     instructions(code, pc, slots) ++ pending_returns(returns, slots)
   end
 
@@ -70,32 +83,58 @@ defmodule AL.JAM do
 
   defp pending_returns([{:return_to, id, code, pc, caller_slots, transfers} | returns], slots) do
     slots = transfer_registers(slots, caller_slots, transfers)
-    pending_goals({id, code, pc, slots, returns, nil, %{}})
+
+    pending_goals(%Frame{
+      id: id,
+      code: code,
+      pc: pc,
+      slots: slots,
+      returns: returns
+    })
   end
 
   defp pending_returns([{id, code, pc, slots} | returns], _callee_slots),
-    do: pending_goals({id, code, pc, slots, returns, nil, %{}})
+    do:
+      pending_goals(%Frame{
+        id: id,
+        code: code,
+        pc: pc,
+        slots: slots,
+        returns: returns
+      })
 
-  def with_store({id, code, pc, slots, returns, _store, pending}, store),
-    do: {id, code, pc, slots, returns, store, pending}
+  def with_store(%Frame{} = frame, store), do: %{frame | store: store}
 
   def without_suspensions(snapshot), do: with_pending(snapshot, %{})
 
-  def wake_frame({id, code, slots}), do: {id, code, 0, slots, [], nil, %{}}
+  def wake_frame({id, code, slots}), do: %Frame{id: id, code: code, slots: slots}
 
-  def pending({_id, _code, _pc, _slots, _returns, _store, pending}), do: pending
+  def pending(%Frame{
+        pending: pending
+      }),
+      do: pending
 
   def wake_goals({_id, code, slots}), do: instructions(code, 0, slots)
 
-  defp with_pending({id, code, pc, slots, returns, store, _pending}, pending),
-    do: {id, code, pc, slots, returns, store, pending}
+  defp with_pending(%Frame{} = frame, pending), do: %{frame | pending: pending}
 
-  def failed_goal({_id, code, pc, slots, _returns, _store, _pending}),
-    do: instruction(elem(code, pc), slots)
+  def failed_goal(%Frame{
+        code: code,
+        pc: pc,
+        slots: slots
+      }),
+      do: instruction(elem(code, pc), slots)
 
-  def snapshot_store({_id, _code, _pc, _slots, _returns, store, _pending}), do: store
+  def snapshot_store(%Frame{
+        store: store
+      }),
+      do: store
 
-  def completed_goals({id, _code, pc, _slots, returns, _store, _pending}) do
+  def completed_goals(%Frame{
+        id: id,
+        pc: pc,
+        returns: returns
+      }) do
     returns
     |> Enum.reduce(root_progress(id, pc), fn
       {:return_to, caller, _code, caller_pc, _slots, _transfers}, progress ->
@@ -181,6 +220,14 @@ defmodule AL.JAM do
 
   defp instruction({:label, _site, term}, slots),
     do: %Goal.Label{term: Operand.read(term, slots)}
+
+  defp instruction({:collect_n, count, template, result, condition}, slots),
+    do: %Goal.FindNSols{
+      count: Operand.read(count, slots),
+      template: Operand.read(template, slots),
+      result: Operand.read(result, slots),
+      condition: instructions(condition, 0, slots)
+    }
 
   defp instruction({:collect, template, result, condition}, slots),
     do: %Goal.Findall{
@@ -316,7 +363,15 @@ defmodule AL.JAM do
          steps,
          budget
        ) do
-    {id, code, pc, slots, returns, store, pending} = current
+    %Frame{
+      id: id,
+      code: code,
+      pc: pc,
+      slots: slots,
+      returns: returns,
+      store: store,
+      pending: pending
+    } = current
 
     case select_all(callee, call, store, branch) do
       candidates ->
@@ -353,7 +408,13 @@ defmodule AL.JAM do
 
           case items do
             [] ->
-              retry(current, markers ++ choices, branch, targets, steps + 1, budget)
+              retry(current, %Execution{
+                choices: markers ++ choices,
+                branch: branch,
+                targets: targets,
+                steps: steps + 1,
+                budget: budget
+              })
 
             [{_, _, seq, entry} | rest] ->
               AL.JAM.Trace.chosen(scope, seq)
@@ -362,14 +423,22 @@ defmodule AL.JAM do
                 do:
                   resume_entry(
                     entry,
-                    rest ++ markers ++ choices,
-                    branch,
-                    targets,
-                    steps + 1,
-                    budget
+                    %Execution{
+                      choices: rest ++ markers ++ choices,
+                      branch: branch,
+                      targets: targets,
+                      steps: steps + 1,
+                      budget: budget
+                    }
                   ),
                 else:
-                  retry(current, rest ++ markers ++ choices, branch, targets, steps + 1, budget)
+                  retry(current, %Execution{
+                    choices: rest ++ markers ++ choices,
+                    branch: branch,
+                    targets: targets,
+                    steps: steps + 1,
+                    budget: budget
+                  })
           end
         end
     end
@@ -377,17 +446,25 @@ defmodule AL.JAM do
 
   defp traced_entry(frame, matched, returns, scope, seq, pending) do
     entry = with_pending(entry(frame, matched, returns), pending)
-    put_elem(entry, 0, {:traced, scope, seq, elem(entry, 0)})
+    %{entry | id: {:traced, scope, seq, entry.id}}
   end
 
   defp select_all({method, _index}, call, store, branch) do
-    Enum.map(method, fn {{_id, seq, _head, _operand}, _, _, _, _, _} = clause ->
+    Enum.map(method, fn %AL.JAM.CompiledClause{sequence: seq} = clause ->
       {seq, match_clause(clause, call, store, branch, %{})}
     end)
   end
 
   defp match_clause(
-         {{_id, _seq, _head, head}, match, initial, locals, code, {variants, head_returns}},
+         %AL.JAM.CompiledClause{
+           head_operand: head,
+           matcher: match,
+           initial: initial,
+           locals: locals,
+           code: code,
+           output_variants: variants,
+           head_returns: head_returns
+         },
          call,
          store,
          branch,
@@ -427,193 +504,181 @@ defmodule AL.JAM do
           _ -> nil
         end
 
-      {frame, code, 1, put_elem(slots, index, cursor), returns, store, %{}}
+      %Frame{
+        id: frame,
+        code: code,
+        pc: 1,
+        slots: put_elem(slots, index, cursor),
+        returns: returns,
+        store: store
+      }
     else
-      {frame, code, 0, slots, returns, store, %{}}
+      %Frame{
+        id: frame,
+        code: code,
+        slots: slots,
+        returns: returns,
+        store: store
+      }
     end
   end
 
-  defp enter_tail(
-         id,
-         {code, slots, store, _, [], head},
-         returns,
-         pending,
-         choices,
-         branch,
-         targets,
-         steps,
-         budget
-       )
+  defp enter_tail(id, {code, slots, store, _, [], head}, returns, pending, execution)
        when tuple_size(code) == 0 or
               (elem(code, 0) != :cut_scope and elem(elem(code, 0), 0) != :cursor) do
     loop(
-      frame_id(id, {head, slots}),
-      code,
-      0,
-      slots,
-      returns,
-      store,
-      choices,
-      branch,
-      targets,
-      steps,
-      budget,
-      pending
+      %Frame{
+        id: frame_id(id, {head, slots}),
+        code: code,
+        slots: slots,
+        returns: returns,
+        store: store,
+        pending: pending
+      },
+      execution
     )
   end
 
-  defp enter_tail(id, selected, returns, pending, choices, branch, targets, steps, budget) do
-    resume_call(
-      with_pending(entry(id, selected, returns), pending),
-      [],
-      choices,
-      branch,
-      targets,
-      steps,
-      budget
-    )
+  defp enter_tail(id, selected, returns, pending, execution) do
+    resume_call(with_pending(entry(id, selected, returns), pending), [], execution)
   end
 
-  defp resume_call(first, alternatives, choices, branch, targets, steps, budget) do
+  defp resume_call(first, alternatives, %Execution{choices: choices} = execution) do
     if cut_scope?(first) or Enum.any?(alternatives, &cut_scope?/1) do
       scope = make_ref()
       first = scope_entry(first, scope)
       alternatives = Enum.map(alternatives, &scope_entry(&1, scope))
-      choices = alternatives ++ [{:jam_cut, scope} | choices]
-      resume_entry(first, choices, branch, targets, steps, budget)
+      resume_entry(first, %{execution | choices: alternatives ++ [{:jam_cut, scope} | choices]})
     else
-      resume_entry(first, alternatives ++ choices, branch, targets, steps, budget)
+      resume_entry(first, %{execution | choices: alternatives ++ choices})
     end
   end
 
-  defp cut_scope?({_id, code, pc, _slots, _returns, _store, _pending}),
-    do: pc < tuple_size(code) and elem(code, pc) == :cut_scope
+  defp cut_scope?(%Frame{
+         code: code,
+         pc: pc
+       }),
+       do: pc < tuple_size(code) and elem(code, pc) == :cut_scope
 
-  defp scope_entry({id, code, pc, slots, returns, store, pending} = entry, scope) do
+  defp scope_entry(
+         %Frame{
+           id: id,
+           code: code,
+           pc: pc,
+           slots: slots,
+           returns: returns,
+           store: store,
+           pending: pending
+         } = entry,
+         scope
+       ) do
     pc = if cut_scope?(entry), do: pc + 1, else: pc
-    {{:cut_scope, scope, id}, code, pc, slots, returns, store, pending}
+
+    %Frame{
+      id: {:cut_scope, scope, id},
+      code: code,
+      pc: pc,
+      slots: slots,
+      returns: returns,
+      store: store,
+      pending: pending
+    }
   end
 
-  defp resume_entry(
-         {{:guarded_region, _parent, {guard_token, guard, _outputs}, answer, fallback} = id, code,
-          answer, slots, returns, store, pending},
-         choices,
-         branch,
-         targets,
-         steps,
-         budget
+  defp resume_entry(%Frame{} = frame, %Execution{} = execution) do
+    loop(%{frame | pc: resume_position(frame, execution.branch)}, execution)
+  end
+
+  defp resume_position(
+         %Frame{
+           id: {:guarded_region, _parent, {token, guard, _outputs}, answer, fallback},
+           pc: answer
+         },
+         branch
        ) do
     valid =
-      AL.ResolutionCache.fetch_dispatch(branch, {:region_guard, guard_token}, fn ->
+      AL.ResolutionCache.fetch_dispatch(branch, {:region_guard, token}, fn ->
         AL.JAM.IR.Plan.valid?(guard, branch)
       end)
 
-    pc = if valid, do: answer, else: fallback
-    loop(id, code, pc, slots, returns, store, choices, branch, targets, steps, budget, pending)
+    if valid, do: answer, else: fallback
   end
 
-  defp resume_entry(
-         {id, code, pc, slots, returns, store, pending},
-         choices,
-         branch,
-         targets,
-         steps,
-         budget
-       ),
-       do:
-         loop(
-           id,
-           code,
-           pc,
-           slots,
-           returns,
-           store,
-           choices,
-           branch,
-           targets,
-           steps,
-           budget,
-           pending
-         )
+  defp resume_position(%Frame{pc: pc}, _branch), do: pc
 
-  defp loop(id, code, pc, slots, returns, store, choices, branch, targets, steps, budget, pending)
-       when pending == %{},
-       do:
-         step(
-           id,
-           code,
-           pc,
-           slots,
-           returns,
-           store,
-           choices,
-           branch,
-           targets,
-           steps,
-           budget,
-           pending
-         )
+  defp retry(
+         current,
+         %Execution{choices: [{:trace_alternative, scope, seq, entry} | rest]} = execution
+       ) do
+    AL.JAM.Trace.abandon()
+    AL.JAM.Trace.resume(scope)
+    AL.JAM.Trace.chosen(scope, seq)
+    execution = %{execution | choices: rest, steps: execution.steps + 1}
+    if entry, do: resume_entry(entry, execution), else: retry(current, execution)
+  end
 
-  defp loop(id, code, pc, slots, returns, store, choices, branch, targets, steps, budget, pending) do
-    {pending, ready} = AL.JAM.Suspension.ready(pending, store)
+  defp retry(current, %Execution{choices: [{:trace_fail, tag, scope} | rest]} = execution) do
+    AL.JAM.Trace.abandon()
+    AL.JAM.Trace.fail(scope, tag)
+    retry(current, %{execution | choices: rest})
+  end
+
+  defp retry(_current, %Execution{choices: [:collection_end], steps: steps}),
+    do: {:collection_end, steps + 1}
+
+  defp retry(current, %Execution{choices: [{:jam_cut, _} | rest]} = execution),
+    do: retry(current, %{execution | choices: rest})
+
+  defp retry(current, %Execution{choices: [:implies_mark | rest]} = execution),
+    do: retry(current, %{execution | choices: rest})
+
+  defp retry(current, %Execution{choices: [], steps: steps}) do
+    AL.JAM.Trace.abandon()
+    {:failed, current, steps + 1}
+  end
+
+  defp retry(_current, %Execution{choices: [choice | rest]} = execution) do
+    if AL.JAM.Trace.active?() do
+      id = choice.id
+      AL.JAM.Trace.abandon()
+      AL.JAM.Trace.resume(AL.JAM.Trace.parent(id))
+      if seq = AL.JAM.Trace.seq_of(id), do: AL.JAM.Trace.chosen(AL.JAM.Trace.parent(id), seq)
+    end
+
+    resume_entry(choice, %{execution | choices: rest, steps: execution.steps + 1})
+  end
+
+  defp loop(%Frame{pending: pending} = frame, execution) when pending == %{},
+    do: step(frame, execution)
+
+  defp loop(%Frame{} = frame, execution) do
+    {pending, ready} = AL.JAM.Suspension.ready(frame.pending, frame.store)
+    frame = %{frame | pending: pending}
 
     case ready do
       [] ->
-        step(
-          id,
-          code,
-          pc,
-          slots,
-          returns,
-          store,
-          choices,
-          branch,
-          targets,
-          steps,
-          budget,
-          pending
-        )
+        step(frame, execution)
 
       [{wake_id, wake_code, wake_slots} | rest] ->
         returns =
           Enum.map(rest, fn {id, code, slots} -> {id, code, 0, slots} end) ++
-            keep_return({id, code, pc, slots}, returns)
+            keep_return({frame.id, frame.code, frame.pc, frame.slots}, frame.returns)
 
         loop(
-          wake_id,
-          wake_code,
-          0,
-          wake_slots,
-          returns,
-          store,
-          choices,
-          branch,
-          targets,
-          steps,
-          budget,
-          pending
+          %{frame | id: wake_id, code: wake_code, pc: 0, slots: wake_slots, returns: returns},
+          execution
         )
     end
   end
 
-  defp step(
-         id,
-         code,
-         pc,
-         slots,
-         returns,
-         store,
-         choices,
-         _branch,
-         _targets,
-         steps,
-         budget,
-         pending
-       )
+  defp step(frame, %Execution{steps: steps, budget: budget, choices: choices})
        when steps > budget,
-       do: {:suspend, {id, code, pc, slots, returns, store, pending}, choices, steps}
+       do: {:suspend, frame, choices, steps}
 
-  defp step(_id, code, pc, _slots, [], store, choices, _branch, _targets, steps, _budget, pending)
+  defp step(
+         %Frame{code: code, pc: pc, returns: [], store: store, pending: pending},
+         %Execution{choices: choices, steps: steps}
+       )
        when pc == tuple_size(code) do
     AL.JAM.Trace.settle(store)
     result = if choices == [], do: {:ok, store, steps}, else: {:answers, store, choices, steps}
@@ -621,22 +686,12 @@ defmodule AL.JAM do
   end
 
   defp step(
-         id,
-         code,
-         pc,
-         slots,
-         [{:trace_exit, scope} | returns],
-         store,
-         choices,
-         branch,
-         targets,
-         steps,
-         budget,
-         pending
+         %Frame{code: code, pc: pc, returns: [{:trace_exit, scope} | returns]} = frame,
+         execution
        )
        when pc == tuple_size(code) do
-    AL.JAM.Trace.settle(store)
-    AL.JAM.Trace.exit(scope, store)
+    AL.JAM.Trace.settle(frame.store)
+    AL.JAM.Trace.exit(scope, frame.store)
 
     returns =
       case returns do
@@ -654,101 +709,80 @@ defmodule AL.JAM do
           other
       end
 
-    step(id, code, pc, slots, returns, store, choices, branch, targets, steps, budget, pending)
+    step(%{frame | returns: returns}, execution)
   end
 
   defp step(
-         _id,
-         code,
-         pc,
-         slots,
-         [{:return_to, id, next_code, next_pc, caller_slots, transfers} | returns],
-         store,
-         choices,
-         branch,
-         targets,
-         steps,
-         budget,
-         pending
+         %Frame{
+           code: code,
+           pc: pc,
+           returns: [{:return_to, id, next_code, next_pc, caller_slots, transfers} | returns]
+         } = frame,
+         execution
        )
        when pc == tuple_size(code) do
-    slots = transfer_registers(slots, caller_slots, transfers)
+    slots = transfer_registers(frame.slots, caller_slots, transfers)
 
     loop(
-      id,
-      next_code,
-      next_pc,
-      slots,
-      returns,
-      store,
-      choices,
-      branch,
-      targets,
-      steps,
-      budget,
-      pending
+      %{frame | id: id, code: next_code, pc: next_pc, slots: slots, returns: returns},
+      execution
     )
   end
 
   defp step(
-         _id,
-         code,
-         pc,
-         _slots,
-         [{id, next_code, next_pc, slots} | returns],
-         store,
-         choices,
-         branch,
-         targets,
-         steps,
-         budget,
-         pending
+         %Frame{code: code, pc: pc, returns: [{id, next_code, next_pc, slots} | returns]} = frame,
+         execution
        )
        when pc == tuple_size(code),
        do:
          loop(
-           id,
-           next_code,
-           next_pc,
-           slots,
-           returns,
-           store,
-           choices,
-           branch,
-           targets,
-           steps,
-           budget,
-           pending
+           %{frame | id: id, code: next_code, pc: next_pc, slots: slots, returns: returns},
+           execution
          )
 
-  defp step(id, code, pc, slots, returns, store, choices, branch, targets, steps, budget, pending) do
-    current = {id, code, pc, slots, returns, store, pending}
+  defp step(
+         %Frame{
+           id: id,
+           code: code,
+           pc: pc,
+           slots: slots,
+           returns: returns,
+           store: store,
+           pending: pending
+         } = current,
+         %Execution{
+           choices: choices,
+           branch: branch,
+           targets: targets,
+           steps: steps,
+           budget: budget
+         } = execution
+       ) do
     trace_mode = AL.JAM.Trace.mode()
     traced? = trace_mode in [:semantic, :both]
 
     operation =
-      if traced?, do: AL.JAM.Trace.semantic_operation(elem(code, pc)), else: elem(code, pc)
+      if traced? do
+        AL.JAM.Trace.semantic_operation(elem(code, pc))
+      else
+        elem(code, pc)
+      end
 
-    if trace_mode in [:vm, :both], do: AL.JAM.Trace.instruction(id, pc, operation, slots)
-    if traced?, do: trace_instruction(operation, slots, store)
+    if trace_mode in [:vm, :both] do
+      AL.JAM.Trace.instruction(id, pc, operation, slots)
+    end
+
+    if traced? do
+      trace_instruction(operation, slots, store)
+    end
 
     case operation do
       {:move, destination, operand} ->
         slots = put_elem(slots, destination, Operand.read(operand, slots))
 
         loop(
-          id,
-          code,
-          pc + 1,
-          slots,
-          returns,
-          store,
-          choices,
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{current | pc: pc + 1, slots: slots},
+          %{execution | steps: steps + 1}
         )
 
       {:jump, target, transfers} ->
@@ -758,18 +792,8 @@ defmodule AL.JAM do
           end)
 
         loop(
-          id,
-          code,
-          target,
-          next_slots,
-          returns,
-          store,
-          choices,
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{current | pc: target, slots: next_slots},
+          %{execution | steps: steps + 1}
         )
 
       {:get_cons, operand, head, tail, failure} ->
@@ -778,34 +802,14 @@ defmodule AL.JAM do
             slots = slots |> put_elem(head, first) |> put_elem(tail, rest)
 
             loop(
-              id,
-              code,
-              pc + 1,
-              slots,
-              returns,
-              store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1, slots: slots},
+              %{execution | steps: steps + 1}
             )
 
           _ ->
             loop(
-              id,
-              code,
-              failure,
-              slots,
-              returns,
-              store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: failure},
+              %{execution | steps: steps + 1}
             )
         end
 
@@ -815,92 +819,88 @@ defmodule AL.JAM do
             put_elem(saved, index, elem(slots, index))
           end)
 
-        choice = {id, code, alternative, saved, returns, store, pending}
+        choice = %{current | pc: alternative, slots: saved}
 
         loop(
-          id,
-          code,
-          pc + 1,
-          slots,
-          returns,
-          store,
-          [choice | choices],
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{current | pc: pc + 1},
+          %{execution | choices: [choice | choices], steps: steps + 1}
         )
 
       :cut_scope ->
         scope = make_ref()
 
         loop(
-          {:cut_scope, scope, id},
-          code,
-          pc + 1,
-          slots,
-          returns,
-          store,
-          [{:jam_cut, scope} | choices],
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{
+            current
+            | id: {:cut_scope, scope, id},
+              pc: pc + 1
+          },
+          %{
+            execution
+            | choices: [{:jam_cut, scope} | choices],
+              steps: steps + 1
+          }
         )
 
       :cut ->
         scope = cut_mark(id)
 
         remaining = Enum.drop_while(choices, &(&1 != scope))
-        next = {id, code, pc + 1, slots, returns, store, pending}
+
+        next = %{current | pc: pc + 1}
 
         case remaining do
-          [] -> {:cut, next, [], steps + 1, scope}
-          _ -> resume_entry(next, remaining, branch, targets, steps + 1, budget)
+          [] ->
+            {:cut, next, [], steps + 1, scope}
+
+          _ ->
+            resume_entry(next, %{execution | choices: remaining, steps: steps + 1})
         end
 
       {:branch, left, right} ->
         returns = return_to(id, code, pc, slots, returns)
-        choice = {id, right, 0, slots, returns, store, pending}
+
+        choice = %Frame{
+          id: id,
+          code: right,
+          slots: slots,
+          returns: returns,
+          store: store,
+          pending: pending
+        }
 
         loop(
-          id,
-          left,
-          0,
-          slots,
-          returns,
-          store,
-          [choice | choices],
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{current | code: left, pc: 0, returns: returns},
+          %{execution | choices: [choice | choices], steps: steps + 1}
         )
 
       {:condition, condition, otherwise} ->
         returns = return_to(id, code, pc, slots, returns)
-        choice = {id, otherwise, 0, slots, returns, store, pending}
+
+        choice = %Frame{
+          id: id,
+          code: otherwise,
+          slots: slots,
+          returns: returns,
+          store: store,
+          pending: pending
+        }
 
         loop(
-          id,
-          condition,
-          0,
-          slots,
-          returns,
-          store,
-          [choice, :implies_mark | choices],
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{current | code: condition, pc: 0, returns: returns},
+          %{execution | choices: [choice, :implies_mark | choices], steps: steps + 1}
         )
 
       {:commit, then} ->
-        {:commit, {id, then, 0, slots, returns, store, pending}, choices, steps + 1}
+        {:commit,
+         %Frame{
+           id: id,
+           code: then,
+           slots: slots,
+           returns: returns,
+           store: store,
+           pending: pending
+         }, choices, steps + 1}
 
       {:freeze, variable, delayed} ->
         variable = Operand.shallow(variable, slots, store)
@@ -909,35 +909,15 @@ defmodule AL.JAM do
           pending = AL.JAM.Suspension.park(pending, [variable], [{id, delayed, slots}])
 
           loop(
-            id,
-            code,
-            pc + 1,
-            slots,
-            returns,
-            store,
-            choices,
-            branch,
-            targets,
-            steps + 1,
-            budget,
-            pending
+            %{current | pc: pc + 1, pending: pending},
+            %{execution | steps: steps + 1}
           )
         else
           returns = return_to(id, code, pc, slots, returns)
 
           loop(
-            id,
-            delayed,
-            0,
-            slots,
-            returns,
-            store,
-            choices,
-            branch,
-            targets,
-            steps + 1,
-            budget,
-            pending
+            %{current | code: delayed, pc: 0, returns: returns, pending: pending},
+            %{execution | steps: steps + 1}
           )
         end
 
@@ -946,48 +926,30 @@ defmodule AL.JAM do
           {:ok, value} ->
             case AL.Var.unify(Operand.read(result, slots), value, store, branch) do
               nil ->
-                retry(current, choices, branch, targets, steps + 1, budget)
+                retry(current, %{execution | steps: steps + 1})
 
               next_store ->
                 loop(
-                  id,
-                  code,
-                  pc + 1,
-                  slots,
-                  returns,
-                  next_store,
-                  choices,
-                  branch,
-                  targets,
-                  steps + 1,
-                  budget,
-                  pending
+                  %{current | pc: pc + 1, store: next_store},
+                  %{execution | steps: steps + 1}
                 )
             end
 
           :error ->
-            retry(current, choices, branch, targets, steps + 1, budget)
+            retry(current, %{execution | steps: steps + 1})
         end
 
       :progress ->
         loop(
-          id,
-          code,
-          pc + 1,
-          slots,
-          returns,
-          store,
-          choices,
-          branch,
-          targets,
-          steps,
-          budget,
-          pending
+          %{current | pc: pc + 1},
+          execution
         )
 
       {:mutation, operation, arguments} ->
         arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
-        next = {id, code, pc + 1, slots, returns, store, pending}
+
+        next = %{current | pc: pc + 1}
+
         {:mutation, next, choices, steps + 1, operation, arguments}
 
       {:source_scope, capture_id, goals, body} ->
@@ -997,14 +959,28 @@ defmodule AL.JAM do
         ]
 
         next =
-          {id, body, 0, slots, keep_return({id, code, pc + 1, slots}, returns), store, pending}
+          %Frame{
+            id: id,
+            code: body,
+            slots: slots,
+            returns: keep_return({id, code, pc + 1, slots}, returns),
+            store: store,
+            pending: pending
+          }
 
         {:mutation, next, choices, steps + 1, :source_scope_enter, arguments}
 
       {:send_as, provider_id, cursor, call} ->
         call = Operand.read(call, slots)
         callee = AL.JAM.Compiler.fetch_method(provider_id, branch)
-        miss = fn -> retry(current, choices, branch, targets, steps, budget) end
+
+        miss = fn ->
+          retry(
+            current,
+            execution
+          )
+        end
+
         frame = {:provider, provider_id, cursor}
 
         traced_call(
@@ -1038,68 +1014,51 @@ defmodule AL.JAM do
                branch
              ) do
           nil ->
-            retry(current, choices, branch, targets, steps, budget)
+            retry(
+              current,
+              execution
+            )
 
           next_store ->
             loop(
-              id,
-              code,
-              pc + 1,
-              slots,
-              returns,
-              next_store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1, store: next_store},
+              %{execution | steps: steps + 1}
             )
         end
 
       {:format, control, args} ->
         case AL.JAM.Format.execute(Operand.read(control, slots), Operand.read(args, slots), store) do
           {:output, text} ->
-            next = {id, code, pc + 1, slots, returns, store, pending}
+            next = %{current | pc: pc + 1}
+
             {:mutation, next, choices, steps + 1, :output, [text]}
 
           {:goals, goals} ->
             {next_code, next_slots} = AL.JAM.Compiler.runtime(goals)
 
             loop(
-              id,
-              next_code,
-              0,
-              next_slots,
-              keep_return({id, code, pc + 1, slots}, returns),
-              store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{
+                current
+                | code: next_code,
+                  pc: 0,
+                  slots: next_slots,
+                  returns: keep_return({id, code, pc + 1, slots}, returns)
+              },
+              %{execution | steps: steps + 1}
             )
         end
 
       :pass ->
         loop(
-          id,
-          code,
-          pc + 1,
-          slots,
-          returns,
-          store,
-          choices,
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %{current | pc: pc + 1},
+          %{execution | steps: steps + 1}
         )
 
       :fail ->
-        retry(current, choices, branch, targets, steps, budget)
+        retry(
+          current,
+          execution
+        )
 
       {:numeric_tests, operand, tests, fallback} ->
         value = Operand.shallow(operand, slots, store)
@@ -1109,41 +1068,30 @@ defmodule AL.JAM do
           case numeric_tests(tests, value, 0) do
             :ok ->
               loop(
-                id,
-                code,
-                pc + 1,
-                slots,
-                returns,
-                store,
-                choices,
-                branch,
-                targets,
-                steps + count,
-                budget,
-                pending
+                %{current | pc: pc + 1},
+                %{execution | steps: steps + count}
               )
 
             {:fail, index} ->
               failed =
-                {id, fallback, index, slots, keep_return({id, code, pc + 1, slots}, returns),
-                 store, pending}
+                %{
+                  current
+                  | code: fallback,
+                    pc: index,
+                    returns: keep_return({id, code, pc + 1, slots}, returns)
+                }
 
-              retry(failed, choices, branch, targets, steps + index, budget)
+              retry(failed, %{execution | steps: steps + index})
           end
         else
           loop(
-            id,
-            fallback,
-            0,
-            slots,
-            keep_return({id, code, pc + 1, slots}, returns),
-            store,
-            choices,
-            branch,
-            targets,
-            steps,
-            budget,
-            pending
+            %{
+              current
+              | code: fallback,
+                pc: 0,
+                returns: keep_return({id, code, pc + 1, slots}, returns)
+            },
+            execution
           )
         end
 
@@ -1153,22 +1101,15 @@ defmodule AL.JAM do
 
         case AL.Var.unify_value(a, b, store, branch) do
           nil ->
-            retry(current, choices, branch, targets, steps, budget)
+            retry(
+              current,
+              execution
+            )
 
           store ->
             loop(
-              id,
-              code,
-              pc + 1,
-              slots,
-              returns,
-              store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1, store: store},
+              %{execution | steps: steps + 1}
             )
         end
 
@@ -1194,47 +1135,47 @@ defmodule AL.JAM do
 
             entries =
               Enum.map(plans, fn {next_store, next_code, next_slots} ->
-                {id, next_code, 0, next_slots, next_returns, next_store, pending}
+                %Frame{
+                  id: id,
+                  code: next_code,
+                  slots: next_slots,
+                  returns: next_returns,
+                  store: next_store,
+                  pending: pending
+                }
               end)
 
             case entries do
               [] ->
-                retry(current, choices, branch, targets, steps + 1, budget)
+                retry(current, %{execution | steps: steps + 1})
 
               [first | rest] ->
-                resume_entry(first, rest ++ choices, branch, targets, steps + 1, budget)
+                resume_entry(first, %{execution | choices: rest ++ choices, steps: steps + 1})
             end
 
           {:continue, next_store, next_code, next_slots} ->
             loop(
-              id,
-              next_code,
-              0,
-              next_slots,
-              keep_return({id, code, pc + 1, slots}, returns),
-              next_store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{
+                current
+                | code: next_code,
+                  pc: 0,
+                  slots: next_slots,
+                  returns: keep_return({id, code, pc + 1, slots}, returns),
+                  store: next_store
+              },
+              %{execution | steps: steps + 1}
             )
 
           {:continue, next_store, next_code} ->
             loop(
-              id,
-              next_code,
-              0,
-              slots,
-              keep_return({id, code, pc + 1, slots}, returns),
-              next_store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{
+                current
+                | code: next_code,
+                  pc: 0,
+                  returns: keep_return({id, code, pc + 1, slots}, returns),
+                  store: next_store
+              },
+              %{execution | steps: steps + 1}
             )
 
           {:diagnostic, diagnostic} ->
@@ -1244,157 +1185,135 @@ defmodule AL.JAM do
             pending = AL.JAM.Suspension.park(pending, variables, [{id, {operation}, slots}])
 
             loop(
-              id,
-              code,
-              pc + 1,
-              slots,
-              returns,
-              store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1, pending: pending},
+              %{execution | steps: steps + 1}
             )
 
           {:registers, next_store, next_slots} ->
             loop(
-              id,
-              code,
-              pc + 1,
-              next_slots,
-              returns,
-              next_store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1, slots: next_slots, store: next_store},
+              %{execution | steps: steps + 1}
             )
 
           {:stores, stores} ->
             case stores do
               [] ->
-                retry(current, choices, branch, targets, steps, budget)
+                retry(
+                  current,
+                  execution
+                )
 
               [first | rest] ->
-                alternatives = Enum.map(rest, &{id, code, pc + 1, slots, returns, &1, pending})
+                alternatives =
+                  Enum.map(
+                    rest,
+                    &%{current | pc: pc + 1, store: &1}
+                  )
 
                 loop(
-                  id,
-                  code,
-                  pc + 1,
-                  slots,
-                  returns,
-                  first,
-                  alternatives ++ choices,
-                  branch,
-                  targets,
-                  steps + 1,
-                  budget,
-                  pending
+                  %{current | pc: pc + 1, store: first},
+                  %{execution | choices: alternatives ++ choices, steps: steps + 1}
                 )
             end
 
           nil ->
-            retry(current, choices, branch, targets, steps, budget)
+            retry(
+              current,
+              execution
+            )
 
           next_store ->
             loop(
-              id,
-              code,
-              pc + 1,
-              slots,
-              returns,
-              next_store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1, store: next_store},
+              %{execution | steps: steps + 1}
             )
         end
 
       {:forall, _goal, condition, _heads, _body} ->
-        child = {id, condition, 0, slots, [], store, %{}}
+        child = %Frame{
+          id: id,
+          code: condition,
+          slots: slots,
+          store: store
+        }
 
-        case collect_child(:forall, nil, child, branch, targets) do
-          {:ok, solutions} ->
-            {:forall, current, choices, steps + 1, solutions}
+        case collect_child(:forall, nil, child, branch, targets, budget - steps - 1) do
+          {:ok, solutions, child_steps} ->
+            {:forall, current, choices, steps + child_steps + 1, solutions}
 
           {:yield, child_result, solutions} ->
             {:collect, current, choices, steps + 1, child_result, solutions}
         end
 
       {:negate, condition} ->
-        child = {id, condition, 0, slots, [], store, %{}}
+        child = %Frame{
+          id: id,
+          code: condition,
+          slots: slots,
+          store: store
+        }
 
-        case collect_child(:not, nil, child, branch, targets) do
-          {:ok, []} ->
+        case collect_child(:not, nil, child, branch, targets, budget - steps - 1) do
+          {:ok, [], child_steps} ->
             loop(
-              id,
-              code,
-              pc + 1,
-              slots,
-              returns,
-              store,
-              choices,
-              branch,
-              targets,
-              steps + 1,
-              budget,
-              pending
+              %{current | pc: pc + 1},
+              %{execution | steps: steps + child_steps + 1}
             )
 
-          {:ok, _solutions} ->
-            retry(current, choices, branch, targets, steps, budget)
+          {:ok, _solutions, child_steps} ->
+            retry(current, %{execution | steps: steps + child_steps + 1})
 
           {:yield, child_result, solutions} ->
             {:collect, current, choices, steps + 1, child_result, solutions}
         end
 
-      {:collect, template, result, condition} ->
-        child = {id, condition, 0, slots, [], store, %{}}
+      {:collect_n, count, _template, _result, condition} ->
+        count = Operand.resolve(count, slots, store)
 
-        case collect_child(:findall, Operand.read(result, slots), child, branch, targets) do
-          {:ok, solutions} ->
+        if not is_integer(count) or count < 0 do
+          :mnesia.abort({:invalid_solution_limit, count})
+        end
+
+        child = %Frame{
+          id: id,
+          code: condition,
+          slots: slots,
+          store: store
+        }
+
+        {:collect_n, current, choices, steps + 1, count, child}
+
+      {:collect, template, result, condition} ->
+        child = %Frame{
+          id: id,
+          code: condition,
+          slots: slots,
+          store: store
+        }
+
+        case collect_child(
+               :findall,
+               Operand.read(result, slots),
+               child,
+               branch,
+               targets,
+               budget - steps - 1
+             ) do
+          {:ok, solutions, child_steps} ->
             case collection_store(template, result, slots, store, solutions, branch) do
               {:registers, next_store, next_slots} ->
                 loop(
-                  id,
-                  code,
-                  pc + 1,
-                  next_slots,
-                  returns,
-                  next_store,
-                  choices,
-                  branch,
-                  targets,
-                  steps + 1,
-                  budget,
-                  pending
+                  %{current | pc: pc + 1, slots: next_slots, store: next_store},
+                  %{execution | steps: steps + child_steps + 1}
                 )
 
               nil ->
-                retry(current, choices, branch, targets, steps, budget)
+                retry(current, %{execution | steps: steps + child_steps + 1})
 
               next_store ->
                 loop(
-                  id,
-                  code,
-                  pc + 1,
-                  slots,
-                  returns,
-                  next_store,
-                  choices,
-                  branch,
-                  targets,
-                  steps + 1,
-                  budget,
-                  pending
+                  %{current | pc: pc + 1, store: next_store},
+                  %{execution | steps: steps + child_steps + 1}
                 )
             end
 
@@ -1417,7 +1336,7 @@ defmodule AL.JAM do
             raise ArgumentError, "vm_oapply needs a bound method id, got #{inspect(method)}"
 
           :invalid ->
-            retry(current, choices, branch, targets, steps + 1, budget)
+            retry(current, %{execution | targets: targets, steps: steps + 1})
 
           :primitive ->
             args = Operand.resolve(args, slots, store)
@@ -1427,21 +1346,17 @@ defmodule AL.JAM do
                 AL.JAM.Compiler.runtime([%Goal.OApply{method_id: method, args: args}])
 
               loop(
-                id,
-                next_code,
-                0,
-                next_slots,
-                keep_return({id, code, pc + 1, slots}, returns),
-                store,
-                choices,
-                branch,
-                targets,
-                steps + 1,
-                budget,
-                pending
+                %{
+                  current
+                  | code: next_code,
+                    pc: 0,
+                    slots: next_slots,
+                    returns: keep_return({id, code, pc + 1, slots}, returns)
+                },
+                %{execution | targets: targets, steps: steps + 1}
               )
             else
-              retry(current, choices, branch, targets, steps + 1, budget)
+              retry(current, %{execution | targets: targets, steps: steps + 1})
             end
 
           :native ->
@@ -1477,9 +1392,11 @@ defmodule AL.JAM do
               )
             else
               callee =
-                if identity_position == nil,
-                  do: AL.JAM.IR.MethodIdentity.select(callee, method, args, slots, store),
-                  else: AL.JAM.IR.MethodIdentity.reuse(callee, identity_position)
+                if identity_position == nil do
+                  AL.JAM.IR.MethodIdentity.select(callee, method, args, slots, store)
+                else
+                  AL.JAM.IR.MethodIdentity.reuse(callee, identity_position)
+                end
 
               call =
                 case args do
@@ -1489,7 +1406,7 @@ defmodule AL.JAM do
 
               case select(callee, call, store, branch) do
                 [] ->
-                  retry(current, choices, branch, targets, steps + 1, budget)
+                  retry(current, %{execution | targets: targets, steps: steps + 1})
 
                 [first] when pc + 1 == tuple_size(code) ->
                   enter_tail(
@@ -1497,11 +1414,7 @@ defmodule AL.JAM do
                     first,
                     returns,
                     pending,
-                    choices,
-                    branch,
-                    targets,
-                    steps + 1,
-                    budget
+                    %{execution | targets: targets, steps: steps + 1}
                   )
 
                 [first | rest] ->
@@ -1513,11 +1426,7 @@ defmodule AL.JAM do
                   resume_call(
                     with_pending(entry(method, first, returns), pending),
                     alternatives,
-                    choices,
-                    branch,
-                    targets,
-                    steps + 1,
-                    budget
+                    %{execution | targets: targets, steps: steps + 1}
                   )
               end
             end
@@ -1550,23 +1459,25 @@ defmodule AL.JAM do
             if AL.JAM.Trace.active?() do
               scope = AL.fresh_scope()
               entry = with_pending(entry(:call, first, [{:trace_exit, scope} | returns]), pending)
-              entry = put_elem(entry, 0, {:traced, scope, nil, elem(entry, 0)})
+              entry = %{entry | id: {:traced, scope, nil, entry.id}}
               choices = [{:trace_fail, :clause_fail, scope} | choices]
-              resume_call(entry, [], choices, branch, targets, steps + 1, budget)
+
+              resume_call(entry, [], %{
+                execution
+                | choices: choices,
+                  targets: targets,
+                  steps: steps + 1
+              })
             else
               resume_call(
                 with_pending(entry(:call, first, returns), pending),
                 [],
-                choices,
-                branch,
-                targets,
-                steps + 1,
-                budget
+                %{execution | choices: choices, targets: targets, steps: steps + 1}
               )
             end
 
           nil ->
-            retry(current, choices, branch, targets, steps + 1, budget)
+            retry(current, %{execution | targets: targets, steps: steps + 1})
         end
 
       {:next, cursor, self, args} ->
@@ -1575,7 +1486,10 @@ defmodule AL.JAM do
 
         case AL.Dispatch.next_provider(cursor, branch) do
           :miss ->
-            retry(current, choices, branch, targets, steps, budget)
+            retry(
+              current,
+              execution
+            )
 
           {:native, method} ->
             arguments = [
@@ -1590,7 +1504,13 @@ defmodule AL.JAM do
               receiver = Operand.receiver(self, slots, store)
               call_list = [receiver | Operand.resolve(args, slots, store)]
               frame = {:provider, callee_id, next_cursor}
-              miss = fn -> retry(current, choices, branch, targets, steps, budget) end
+
+              miss = fn ->
+                retry(
+                  current,
+                  execution
+                )
+              end
 
               traced_call(
                 callee,
@@ -1610,7 +1530,10 @@ defmodule AL.JAM do
             else
               case select(AL.JAM.Compiler.fetch_method(callee_id, branch), call, store, branch) do
                 [] ->
-                  retry(current, choices, branch, targets, steps, budget)
+                  retry(
+                    current,
+                    execution
+                  )
 
                 [first | rest] ->
                   returns = return_to(id, code, pc, slots, returns)
@@ -1620,11 +1543,7 @@ defmodule AL.JAM do
                   resume_call(
                     with_pending(entry(frame, first, returns), pending),
                     alternatives,
-                    choices,
-                    branch,
-                    targets,
-                    steps + 1,
-                    budget
+                    %{execution | steps: steps + 1}
                   )
               end
             end
@@ -1638,7 +1557,14 @@ defmodule AL.JAM do
           end
 
         traced? = AL.JAM.Trace.active?()
-        destinations = if traced?, do: [], else: destinations
+
+        destinations =
+          if traced? do
+            []
+          else
+            destinations
+          end
+
         query = {:send, {:query, make_ref()}, elem(operation, 2), method, args}
         receiver_args = {:cons, elem(operation, 2), args}
         query? = match?({:query, _}, site)
@@ -1655,48 +1581,57 @@ defmodule AL.JAM do
           end
 
         call =
-          if destinations == [],
-            do: {:operands, object, args, slots},
-            else: [object | resolve_args(Operand.read(args, slots), store)]
+          if destinations == [] do
+            {:operands, object, args, slots}
+          else
+            [object | resolve_args(Operand.read(args, slots), store)]
+          end
 
         target =
-          if AL.Var.var?(object) and object != {:"$var", "_"},
-            do: {:open, AL.Dispatch.open_targets(object, method, store, branch)},
-            else:
-              target(
-                targets,
-                key,
-                object,
-                method,
-                args,
-                not traced? and pending == %{},
-                branch,
-                trace_mode in [:vm, :both]
-              )
+          if AL.Var.var?(object) and object != {:"$var", "_"} do
+            {:open, AL.Dispatch.open_targets(object, method, store, branch)}
+          else
+            target(
+              targets,
+              key,
+              object,
+              method,
+              args,
+              not traced? and pending == %{},
+              branch,
+              trace_mode in [:vm, :both]
+            )
+          end
 
         method_scope =
-          if traced?,
-            do:
-              AL.JAM.Trace.method_call(
-                AL.JAM.Trace.parent(id),
-                AL.Var.subst(object, store),
-                method,
-                Operand.resolve(args, slots, store),
-                store,
-                AL.JAM.Trace.depth(returns)
-              )
+          if traced? do
+            AL.JAM.Trace.method_call(
+              AL.JAM.Trace.parent(id),
+              AL.Var.subst(object, store),
+              method,
+              Operand.resolve(args, slots, store),
+              store,
+              AL.JAM.Trace.depth(returns)
+            )
+          end
 
         method_marked =
-          if traced?, do: [{:trace_fail, :method_fail, method_scope} | choices], else: choices
+          if traced? do
+            [{:trace_fail, :method_fail, method_scope} | choices]
+          else
+            choices
+          end
 
         miss = fn ->
-          if traced?, do: AL.JAM.Trace.fail(method_scope, :method_fail)
+          if traced? do
+            AL.JAM.Trace.fail(method_scope, :method_fail)
+          end
 
           if query? or AL.Dispatch.miss_fails?(object, method, branch) do
-            retry(current, method_marked, branch, targets, steps, budget)
+            retry(current, %{execution | choices: method_marked})
           else
             send_dnu(id, code, pc, slots, returns, store, pending, object, method, args)
-            |> resume_entry(method_marked, branch, targets, steps, budget)
+            |> resume_entry(%{execution | choices: method_marked})
           end
         end
 
@@ -1745,7 +1680,7 @@ defmodule AL.JAM do
 
             cond do
               query? or method == :does_not_understand ->
-                retry(current, method_marked, branch, targets, steps + 1, budget)
+                retry(current, %{execution | choices: method_marked, steps: steps + 1})
 
               AL.Dispatch.miss_fails?(object, method, branch) ->
                 arguments = Operand.resolve(args, slots, store)
@@ -1754,13 +1689,13 @@ defmodule AL.JAM do
 
               true ->
                 send_dnu(id, code, pc, slots, returns, store, pending, object, method, args)
-                |> resume_entry(method_marked, branch, targets, steps, budget)
+                |> resume_entry(%{execution | choices: method_marked})
             end
 
           :miss ->
             cond do
               query? or method == :does_not_understand ->
-                retry(current, choices, branch, targets, steps + 1, budget)
+                retry(current, %{execution | steps: steps + 1})
 
               AL.Dispatch.miss_fails?(object, method, branch) ->
                 arguments = Operand.resolve(args, slots, store)
@@ -1769,7 +1704,7 @@ defmodule AL.JAM do
 
               true ->
                 send_dnu(id, code, pc, slots, returns, store, pending, object, method, args)
-                |> resume_entry(choices, branch, targets, steps, budget)
+                |> resume_entry(execution)
             end
 
           {:selectors, names} ->
@@ -1777,7 +1712,7 @@ defmodule AL.JAM do
               Enum.flat_map(names, fn name ->
                 case AL.Var.unify(method, name, store, branch) do
                   nil -> []
-                  next -> [{:query, next}]
+                  next -> [query: next]
                 end
               end)
 
@@ -1824,34 +1759,36 @@ defmodule AL.JAM do
 
           {:ok, callee_id, callee, targets} ->
             region =
-              if pending == %{},
-                do:
-                  AL.JAM.Scan.enter(
-                    callee,
-                    object,
-                    method,
-                    args,
-                    slots,
-                    store,
-                    branch,
-                    budget - steps
-                  ),
-                else: :fallback
+              if pending == %{} do
+                AL.JAM.Scan.enter(
+                  callee,
+                  object,
+                  method,
+                  args,
+                  slots,
+                  store,
+                  branch,
+                  budget - steps
+                )
+              else
+                :fallback
+              end
 
             optimized =
-              if region == :fallback and pending == %{},
-                do:
-                  AL.JAM.IR.Loop.run(
-                    callee,
-                    object,
-                    method,
-                    args,
-                    slots,
-                    store,
-                    branch,
-                    budget - steps
-                  ),
-                else: region
+              if region == :fallback and pending == %{} do
+                AL.JAM.IR.Loop.run(
+                  callee,
+                  object,
+                  method,
+                  args,
+                  slots,
+                  store,
+                  branch,
+                  budget - steps
+                )
+              else
+                region
+              end
 
             case optimized do
               {:region, guard, region_code, region_slots, answer, fallback, used} ->
@@ -1869,47 +1806,37 @@ defmodule AL.JAM do
                   )
 
                 loop(
-                  region_id,
-                  region_code,
-                  0,
-                  region_slots,
-                  region_returns,
-                  store,
-                  choices,
-                  branch,
-                  targets,
-                  steps + used + 1,
-                  budget,
-                  pending
+                  %{
+                    current
+                    | id: region_id,
+                      code: region_code,
+                      pc: 0,
+                      slots: region_slots,
+                      returns: region_returns
+                  },
+                  %{execution | targets: targets, steps: steps + used + 1}
                 )
 
               {:ok, next_store, used} ->
                 loop(
-                  id,
-                  code,
-                  pc + 1,
-                  slots,
-                  returns,
-                  next_store,
-                  choices,
-                  branch,
-                  targets,
-                  steps + used,
-                  budget,
-                  pending
+                  %{current | pc: pc + 1, slots: slots, store: next_store},
+                  %{execution | targets: targets, steps: steps + used}
                 )
 
               :fallback ->
                 outputs =
-                  if destinations == [],
-                    do: %{},
-                    else: Map.new(destinations, &{elem(slots, &1), &1})
+                  if destinations == [] do
+                    %{}
+                  else
+                    Map.new(destinations, &{elem(slots, &1), &1})
+                  end
 
                 {call, skipped} =
-                  if pending == %{},
-                    do:
-                      AL.JAM.IR.Search.prune(callee, method, call, store, branch, budget - steps),
-                    else: {call, 0}
+                  if pending == %{} do
+                    AL.JAM.IR.Search.prune(callee, method, call, store, branch, budget - steps)
+                  else
+                    {call, 0}
+                  end
 
                 steps = steps + skipped
                 selected = select(callee, call, store, branch, outputs)
@@ -1917,18 +1844,8 @@ defmodule AL.JAM do
                 case project_send(selected, destinations, slots, store, branch) do
                   {:registers, next_store, next_slots} ->
                     loop(
-                      id,
-                      code,
-                      pc + 1,
-                      next_slots,
-                      returns,
-                      next_store,
-                      choices,
-                      branch,
-                      targets,
-                      steps + 2,
-                      budget,
-                      pending
+                      %{current | pc: pc + 1, slots: next_slots, store: next_store},
+                      %{execution | targets: targets, steps: steps + 2}
                     )
 
                   :call ->
@@ -1939,11 +1856,7 @@ defmodule AL.JAM do
                           first,
                           returns,
                           pending,
-                          choices,
-                          branch,
-                          targets,
-                          steps + 1,
-                          budget
+                          %{execution | targets: targets, steps: steps + 1}
                         )
 
                       [first | rest] ->
@@ -1984,16 +1897,12 @@ defmodule AL.JAM do
                         resume_call(
                           with_pending(first_entry, pending),
                           alternatives,
-                          choices,
-                          branch,
-                          targets,
-                          steps + 1,
-                          budget
+                          %{execution | targets: targets, steps: steps + 1}
                         )
 
                       [] ->
                         if query? or AL.Dispatch.miss_fails?(object, method, branch) do
-                          retry(current, choices, branch, targets, steps, budget)
+                          retry(current, %{execution | targets: targets, steps: steps})
                         else
                           send_dnu(
                             id,
@@ -2007,7 +1916,7 @@ defmodule AL.JAM do
                             method,
                             args
                           )
-                          |> resume_entry(choices, branch, targets, steps, budget)
+                          |> resume_entry(%{execution | targets: targets, steps: steps})
                         end
                     end
                 end
@@ -2034,7 +1943,15 @@ defmodule AL.JAM do
   defp native_call(
          method,
          arguments,
-         {id, code, pc, slots, returns, store, pending} = current,
+         %Frame{
+           id: id,
+           code: code,
+           pc: pc,
+           slots: slots,
+           returns: returns,
+           store: store,
+           pending: pending
+         } = current,
          choices,
          branch,
          targets,
@@ -2043,38 +1960,77 @@ defmodule AL.JAM do
        ) do
     case AL.Native.invoke(method, arguments, store, branch) do
       {:ok, nil} ->
-        retry(current, choices, branch, targets, steps + 1, budget)
+        retry(current, %Execution{
+          choices: choices,
+          branch: branch,
+          targets: targets,
+          steps: steps + 1,
+          budget: budget
+        })
 
       {:ok, next_store} ->
         loop(
-          id,
-          code,
-          pc + 1,
-          slots,
-          returns,
-          next_store,
-          choices,
-          branch,
-          targets,
-          steps + 1,
-          budget,
-          pending
+          %Frame{
+            id: id,
+            code: code,
+            pc: pc + 1,
+            slots: slots,
+            returns: returns,
+            store: next_store,
+            pending: pending
+          },
+          %Execution{
+            choices: choices,
+            branch: branch,
+            targets: targets,
+            steps: steps + 1,
+            budget: budget
+          }
         )
 
       {:stores, []} ->
-        retry(current, choices, branch, targets, steps + 1, budget)
+        retry(current, %Execution{
+          choices: choices,
+          branch: branch,
+          targets: targets,
+          steps: steps + 1,
+          budget: budget
+        })
 
       {:stores, [first | rest]} ->
         [first | alternatives] =
-          Enum.map([first | rest], &{id, code, pc + 1, slots, returns, &1, pending})
+          Enum.map(
+            [first | rest],
+            &%Frame{
+              id: id,
+              code: code,
+              pc: pc + 1,
+              slots: slots,
+              returns: returns,
+              store: &1,
+              pending: pending
+            }
+          )
 
-        resume_entry(first, alternatives ++ choices, branch, targets, steps + 1, budget)
+        resume_entry(first, %Execution{
+          choices: alternatives ++ choices,
+          branch: branch,
+          targets: targets,
+          steps: steps + 1,
+          budget: budget
+        })
 
       {:diagnostic, diagnostic} ->
         {:diagnostic, current, choices, steps + 1, diagnostic}
 
       :not_native ->
-        retry(current, choices, branch, targets, steps + 1, budget)
+        retry(current, %Execution{
+          choices: choices,
+          branch: branch,
+          targets: targets,
+          steps: steps + 1,
+          budget: budget
+        })
     end
   end
 
@@ -2085,7 +2041,11 @@ defmodule AL.JAM do
 
   defp frame_id(id, _head), do: id
 
-  def failed_call({id, _code, _pc, slots, _returns, _store, _pending}), do: frame_call(id, slots)
+  def failed_call(%Frame{
+        id: id,
+        slots: slots
+      }),
+      do: frame_call(id, slots)
 
   defp trace_instruction({:numeric_tests, _, _, _}, _slots, _store), do: :ok
 
@@ -2154,7 +2114,14 @@ defmodule AL.JAM do
         put_elem(slots, destination, value)
       end)
 
-    {caller_id, caller_code, caller_pc, slots, returns, store, %{}}
+    %Frame{
+      id: caller_id,
+      code: caller_code,
+      pc: caller_pc,
+      slots: slots,
+      returns: returns,
+      store: store
+    }
   end
 
   defp returning_entry(
@@ -2308,8 +2275,14 @@ defmodule AL.JAM do
 
     {next_code, next_slots} = AL.JAM.Compiler.runtime([goal])
 
-    {id, next_code, 0, next_slots, keep_return({id, code, pc + 1, slots}, returns), store,
-     pending}
+    %Frame{
+      id: id,
+      code: next_code,
+      slots: next_slots,
+      returns: keep_return({id, code, pc + 1, slots}, returns),
+      store: store,
+      pending: pending
+    }
   end
 
   defp return_to(id, code, pc, slots, returns),
@@ -2656,17 +2629,33 @@ defmodule AL.JAM do
   defp collection_context(context) when map_size(context) == 0, do: context
   defp collection_context(context), do: Map.put(context, :transaction_object, nil)
 
-  defp collect_child(kind, output, child, branch, targets) do
-    budget = AL.collection_budget()
+  defp collect_child(kind, output, child, branch, targets, budget) do
     context = collection_context(targets.context)
 
     if AL.JAM.Trace.active?() do
-      {id, condition, pc, slots, returns, store, pending} = child
+      %Frame{
+        id: id,
+        code: condition,
+        pc: pc,
+        slots: slots,
+        returns: returns,
+        store: store,
+        pending: pending
+      } = child
 
       goals = instructions(condition, 0, slots)
 
       AL.JAM.Trace.collection(kind, goals, output, fn scope ->
-        child = {{:traced, 0, nil, id}, condition, pc, slots, returns, store, pending}
+        child = %Frame{
+          id: {:traced, 0, nil, id},
+          code: condition,
+          pc: pc,
+          slots: slots,
+          returns: returns,
+          store: store,
+          pending: pending
+        }
+
         collect(child, branch, budget, context, scope)
       end)
     else
@@ -2674,18 +2663,24 @@ defmodule AL.JAM do
     end
   end
 
-  def collect(snapshot, branch, budget, context \\ %{}, trace_scope \\ nil) do
+  def collection_entry(snapshot) do
     scope = make_ref()
-    snapshot = scope_entry(snapshot, scope)
+    {scope_entry(snapshot, scope), scope}
+  end
+
+  def collect(snapshot, branch, budget, context \\ %{}, trace_scope \\ nil) do
+    {snapshot, scope} = collection_entry(snapshot)
 
     collect_result(
       resume_entry(
         snapshot,
-        [{:jam_cut, scope}, :collection_end],
-        branch,
-        %{context: context},
-        0,
-        budget
+        %Execution{
+          choices: [{:jam_cut, scope}, :collection_end],
+          branch: branch,
+          targets: %{context: context},
+          steps: 0,
+          budget: budget
+        }
       ),
       [],
       branch,
@@ -2721,8 +2716,8 @@ defmodule AL.JAM do
        ),
        do: collect_next(choices, solutions, branch, steps, budget, collection)
 
-  defp collect_result({:collection_end, _steps}, solutions, _branch, _budget, _collection),
-    do: {:ok, Enum.reverse(solutions)}
+  defp collect_result({:collection_end, steps}, solutions, _branch, _budget, _collection),
+    do: {:ok, Enum.reverse(solutions), steps}
 
   defp collect_result(
          {:commit, snapshot, choices, steps},
@@ -2734,7 +2729,13 @@ defmodule AL.JAM do
     [:implies_mark | remaining] = Enum.drop_while(choices, &(&1 != :implies_mark))
 
     collect_result(
-      resume_entry(snapshot, remaining, branch, %{context: context}, steps, budget),
+      resume_entry(snapshot, %Execution{
+        choices: remaining,
+        branch: branch,
+        targets: %{context: context},
+        steps: steps,
+        budget: budget
+      }),
       solutions,
       branch,
       budget,
@@ -2750,7 +2751,13 @@ defmodule AL.JAM do
   defp collect_next(choices, solutions, branch, steps, budget, {context, _} = collection),
     do:
       collect_result(
-        retry(nil, choices, branch, %{context: context}, steps, budget),
+        retry(nil, %Execution{
+          choices: choices,
+          branch: branch,
+          targets: %{context: context},
+          steps: steps,
+          budget: budget
+        }),
         solutions,
         branch,
         budget,
@@ -2774,10 +2781,15 @@ defmodule AL.JAM do
     end
   end
 
-  def collection_condition({_id, code, pc, slots, _returns, _store, _pending}) do
+  def collection_condition(%Frame{
+        code: code,
+        pc: pc,
+        slots: slots
+      }) do
     condition =
       case elem(code, pc) do
         {:collect, _, _, condition} -> condition
+        {:collect_n, _, _, _, condition} -> condition
         {:negate, condition} -> condition
         {:forall, _, condition, _, _} -> condition
       end
@@ -2785,10 +2797,25 @@ defmodule AL.JAM do
     instructions(condition, 0, slots)
   end
 
-  def forall?({_id, code, pc, _slots, _returns, _store, _pending}),
-    do: match?({:forall, _, _, _, _}, elem(code, pc))
+  def forall?(%Frame{
+        code: code,
+        pc: pc
+      }),
+      do: match?({:forall, _, _, _, _}, elem(code, pc))
 
-  def forall_continuation({id, code, pc, slots, returns, store, pending}, solutions, visible) do
+  def forall_continuation(
+        %Frame{
+          id: id,
+          code: code,
+          pc: pc,
+          slots: slots,
+          returns: returns,
+          store: store,
+          pending: pending
+        },
+        solutions,
+        visible
+      ) do
     {:forall, operand, _condition, heads, {body, body_values}} = elem(code, pc)
     scope = Integer.to_string(AL.fresh_scope())
 
@@ -2823,13 +2850,35 @@ defmodule AL.JAM do
 
     case frames ++ [{id, code, pc + 1, slots} | returns] do
       [{next_id, next_code, next_pc, next_slots} | rest] ->
-        {next_id, next_code, next_pc, next_slots, rest, nil, pending}
+        %Frame{
+          id: next_id,
+          code: next_code,
+          pc: next_pc,
+          slots: next_slots,
+          returns: rest,
+          pending: pending
+        }
     end
   end
 
-  def collection_continuation({id, code, pc, slots, returns, store, pending}, solutions, branch) do
+  def collection_continuation(
+        %Frame{
+          id: id,
+          code: code,
+          pc: pc,
+          slots: slots,
+          returns: returns,
+          store: store,
+          pending: pending
+        },
+        solutions,
+        branch
+      ) do
     result =
       case elem(code, pc) do
+        {:collect_n, _, template, result, _} ->
+          collection_store(template, result, slots, store, solutions, branch)
+
         {:collect, template, result, _} ->
           collection_store(template, result, slots, store, solutions, branch)
 
@@ -2839,62 +2888,28 @@ defmodule AL.JAM do
 
     case result do
       {:registers, next_store, next_slots} ->
-        {{id, code, pc + 1, next_slots, returns, nil, pending}, next_store}
+        {%Frame{
+           id: id,
+           code: code,
+           pc: pc + 1,
+           slots: next_slots,
+           returns: returns,
+           pending: pending
+         }, next_store}
 
       next_store ->
-        {{id, code, pc + 1, slots, returns, nil, pending}, next_store}
+        {%Frame{
+           id: id,
+           code: code,
+           pc: pc + 1,
+           slots: slots,
+           returns: returns,
+           pending: pending
+         }, next_store}
     end
   end
 
   defp ground?(term), do: MapSet.size(AL.Var.find_vars(term)) == 0
-
-  defp retry(
-         current,
-         [{:trace_alternative, scope, seq, entry} | rest],
-         branch,
-         targets,
-         steps,
-         budget
-       ) do
-    AL.JAM.Trace.abandon()
-    AL.JAM.Trace.resume(scope)
-    AL.JAM.Trace.chosen(scope, seq)
-
-    if entry,
-      do: resume_entry(entry, rest, branch, targets, steps + 1, budget),
-      else: retry(current, rest, branch, targets, steps + 1, budget)
-  end
-
-  defp retry(current, [{:trace_fail, tag, scope} | rest], branch, targets, steps, budget) do
-    AL.JAM.Trace.abandon()
-    AL.JAM.Trace.fail(scope, tag)
-    retry(current, rest, branch, targets, steps, budget)
-  end
-
-  defp retry(_current, [:collection_end], _branch, _targets, steps, _budget),
-    do: {:collection_end, steps + 1}
-
-  defp retry(current, [{:jam_cut, _} | rest], branch, targets, steps, budget),
-    do: retry(current, rest, branch, targets, steps, budget)
-
-  defp retry(current, [:implies_mark | rest], branch, targets, steps, budget),
-    do: retry(current, rest, branch, targets, steps, budget)
-
-  defp retry(current, [], _branch, _targets, steps, _budget) do
-    AL.JAM.Trace.abandon()
-    {:failed, current, steps + 1}
-  end
-
-  defp retry(_current, [choice | rest], branch, targets, steps, budget) do
-    if AL.JAM.Trace.active?() do
-      id = elem(choice, 0)
-      AL.JAM.Trace.abandon()
-      AL.JAM.Trace.resume(AL.JAM.Trace.parent(id))
-      if seq = AL.JAM.Trace.seq_of(id), do: AL.JAM.Trace.chosen(AL.JAM.Trace.parent(id), seq)
-    end
-
-    resume_entry(choice, rest, branch, targets, steps + 1, budget)
-  end
 
   defp select_open(plans, call, branch, query, receiver_args) do
     Enum.flat_map(plans, fn
@@ -2914,7 +2929,14 @@ defmodule AL.JAM do
   defp open_call(
          plans,
          call,
-         {id, code, pc, slots, returns, _store, pending} = current,
+         %Frame{
+           id: id,
+           code: code,
+           pc: pc,
+           slots: slots,
+           returns: returns,
+           pending: pending
+         } = current,
          choices,
          branch,
          targets,
@@ -2925,7 +2947,13 @@ defmodule AL.JAM do
        ) do
     case select_open(plans, call, branch, query, receiver_args) do
       [] ->
-        retry(current, choices, branch, targets, steps + 1, budget)
+        retry(current, %Execution{
+          choices: choices,
+          branch: branch,
+          targets: targets,
+          steps: steps + 1,
+          budget: budget
+        })
 
       selected ->
         returns = return_to(id, code, pc, slots, returns)
@@ -2933,25 +2961,53 @@ defmodule AL.JAM do
         [first | alternatives] =
           Enum.map(selected, &open_entry(&1, id, slots, returns, pending))
 
-        resume_call(first, alternatives, choices, branch, targets, steps + 1, budget)
+        resume_call(first, alternatives, %Execution{
+          choices: choices,
+          branch: branch,
+          targets: targets,
+          steps: steps + 1,
+          budget: budget
+        })
     end
   end
 
   defp traced_selectors(
          plans,
          method_scope,
-         {id, code, pc, slots, returns, _store, pending},
+         %Frame{
+           id: id,
+           code: code,
+           pc: pc,
+           slots: slots,
+           returns: returns,
+           pending: pending
+         },
          query
        ) do
     returns = return_to(id, code, pc, slots, returns)
     seq = AL.JAM.Trace.seq_of(id)
 
     for {:query, store} <- plans,
-        do: {{:traced, method_scope, seq, id}, {query}, 0, slots, returns, store, pending}
+        do: %Frame{
+          id: {:traced, method_scope, seq, id},
+          code: {query},
+          slots: slots,
+          returns: returns,
+          store: store,
+          pending: pending
+        }
   end
 
   defp traced_open(plans, _method_scope, _method, call_list, current, query, receiver_args) do
-    {id, code, pc, slots, returns, _store, pending} = current
+    %Frame{
+      id: id,
+      code: code,
+      pc: pc,
+      slots: slots,
+      returns: returns,
+      pending: pending
+    } = current
+
     returns = return_to(id, code, pc, slots, returns)
 
     Enum.map(plans, fn plan ->
@@ -2969,19 +3025,46 @@ defmodule AL.JAM do
 
       scope = AL.fresh_scope()
 
-      {{:traced, scope, AL.JAM.Trace.seq_of(id), id}, {plan_code}, 0, slots,
-       [{:trace_exit, scope} | returns], store, pending}
+      %Frame{
+        id: {:traced, scope, AL.JAM.Trace.seq_of(id), id},
+        code: {plan_code},
+        slots: slots,
+        returns: [{:trace_exit, scope} | returns],
+        store: store,
+        pending: pending
+      }
     end)
   end
 
   defp start_entries([], current, choices, branch, targets, steps, budget),
-    do: retry(current, choices, branch, targets, steps + 1, budget)
+    do:
+      retry(current, %Execution{
+        choices: choices,
+        branch: branch,
+        targets: targets,
+        steps: steps + 1,
+        budget: budget
+      })
 
   defp start_entries([first | rest], _current, choices, branch, targets, steps, budget),
-    do: resume_call(first, rest, choices, branch, targets, steps + 1, budget)
+    do:
+      resume_call(first, rest, %Execution{
+        choices: choices,
+        branch: branch,
+        targets: targets,
+        steps: steps + 1,
+        budget: budget
+      })
 
   defp open_entry({:code, store, code}, id, slots, returns, pending),
-    do: {id, code, 0, slots, returns, store, pending}
+    do: %Frame{
+      id: id,
+      code: code,
+      slots: slots,
+      returns: returns,
+      store: store,
+      pending: pending
+    }
 
   defp open_entry({frame, selected}, _id, _slots, returns, pending),
     do: with_pending(entry(frame, selected, returns), pending)

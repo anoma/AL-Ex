@@ -18,7 +18,14 @@ defmodule Bench.ScanRegion do
                ) do
             {:region, guard, code, slots, answer, fallback, _} ->
               id = {:guarded_region, method, guard, answer, fallback}
-              result = AL.JAM.resume({id, code, 0, slots, [], %{}, %{}}, plan.branch, 1_000_000)
+
+              result =
+                AL.JAM.resume(
+                  %AL.JAM.Frame{id: id, code: code, slots: slots, store: %{}},
+                  plan.branch,
+                  1_000_000
+                )
+
               {:ok, collect(result, [], plan.branch, demand)}
 
             :fallback ->

@@ -54,13 +54,14 @@ defmodule AL.JAM.IR.SendPlan do
   def prepare({clauses, index}) do
     prepared =
       Enum.map(clauses, fn
-        {identity, {:arguments, operations, _} = matcher, initial, [], code, returns} = clause ->
+        %AL.JAM.CompiledClause{matcher: {:arguments, operations, _} = matcher, locals: []} =
+            clause ->
           case destinations(operations) do
             nil ->
               clause
 
             transfers ->
-              {identity, {:argument_transfer, transfers, matcher}, initial, [], code, returns}
+              %{clause | matcher: {:argument_transfer, transfers, matcher}}
           end
 
         clause ->
@@ -78,7 +79,11 @@ defmodule AL.JAM.IR.SendPlan do
 
   def transfers({clauses, _}) do
     Map.new(
-      for {{id, seq, _, _}, {:argument_transfer, transfers, _}, _, _, _, _} <- clauses,
+      for %AL.JAM.CompiledClause{
+            method: id,
+            sequence: seq,
+            matcher: {:argument_transfer, transfers, _}
+          } <- clauses,
           do: {{id, seq}, transfers}
     )
   end
