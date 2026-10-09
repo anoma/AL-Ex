@@ -45,6 +45,7 @@ defmodule AL.Dispatch do
   def structural_class(term) do
     cond do
       AL.Goal.compound?(term) -> :compound
+      AL.Block.block?(term) -> :block
       is_map(term) -> Map.get(term, :class, :map)
       is_list(term) -> :list
       is_number(term) -> :number

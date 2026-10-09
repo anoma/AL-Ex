@@ -167,7 +167,7 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  def execute({:relation, operation, arguments} = instruction, slots, store, branch) do
+  def execute({:relation, operation, arguments}, slots, store, branch) do
     arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
 
     case AL.JAM.Relation.execute(operation, arguments, store, branch) do
@@ -183,16 +183,6 @@ defmodule AL.JAM.Instruction do
 
       {:stores, stores} ->
         {:stores, Enum.reject(stores, &is_nil/1)}
-
-      {:owner_domain, object, owners} ->
-        case AL.JAM.Relation.constrain_owner(object, owners, store, branch) do
-          nil ->
-            nil
-
-          next_store ->
-            {:relation, _, [owner | _]} = instruction
-            {:continue, next_store, {{:freeze, owner, {instruction}}}}
-        end
     end
   end
 

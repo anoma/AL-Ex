@@ -114,10 +114,11 @@ defmodule Examples.ALTransactionPrograms do
         ExUnit.CaptureIO.capture_io(fn ->
           result =
             AL.run(~S"""
-            listing retained_program_fixture.
+            listing retained_program_fixture, print "" Done.
             """)
 
-          assert {:atomic, _} = result
+          assert {:atomic, {bindings, _, _}} = result
+          assert {:ok, _} = AL.await_effect(bindings["$Done"])
         end)
 
       assert printed == retained <> "\n"

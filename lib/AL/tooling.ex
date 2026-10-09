@@ -185,8 +185,12 @@ defmodule AL.Tooling do
       findall Object Instances {isa Object HostTarget, label Object}.
       findall Superclass Supers (super HostTarget Superclass).
       findall Subclass Subclasses (super Subclass HostTarget).
-      findall [Owner, Selector, MethodId] MethodBindings {method Owner Selector MethodId, label Owner}.
-      findall [MethodId, Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body, label MethodId}.
+      findall [Owner, Selector, MethodId] MethodBindings {
+        method Owner Selector MethodId, label Owner, label Selector
+      }.
+      findall [MethodId, Sequence, Head, Body] Clauses {
+        clause MethodId Sequence Head Body, label MethodId, label Sequence
+      }.
       """,
       branch: branch.id,
       bindings: %{"HostTarget" => target}

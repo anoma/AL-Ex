@@ -71,7 +71,8 @@ defmodule Examples.ALFunctor do
 
         method functor_example describe M.
         clause M _Head Body.
-        findall Name Names {member Body Goal, functor Goal Name _}.
+        block_goals Body Goals.
+        findall Name Names {member Goals Goal, functor Goal Name _}.
         """,
         branch: Examples.Support.branch()
       )

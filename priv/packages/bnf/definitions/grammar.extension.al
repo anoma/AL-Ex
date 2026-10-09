@@ -85,7 +85,8 @@ grammar >> bodies_alternatives
 grammar >> bodies_alternatives
 | Self Classes Name [[[Receiver, Input . _Arguments], Body] . Clauses] Alternatives |
 terminal_items Self Input Prefix,
-body_items Self Receiver Body BodyItems,
+block_goals Body Goals,
+body_items Self Receiver Goals BodyItems,
 concat Prefix BodyItems Items,
 member Items written -> = Expanded [] ; findall Alternative Expanded {splice Self Classes Name Items Alternative},
 bodies_alternatives Self Classes Name Clauses Others,

@@ -47,8 +47,8 @@ forall (member Left [Head, _]) (vm_retract_oapply MethodObject Head),
 forall (member Right [Head, Body]) (vm_set_oapply MethodObject Head Body).
 
 object >> print_object
-| Self ClassName |
-class Self ClassName.
+| Self Text |
+atom_string Self Text.
 
 behaviour >> print_object
 | Self Text |
@@ -57,7 +57,10 @@ vm_method_source Self _Seq Text _Provenance.
 object >> listing
 | Class Name |
 method Class Name Impl,
-forall (print_object Impl Text) (vm_format "~a~%~%" [Text]).
+forall {print_object Impl Text} {
+  format "~a~%~%" [Text] Output,
+  print Output
+}.
 
 object >> get
 | Self Key Value |
@@ -551,7 +554,8 @@ source Self Text.
 program_execution >> listing
 | Self |
 source Self Text,
-vm_format "~a~%" [Text].
+format "~a~%" [Text] Output,
+print Output.
 
 new class #{ivars => [], name => number, super => value} _.
 
@@ -1087,6 +1091,12 @@ behaviour >> run
 | Self ProvidedArgs |
 vm_oapply Self ProvidedArgs.
 
+@block #{super => value}.
+
+block >> run
+| Self |
+call [Self] Self [Self].
+
 @anonymous_method
 #{
   super => [behaviour, value],
@@ -1316,7 +1326,8 @@ functor Goal var [Input].
 grammar >> kind_goal
 | _Self where _Grammar Pattern _Args Input Rest Goal |
 = Input Rest,
-functor Pattern where [Vars, Goals],
+functor Pattern where [Vars, Block],
+block_goals Block Goals,
 functor Goal call [Vars, Goals, Vars].
 
 grammar >> kind_goal
@@ -1416,10 +1427,16 @@ defrule list_syntax (symbol_code Code)
 
 @block_syntax #{super => lisp_syntax, metaclass => grammar}.
 
-defrule block_syntax (expr []) [known_text, "{", blanks, "}"].
-defrule block_syntax (expr [First . More])
-  ["{", blanks, goal First, goal_rest More, blanks, "}"].
+defrule block_syntax (expr Block)
+  [known_text, "{", blanks, block_goals Goals, blanks, "}",
+   where [Block, Goals] {block_goals Block Goals}].
+defrule block_syntax (expr Block)
+  [unknown_text, where [Block, Goals] {block_goals Block Goals},
+   "{", blanks, block_goals Goals, blanks, "}"].
 defrule block_syntax (expr Term) [next].
+
+defrule block_syntax (block_goals []) [].
+defrule block_syntax (block_goals [First . More]) [goal First, goal_rest More].
 
 defrule block_syntax (goal Goal)
   [where [Goal, Head, Args] {functor Goal Head Args},
@@ -1535,6 +1552,57 @@ defrule string_syntax (symbol_code Code) [next, where [Code] {dif Code 34}].
   super => [map_syntax, list_syntax, number_syntax, variable_syntax, string_syntax],
   metaclass => grammar
 }.
+
+value >> print_object
+| Self Text |
+ground Self,
+parse term_syntax (expr Self) Text.
+
+map >> print_object
+| Self Text |
+ground Self,
+parse term_syntax (expr Self) Text.
+
+string >> print_object
+| Self Self |.
+
+string >> print
+| Self |
+print Self _Effect.
+
+string >> print
+| Self Effect |
+new effect #{
+  provider => output,
+  operation => print,
+  arguments => [Self]
+} Effect.
+
+@format_syntax #{super => syntax, metaclass => grammar}.
+
+string >> format
+| Self Args Text |
+parse format_syntax (template Args Codes []) Self,
+string_codes Text Codes.
+
+string >> format
+| Self Args |
+format Self Args Text,
+print Text.
+
+defrule format_syntax (template [] Tail Tail) [].
+defrule format_syntax (template Args [Code . Output] Tail)
+  [code Code, where [Code] {dif Code 126}, template Args Output Tail].
+defrule format_syntax (template Args [126 . Output] Tail)
+  ["~~", template Args Output Tail].
+defrule format_syntax (template Args [10 . Output] Tail)
+  ["~%", template Args Output Tail].
+defrule format_syntax (template [Value . Args] Output Tail)
+  ["~a", where [Value, Output, More] {
+    print_object Value Text,
+    string_codes Text Codes,
+    concat Codes More Output
+  }, template Args More Tail].
 
 @declaration_syntax #{super => lisp_syntax, metaclass => grammar}.
 

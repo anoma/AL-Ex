@@ -1,6 +1,5 @@
 defmodule AL.CollectionStateTest do
   use ExUnit.Case, async: false
-  import ExUnit.CaptureIO
 
   setup do
     branch = AL.Branch.fork()
@@ -8,62 +7,61 @@ defmodule AL.CollectionStateTest do
     %{branch: branch}
   end
 
-  test "collections return ordered output, including failed alternatives", %{branch: branch} do
+  test "collections retain ordered output, including failed alternatives", %{branch: branch} do
     for collector <- ["findall X R", "findnsols 2 X R"] do
-      output =
-        capture_io(fn ->
-          assert {:atomic, {%{"$R" => [2]}, _, _}} =
-                   AL.run(
-                     ~s(vm_format "before" [], #{collector} {{vm_format "failed" [], fail} ; {= X 2, vm_format "answer" []}}, vm_format "after" [].),
-                     branch
-                   )
-        end)
+      assert ExUnit.CaptureIO.capture_io(fn ->
+               assert {:atomic, {%{"$R" => [2]}, _, _}} =
+                        AL.run(
+                          ~s(print "before", #{collector} {{print "failed", fail} ; {= X 2, print "answer"}}, print "after".),
+                          branch
+                        )
 
-      assert output == "beforefailedanswerafter"
+               flush(branch)
+             end) == "beforefailedanswerafter"
     end
   end
 
-  test "nested batches transfer output once per explored answer", %{branch: branch} do
-    output =
-      capture_io(fn ->
-        assert {:atomic, {%{"$Batches" => [[1], [2], [3]]}, _, _}} =
-                 AL.run(
-                   ~S(findall B Batches {findnsols 1 X B {member [1,2,3] X, vm_format "~d" [X]}}.),
-                   branch
-                 )
-      end)
+  test "nested batches print once per explored answer", %{branch: branch} do
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert {:atomic, {%{"$Batches" => [[1], [2], [3]]}, _, _}} =
+                      AL.run(
+                        ~S(findall B Batches {findnsols 1 X B {member [1,2,3] X, format "~a" [X]}}.),
+                        branch
+                      )
 
-    assert output == "123"
+             flush(branch)
+           end) == "123"
   end
 
   test "requesting another batch does not replay output", %{branch: branch} do
-    output =
-      capture_io(fn ->
-        assert {:atomic, {_, _, state}} =
-                 AL.run(
-                   ~S(findnsols 1 X R {member [1,2] X, vm_format "~d" [X]}.),
-                   branch
-                 )
-
-        send(self(), {:state, state})
-      end)
-
-    assert output == "1"
-    assert_receive {:state, state}
-
-    assert capture_io(fn ->
-             assert {:atomic, {%{"$R" => [2]}, _, _}} = AL.next_solution(state)
-           end) == "2"
-  end
-
-  test "zero count executes no output", %{branch: branch} do
-    assert capture_io(fn ->
-             assert {:atomic, {%{"$R" => []}, _, _}} =
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert {:atomic, {%{"$R" => [1]}, _, state}} =
                       AL.run(
-                        ~S(findnsols 0 X R {vm_format "unexpected" [], = X 1}.),
+                        ~S(findnsols 1 X R {member [1,2] X, format "~a" [X]}.),
                         branch
                       )
+
+             flush(branch)
+             assert {:atomic, {%{"$R" => [2]}, _, _}} = AL.next_solution(state)
+             flush(branch)
+           end) == "12"
+  end
+
+  test "zero count produces no output", %{branch: branch} do
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert {:atomic, {%{"$R" => []}, _, _}} =
+                      AL.run(
+                        ~S(findnsols 0 X R {print "unexpected", = X 1}.),
+                        branch
+                      )
+
+             flush(branch)
            end) == ""
+  end
+
+  defp flush(branch) do
+    {:atomic, {%{"$Done" => effect}, _, _}} = AL.run(~S(print "" Done.), branch)
+    assert {:ok, 0} = AL.await_effect(effect, branch: branch)
   end
 
   test "child work is charged on both machine and driver collection paths", %{branch: branch} do
@@ -72,7 +70,7 @@ defmodule AL.CollectionStateTest do
     for source <- [
           "findall X R {count_to 0 1000, = X 1}.",
           "findnsols 1 X R {count_to 0 1000, = X 1}.",
-          ~S(findall X R {vm_format "" [], count_to 0 1000, = X 1}.),
+          "findall X R {vm_set_slot reduction_probe value 1, count_to 0 1000, = X 1}.",
           "not {count_to 0 1000, fail}.",
           "forall {count_to 0 1000} {pass}."
         ] do

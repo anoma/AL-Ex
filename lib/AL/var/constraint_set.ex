@@ -10,7 +10,7 @@ defmodule AL.Var.ConstraintSet do
   """
 
   @type bound() :: integer() | nil
-  @type propagator() :: AL.Var.Bounds.propagator()
+  @type propagator() :: AL.Var.Bounds.propagator() | AL.Var.Relation.propagator()
 
   # A pending `super(y, z)` with both sides open (`AL.JAM.Relation`'s `super` relation)
   # posts one of these on each side instead of scanning -- `super/2`'s two

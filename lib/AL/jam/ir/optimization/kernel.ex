@@ -10,6 +10,9 @@ defmodule AL.JAM.IR.Kernel do
   def specialize(%IR{kind: :invoke, name: :map_pairs, args: [map, pairs]}),
     do: IR.operation(:primitive, :map_pairs, [map, pairs])
 
+  def specialize(%IR{kind: :invoke, name: :block_goals, args: [block, goals]}),
+    do: IR.operation(:primitive, :block_goals, [block, goals])
+
   def specialize(%IR{kind: :invoke, name: :vm_fresh_id, args: [result]}),
     do: IR.operation(:relation, :fresh_id, [result])
 

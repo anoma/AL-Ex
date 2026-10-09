@@ -7,7 +7,6 @@ defmodule AL.JAM.IR.Lower do
         {Goal.FloorDivide, :constraint, :floor_divide, [:dividend, :divisor, :quotient]},
         {Goal.Variant, :primitive, :variant, [:a, :b]},
         {Goal.CopyTerm, :direct, :copy_term, [:term, :copy, :goals]},
-        {Goal.Format, :direct, :format, [:control, :args]},
         {Goal.Label, :search, :label, [:term]},
         {Goal.Ground, :direct, :ground, [:term]},
         {Goal.IsVar, :direct, :is_var, [:term]},

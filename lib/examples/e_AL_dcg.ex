@@ -353,7 +353,7 @@ defmodule Examples.ALDCG do
         parse number_syntax (expr Numbers) "(f 1 -2 v)".
         parse variable_syntax (expr Variables) "(f a V _ V)".
 
-        parse block_syntax (expr [(f a), (g)]) GeneratedBlock.
+        parse block_syntax (expr {f a, g}) GeneratedBlock.
         parse map_syntax (expr #{k => v}) GeneratedMap.
         parse number_syntax (expr (f 1 -2 v)) GeneratedNumbers.
         """,
@@ -539,8 +539,8 @@ defmodule Examples.ALDCG do
         branch: Examples.Support.branch()
       )
 
-    assert bindings["$Tree"] == term("[a, {g x}]")
-    assert bindings["$Term"] == "[a, {g x}]"
+    assert bindings["$Tree"] == term("[a, [(g x)]]")
+    assert bindings["$Term"] == "[a, [(g x)]]"
     assert bindings["$Lisp"] == "(list a (list (g x)))"
     assert bindings["$Anonymous"] == "[a, b]"
     assert bindings["$MapTerm"] == ~S"#{k => [v]}"
@@ -594,7 +594,7 @@ defmodule Examples.ALDCG do
         parse term_syntax (expr Anonymous) "[_, _]".
         parse term_syntax (expr [a, (var "X"), (var "_")]) Quoted.
         parse term_syntax (expr -12) GeneratedNumber.
-        parse term_syntax (expr [42, (f x), [a . b], #{k => [(g a)]}]) Generated.
+        parse term_syntax (expr [42, (f x), [a . b], #{k => {g a}}]) Generated.
         """,
         branch: Examples.Support.branch()
       )

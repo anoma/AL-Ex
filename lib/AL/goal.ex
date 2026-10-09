@@ -12,6 +12,7 @@ defmodule AL.Goal.StorableError do
 end
 
 defmodule AL.Goal do
+  require AL.Block
   use TypedStruct
 
   @type command() ::
@@ -52,7 +53,6 @@ defmodule AL.Goal do
           | AL.Goal.GetSlots.t()
           | AL.Goal.GetSlotAt.t()
           | AL.Goal.Gensym.t()
-          | AL.Goal.Format.t()
           | AL.Goal.Not.t()
           | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
@@ -300,11 +300,6 @@ defmodule AL.Goal do
     field(:var, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: Format do
-    field(:control, AL.Var.t())
-    field(:args, AL.Var.t())
-  end
-
   typedstruct enforce: true, module: Not do
     field(:condition, [AL.Goal.t()])
   end
@@ -490,7 +485,6 @@ defmodule AL.Goal do
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
     {GetSlotAt, :slot_at, [object: :term, key: :term, value: :term, t: :term]},
     {Gensym, :gensym, [var: :term]},
-    {Format, :format, [control: :term, args: :term]},
     {Not, :not, [condition: :goals]},
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
@@ -567,7 +561,6 @@ defmodule AL.Goal do
     {:vm_retract_method, RetractMethod, [:object, :name, :id], %{}},
     {:vm_retract_oapply, RetractOapply, [:object, :head], %{}},
     {:vm_retract_slot, RetractSlot, [:object, :key], %{}},
-    {:vm_format, Format, [:control, :args], %{}},
     {:vm_emit_effect, EmitEffect, [:effect, :provider, :operation, :arguments], %{}}
   ]
 
@@ -732,7 +725,14 @@ defmodule AL.Goal do
   end
 
   defp goals(goals) when is_list(goals), do: goals
-  defp goals(goal), do: if(AL.Var.var?(goal), do: goal, else: [goal])
+
+  defp goals(goal) do
+    cond do
+      AL.Var.var?(goal) -> goal
+      AL.Block.block?(goal) -> Tuple.to_list(goal)
+      true -> [goal]
+    end
+  end
 
   defp named?(name), do: is_atom(name)
 
@@ -786,6 +786,9 @@ defmodule AL.Goal do
 
   defp do_to_stored([head | tail]), do: [do_to_stored(head) | do_to_stored(tail)]
 
+  defp do_to_stored(block) when AL.Block.is_block(block),
+    do: {:block, block |> Tuple.to_list() |> Enum.map(&do_to_stored/1)}
+
   defp do_to_stored(term) when is_tuple(term),
     do: term |> Tuple.to_list() |> Enum.map(&do_to_stored/1) |> List.to_tuple()
 
@@ -826,12 +829,13 @@ defmodule AL.Goal do
   defp invalid_storable(_term), do: nil
 
   @doc "Rebuild a goal struct from its stored tuple form (inverse of to_stored/1)."
-  @spec from_stored(stored()) :: t()
+  @spec from_stored(term()) :: term()
   def from_stored(:cut), do: %Cut{}
   def from_stored(:fail), do: %Fail{}
   def from_stored(:pass), do: %Pass{}
+  def from_stored({:block, goals}), do: goals |> Enum.map(&from_stored/1) |> AL.Block.new()
 
-  def from_stored(stored) when is_tuple(stored) do
+  def from_stored(stored) when is_tuple(stored) and tuple_size(stored) > 0 do
     [tag | args] = Tuple.to_list(stored)
 
     case Map.fetch(@from_form, tag) do
@@ -853,7 +857,9 @@ defmodule AL.Goal do
   defp load(:goals, gs) when is_list(gs), do: Enum.map(gs, &from_stored/1)
   defp load(:goals, other), do: other
 
-  defp term_from_stored(t) when is_tuple(t) do
+  defp term_from_stored({:block, _goals} = block), do: from_stored(block)
+
+  defp term_from_stored(t) when is_tuple(t) and tuple_size(t) > 0 do
     case Map.fetch(@from_form, elem(t, 0)) do
       {:ok, _} -> from_stored(t)
       :error -> t |> Tuple.to_list() |> Enum.map(&term_from_stored/1) |> List.to_tuple()
@@ -861,5 +867,9 @@ defmodule AL.Goal do
   end
 
   defp term_from_stored([h | t]), do: [term_from_stored(h) | term_from_stored(t)]
+
+  defp term_from_stored(map) when is_map(map) and not is_struct(map),
+    do: Map.new(map, fn {key, value} -> {term_from_stored(key), term_from_stored(value)} end)
+
   defp term_from_stored(other), do: other
 end

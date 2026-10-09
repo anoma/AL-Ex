@@ -2,12 +2,20 @@ defmodule AL.JAM.Label do
   def plan(term, store, branch) do
     case enumeration(term, store) do
       :unenumerable ->
-        links =
-          if resolved_class_domain?(term, store), do: nil, else: link_stores(term, store, branch)
+        case AL.Var.Relation.enumerate(term, store, branch) do
+          nil ->
+            links =
+              if resolved_class_domain?(term, store),
+                do: nil,
+                else: link_stores(term, store, branch)
 
-        case links do
-          nil -> class_alternatives(term, store, branch)
-          stores -> {:alternatives, Enum.map(stores, &{&1, []})}
+            case links do
+              nil -> class_alternatives(term, store, branch)
+              stores -> {:alternatives, Enum.map(stores, &{&1, []})}
+            end
+
+          stores ->
+            {:alternatives, Enum.map(stores, &{&1, []})}
         end
 
       result ->

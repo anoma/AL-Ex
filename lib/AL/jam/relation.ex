@@ -1,4 +1,5 @@
 defmodule AL.JAM.Relation do
+  require AL.Block
   alias AL.Goal
 
   def execute(:gensym, [result], store, branch) do
@@ -265,7 +266,8 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:class, [object, class], store, branch)
-      when is_map(object) or is_list(object) or is_number(object) or is_binary(object),
+      when is_map(object) or is_list(object) or is_number(object) or is_binary(object) or
+             AL.Block.is_block(object),
       do: {:ok, AL.Var.unify(AL.Dispatch.structural_class(object), class, store, branch)}
 
   def execute(:class, [object, class], store, branch) do
@@ -317,12 +319,7 @@ defmodule AL.JAM.Relation do
 
   def execute(:method, [object, name, id], store, branch) do
     if AL.Var.var?(object) and object != {:"$var", "_"} do
-      owners =
-        AL.Object.scan_method(fresh_seq(), name, id, branch)
-        |> Enum.map(fn {:method, owner, _name, _id} -> owner end)
-        |> Enum.uniq()
-
-      {:owner_domain, object, owners}
+      {:ok, AL.Var.Relation.post(store, :method, [object, name, id])}
     else
       scan(
         AL.Object.scan_method(object, name, id, branch),
@@ -335,37 +332,16 @@ defmodule AL.JAM.Relation do
 
   def execute(:clause, [object, seq, head, body], store, branch) do
     if AL.Var.var?(object) and object != {:"$var", "_"} do
-      pattern = {:oapply, object, seq, head, body}
-
-      owners =
-        AL.JAM.Clauses.scan_clauses(fresh_seq(), seq, head, body, branch)
-        |> Enum.filter(fn row ->
-          AL.Var.unify(AL.standardize_apart(row), pattern, store, branch) != nil
-        end)
-        |> Enum.map(fn {:oapply, owner, _seq, _head, _body} -> owner end)
-        |> Enum.uniq()
-
-      {:owner_domain, object, owners}
+      {:ok, AL.Var.Relation.post(store, :clause, [object, seq, head, body])}
     else
       pattern = {:oapply, object, seq, head, body}
 
       stores =
-        Enum.map(AL.JAM.Clauses.scan_clauses(object, seq, head, body, branch), fn row ->
+        Enum.map(AL.JAM.Clauses.reflect_clauses(object, seq, head, body, branch), fn row ->
           AL.Var.unify(AL.standardize_apart(row), pattern, store, branch)
         end)
 
       {:stores, stores}
-    end
-  end
-
-  def constrain_owner(object, owners, store, branch) do
-    {store, _} = AL.Var.add_domain(store, object, owners)
-    {store, narrowed} = AL.Var.narrow_domain(store, object, branch)
-
-    case MapSet.to_list(narrowed) do
-      [] -> nil
-      [only] -> AL.Var.bind(store, object, only, branch)
-      _ -> store
     end
   end
 

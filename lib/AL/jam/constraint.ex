@@ -15,7 +15,10 @@ defmodule AL.JAM.Constraint do
           AL.Var.bind(store, var, only, branch)
 
         _ ->
-          store
+          case AL.Var.constraint_set(store, var) do
+            nil -> store
+            set -> AL.Var.Bounds.run_fixpoint(store, MapSet.new(set.props), branch)
+          end
       end
     else
       if var in values, do: store, else: nil

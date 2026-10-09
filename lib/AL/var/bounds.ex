@@ -146,6 +146,9 @@ defmodule AL.Var.Bounds do
   defp variables_in_propagator({:product, left, right, product}),
     do: Enum.flat_map([left, right, product], &AL.Var.find_vars/1)
 
+  defp variables_in_propagator({:relation, _operation, arguments}),
+    do: MapSet.to_list(AL.Var.find_vars(arguments))
+
   defp variables_in_propagator(_prop), do: []
 
   defp affine_propagator?({{:sum, left, _}, {:sum, right, _}, strict}),
@@ -215,6 +218,9 @@ defmodule AL.Var.Bounds do
       }
     ]
   end
+
+  defp summarize_non_affine_propagator(store, {:relation, operation, arguments}, display),
+    do: [%{op: operation, arguments: AL.Var.subst(arguments, store, display)}]
 
   defp summarize_non_affine_propagator(_store, _prop, _display), do: []
 
@@ -647,6 +653,7 @@ defmodule AL.Var.Bounds do
             | check_propagator()
             | either_propagator()
             | AL.Var.AllDif.propagator()
+            | AL.Var.Relation.propagator()
           ),
           AL.Branch.t()
         ) :: AL.Var.store() | nil
@@ -678,6 +685,14 @@ defmodule AL.Var.Bounds do
         rest = MapSet.delete(worklist, t)
 
         case AL.Var.AllDif.resolve(store, vars, branch) do
+          nil -> nil
+          {new_store, more} -> fixpoint(new_store, MapSet.union(rest, more), branch)
+        end
+
+      {:relation, _operation, _arguments} = t ->
+        rest = MapSet.delete(worklist, t)
+
+        case AL.Var.Relation.resolve(store, t, branch) do
           nil -> nil
           {new_store, more} -> fixpoint(new_store, MapSet.union(rest, more), branch)
         end

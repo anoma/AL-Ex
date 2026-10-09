@@ -1,7 +1,6 @@
 defmodule AL.JAM.Mutation do
+  require AL.Block
   alias AL.Goal
-
-  def execute(:output, [text], state), do: %AL{state | output: [text | state.output]}
 
   def execute(:source_scope_enter, [capture_id, goals], state),
     do: AL.Source.enter_scope(state, capture_id, goals)
@@ -218,6 +217,7 @@ defmodule AL.JAM.Mutation do
     :ok
   end
 
+  defp store_body(body) when AL.Block.is_block(body), do: store_body(Tuple.to_list(body))
   defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
   defp store_body(body), do: body
 

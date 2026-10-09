@@ -109,6 +109,26 @@ defmodule AL.JAM.Primitive do
     end
   end
 
+  def execute(:block_goals, [block, goals], store, branch) do
+    cond do
+      AL.Block.block?(block) ->
+        result(AL.Var.unify(goals, Tuple.to_list(block), store, branch))
+
+      AL.Var.var?(block) ->
+        case goal_list(goals, [], store) do
+          {:ok, goals} -> result(AL.Var.unify(block, AL.Block.new(goals), store, branch))
+          {:open, tail} -> {:suspend, [block, tail]}
+          :error -> :fail
+        end
+
+      true ->
+        :fail
+    end
+  end
+
+  def goal(:block_goals, [block, goals]),
+    do: %Goal.OApply{method_id: :block_goals, args: [block, goals]}
+
   def goal(:map_pairs, [map, pairs]), do: %Goal.OApply{method_id: :map_pairs, args: [map, pairs]}
 
   def goal(:equal, [a, b]), do: %Goal.Equal{a: a, b: b}
@@ -136,6 +156,14 @@ defmodule AL.JAM.Primitive do
 
   defp result(nil), do: :fail
   defp result(store), do: {:ok, store}
+
+  defp goal_list(term, goals, store) do
+    case AL.Var.deref(store, term) do
+      [] -> {:ok, Enum.reverse(goals)}
+      [goal | tail] -> goal_list(tail, [AL.Var.subst(goal, store) | goals], store)
+      tail -> if AL.Var.var?(tail), do: {:open, tail}, else: :error
+    end
+  end
 
   defp code_list(term, codes, store) do
     case AL.Var.deref(store, term) do

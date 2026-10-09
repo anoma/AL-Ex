@@ -9,6 +9,13 @@ defmodule AL.JAM.Clauses do
     |> Enum.map(fn {:oapply, id, s, h, b} -> {:oapply, id, s, h, from_stored_body(b)} end)
   end
 
+  def reflect_clauses(object, seq, head, body, branch) do
+    scan_clauses(object, seq, head, AL.Block.goals(body), branch)
+    |> Enum.map(fn {:oapply, id, seq, head, body} ->
+      {:oapply, id, seq, head, AL.Block.new(body)}
+    end)
+  end
+
   # Ground method_id: cacheable, same as providers/3. Var method_id (open
   # query) isn't a stable key — skips the cache.
   def cached_scan_clauses(method_id_pattern, branch) do

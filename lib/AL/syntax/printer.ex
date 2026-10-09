@@ -497,8 +497,13 @@ defmodule AL.Syntax.Printer do
 
   defp term(term, indent, context) when is_tuple(term) do
     case Goal.from_stored(term) do
-      goal when is_struct(goal) -> term(goal, indent, context)
-      _ -> raise ArgumentError, "#{inspect(term)} has no AL syntax"
+      goal when is_struct(goal) ->
+        term(goal, indent, context)
+
+      value ->
+        if AL.Block.block?(value),
+          do: block(Tuple.to_list(value), indent),
+          else: raise(ArgumentError, "#{inspect(term)} has no AL syntax")
     end
   end
 

@@ -10,6 +10,8 @@ defmodule AL.Edge do
 
   @callback __edge_provider__() :: atom()
   @callback execute(atom(), list(), map()) :: provider_result()
+  @callback enqueue(atom(), list(), map()) :: provider_result()
+  @optional_callbacks enqueue: 3
 
   defmacro __using__(options) do
     provider = Keyword.fetch!(options, :provider)
@@ -91,9 +93,6 @@ defmodule AL.Edge do
 
       {:aborted, reason} ->
         {:error, reason}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -109,9 +108,6 @@ defmodule AL.Edge do
 
       {:aborted, reason} ->
         {:error, reason}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -119,12 +115,44 @@ defmodule AL.Edge do
           :ok | :pending | {:error, term()}
   def dispatch(effect_id, provider, operation, arguments, branch) do
     ensure_outside_transaction!(:dispatch)
-    context = %{effect_id: effect_id, branch: branch}
+    context = %{effect_id: effect_id, branch: branch, stdout: Process.group_leader()}
 
     case invoke(provider, operation, arguments, context) do
       :pending -> :pending
       {:complete, outcome, notifications} -> complete(context, outcome, notifications)
     end
+  end
+
+  def enqueue(effect_id, provider, operation, arguments, branch, device \\ Process.group_leader()) do
+    ensure_outside_transaction!(:enqueue)
+    module = AL.Edge.Registry.lookup(provider)
+
+    if module != nil and function_exported?(module, :enqueue, 3) do
+      context = %{effect_id: effect_id, branch: branch, stdout: device}
+
+      case invoke(provider, operation, arguments, context, :enqueue) do
+        :pending ->
+          []
+
+        {:complete, outcome, notifications} ->
+          start_delivery(fn -> complete(context, outcome, notifications) end, device)
+      end
+    else
+      start_delivery(
+        fn -> dispatch(effect_id, provider, operation, arguments, branch) end,
+        device
+      )
+    end
+  end
+
+  defp start_delivery(deliver, device) do
+    {:ok, pid} =
+      Task.start(fn ->
+        Process.group_leader(self(), device)
+        deliver.()
+      end)
+
+    [pid]
   end
 
   @spec complete(map(), outcome()) :: :ok | {:error, term()}
@@ -159,9 +187,6 @@ defmodule AL.Edge do
 
         {:aborted, reason} ->
           {:error, reason}
-
-        {:error, reason} ->
-          {:error, reason}
       end
     end
   end
@@ -169,14 +194,14 @@ defmodule AL.Edge do
   def complete(_context, outcome, notifications),
     do: {:error, {:invalid_effect_completion, outcome, notifications}}
 
-  defp invoke(provider, operation, arguments, context) do
+  defp invoke(provider, operation, arguments, context, callback \\ :execute) do
     case AL.Edge.Registry.lookup(provider) do
       nil ->
         {:complete, {:error, {:effect_provider_missing, provider}}, []}
 
       module ->
         try do
-          module.execute(operation, arguments, context)
+          apply(module, callback, [operation, arguments, context])
           |> normalize_result()
         rescue
           exception ->

@@ -691,28 +691,6 @@ defmodule AL.JAM do
             )
         end
 
-      {:format, control, args} ->
-        case AL.JAM.Format.execute(Operand.read(control, slots), Operand.read(args, slots), store) do
-          {:output, text} ->
-            next = %{current | pc: pc + 1}
-
-            {:mutation, next, choices, steps + 1, :output, [text]}
-
-          {:goals, goals} ->
-            {next_code, next_slots} = AL.JAM.IR.Assembler.compile(goals)
-
-            loop(
-              %{
-                current
-                | code: next_code,
-                  pc: 0,
-                  slots: next_slots,
-                  returns: Frame.keep_return({id, code, pc + 1, slots}, returns)
-              },
-              %{execution | steps: steps + 1}
-            )
-        end
-
       :pass ->
         loop(
           %{current | pc: pc + 1},

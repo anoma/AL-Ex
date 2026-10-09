@@ -11,10 +11,11 @@
 <class_marker> ::= "@"
 <options> ::= <expr>
 <extension_options> ::= <expr>
-<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}" | "{" <blanks> "}" | "{" <blanks> <goal> <goal_rest> <blanks> "}" | "[" <blanks> "]" | "[" <blanks> <expr> <list_rest> <blanks> "]" | "\"" <characters> "\"" | <symbol> | "(" <blanks> <form> <blanks> ")"
+<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}" | "{" <blanks> <block_goals> <blanks> "}" | "[" <blanks> "]" | "[" <blanks> <expr> <list_rest> <blanks> "]" | "\"" <characters> "\"" | <symbol> | "(" <blanks> <form> <blanks> ")"
 <map_entries> ::= "" | <entry> <entry_rest>
 <entry_rest> ::= "" | <blanks> "," <pad> <entry> <entry_rest>
 <entry> ::= <expr> <pad> "=>" <pad> <expr>
+<block_goals> ::= "" | <goal> <goal_rest>
 <goal> ::= <symbol> <spaced_exprs>
 <goal_rest> ::= "" | <blanks> "," <pad> <goal> <goal_rest>
 <list_rest> ::= "" | <blanks> "," <pad> <expr> <list_rest> | <pad> "." <pad> <expr>

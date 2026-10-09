@@ -805,7 +805,42 @@ defmodule Examples.ALObjects do
         findall O Pingers {method O domain_ping _, label O}.
         findall O Both {method O domain_ping _, method O domain_pong _, label O}.
         findall [O, Id] PongIds {method O domain_pong Id, label O}.
-        findall O None (method O domain_missing _).
+        findall [O, S, Id] IdFirst {
+          in_domain O [method_domain_ping, method_domain_both],
+          method O S Id,
+          var O,
+          var S,
+          var Id,
+          label Id
+        }.
+        findall [O, S, Id] SelectorFirst {
+          in_domain O [method_domain_ping, method_domain_both],
+          method O S Id,
+          label S,
+          label O
+        }.
+        findall [O, S, Id] Restricted {
+          in_domain O [method_domain_ping, method_domain_both],
+          method O S Id,
+          = S domain_ping,
+          label Id
+        }.
+        method method_domain_both domain_pong PongId.
+        findall [O, S] KnownId {
+          in_domain Id [PongId],
+          method O S Id,
+          label O
+        }.
+        findall O Incompatible {
+          method O domain_ping Id,
+          = Id PongId
+        }.
+        findall O AliasedArguments {
+          in_domain O [method_domain_ping, method_domain_both],
+          method O S Id,
+          = O S
+        }.
+        findall O None {method O domain_missing _, label O}.
         """,
         branch: Examples.Support.branch()
       )
@@ -814,7 +849,95 @@ defmodule Examples.ALObjects do
     assert Map.get(bindings, "$Both") == [:method_domain_both]
     assert [[:method_domain_both, id]] = Map.get(bindings, "$PongIds")
     refute AL.Var.var?(id)
+    rows = bindings["$IdFirst"]
+    assert Enum.sort(rows) == Enum.sort(bindings["$SelectorFirst"])
+
+    assert Enum.sort(Enum.map(rows, fn [owner, selector, _id] -> {owner, selector} end)) ==
+             [
+               {:method_domain_both, :domain_ping},
+               {:method_domain_both, :domain_pong},
+               {:method_domain_ping, :domain_ping}
+             ]
+
+    assert Enum.all?(rows, fn [_owner, _selector, method_id] -> is_atom(method_id) end)
+
+    assert Enum.sort(bindings["$Restricted"]) ==
+             Enum.sort(
+               Enum.filter(rows, fn [_owner, selector, _id] -> selector == :domain_ping end)
+             )
+
+    assert bindings["$KnownId"] == [[:method_domain_both, :domain_pong]]
+    assert bindings["$Incompatible"] == []
+    assert bindings["$AliasedArguments"] == []
     assert Map.get(bindings, "$None") == []
+
+    {:atomic, {open, constraints, _}} =
+      run(
+        ~S"""
+        method O S Id.
+        in_domain O [method_domain_ping, method_domain_both].
+        in_domain S [domain_ping, domain_missing].
+        copy_term [O, S, Id] Copy Goals.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert open["$S"] == :domain_ping
+    assert AL.Var.var?(open["$O"])
+    assert AL.Var.var?(open["$Id"])
+    assert length(constraints[AL.Var.key(open["$O"])].domain) == 2
+    refute Map.has_key?(constraints[AL.Var.key(open["$Id"])] || %{}, :domain)
+    assert Enum.any?(open["$Goals"], &match?(%AL.Goal.Compound{name: :method}, &1))
+
+    {:atomic, {aliased, _, _}} =
+      run(
+        ~S"""
+        method method_domain_both domain_pong Known.
+        method O S Id.
+        = Id Alias.
+        in_domain Alias [Known].
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert aliased["$O"] == :method_domain_both
+    assert aliased["$S"] == :domain_pong
+  end
+
+  example method_constraints_remain_symbolic_until_labelling() do
+    {:atomic, {open, constraints, _}} =
+      run("method O S Id.", branch: Examples.Support.branch())
+
+    for name <- ["$O", "$S", "$Id"] do
+      assert AL.Var.var?(open[name])
+      refute Map.has_key?(constraints[AL.Var.key(open[name])] || %{}, :domain)
+    end
+
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        @symbolic_method_a #{super => object}.
+        @symbolic_method_b #{super => object}.
+        @symbolic_method_c #{super => object}.
+
+        symbolic_method_a >> symbolic_selector
+        | Self |.
+        symbolic_method_b >> symbolic_selector
+        | Self |.
+
+        method O symbolic_selector Id.
+        method FutureO future_symbolic_selector FutureId.
+        defmethod symbolic_method_c symbolic_selector [Self] {}.
+        defmethod symbolic_method_c future_symbolic_selector [Self] {}.
+        vm_retract_method symbolic_method_a symbolic_selector _.
+        findall O Owners {label Id, label O}.
+        label FutureId.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Enum.sort(bindings["$Owners"]) == [:symbolic_method_b, :symbolic_method_c]
+    assert bindings["$FutureO"] == :symbolic_method_c
   end
 
   example clause_with_an_open_owner_is_a_domain_constraint() do
@@ -841,8 +964,28 @@ defmodule Examples.ALObjects do
         findall M SharedOwners {clause M [_, shared] _, label M}.
         findall M OnlyAOwners {clause M [_, only_a] _, label M}.
         findall [M, S] OnlyARows {clause M S [_, only_a] _, label M}.
-        findall M None (clause M [_, clause_domain_nobody] _).
+        findall M None {clause M [_, clause_domain_nobody] _, label M}.
         findall S ASharedSeqs (clause IdA S [_, shared] _).
+        findall [M, S] SeqFirst {
+          in_domain M [IdA, IdB],
+          clause M S Head Body,
+          var M,
+          var S,
+          label S,
+          label M
+        }.
+        findall [M, S] OwnerFirst {
+          in_domain M [IdA, IdB],
+          clause M S Head Body,
+          label M,
+          label S
+        }.
+        findall [M, S] Filtered {
+          in_domain M [IdA, IdB],
+          clause M S [_, Tag] _,
+          = Tag only_a,
+          label S
+        }.
         """,
         branch: Examples.Support.branch()
       )
@@ -856,6 +999,75 @@ defmodule Examples.ALObjects do
     assert Map.get(bindings, "$None") == []
     assert [s] = Map.get(bindings, "$ASharedSeqs")
     assert is_integer(s)
+    assert length(bindings["$SeqFirst"]) == 3
+    assert Enum.sort(bindings["$SeqFirst"]) == Enum.sort(bindings["$OwnerFirst"])
+    assert bindings["$Filtered"] == [[id_a, seq]]
+
+    {:atomic, {propagated, _, _}} =
+      run(
+        ~S"""
+        method clause_domain_a clause_domain_sel IdA.
+        method clause_domain_b clause_domain_sel IdB.
+        in_domain M [IdA, IdB].
+        clause M S [_, Tag] Body.
+        in_domain Tag [only_a, clause_domain_nobody].
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert propagated["$M"] == id_a
+    assert propagated["$S"] == seq
+    assert propagated["$Tag"] == :only_a
+    assert propagated["$Body"] == AL.Block.new([])
+
+    {:atomic, {joined, _, _}} =
+      run(
+        ~S"""
+        method O clause_domain_sel M.
+        clause M S [Self, only_a] Body.
+        = Self first.
+        clause M S [Other, only_a] Body.
+        = Other second.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert joined["$O"] == :clause_domain_a
+    assert joined["$M"] == id_a
+    assert joined["$S"] == seq
+  end
+
+  example clause_constraints_see_clauses_added_before_labelling() do
+    {:atomic, {open, constraints, _}} =
+      run("clause M S H B.", branch: Examples.Support.branch())
+
+    for name <- ["$M", "$S", "$H", "$B"] do
+      assert AL.Var.var?(open[name])
+      refute Map.has_key?(constraints[AL.Var.key(open[name])] || %{}, :domain)
+    end
+
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        @symbolic_clause_a #{super => object}.
+        @symbolic_clause_b #{super => object}.
+
+        symbolic_clause_a >> symbolic_clause
+        | Self first |.
+        symbolic_clause_b >> symbolic_clause
+        | Self second |.
+
+        method symbolic_clause_a symbolic_clause A.
+        method symbolic_clause_b symbolic_clause B.
+        in_domain M [A, B].
+        clause M S [_, Tag] Body.
+        defmethod symbolic_clause_a symbolic_clause [Self, added] {}.
+        findall Tag Tags {label S, label M}.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Enum.sort(bindings["$Tags"]) == [:added, :first, :second]
   end
 
   example get_reads_only_the_objects_own_row() do

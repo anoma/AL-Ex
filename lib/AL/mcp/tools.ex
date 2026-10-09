@@ -657,22 +657,6 @@ defmodule AL.MCP.Tools do
     |> success(result)
   end
 
-  defp query_source_result({:atomic, {bindings, constraints, nil}}, branch, max_length) do
-    result =
-      %{
-        "status" => "committed",
-        "branch" => to_string(branch.id),
-        "transactionId" => nil,
-        "commandTransaction" => nil
-      }
-      |> Map.merge(AL.MCP.Term.encode_bindings(bindings, constraints))
-
-    result
-    |> Jason.encode!(pretty: true)
-    |> truncate(max_length)
-    |> success(result)
-  end
-
   defp query_source_result({:aborted, reason}, branch, max_length) do
     state = if is_map(reason), do: Map.get(reason, :state), else: nil
     encoded_reason = reason |> failure_reason() |> AL.MCP.Term.encode()
@@ -689,10 +673,7 @@ defmodule AL.MCP.Tools do
   end
 
   defp query_source_result({:error, reason}, branch, max_length) do
-    text =
-      if is_exception(reason),
-        do: Exception.message(reason),
-        else: inspect_term(reason, max_length)
+    text = Exception.message(reason)
 
     failure(text, max_length, %{
       "status" => "rejected",
@@ -732,18 +713,6 @@ defmodule AL.MCP.Tools do
     success(text, result)
   end
 
-  defp source_result({:atomic, {bindings, constraints, nil}}, branch, max_length) do
-    success(
-      "Committed\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}",
-      %{
-        "status" => "committed",
-        "branch" => to_string(branch.id),
-        "bindings" => inspect_term(bindings, max_length),
-        "constraints" => inspect_term(constraints, max_length)
-      }
-    )
-  end
-
   defp source_result({:aborted, reason}, branch, max_length) do
     state = if is_map(reason), do: Map.get(reason, :state), else: nil
     summary = transaction_summary("failed", branch, state)
@@ -756,10 +725,7 @@ defmodule AL.MCP.Tools do
   end
 
   defp source_result({:error, reason}, branch, max_length) do
-    text =
-      if is_exception(reason),
-        do: Exception.message(reason),
-        else: inspect_term(reason, max_length)
+    text = Exception.message(reason)
 
     failure(text, max_length, %{
       "status" => "rejected",

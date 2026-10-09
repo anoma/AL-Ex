@@ -38,7 +38,6 @@ defmodule AL do
     field(:failure_candidate, failure_candidate() | nil, default: nil)
     field(:branch, AL.Branch.t(), default: %AL.Branch{id: :main})
     field(:reductions, non_neg_integer(), default: 0)
-    field(:output, [iodata()], default: [])
 
     field(:source_refs, %{optional(AL.Source.Ref.capture_id()) => AL.Source.Ref.t()},
       default: %{}
@@ -106,7 +105,7 @@ defmodule AL do
           AL.Branch.t(),
           keyword()
         ) ::
-          {:atomic, {%{String.t() => AL.Var.t()}, map(), t() | nil}}
+          {:atomic, {%{String.t() => AL.Var.t()}, map(), t()}}
           | {:aborted, term()}
           | {:error, term()}
   def eval_with_retained_source(result, text, origin, initial_store, branch, opts) do
@@ -120,9 +119,8 @@ defmodule AL do
   `{:atomic, {bindings, constraints, state}}` or `{:aborted, reason}`.
   """
   @spec eval([AL.Goal.t()], AL.Var.store() | nil, AL.Branch.t(), keyword()) ::
-          {:atomic, {%{String.t() => AL.Var.t()}, map(), t() | nil}}
+          {:atomic, {%{String.t() => AL.Var.t()}, map(), t()}}
           | {:aborted, term()}
-          | {:error, String.t()}
   def eval(program, initial_store \\ nil, branch \\ AL.Branch.head(), opts \\ []) do
     eval_program(program, initial_store, branch, opts, nil)
   end
@@ -181,25 +179,14 @@ defmodule AL do
       end)
 
     case result do
-      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id} = state}} ->
-        flush_output(state)
+      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id}}} ->
         AL.Outbox.committed(branch, tx_id)
         result
 
       {:aborted, reason} ->
-        flush_output(reason)
         record_failed_transaction(branch, source, reason)
     end
   end
-
-  # Mnesia may re-run a transaction fun after a lock conflict, so a goal
-  # cannot perform its side effect where it runs. `vm_format` accumulates
-  # onto the state a restart discards, and the run flushes once the
-  # transaction has actually settled.
-  defp flush_output(%AL{output: []}), do: :ok
-  defp flush_output(%AL{output: chunks}), do: IO.write(Enum.reverse(chunks))
-  defp flush_output(%{state: %AL{} = state}), do: flush_output(state)
-  defp flush_output(_other), do: :ok
 
   # A transaction cannot durably record its own abort, so the one case that
   # needs a second transaction is failure. It mints a fresh identity, since
@@ -242,7 +229,7 @@ defmodule AL do
       :mnesia.transaction(fn ->
         AL.ResolutionCache.with_transaction_cache(fn ->
           tx_id = AL.Command.system_time(state.branch)
-          result = %AL{state | tx_id: tx_id, output: []} |> backtrack() |> finalize_trace()
+          result = %AL{state | tx_id: tx_id} |> backtrack() |> finalize_trace()
 
           if result.active_choicepoint.store == nil do
             :mnesia.abort(AL.Diagnostics.format_failure(result))
@@ -256,12 +243,11 @@ defmodule AL do
       end)
 
     case result do
-      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id} = solved}} ->
-        flush_output(solved)
+      {:atomic, {_bindings, _constraints, %AL{tx_id: tx_id}}} ->
         AL.Outbox.committed(state.branch, tx_id)
 
-      other ->
-        flush_output(other)
+      {:aborted, _reason} ->
+        :ok
     end
 
     result
@@ -728,13 +714,12 @@ defmodule AL do
     state = %AL{
       state
       | reductions: child.reductions,
-        output: child.output ++ state.output,
         source_refs: child.source_refs,
         source_anchors: child.source_anchors,
         trace: %{state.trace | events: child.trace.events ++ state.trace.events}
     }
 
-    child = %AL{child | output: [], trace: %{child.trace | events: []}}
+    child = %AL{child | trace: %{child.trace | events: []}}
     {state, child}
   end
 

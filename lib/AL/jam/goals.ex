@@ -176,8 +176,5 @@ defmodule AL.JAM.Goals do
       goals: Operand.read(goals, slots)
     }
 
-  def instruction({:format, control, args}, slots),
-    do: %Goal.Format{control: Operand.read(control, slots), args: Operand.read(args, slots)}
-
   def instruction(:fail, _slots), do: %Goal.Fail{}
 end

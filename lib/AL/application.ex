@@ -18,6 +18,7 @@ defmodule AL.Application do
       AL.Native.Registry,
       AL.Edge.Registry,
       AL.Edge.File,
+      AL.Edge.Output,
       AL.Edge.TCP
     ]
 

@@ -30,7 +30,9 @@ defmodule AL.JAM.Head do
         {operation, MapSet.put(seen, term)}
 
       is_tuple(term) ->
-        raise ArgumentError, "a clause head cannot contain the tuple #{inspect(term)}"
+        if AL.Block.block?(term),
+          do: unify_term(term, registers, seen),
+          else: raise(ArgumentError, "a clause head cannot contain the tuple #{inspect(term)}")
 
       true ->
         {{:unify_constant, term}, seen}

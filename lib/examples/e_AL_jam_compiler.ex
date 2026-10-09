@@ -1286,13 +1286,13 @@ defmodule Examples.ALJAMCompiler do
     class Self Class,
     super Class Parent,
     method Class pick Method,
-    findall Color Colors {clause Method [[], Color] []},
-    findall Color Reds {clause Method [[], Color] [], == Color red},
+    findall Color Colors {clause Method [[], Color] {}},
+    findall Color Reds {clause Method [[], Color] {}, == Color red},
     method Class pair Pair,
-    clause Pair [_First, A, B] [],
+    clause Pair [_First, A, B] {},
     = A red,
     = B red,
-    clause Pair [_Second, C, D] [],
+    clause Pair [_Second, C, D] {},
     = C blue,
     = D blue,
     = Result [Class, Parent, Colors, Reds, A, C].
@@ -1351,8 +1351,8 @@ defmodule Examples.ALJAMCompiler do
     = Parent jam_open_read_parent,
     method Owner chosen Method,
     = Owner jam_open_read_child,
-    clause Method [[], Color] [],
-    clause Other [[], red] [],
+    clause Method [[], Color] {},
+    clause Other [[], red] {},
     method jam_open_read_child chosen Other,
     = Result [Class, Parent, Color].
 
@@ -1393,11 +1393,11 @@ defmodule Examples.ALJAMCompiler do
     method Owner owner_marker Method,
     = Owner Alias,
     member [jam_owner_a, jam_owner_b] Alias,
-    clause Method [[], Color] [].
+    clause Method [[], Color] {}.
 
     jam_owner_a >> delayed_clause
     | _Self Method Color |
-    clause Method [[], Color] [],
+    clause Method [[], Color] {},
     not {fail},
     method jam_owner_b owner_marker Method.
 

@@ -112,13 +112,16 @@ defmodule Examples.ALSource do
 
       output =
         capture_io(fn ->
-          run(
-            ~S"""
-            listing HostClass greet.
-            """,
-            branch: branch.id,
-            bindings: %{"HostClass" => class}
-          )
+          {:atomic, {bindings, _, _}} =
+            run(
+              ~S"""
+              listing HostClass greet, print "" Done.
+              """,
+              branch: branch.id,
+              bindings: %{"HostClass" => class}
+            )
+
+          {:ok, 0} = AL.await_effect(bindings["$Done"], branch: branch)
         end)
 
       assert output == "#{AL.Syntax.Printer.term(class)} >> greet\n| Self hi |\n\n"
@@ -240,7 +243,6 @@ defmodule Examples.ALSource do
       {:=, {:"$var", "A"}, {:"$var", "B"}},
       {:in_domain, {:"$var", "X"}, [1, 2]},
       {:all_dif, [{:"$var", "A"}, {:"$var", "B"}]},
-      {:format, "~a", [{:"$var", "X"}]},
       {:send, {:"$var", "O"}, :sel, [{:"$var", "A"}]},
       {:send, {:"$var", "O"}, {:"$var", "Selector"}, []},
       {:send_async, {:"$var", "O"}, :sel, [{:"$var", "A"}]},

@@ -103,13 +103,16 @@ defmodule Examples.ALSyntax do
 
       output =
         capture_io(fn ->
-          run(
-            ~S"""
-            listing HostClass bump.
-            """,
-            branch: branch.id,
-            bindings: %{"HostClass" => class}
-          )
+          {:atomic, {bindings, _, _}} =
+            run(
+              ~S"""
+              listing HostClass bump, print "" Done.
+              """,
+              branch: branch.id,
+              bindings: %{"HostClass" => class}
+            )
+
+          {:ok, 0} = AL.await_effect(bindings["$Done"], branch: branch)
         end)
 
       assert output =~ "#{al(class)} >> bump\n| Self By |\n  # refuse to count down\n"
@@ -211,12 +214,15 @@ defmodule Examples.ALSyntax do
 
       output =
         capture_io(fn ->
-          run(
-            ~S"""
-            listing syntax_run_counter greet.
-            """,
-            branch: branch.id
-          )
+          {:atomic, {bindings, _, _}} =
+            run(
+              ~S"""
+              listing syntax_run_counter greet, print "" Done.
+              """,
+              branch: branch.id
+            )
+
+          {:ok, 0} = AL.await_effect(bindings["$Done"], branch: branch)
         end)
 
       assert output == "syntax_run_counter >> greet\n| Self hi |\n\n"

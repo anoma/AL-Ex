@@ -133,6 +133,10 @@ defmodule AL.Var.Residual do
   defp relation_goals(%{op: :floor_divide} = relation),
     do: [compound(:floor_divide, [relation.dividend, relation.divisor, relation.quotient])]
 
+  defp relation_goals(%{op: operation, arguments: arguments})
+       when operation in [:method, :clause],
+       do: [compound(operation, arguments)]
+
   defp relation_goals(_relation), do: []
 
   defp linear_sum(terms) do

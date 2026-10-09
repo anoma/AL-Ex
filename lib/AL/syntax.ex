@@ -71,6 +71,7 @@ defmodule AL.Syntax do
   @primitives [
     :map_get,
     :map_pairs,
+    :block_goals,
     :vm_map_put,
     :vm_fresh_id,
     :vm_current_tx,
@@ -1099,7 +1100,7 @@ defmodule AL.Syntax do
   defp term({:paren, {:atom, name, _, _}, _, _}), do: compound(name, [])
 
   defp term({:paren, inner, _, _}), do: term(inner)
-  defp term({:block, _, _, _} = block), do: body(block)
+  defp term({:block, _, _, _} = block), do: AL.Block.new(body(block))
 
   defp term({:list, items, _, _}) do
     case Enum.split(items, -1) do

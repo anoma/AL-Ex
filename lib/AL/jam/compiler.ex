@@ -1,4 +1,5 @@
 defmodule AL.JAM.Compiler do
+  require AL.Block
   alias AL.Goal
   alias AL.JAM.CompiledClause
 
@@ -40,6 +41,9 @@ defmodule AL.JAM.Compiler do
       do: AL.ResolutionCache.fetch_dispatch(branch, {:traced_method, method_id}, compile),
       else: AL.ResolutionCache.fetch_compiled_method(branch, method_id, compile)
   end
+
+  def fetch_callable(head, body, branch) when AL.Block.is_block(body),
+    do: fetch_callable(head, Tuple.to_list(body), branch)
 
   def fetch_callable(head, body, branch) when is_list(body) do
     {head, body, environment, captures} = callable_source(head, body)

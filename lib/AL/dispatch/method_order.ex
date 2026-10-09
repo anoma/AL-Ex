@@ -1,4 +1,6 @@
 defmodule AL.Dispatch.MethodOrder do
+  require AL.Block
+
   @moduledoc """
   I compute a receiver's method resolution order — which classes/supers get
   searched, and in what order — as an ordinary topological sort (Kahn's
@@ -11,7 +13,8 @@ defmodule AL.Dispatch.MethodOrder do
   # `dispatch_strategy: :bfs` slot) and deduped. Compound/map/list/number/string
   # receivers start from their structural class and always walk depth-first.
   def method_scopes(self, branch)
-      when is_map(self) or is_list(self) or is_number(self) or is_binary(self),
+      when is_map(self) or is_list(self) or is_number(self) or is_binary(self) or
+             AL.Block.is_block(self),
       do: cached_super_chain([AL.Dispatch.structural_class(self)], branch, :dfs)
 
   def method_scopes(self, branch) do
