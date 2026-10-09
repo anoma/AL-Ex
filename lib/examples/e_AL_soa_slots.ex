@@ -12,8 +12,8 @@ defmodule Examples.ALSoaSlots do
 
   example storage_routing_tracks_metadata_class_and_inheritance_changes() do
     result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @route_storage_a #{super => object, ivars => [#{name => count}]}.
         @route_storage_b #{super => object, ivars => [#{name => count}]}.
         @route_storage_child #{super => route_storage_a}.
@@ -42,29 +42,32 @@ defmodule Examples.ALSoaSlots do
         vm_retract_slot route_storage_instance count.
         not {slot route_storage_instance count _ aos}.
         slot route_storage_instance count 4 soa.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert {:atomic, _} = result
   end
 
   example vm_get_slot_soa_finds_a_value_written_via_set_slot() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @soa_slot_probe
         #{super => object, ivars => [#{name => level, storage => soa}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new soa_slot_probe Obj.
         set_slot Obj level 1.
         slot Obj level V soa.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$V") == 1
     :ok
@@ -73,22 +76,24 @@ defmodule Examples.ALSoaSlots do
   # soa closes the prior open row before writing (AL.Object.set_soa_slot/5)
   example a_second_set_slot_supersedes_the_first_for_the_same_key() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @soa_slot_probe_resets
         #{super => object, ivars => [#{name => level, storage => soa}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new soa_slot_probe_resets Obj.
         set_slot Obj level 1.
         set_slot Obj level 2.
         slot Obj level V soa.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$V") == 2
     :ok
@@ -100,23 +105,25 @@ defmodule Examples.ALSoaSlots do
   # also pick up unrelated objects' soa rows from other examples.
   example vm_get_slot_soa_finds_the_value_across_many_objects() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @soa_slot_probe_many
         #{super => object, ivars => [#{name => soa_slot_probe_many_level, storage => soa}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new soa_slot_probe_many Obj1.
         new soa_slot_probe_many Obj2.
         set_slot Obj1 soa_slot_probe_many_level 1.
         set_slot Obj2 soa_slot_probe_many_level 2.
         findall [O, V] Results (slot O soa_slot_probe_many_level V soa).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     expected =
       Enum.sort([

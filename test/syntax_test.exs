@@ -243,24 +243,11 @@ defmodule ALSyntaxReaderTest do
     assert {:error, %Error{phase: :compile}} = Syntax.parse("{pass}.")
   end
 
-  test "a syntax error inside run is a compile error at its line" do
-    source = """
-    defmodule ALSyntaxReaderTest.Broken do
-      use AL
+  test "run returns source syntax errors" do
+    assert {:error, %Error{phase: :parse, message: message}} =
+             AL.run("pass.\n= X (f Y.")
 
-      def go do
-        run do
-          ~AL\"\"\"
-          pass.
-          = X (f Y.
-          \"\"\"
-        end
-      end
-    end
-    """
-
-    error = assert_raise CompileError, fn -> Code.compile_string(source, "broken.ex") end
-    assert error.line == 8
-    assert Exception.message(error) =~ "expected )"
+    assert message =~ "expected )"
+    assert {:error, %Error{phase: :parse}} = AL.run("= X ^value.")
   end
 end

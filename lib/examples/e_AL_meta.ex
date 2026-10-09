@@ -10,57 +10,62 @@ defmodule Examples.ALMeta do
 
   example ground_succeeds_on_atom() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         ground point.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example ground_succeeds_on_compound() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         ground [1, 2, #{a => b}].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example ground_fails_on_unbound() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         ground X.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example ground_fails_on_partial_compound() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         ground [1, X, 3].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example findall_supers() do
     {:atomic, {bindings, _constraints, _result}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_super findall_test a.
         vm_set_super findall_test b.
         findall S Supers (super findall_test S).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.sort(Map.get(bindings, "$Supers")) == [:a, :b]
     assert Map.get(bindings, "$S") == nil
@@ -69,13 +74,14 @@ defmodule Examples.ALMeta do
 
   example forall_over_supers() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_super forall_test class.
         vm_set_super forall_test behaviour.
         forall (super forall_test S) (set_slots S #{forall_visited => true}).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, [{:slots, :class, class_slots}]} =
       :mnesia.transaction(fn ->
@@ -94,22 +100,24 @@ defmodule Examples.ALMeta do
 
   example not_succeeds_when_goal_fails() do
     {:atomic, {_bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         not (class nonexistent_xyz C).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example not_fails_when_goal_succeeds() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         not (class object C).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

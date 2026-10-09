@@ -4,7 +4,7 @@ defmodule AL.JAM.InlineTest do
   alias AL.JAM.IR.{Inline, Program, Selection}
 
   defp run(program, store \\ %{}) do
-    {code, slots} = AL.JAM.Compiler.runtime(program)
+    {code, slots} = AL.JAM.IR.Assembler.compile(program)
 
     AL.JAM.resume(
       %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},

@@ -1,7 +1,7 @@
 defmodule AL.JAM.IR.Plan do
   alias AL.{Goal, Var}
   alias AL.JAM.{Compiler, IR}
-  alias AL.JAM.IR.{Dataflow, Program}
+  alias AL.JAM.IR.{Dataflow, MethodSummary, Program}
 
   defmodule State do
     @enforce_keys [:branch, :mode]
@@ -279,6 +279,8 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_operation(goal, rest, body, state, stack) do
+    goal = IR.VirtualObject.specialize(goal)
+
     case goal do
       %IR{kind: :type, name: :atom, args: [term]} ->
         expand_atom(term, rest, body, state, stack)
@@ -297,18 +299,23 @@ defmodule AL.JAM.IR.Plan do
           {alternatives, state, id} ->
             Enum.reduce(alternatives, {[], state}, fn {prefix, bindings}, {paths, state} ->
               {next, state} =
-                expand(Program.concat(prefix, Program.subst(rest, bindings)), state, [id | stack])
+                expand(
+                  Program.concat(prefix, Program.subst(rest, bindings)),
+                  state,
+                  if(Program.first(prefix) == :return, do: stack, else: [id | stack])
+                )
 
               if length(paths) + length(next) > 24, do: throw(:no_plan)
               {paths ++ next, state}
             end)
         end
 
-      %IR{kind: :direct, name: :eq} when state.mode == :prefix ->
+      %IR{kind: :direct, name: name}
+      when name in [:eq, :unify_structural] and state.mode == :prefix ->
         {[body], state}
 
-      %IR{kind: :direct, name: :eq, args: [a, b]} ->
-        case IR.Binding.infer(a, b, state.protected) do
+      %IR{kind: :direct, name: name} when name in [:eq, :unify_structural] ->
+        case IR.Inference.operation(goal, state.protected).binding do
           {variable, value} -> expand(Program.subst(rest, %{variable => value}), state, stack)
           nil -> boundary(goal, rest, state, stack)
         end
@@ -330,7 +337,14 @@ defmodule AL.JAM.IR.Plan do
     do: {[Program.prepend(operation, rest)], state}
 
   defp boundary(operation, rest, state, stack) do
-    state = %{state | protected: IR.Binding.escape(operation, state.protected), stable: false}
+    inference = IR.Inference.operation(operation, state.protected)
+
+    state = %{
+      state
+      | protected: IR.Binding.escape(operation, state.protected),
+        stable: state.stable and MethodSummary.transparent?(inference)
+    }
+
     {paths, state} = expand(rest, state, stack)
     paths = if paths == [], do: [Program.lower([IR.operation(:direct, :fail, [])])], else: paths
     {Enum.map(paths, &Program.prepend(operation, &1)), state}
@@ -396,7 +410,7 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp inline(receiver, selector, args, state, stack) do
-    dispatch_receiver = if is_list(receiver), do: [], else: receiver
+    dispatch_receiver = dispatch_receiver(receiver)
 
     if state.stable and literal?(dispatch_receiver, 12) and is_atom(selector) and
          not Var.var?(selector) and
@@ -428,9 +442,25 @@ defmodule AL.JAM.IR.Plan do
                   {:ok, bindings} ->
                     body = Program.subst(body, bindings)
 
-                    if context_free?(body),
-                      do: {{:ok, body, bindings}, fused_state},
-                      else: {:unknown, state}
+                    summary =
+                      if state.mode == :region,
+                        do: MethodSummary.infer(body, [receiver | args], state.protected),
+                        else: %MethodSummary{program: body}
+
+                    body = summary.program
+
+                    if context_free?(body) do
+                      {body, bindings} =
+                        if summary.determinism == :det and MethodSummary.transparent?(summary) do
+                          {Program.lower([]), Map.merge(bindings, summary.bindings)}
+                        else
+                          {body, bindings}
+                        end
+
+                      {{:ok, body, bindings}, fused_state}
+                    else
+                      {:unknown, state}
+                    end
 
                   other ->
                     {other, state}
@@ -461,6 +491,17 @@ defmodule AL.JAM.IR.Plan do
       end
     end
   end
+
+  defp dispatch_receiver(receiver) when is_list(receiver), do: []
+
+  defp dispatch_receiver(%{class: class} = receiver) when is_atom(class) do
+    if not is_struct(receiver) and
+         Enum.all?(Map.keys(receiver), &(MapSet.size(Var.find_vars(&1)) == 0)),
+       do: %{class: class},
+       else: receiver
+  end
+
+  defp dispatch_receiver(receiver), do: receiver
 
   defp match({:"$var", "_"}, _, bindings, _protected), do: {:ok, bindings}
 

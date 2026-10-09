@@ -12,30 +12,34 @@ defmodule Examples.ALPackages do
 
     try do
       {:atomic, {%{"$Build" => build}, _constraints, _state}} =
-        run branch: branch.id do
-          ~AL"""
+        run(
+          ~S"""
           new package #{name => managed_package, open_build => true} managed_package.
           installed_package package_manager managed_package.
           active_package package_manager managed_package Build.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       {:atomic, _} =
-        run branch: branch.id do
-          ~AL"""
+        run(
+          ~S"""
           deactivate managed_package.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       refute AL.Package.active?(:managed_package, branch)
 
       {:atomic, _} =
-        run branch: branch.id do
-          ~AL"""
-          activate_build managed_package ^build.
-          active_package package_manager managed_package ^build.
-          """
-        end
+        run(
+          ~S"""
+          activate_build managed_package HostBuild.
+          active_package package_manager managed_package HostBuild.
+          """,
+          branch: branch.id,
+          bindings: %{"HostBuild" => build}
+        )
 
       assert AL.Package.active_build(:managed_package, branch) == build
       :ok
@@ -69,15 +73,16 @@ defmodule Examples.ALPackages do
       assert {:ok, %{changed?: false}} = AL.Package.diff(:blackjack, branch: branch)
 
       result =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           euler_1 10 23.
           factorial 5 120.
           active_build euler Build.
           extends_class Build number.
           not (originates_class Build number).
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = result
 
@@ -106,25 +111,23 @@ defmodule Examples.ALPackages do
     refute AL.TransactionProgram.installed?(:interval)
 
     result =
-      AL.run do
-        ~AL"""
-        class interval package.
-        super interval package_build.
-        class interval_value class.
-        class Build interval.
-        active_build interval Build.
-        build_version Build 1.
-        build_digest Build _.
-        build_status Build complete.
-        available_package package_manager Channel interval Provider.
-        channel_name Channel builtin.
-        provider_version Provider 1.
-        findall Package Packages {
-          available_package package_manager _Channel Package _Provider
-        }.
-        member Packages interval.
-        """
-      end
+      AL.run(~S"""
+      class interval package.
+      super interval package_build.
+      class interval_value class.
+      class Build interval.
+      active_build interval Build.
+      build_version Build 1.
+      build_digest Build _.
+      build_status Build complete.
+      available_package package_manager Channel interval Provider.
+      channel_name Channel builtin.
+      provider_version Provider 1.
+      findall Package Packages {
+        available_package package_manager _Channel Package _Provider
+      }.
+      member Packages interval.
+      """)
 
     assert {:atomic, _} = result
     :ok
@@ -132,15 +135,13 @@ defmodule Examples.ALPackages do
 
   example active_users_build_relates_to_its_definitions() do
     result =
-      AL.run do
-        ~AL"""
-        active_build users Build.
-        findall Class Classes (originates_class Build Class).
-        findall [Owner, Selector] Methods (adds_method Build Owner Selector).
-        findall [Owner, Superclass] Superclasses (adds_superclass Build Owner Superclass).
-        findall Owner Extensions (extends_class Build Owner).
-        """
-      end
+      AL.run(~S"""
+      active_build users Build.
+      findall Class Classes (originates_class Build Class).
+      findall [Owner, Selector] Methods (adds_method Build Owner Selector).
+      findall [Owner, Superclass] Superclasses (adds_superclass Build Owner Superclass).
+      findall Owner Extensions (extends_class Build Owner).
+      """)
 
     assert {:atomic, {bindings, _constraints, _state}} = result
     assert Enum.sort(bindings["$Classes"]) == [:owned, :user]
@@ -178,8 +179,8 @@ defmodule Examples.ALPackages do
                ])
 
       creation =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           new package #{deps => [], name => handmade_package, version => 1} handmade_package.
           active_build handmade_package Build.
           class Build handmade_package.
@@ -199,8 +200,9 @@ defmodule Examples.ALPackages do
           originates_class Build handmade_value.
           adds_method Build handmade_value value.
           adds_superclass Build handmade_value object.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, {creation_bindings, _constraints, _}} = creation
       build = creation_bindings["$Build"]
@@ -226,15 +228,17 @@ defmodule Examples.ALPackages do
       assert Enum.map(document.methods, & &1.selector) == [:value]
 
       sealed =
-        AL.run branch: branch.id do
-          ~AL"""
-          active_build handmade_package ^build.
-          build_status ^build complete.
-          build_provider ^build ^provider.
-          build_digest ^build _Digest.
-          provides ^provider handmade_package.
-          """
-        end
+        AL.run(
+          ~S"""
+          active_build handmade_package HostBuild.
+          build_status HostBuild complete.
+          build_provider HostBuild HostProvider.
+          build_digest HostBuild _Digest.
+          provides HostProvider handmade_package.
+          """,
+          branch: branch.id,
+          bindings: %{"HostBuild" => build, "HostProvider" => provider}
+        )
 
       assert {:atomic, _} = sealed
 
@@ -256,27 +260,29 @@ defmodule Examples.ALPackages do
 
     try do
       creation =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           new package #{name => working_package} working_package.
           new class #{name => working_class} working_class.
           active_build working_package Build.
           include_class Build working_class.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = creation
       assert :ok = AL.Application.bootstrap()
 
       retained =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           active_build working_package Build.
           build_status Build open.
           class working_class class.
           originates_class Build working_class.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = retained
       :ok
@@ -309,8 +315,8 @@ defmodule Examples.ALPackages do
       assert {:ok, _} = AL.Package.activate(realisation, branch: branch, replace: true)
 
       result =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           active_build widget_core Originator.
           active_build widget_rendering Extender.
           originates_class Originator composable_widget.
@@ -322,8 +328,9 @@ defmodule Examples.ALPackages do
           super composable_widget renderable.
           new composable_widget Widget.
           rendering_package Widget widget_rendering.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, {bindings, _constraints, _}} = result
       assert bindings["$Extensions"] == [:composable_widget]
@@ -361,16 +368,17 @@ defmodule Examples.ALPackages do
       assert {:ok, _} = AL.Package.activate(core_realisation, branch: branch, replace: true)
 
       after_removal =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           active_build widget_core _Originator.
           not (active_build widget_rendering _Extender).
           not (super composable_widget renderable).
           not (method composable_widget rendering_package _Method).
           new composable_widget Widget.
           package_origin Widget widget_core.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = after_removal
       :ok
@@ -397,12 +405,13 @@ defmodule Examples.ALPackages do
       assert clean_methods == %{added: [], changed: [], removed: []}
 
       change =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           user >> blah
           | Self |.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = change
 
@@ -454,21 +463,23 @@ defmodule Examples.ALPackages do
       assert [%{id: provider}] = AL.Package.providers(:interval, branch)
 
       result =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           class interval package.
-          class ^build interval.
-          active_build interval ^build.
-          build_package ^build interval.
-          build_version ^build 1.
-          build_provider ^build ^provider.
-          provides ^provider interval.
-          provider_source ^provider _.
-          build_status ^build complete.
+          class HostBuild interval.
+          active_build interval HostBuild.
+          build_package HostBuild interval.
+          build_version HostBuild 1.
+          build_provider HostBuild HostProvider.
+          provides HostProvider interval.
+          provider_source HostProvider _.
+          build_status HostBuild complete.
           new interval_value #{hi => 7, lo => 3} Interval.
           elem Interval 5.
-          """
-        end
+          """,
+          branch: branch.id,
+          bindings: %{"HostBuild" => build, "HostProvider" => provider}
+        )
 
       assert {:atomic, _} = result
       refute AL.TransactionProgram.installed?(:interval, branch)
@@ -497,16 +508,17 @@ defmodule Examples.ALPackages do
                ])
 
       definition =
-        AL.run branch: author.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           @exported_value
           #{super => object}.
 
           exported_value >> value
           | _Self from_export |
           pass.
-          """
-        end
+          """,
+          branch: author.id
+        )
 
       assert {:atomic, _} = definition
 
@@ -539,12 +551,13 @@ defmodule Examples.ALPackages do
                AL.Package.import(root, branch: consumer)
 
       result =
-        AL.run branch: consumer.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           new exported_value Value.
           value Value from_export.
-          """
-        end
+          """,
+          branch: consumer.id
+        )
 
       assert {:atomic, _} = result
 
@@ -640,20 +653,25 @@ defmodule Examples.ALPackages do
       refute old_provider == current_provider
 
       {:atomic, {bindings, _constraints, _state}} =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           registered_channel package_manager Channel.
           channel_name Channel changing.
-          registered_provider package_manager Channel ^old_provider.
-          available_package Channel greeting ^current_provider.
+          registered_provider package_manager Channel HostOldProvider.
+          available_package Channel greeting HostCurrentProvider.
           findall [Package, Provider] Available {
             available_package Channel Package Provider
           }.
           findall Provider Providers {
             available_package package_manager Channel greeting Provider
           }.
-          """
-        end
+          """,
+          branch: branch.id,
+          bindings: %{
+            "HostCurrentProvider" => current_provider,
+            "HostOldProvider" => old_provider
+          }
+        )
 
       assert bindings["$Providers"] == [current_provider]
 
@@ -770,11 +788,13 @@ defmodule Examples.ALPackages do
              ]
 
       extension =
-        AL.run branch: branch.id do
-          ~AL"""
-          defmethod package accepts_requirement [opaque_dependency, Provider, _Dependencies, ^opaque] (provider_version Provider 1).
-          """
-        end
+        AL.run(
+          ~S"""
+          defmethod package accepts_requirement [opaque_dependency, Provider, _Dependencies, HostOpaque] (provider_version Provider 1).
+          """,
+          branch: branch.id,
+          bindings: %{"HostOpaque" => opaque}
+        )
 
       assert {:atomic, _} = extension
 
@@ -847,12 +867,13 @@ defmodule Examples.ALPackages do
 
   defp welcome_parts(branch) do
     result =
-      AL.run branch: branch.id do
-        ~AL"""
+      AL.run(
+        ~S"""
         new welcome_message Welcome.
         parts Welcome Parts.
-        """
-      end
+        """,
+        branch: branch.id
+      )
 
     assert {:atomic, {bindings, _constraints, _}} = result
     bindings["$Parts"]

@@ -50,11 +50,13 @@ defmodule AL.Package.Resolver do
     al_requested = Enum.map(requested, &al_requirement/1)
 
     result =
-      AL.run branch: branch.id do
-        ~AL"""
-        resolve package_resolver ^provider_ids ^al_requested Solution.
-        """
-      end
+      AL.run(
+        ~S"""
+        resolve package_resolver HostProviderIds HostAlRequested Solution.
+        """,
+        branch: branch.id,
+        bindings: %{"HostAlRequested" => al_requested, "HostProviderIds" => provider_ids}
+      )
 
     case result do
       {:atomic, {%{"$Solution" => solution}, _constraints, _state}} ->

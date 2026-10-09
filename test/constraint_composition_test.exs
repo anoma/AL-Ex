@@ -6,7 +6,7 @@ defmodule AL.ConstraintCompositionTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @audit_parent #{super => object}.
                @audit_other #{super => object}.
@@ -41,12 +41,12 @@ defmodule AL.ConstraintCompositionTest do
           "super C A, super C B, = A audit_other, = B audit_parent, = C audit_child_a.",
           "super C A, super D B, = C D, = A audit_other, = B audit_parent, = C audit_child_a."
         ] do
-      assert {:aborted, _} = AL.eval_source(source, branch, opts)
+      assert {:aborted, _} = AL.run(source, branch, opts)
     end
 
     for opts <- [[], [trace: [:vm]]] do
       assert {:atomic, {%{"$Answers" => answers}, _, _}} =
-               AL.eval_source(
+               AL.run(
                  "super C P, = P audit_parent, findall C Answers {label C}.",
                  branch,
                  opts
@@ -55,7 +55,7 @@ defmodule AL.ConstraintCompositionTest do
       assert Enum.sort(answers) == [:audit_child_a, :audit_child_b]
 
       assert {:atomic, _} =
-               AL.eval_source(
+               AL.run(
                  "super C A, super C B, = C audit_child_a, = A audit_parent, = B audit_parent.",
                  branch,
                  opts
@@ -74,7 +74,7 @@ defmodule AL.ConstraintCompositionTest do
         "findall [P,Q] Answers {in_domain P [2,3,4], in_domain Q [1,2,3], #{equation}, label P, label Q}."
 
       assert {:atomic, {%{"$Answers" => [[2, 3], [3, 2]]}, _, _}} =
-               AL.eval_source(source, branch, opts)
+               AL.run(source, branch, opts)
     end
   end
 
@@ -85,11 +85,11 @@ defmodule AL.ConstraintCompositionTest do
           ">= X 0, = X #{term}.",
           "= X #{term}, >= X 0."
         ] do
-      assert {:aborted, _} = AL.eval_source(source, branch, opts)
+      assert {:aborted, _} = AL.run(source, branch, opts)
     end
 
     assert {:atomic, {%{"$Answers" => [1, 2]}, _, _}} =
-             AL.eval_source(
+             AL.run(
                "findall X Answers {in_domain X [1,nope,2], >= X 0, label X}.",
                branch
              )
@@ -106,21 +106,21 @@ defmodule AL.ConstraintCompositionTest do
           "slot O level V, copy_term [O,V] [C,W] Goals, variant Goals [(slot C level W)], = O audit_one."
         ] do
       assert {:atomic, {%{"$O" => :audit_one, "$V" => 7}, _, _}} =
-               AL.eval_source(source, branch, opts)
+               AL.run(source, branch, opts)
     end
 
     assert {:atomic, {%{"$Answers" => answers}, _, _}} =
-             AL.eval_source(
+             AL.run(
                "findall [O,V] Answers {slot O level V, label O}.",
                branch
              )
 
     assert Enum.sort(answers) == [[:audit_one, 7], [:audit_two, 9]]
 
-    assert {:aborted, _} = AL.eval_source("slot O level V aos, = O audit_one.", branch)
+    assert {:aborted, _} = AL.run("slot O level V aos, = O audit_one.", branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                "slot O tag V aos, copy_term [O,V] [C,W] Goals, variant Goals [(slot C tag W aos)], = O audit_one, = V one.",
                branch
              )
@@ -135,11 +135,11 @@ defmodule AL.ConstraintCompositionTest do
         "findall [P,Q] Answers {new #{class} V, total V #{total}, get V price P, get V quantity Q, label P, label Q}."
 
       assert {:atomic, {%{"$Answers" => [[2, 3], [3, 2]]}, _, _}} =
-               AL.eval_source(source, branch, opts)
+               AL.run(source, branch, opts)
     end
 
     assert {:atomic, {%{"$Answers" => answers}, _, _}} =
-             AL.eval_source(
+             AL.run(
                "findall [P,A,B] Answers {new audit_value X, new audit_value Y, get X price P, get Y price P, get X quantity A, get Y quantity B, total X TX, total Y TY, = 12 (+ TX TY), dif A B, label P, label A, label B}.",
                branch
              )
@@ -177,12 +177,12 @@ defmodule AL.ConstraintCompositionTest do
             "#{relation} O C, = C audit_other, = O audit_one.",
             "#{relation} O C, = Alias O, = Alias audit_one, = C audit_other."
           ] do
-        assert {:aborted, reason} = AL.eval_source(source, branch, opts)
+        assert {:aborted, reason} = AL.run(source, branch, opts)
         assert is_map(reason)
       end
 
       assert {:atomic, _} =
-               AL.eval_source(
+               AL.run(
                  "#{relation} O C, copy_term C Copy Goals, member Goals (#{relation} _ Copy).",
                  branch,
                  opts
@@ -190,12 +190,12 @@ defmodule AL.ConstraintCompositionTest do
     end
 
     assert {:atomic, {%{"$C" => :audit_record}, _, _}} =
-             AL.eval_source("class O C, = O audit_one.", branch)
+             AL.run("class O C, = O audit_one.", branch)
   end
 
   test "copied provider constraints reject overrides without executing methods", %{branch: branch} do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @audit_colour #{super => value}.
                audit_colour >> colour
@@ -212,7 +212,7 @@ defmodule AL.ConstraintCompositionTest do
 
     for opts <- [[], [trace: [:vm]]] do
       assert {:aborted, reason} =
-               AL.eval_source(
+               AL.run(
                  ~S"colour O red, copy_term O C Goals, call [C] Goals [C], = C #{class => audit_blue}.",
                  branch,
                  opts
@@ -221,21 +221,21 @@ defmodule AL.ConstraintCompositionTest do
       assert is_map(reason)
 
       assert {:atomic, _} =
-               AL.eval_source(
+               AL.run(
                  ~S"selected_provider O forbidden audit_colour, = O #{class => audit_blue}.",
                  branch,
                  opts
                )
 
       assert {:atomic, {%{"$P" => :audit_blue}, _, _}} =
-               AL.eval_source(
+               AL.run(
                  ~S"selected_provider #{class => audit_blue} colour P.",
                  branch,
                  opts
                )
 
       assert {:atomic, _} =
-               AL.eval_source(
+               AL.run(
                  ~S"colour O red, copy_term O C Goals, call [C] Goals [C], = C #{class => audit_colour}.",
                  branch,
                  opts
@@ -249,14 +249,14 @@ defmodule AL.ConstraintCompositionTest do
           ~S"slot O tag V, = V one, = O #{tag => one}.",
           ~S"= V one, slot O tag V, = O #{tag => one}."
         ] do
-      assert {:atomic, {%{"$O" => %{tag: :one}}, _, _}} = AL.eval_source(source, branch, opts)
+      assert {:atomic, {%{"$O" => %{tag: :one}}, _, _}} = AL.run(source, branch, opts)
     end
 
     assert {:atomic, {%{"$V" => 7}, _, _}} =
-             AL.eval_source("slot audit_one K V, = K level.", branch)
+             AL.run("slot audit_one K V, = K level.", branch)
 
     assert {:atomic, {%{"$Answers" => answers}, _, _}} =
-             AL.eval_source("findall [K,V] Answers {slot audit_one K V}.", branch)
+             AL.run("findall [K,V] Answers {slot audit_one K V}.", branch)
 
     assert Enum.sort(answers) == [[:level, 7], [:tag, :one]]
   end
@@ -268,22 +268,22 @@ defmodule AL.ConstraintCompositionTest do
             ">= X X, = X #{value}.",
             "= 0 (- X X), copy_term X C Goals, call [C] Goals [C], = C #{value}."
           ] do
-        assert {:aborted, reason} = AL.eval_source(source, branch, opts)
+        assert {:aborted, reason} = AL.run(source, branch, opts)
         assert is_map(reason)
       end
     end
 
-    assert {:atomic, {%{"$X" => 3}, _, _}} = AL.eval_source("= 0 (- X X), = X 3.", branch)
+    assert {:atomic, {%{"$X" => 3}, _, _}} = AL.run("= 0 (- X X), = X 3.", branch)
 
     assert {:atomic, {%{"$Answers" => [2, 3]}, _, _}} =
-             AL.eval_source("findall X Answers {> X 1, < X 4, label X}.", branch)
+             AL.run("findall X Answers {> X 1, < X 4, label X}.", branch)
   end
 
   test "provider relations use current dispatch order and survive the goal codec", %{
     branch: branch
   } do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @provider_left #{super => value}.
                @provider_right #{super => value}.
@@ -298,7 +298,7 @@ defmodule AL.ConstraintCompositionTest do
              )
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @provider_child #{super => [provider_right, provider_left]}.
                selected_provider #{class => provider_child} choice provider_right.
@@ -307,7 +307,7 @@ defmodule AL.ConstraintCompositionTest do
              )
 
     assert {:aborted, _} =
-             AL.eval_source(
+             AL.run(
                ~S"selected_provider #{class => provider_child} choice provider_left.",
                branch
              )

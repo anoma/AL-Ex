@@ -61,7 +61,7 @@ defmodule Examples.ALBootstrap do
 
     try do
       {:atomic, _} =
-        AL.eval_source(
+        AL.run(
           ~S"""
           @projection_read_probe #{super => object}.
           projection_read_probe >> value
@@ -132,7 +132,7 @@ defmodule Examples.ALBootstrap do
         end)
 
       {:atomic, _} =
-        AL.eval_source(
+        AL.run(
           ~S"""
           projection_read_probe >> value
           | _Self green |.

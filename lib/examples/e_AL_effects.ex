@@ -38,11 +38,13 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, {bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
-          new effect #{arguments => [^path], operation => read, provider => file} Effect.
-          """
-        end
+        run(
+          ~S"""
+          new effect #{arguments => [HostPath], operation => read, provider => file} Effect.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostPath" => path}
+        )
 
       effect = bindings["$Effect"]
 
@@ -59,11 +61,13 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, {bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
-          new effect #{arguments => [^path, "bundle source"], operation => write, provider => file} Write.
-          """
-        end
+        run(
+          ~S"""
+          new effect #{arguments => [HostPath, "bundle source"], operation => write, provider => file} Write.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostPath" => path}
+        )
 
       assert {:ok, ^path} =
                AL.await_effect(bindings["$Write"],
@@ -72,11 +76,13 @@ defmodule Examples.ALEffects do
                )
 
       {:atomic, {bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
-          new effect #{arguments => [^directory], operation => list, provider => file} List.
-          """
-        end
+        run(
+          ~S"""
+          new effect #{arguments => [HostDirectory], operation => list, provider => file} List.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostDirectory" => directory}
+        )
 
       assert {:ok, entries} =
                AL.await_effect(bindings["$List"],
@@ -95,11 +101,12 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [], operation => transaction_context, provider => example_effect} Effect.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     effect = bindings["$Effect"]
 
@@ -125,12 +132,13 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [], operation => notify, provider => example_effect} _.
         fail.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     refute_receive :effect_ran, 100
   end
@@ -139,8 +147,8 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class effect_emitter object.
 
         effect_emitter >> emit
@@ -148,8 +156,9 @@ defmodule Examples.ALEffects do
         new effect #{arguments => [from_method], operation => echo, provider => example_effect} Effect.
 
         emit effect_emitter Effect.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     effect = bindings["$Effect"]
 
@@ -159,11 +168,12 @@ defmodule Examples.ALEffects do
 
   example effect_request_must_be_ground_and_durable() do
     {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [Unbound], operation => echo, provider => example_effect} _.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert ground_message == "effect request must be ground"
     branch = %AL.Branch{id: Examples.Support.branch()}
@@ -180,11 +190,12 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [later], operation => wait, provider => example_effect} Effect.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     effect = bindings["$Effect"]
     assert_receive {:effect_pending, context, :later}, 1000
@@ -200,11 +211,12 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [initialized], operation => echo, provider => example_effect} Effect.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     effect = bindings["$Effect"]
 
@@ -230,20 +242,21 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [object_effect], operation => wait, provider => example_effect} Effect.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     effect = bindings["$Effect"]
     assert_receive {:effect_pending, context, :object_effect}, 1000
 
     {:atomic, {pending, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        class ^effect effect.
-        get_slots ^effect #{
+      run(
+        ~S"""
+        class HostEffect effect.
+        get_slots HostEffect #{
           arguments => [object_effect],
           completed_by => CompletedBy,
           operation => wait,
@@ -253,8 +266,10 @@ defmodule Examples.ALEffects do
           status => Status
         }.
         class RequestedBy transaction.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostEffect" => effect}
+      )
 
     assert pending["$Status"] == :pending
     assert pending["$Outcome"] == :none
@@ -262,12 +277,14 @@ defmodule Examples.ALEffects do
     assert :ok = AL.Edge.complete(context, {:ok, :changed})
 
     {:atomic, {completed, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        get_slots ^effect #{completed_by => CompletedBy, outcome => Outcome, status => Status}.
+      run(
+        ~S"""
+        get_slots HostEffect #{completed_by => CompletedBy, outcome => Outcome, status => Status}.
         class CompletedBy transaction.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostEffect" => effect}
+      )
 
     assert completed["$Status"] == :completed
     assert completed["$Outcome"] == %{status: :ok, value: :changed}
@@ -277,11 +294,12 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [], operation => raise, provider => example_effect} Effect.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     effect = bindings["$Effect"]
 
@@ -293,12 +311,13 @@ defmodule Examples.ALEffects do
     observe_effects()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new effect #{arguments => [first], operation => echo, provider => example_effect} First.
         new effect #{arguments => [second], operation => echo, provider => example_effect} Second.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     first = bindings["$First"]
     second = bindings["$Second"]
@@ -318,11 +337,12 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, {_bindings, _constraints, state}} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           new effect #{arguments => [], operation => notify, provider => example_effect} _.
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
 
       {:atomic, commands} =
         :mnesia.transaction(fn -> AL.Command.commands_for_transaction(state.tx_id, branch) end)
@@ -350,11 +370,12 @@ defmodule Examples.ALEffects do
 
     try do
       {:atomic, _} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           new effect #{arguments => [], operation => notify, provider => example_effect} _.
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
 
       child = AL.Branch.fork(:tip, parent)
 
@@ -362,11 +383,12 @@ defmodule Examples.ALEffects do
         refute_receive :effect_ran, 100
 
         {:atomic, {bindings, _constraints, _state}} =
-          run branch: child.id do
-            ~AL"""
+          run(
+            ~S"""
             new effect #{arguments => [], operation => branch, provider => example_effect} Effect.
-            """
-          end
+            """,
+            branch: child.id
+          )
 
         effect = bindings["$Effect"]
         assert {:ok, child_id} = AL.await_effect(effect, branch: child.id, timeout: 1000)
@@ -386,11 +408,13 @@ defmodule Examples.ALEffects do
 
   defp effect_status(effect) do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        get ^effect status Status.
-        """
-      end
+      run(
+        ~S"""
+        get HostEffect status Status.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostEffect" => effect}
+      )
 
     bindings["$Status"]
   end

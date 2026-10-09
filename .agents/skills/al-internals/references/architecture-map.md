@@ -24,7 +24,7 @@ AL source text
 ```
 
 `AL.eval/4` starts from already-lowered goals and normally has no retained
-source. `AL.eval_source/3` and `AL.eval_captured/6` carry source metadata through
+source. `AL.run/1,2,3` and `AL.eval_with_retained_source/6` carry source metadata through
 the same evaluator.
 
 ## Authority and projections

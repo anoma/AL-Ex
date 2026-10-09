@@ -6,6 +6,17 @@ defmodule AL.JAM.IR.Binding do
 
   def infer(a, b, exposed), do: candidate(a, b, exposed) || candidate(b, a, exposed)
 
+  def infer_structural(a, b, exposed),
+    do: structural_candidate(a, b, exposed) || structural_candidate(b, a, exposed)
+
+  defp structural_candidate(variable, value, exposed) do
+    vars = Var.find_vars(value)
+
+    if fresh?(variable, exposed) and not MapSet.member?(vars, variable) and
+         not MapSet.member?(vars, {:"$var", "_"}),
+       do: {variable, value}
+  end
+
   def escape(operation, exposed), do: MapSet.union(exposed, AL.JAM.IR.variables(operation))
 
   defp candidate(variable, value, exposed) do

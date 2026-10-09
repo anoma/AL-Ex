@@ -9,8 +9,8 @@ defmodule Examples.ALObjects do
 
   example defmethod() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @greeter
         #{super => value}.
 
@@ -22,8 +22,9 @@ defmodule Examples.ALObjects do
 
         new greeter Instance.
         greet Instance world.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Instance") == %{class: :greeter}
     :ok
@@ -31,13 +32,14 @@ defmodule Examples.ALObjects do
 
   example metaclass() do
     {:atomic, {bindings, _constraints, result}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         method object init InitMethod.
         class InitMethod B.
         class B class.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$B") == :behaviour
 
@@ -49,12 +51,13 @@ defmodule Examples.ALObjects do
   # levels in one call) instead of chaining `class/2` twice by hand.
   example execute_metaclass_method() do
     {:atomic, {bindings, _constraints, result}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         method object init InitMethod.
         meta InitMethod Class Metaclass.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Class") == :behaviour
     assert Map.get(bindings, "$Metaclass") == :class
@@ -63,8 +66,8 @@ defmodule Examples.ALObjects do
 
   example does_not_understand_dispatch() do
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @gadget
         #{super => value}.
 
@@ -79,42 +82,51 @@ defmodule Examples.ALObjects do
         | Self _M _A |.
 
         new gadget G.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     g = Map.get(b, "$G")
 
     # head matches, body succeeds -> runs
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        poke ^g ok.
-        """
-      end
+      run(
+        ~S"""
+        poke HostG ok.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostG" => g}
+      )
 
     # head matches, body fails -> plain failure, not DNU
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        poke ^g bad.
-        """
-      end
+      run(
+        ~S"""
+        poke HostG bad.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostG" => g}
+      )
 
     # absent selector -> DNU (override succeeds)
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        zap ^g.
-        """
-      end
+      run(
+        ~S"""
+        zap HostG.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostG" => g}
+      )
 
     # wrong arity, no clause head matches -> DNU
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        poke ^g a b.
-        """
-      end
+      run(
+        ~S"""
+        poke HostG a b.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostG" => g}
+      )
 
     :ok
   end
@@ -123,51 +135,57 @@ defmodule Examples.ALObjects do
   # guard) -- reclassifying means retract first, not accreting a second one.
   example retractall_class() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class retract_test foo.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall C BeforeRetract (class retract_test C).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$BeforeRetract") == [:foo]
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_retract_class retract_test C.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall C AfterRetract (class retract_test C).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$AfterRetract") == []
 
     # retracted, so reclassifying is legal again -- not a permanent lock.
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class retract_test bar.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings3, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall C Reclassified (class retract_test C).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings3, "$Reclassified") == [:bar]
     :ok
@@ -175,8 +193,8 @@ defmodule Examples.ALObjects do
 
   example class_is_direct_and_isa_is_transitive() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @direct_vehicle
         #{super => object}.
 
@@ -197,8 +215,9 @@ defmodule Examples.ALObjects do
         isa Candidate Ancestor.
         = Ancestor direct_vehicle.
         = Candidate Car.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Direct") == []
     assert Map.get(bindings, "$Inherited") == [Map.get(bindings, "$Car")]
@@ -211,8 +230,8 @@ defmodule Examples.ALObjects do
     branch = %AL.Branch{id: branch_id}
 
     {:atomic, _} =
-      run branch: branch_id do
-        ~AL"""
+      run(
+        ~S"""
         @cached_isa_base
         #{super => object}.
 
@@ -220,8 +239,9 @@ defmodule Examples.ALObjects do
         #{super => cached_isa_base}.
 
         new cached_isa_leaf #{name => cached_isa_object} _.
-        """
-      end
+        """,
+        branch: branch_id
+      )
 
     {:atomic, :ok} =
       :mnesia.transaction(fn -> AL.ResolutionCache.invalidate_method_scopes(branch) end)
@@ -245,24 +265,26 @@ defmodule Examples.ALObjects do
     assert :cached_isa_base in hierarchy
 
     {:atomic, _} =
-      run branch: branch_id do
-        ~AL"""
+      run(
+        ~S"""
         isa cached_isa_object cached_isa_base.
         vm_set_super cached_isa_base cached_isa_root.
         isa cached_isa_object cached_isa_root.
-        """
-      end
+        """,
+        branch: branch_id
+      )
   end
 
   example slot_merge_semantics() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_slot slot_test a 1.
         vm_set_slot slot_test b 2.
         vm_set_slot slot_test a 99.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, [{:slots, :slot_test, slots}]} =
       :mnesia.transaction(fn ->
@@ -275,12 +297,13 @@ defmodule Examples.ALObjects do
 
   example gensym() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         gensym A.
         gensym B.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$A") != Map.get(bindings, "$B")
     :ok
@@ -288,8 +311,8 @@ defmodule Examples.ALObjects do
 
   example make_point_object() do
     {:atomic, {bindings, _constraints, result}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new class #{name => point, super => value} NewPointClass.
 
         NewPointClass >> init
@@ -297,8 +320,9 @@ defmodule Examples.ALObjects do
 
         new NewPointClass NewPointObject.
         cut.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$NewPointClass") == :point
     assert Map.get(bindings, "$NewPointObject") == %{class: :point}
@@ -308,8 +332,8 @@ defmodule Examples.ALObjects do
 
   example metaclass_alloc_override() do
     {:atomic, {b, _constraints, program_state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_meta
         #{super => object}.
 
@@ -322,8 +346,9 @@ defmodule Examples.ALObjects do
 
         new durable_meta #{name => alloc_overriden} Obj.
         class Obj ObjClass.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert is_atom(Map.get(b, "$Obj"))
     assert Map.get(b, "$ObjClass") == :durable_meta
@@ -333,8 +358,8 @@ defmodule Examples.ALObjects do
 
   example defmethod_accretes_clauses() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class multi object.
 
         multi >> pick
@@ -342,34 +367,38 @@ defmodule Examples.ALObjects do
 
         multi >> pick
         | Self b second |.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     # both clauses are reachable on the same method
     {:atomic, {b1, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         pick multi a R.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {b2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         pick multi b R.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b1, "$R") == :first
     assert Map.get(b2, "$R") == :second
 
     # the two defmethods accreted clauses onto one id, not two separate methods
     {:atomic, {b3, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall Id Ids (method multi pick Id).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert length(Enum.uniq(Map.get(b3, "$Ids"))) == 1
     :ok
@@ -377,21 +406,22 @@ defmodule Examples.ALObjects do
 
   example examine() do
     {:atomic, {bindings, _constraints, program_state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         examine class Info.
         get Info methods Methods.
         get Info classes Classes.
         get Info supers Supers.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Classes") == [:class]
     assert Map.get(bindings, "$Supers") == [:object]
 
     {:atomic, {slot_bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @examine_slot_class
         #{super => object, ivars => [#{name => legs}, #{name => name}]}.
 
@@ -400,8 +430,9 @@ defmodule Examples.ALObjects do
         set_slots Obj #{name => rex}.
         examine Obj ObjInfo.
         get ObjInfo direct_slots DirectSlots.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(slot_bindings, "$DirectSlots") == [[:name, :rex]]
 
@@ -410,8 +441,8 @@ defmodule Examples.ALObjects do
 
   example examine_objects_lists_real_instances_only() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @examine_objects_class
         #{super => object}.
 
@@ -420,8 +451,9 @@ defmodule Examples.ALObjects do
         new examine_objects_class Obj.
         examine examine_objects_class InfoAfter.
         get InfoAfter objects ObjectsAfter.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$ObjectsBefore") == []
     assert Map.get(bindings, "$ObjectsAfter") == [Map.get(bindings, "$Obj")]
@@ -432,8 +464,8 @@ defmodule Examples.ALObjects do
   # over the rest, never hits does_not_understand.
   example labeling_an_anonymous_send_grounds_receiver() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @ping_class
         #{super => object}.
 
@@ -446,27 +478,30 @@ defmodule Examples.ALObjects do
 
         ping_proxy >> does_not_understand
         | Self _M _A |.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         ping O R.
         label O.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     first = Map.get(b, "$O")
 
     assert is_atom(first) and not AL.Var.var?(first)
 
     {:atomic, {b2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall [O, R] Pairs {ping O R, label O}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     pairs = Map.get(b2, "$Pairs")
     receivers = Enum.map(pairs, fn [o, _r] -> o end)
@@ -479,11 +514,12 @@ defmodule Examples.ALObjects do
     refute :ping_proxy in receivers
     # ...but a directed send still escalates to does_not_understand
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         ping ping_proxy anything.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -492,8 +528,8 @@ defmodule Examples.ALObjects do
   # each method whose clause accepts the call's arg shape, backtracking.
   example send_with_unbound_selector_queries_methods() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class queryable object.
 
         queryable >> alpha
@@ -504,15 +540,17 @@ defmodule Examples.ALObjects do
 
         queryable >> beta
         | Self b |.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall M Ms (send queryable M [a]).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     ms = Map.get(b, "$Ms")
 
@@ -523,11 +561,12 @@ defmodule Examples.ALObjects do
 
     # a different arg shape selects a different method
     {:atomic, {b2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall M Ms (send queryable M [b]).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     ms2 = Map.get(b2, "$Ms")
 
@@ -540,8 +579,8 @@ defmodule Examples.ALObjects do
   # resolution walks class then supers, first match wins -- nearer class shadows.
   example send_resolves_up_super_chain_with_override() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class animal object.
 
         animal >> speak
@@ -555,26 +594,29 @@ defmodule Examples.ALObjects do
         | Self meow |.
 
         vm_set_class felix cat.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     # rex has no speak of its own; it's inherited dog -> animal
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         speak rex S.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b, "$S") == :generic_sound
 
     # cat defines speak, shadowing animal's for felix
     {:atomic, {b2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         speak felix S.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b2, "$S") == :meow
     :ok
@@ -584,8 +626,8 @@ defmodule Examples.ALObjects do
   # on objects that don't match, even though DNU can have side effects.
   example labeled_query_send_does_not_trigger_dnu_side_effects() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @real_pinger_class
         #{super => object}.
 
@@ -599,45 +641,50 @@ defmodule Examples.ALObjects do
         tripwire >> does_not_understand
         | Self _M _A |
         set_slots Self #{tripped => yes}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     # a query for :probe grounds to real implementers and skips :tripwire without
     # consulting its does_not_understand
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall O Os {probe O hit, label O}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     os = Map.get(b, "$Os")
     assert :real_pinger in os
     refute :tripwire in os
 
     {:atomic, {b2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get tripwire tripped T.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b2, "$T") == :no
 
     # a directed send of the same unimplemented method *does* fire DNU
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         probe tripwire hit.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {b3, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get tripwire tripped T.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b3, "$T") == :yes
     :ok
@@ -647,8 +694,8 @@ defmodule Examples.ALObjects do
   # can extend an inherited method, not just replace it.
   example call_next_method_extends_super() do
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class cnm_animal object.
 
         cnm_animal >> describe
@@ -663,8 +710,9 @@ defmodule Examples.ALObjects do
 
         vm_set_class cnm_rex cnm_pet.
         describe cnm_rex Result.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b, "$Result") == [:i_am_pet, :i_am_animal]
     :ok
@@ -673,8 +721,8 @@ defmodule Examples.ALObjects do
   # no further provider in resolution order -- call_next_method aborts, no DNU.
   example call_next_method_with_no_super_fails() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class cnm_solo object.
 
         cnm_solo >> only
@@ -683,23 +731,25 @@ defmodule Examples.ALObjects do
 
         vm_set_class cnm_solo_i cnm_solo.
         only cnm_solo_i v.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example multiple_slots() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @multislots
         #{super => object}.
 
         set_slots multislots #{x => 1, y => 2, z => 3}.
         slots multislots [x, z] M.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$M") == %{x: 1, z: 3}
 
@@ -708,24 +758,26 @@ defmodule Examples.ALObjects do
 
   example get_slots_binds_requested_values() do
     {:atomic, {bindings, _constraints, _runtime}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @get_multislots
         #{super => object}.
 
         set_slots get_multislots #{x => 1, y => 2, z => 3}.
         get_slots get_multislots #{x => X, z => 3}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$X"] == 1
 
     {:atomic, {map_bindings, _constraints, _runtime}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get_slots #{left => a, right => b} #{left => Left, right => Right}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert map_bindings["$Left"] == :a
     assert map_bindings["$Right"] == :b
@@ -733,8 +785,8 @@ defmodule Examples.ALObjects do
 
   example method_with_an_open_owner_is_a_domain_constraint() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @method_domain_ping
         #{super => object}.
 
@@ -754,8 +806,9 @@ defmodule Examples.ALObjects do
         findall O Both {method O domain_ping _, method O domain_pong _, label O}.
         findall [O, Id] PongIds {method O domain_pong Id, label O}.
         findall O None (method O domain_missing _).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.sort(Map.get(bindings, "$Pingers")) == [:method_domain_both, :method_domain_ping]
     assert Map.get(bindings, "$Both") == [:method_domain_both]
@@ -766,8 +819,8 @@ defmodule Examples.ALObjects do
 
   example clause_with_an_open_owner_is_a_domain_constraint() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @clause_domain_a
         #{super => object}.
 
@@ -790,8 +843,9 @@ defmodule Examples.ALObjects do
         findall [M, S] OnlyARows {clause M S [_, only_a] _, label M}.
         findall M None (clause M [_, clause_domain_nobody] _).
         findall S ASharedSeqs (clause IdA S [_, shared] _).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     id_a = Map.get(bindings, "$IdA")
     id_b = Map.get(bindings, "$IdB")
@@ -806,8 +860,8 @@ defmodule Examples.ALObjects do
 
   example get_reads_only_the_objects_own_row() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @slot_own_row_class
         #{super => object, ivars => [#{name => legs}]}.
 
@@ -817,8 +871,9 @@ defmodule Examples.ALObjects do
         findall Legs ClassLegs (get slot_own_row_class legs Legs).
         findall V MapLegs (get #{class => slot_own_row_class} legs V).
         findall V MapOwnLegs (get #{class => slot_own_row_class, legs => 8} legs V).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$InstanceLegs") == []
     assert Map.get(bindings, "$ClassLegs") == [4]
@@ -828,8 +883,8 @@ defmodule Examples.ALObjects do
 
   example default_ivar_copies_into_the_instance() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @slot_default_class
         #{super => object, ivars => [#{default => 4, name => legs}]}.
 
@@ -838,8 +893,9 @@ defmodule Examples.ALObjects do
         set_slot Obj legs 3.
         get Obj legs AfterSet.
         findall V ClassLegs (get slot_default_class legs V).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Legs") == 4
     assert Map.get(bindings, "$AfterSet") == 3
@@ -848,81 +904,89 @@ defmodule Examples.ALObjects do
 
   example get_does_not_fall_through_to_inherited_on_value_mismatch() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @slot_override_class
         #{super => object, ivars => [#{name => legs}]}.
 
         set_slots slot_override_class #{legs => 4}.
         new slot_override_class #{legs => 8, name => slot_override_instance} _.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get slot_override_instance legs Legs.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Legs") == 8
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get slot_override_instance legs 4.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example set_slot_enforces_domain_on_every_write() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @set_slot_domain_class
         #{super => object, ivars => [#{domain => ["on", "off"], name => state}]}.
 
         new set_slot_domain_class #{name => set_slot_domain_instance, state => "on"} _.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         set_slot set_slot_domain_instance state "off".
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get set_slot_domain_instance state State.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$State") == "off"
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         set_slot set_slot_domain_instance state sideways.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example raw_objects_have_open_slots() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class open_slot_object object.
         set_slot open_slot_object anything 42.
         get open_slot_object anything Value.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Value") == 42
     :ok
@@ -930,29 +994,31 @@ defmodule Examples.ALObjects do
 
   example declared_classes_reject_undeclared_slots() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @closed_slot_class
         #{super => object, ivars => [#{name => declared}]}.
 
         new closed_slot_class #{declared => 1, name => closed_slot_instance} _.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         set_slot closed_slot_instance undeclared 2.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example custom_metaclasses_inherit_open_slots() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @open_slot_metaclass
         #{super => class}.
 
@@ -961,8 +1027,9 @@ defmodule Examples.ALObjects do
 
         set_slot open_slot_class annotation available.
         get open_slot_class annotation Annotation.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Annotation") == :available
     :ok
@@ -974,23 +1041,25 @@ defmodule Examples.ALObjects do
   # domain and durably persisted as-is.
   example durable_construction_respects_explicit_ivar_args() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_a
         #{
           super => object,
           ivars => [#{domain => [hearts, diamonds, clubs, spades], name => suit}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_a #{suit => hearts} Obj.
         slot Obj suit Suit.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Suit") == :hearts
     :ok
@@ -1002,23 +1071,25 @@ defmodule Examples.ALObjects do
   # durable write (`build_durable_slots`, bootstrap.ex).
   example durable_construction_leaves_unspecified_domain_ivars_unset() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_b
         #{
           super => object,
           ivars => [#{domain => [hearts, diamonds, clubs, spades], name => suit}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_b #{} Obj.
         findall [K, V] Slots (slot Obj K V).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Slots") == []
     :ok
@@ -1029,22 +1100,24 @@ defmodule Examples.ALObjects do
   # fails the bind, not a later check).
   example durable_construction_rejects_out_of_domain_args() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_c
         #{
           super => object,
           ivars => [#{domain => [hearts, diamonds, clubs, spades], name => suit}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_c #{suit => not_a_real_suit} _Obj.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -1057,20 +1130,22 @@ defmodule Examples.ALObjects do
   # -- this checks the instance's own row has no such key at all).
   example durable_construction_leaves_unspecified_bare_ivars_unset() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_bare
         #{super => object, ivars => [#{name => legs}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_bare #{} Obj.
         findall [K, V] Slots (slot Obj K V).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Slots") == []
     :ok
@@ -1078,20 +1153,22 @@ defmodule Examples.ALObjects do
 
   example durable_construction_leaves_unspecified_typed_ivars_unset() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_typed
         #{super => object, ivars => [#{name => count, type => number}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_typed #{} Obj.
         findall [K, V] Slots (slot Obj K V).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Slots") == []
     :ok
@@ -1099,30 +1176,33 @@ defmodule Examples.ALObjects do
 
   example durable_construction_uses_default_when_unsupplied() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_defaulted
         #{super => object, ivars => [#{default => 0, name => count, type => number}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_defaulted #{} Obj.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Count") == 0
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_defaulted #{count => 5} Obj.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$Count") == 5
     :ok
@@ -1130,15 +1210,16 @@ defmodule Examples.ALObjects do
 
   example value_construction_allows_open_var_default() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @value_ivar_open_default
         #{super => value, ivars => [#{default => Placeholder, name => tag}]}.
 
         new value_ivar_open_default #{} Obj.
         get Obj tag Tag.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     refute AL.Var.var?(Map.get(bindings, "$Obj"))
     assert AL.Var.var?(Map.get(bindings, "$Tag"))
@@ -1153,8 +1234,8 @@ defmodule Examples.ALObjects do
   # went through the child.
   example durable_construction_inherits_ancestor_ivar_specs() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_ivar_parent
         #{
           super => object,
@@ -1163,39 +1244,43 @@ defmodule Examples.ALObjects do
 
         @durable_ivar_child
         #{super => durable_ivar_parent, ivars => [#{default => 0, name => count, type => number}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_child #{} Obj.
         get Obj suit Suit.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Suit") == :hearts
     assert Map.get(bindings, "$Count") == 0
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_child #{count => 3, suit => diamonds} Obj.
         get Obj suit Suit.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$Suit") == :diamonds
     assert Map.get(bindings2, "$Count") == 3
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new durable_ivar_child #{suit => not_a_real_suit} _Obj.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -1206,8 +1291,8 @@ defmodule Examples.ALObjects do
   # instead of a durable object id.
   example value_construction_inherits_ancestor_ivar_specs() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @value_ivar_parent
         #{
           super => value,
@@ -1220,30 +1305,33 @@ defmodule Examples.ALObjects do
         new value_ivar_child #{} Obj.
         get Obj suit Suit.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Suit") == :hearts
     assert Map.get(bindings, "$Count") == 0
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new value_ivar_child #{count => 3, suit => diamonds} Obj.
         get Obj suit Suit.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$Suit") == :diamonds
     assert Map.get(bindings2, "$Count") == 3
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new value_ivar_child #{suit => not_a_real_suit} _Obj.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -1253,8 +1341,8 @@ defmodule Examples.ALObjects do
   # immediately, no restart.
   example dispatch_strategy_flag_selects_bfs_or_dfs() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class dsp_deep object.
 
         dsp_deep >> trait
@@ -1268,17 +1356,19 @@ defmodule Examples.ALObjects do
         vm_set_super dsp_leaf dsp_branch_a.
         vm_set_super dsp_leaf dsp_branch_b.
         vm_set_class dsp_instance dsp_leaf.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     # default: depth-first — dives into branch_a's ancestor before ever
     # trying branch_b
     {:atomic, {b1, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         trait dsp_instance T.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b1, "$T") == :deep_trait
 
@@ -1286,24 +1376,26 @@ defmodule Examples.ALObjects do
     # same instance now resolves via its direct sibling before its deeper
     # ancestor
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_slot dsp_leaf dispatch_strategy bfs.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {b2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         trait dsp_instance T.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(b2, "$T") == :branch_b_trait
 
     {:atomic, {changed, _, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         trait dsp_instance Before.
         vm_set_slot dsp_instance scratch 1.
         trait dsp_instance Unchanged.
@@ -1311,8 +1403,9 @@ defmodule Examples.ALObjects do
         trait dsp_instance Default.
         vm_set_slot dsp_leaf dispatch_strategy bfs.
         trait dsp_instance Again.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.map(["$Before", "$Unchanged", "$Default", "$Again"], &changed[&1]) ==
              [:branch_b_trait, :branch_b_trait, :deep_trait, :branch_b_trait]
@@ -1322,8 +1415,8 @@ defmodule Examples.ALObjects do
 
   example shared_ancestor_kahns() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @mix_super_3
         #{super => object}.
 
@@ -1345,8 +1438,9 @@ defmodule Examples.ALObjects do
         vm_set_super mix_class mix_super_2.
         new mix_class #{name => mix_obj} _.
         flavour mix_obj Flavour.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Flavour") == :chocolate
 
@@ -1357,11 +1451,12 @@ defmodule Examples.ALObjects do
     shared_ancestor_kahns()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         inheritance_chain mix_obj Chain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Chain") == [
              :mix_obj,
@@ -1377,8 +1472,8 @@ defmodule Examples.ALObjects do
   # atom itself must not also resolve them.
   example class_atom_does_not_resolve_its_own_instance_methods() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @class_scope_probe
         #{super => object}.
 
@@ -1388,17 +1483,19 @@ defmodule Examples.ALObjects do
         new class_scope_probe Instance.
         probe Instance hit.
         = Worked true.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Worked") == true
 
     {status, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         probe class_scope_probe hit.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert status == :aborted
     :ok
@@ -1409,8 +1506,8 @@ defmodule Examples.ALObjects do
     cache_table = AL.ResolutionCache.table(:durable_classes, fork)
 
     {:atomic, _} =
-      run branch: fork.id do
-        ~AL"""
+      run(
+        ~S"""
         @lazy_only_class
         #{super => object}.
 
@@ -1418,27 +1515,30 @@ defmodule Examples.ALObjects do
         | _Self found |.
 
         new lazy_only_class #{name => lazy_only_object} _.
-        """
-      end
+        """,
+        branch: fork.id
+      )
 
     assert :mnesia.dirty_read(cache_table, :value) == []
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: fork.id do
-        ~AL"""
+      run(
+        ~S"""
         factorial X 1.
-        """
-      end
+        """,
+        branch: fork.id
+      )
 
     assert Map.get(bindings, "$X") == 1
     assert :mnesia.dirty_read(cache_table, :value) == []
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: fork.id do
-        ~AL"""
+      run(
+        ~S"""
         only_here O R.
-        """
-      end
+        """,
+        branch: fork.id
+      )
 
     assert AL.Var.var?(Map.get(bindings2, "$O"))
     assert Map.get(bindings2, "$R") == :found
@@ -1452,8 +1552,8 @@ defmodule Examples.ALObjects do
   # wrong-class bind either way, not just on a direct unify.
   example isa_constraint_rejects_a_wrong_durable_class() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @isa_durable_class_a
         #{super => object}.
 
@@ -1468,34 +1568,38 @@ defmodule Examples.ALObjects do
 
         new isa_durable_class_a #{name => isa_durable_instance_a} _.
         new isa_durable_class_b #{name => isa_durable_instance_b} _.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa X isa_durable_class_a.
         = X isa_durable_instance_b.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa X isa_durable_class_a.
         = X isa_durable_instance_a.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$X") == :isa_durable_instance_a
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa O isa_durable_class_a.
         findall O Os {isa_durable_probe O O, label O}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$Os") == [:isa_durable_instance_a]
   end

@@ -4,19 +4,25 @@ defmodule Bench.Fibonacci do
   use AL
 
   def forward(branch, n) do
-    run branch: branch.id, trace: [] do
-      ~AL"""
-      fibonacci ^n Out.
-      """
-    end
+    run(
+      ~S"""
+      fibonacci HostN Out.
+      """,
+      branch: branch.id,
+      trace: [],
+      bindings: %{"HostN" => n}
+    )
   end
 
   def backward(branch, target) do
-    run branch: branch.id, trace: [] do
-      ~AL"""
-      fibonacci N ^target.
-      """
-    end
+    run(
+      ~S"""
+      fibonacci N HostTarget.
+      """,
+      branch: branch.id,
+      trace: [],
+      bindings: %{"HostTarget" => target}
+    )
   end
 
   def check_forward(result, n) do

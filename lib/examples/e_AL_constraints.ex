@@ -15,9 +15,9 @@ defmodule Examples.ALConstraints do
     pid = self()
 
     {:atomic, {_bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => constant_subscriber, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => constant_subscriber, pid => HostPid} _.
 
         constant_subscriber >> cell_updated
         | Self Cell Domain |
@@ -37,19 +37,22 @@ defmodule Examples.ALConstraints do
         | _Self [] 2 |.
 
         cut.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostPid" => pid}
+      )
 
     # A subscriber only ever gets *future* changes, per how propagators work
     # (no replay of history) — so if :x was already settled by an earlier
     # invocation this session, no notify will fire and we just read it
     # directly instead of waiting on one.
     slot_result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot x domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     domain =
       case slot_result do
@@ -67,11 +70,12 @@ defmodule Examples.ALConstraints do
     assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot x domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Domain") == %{class: :mapset_value, elems: %{2 => true}}
 
@@ -84,9 +88,9 @@ defmodule Examples.ALConstraints do
     pid = self()
 
     {:atomic, {_bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => inc_subscriber, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => inc_subscriber, pid => HostPid} _.
 
         inc_subscriber >> cell_updated
         | Self Cell Domain |
@@ -105,15 +109,18 @@ defmodule Examples.ALConstraints do
         Propagator >> constrain
         | _Self [XVal] YVal |
         = YVal (+ 1 XVal).
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostPid" => pid}
+      )
 
     slot_result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot y domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     domain =
       case slot_result do
@@ -131,11 +138,12 @@ defmodule Examples.ALConstraints do
     assert domain == %{class: :mapset_value, elems: %{3 => true}}
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot y domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Domain") == %{class: :mapset_value, elems: %{3 => true}}
 
@@ -146,11 +154,12 @@ defmodule Examples.ALConstraints do
     inc()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         dependents x Dependents.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     dependents = Map.get(bindings, "$Dependents")
 
@@ -163,9 +172,9 @@ defmodule Examples.ALConstraints do
     pid = self()
 
     {:atomic, {_bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => bidirectional_adder_subscriber, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => bidirectional_adder_subscriber, pid => HostPid} _.
 
         bidirectional_adder_subscriber >> cell_updated
         | Self Cell Domain |
@@ -201,15 +210,18 @@ defmodule Examples.ALConstraints do
         new mapset_value #{elems => [5]} Five.
         send_async B constrain [Three].
         send_async C constrain [Five].
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostPid" => pid}
+      )
 
     slot_result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot a domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     domain =
       case slot_result do
@@ -227,11 +239,12 @@ defmodule Examples.ALConstraints do
     assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot a domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Domain") == %{class: :mapset_value, elems: %{2 => true}}
 
@@ -242,11 +255,12 @@ defmodule Examples.ALConstraints do
     bidirectional_adder()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         dependents a Dependents.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     dependents = Map.get(bindings, "$Dependents")
 
@@ -259,9 +273,9 @@ defmodule Examples.ALConstraints do
     pid = self()
 
     {:atomic, {_bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => interval_subscriber, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => interval_subscriber, pid => HostPid} _.
 
         interval_subscriber >> cell_updated
         | Self Cell Domain |
@@ -293,15 +307,18 @@ defmodule Examples.ALConstraints do
         new interval_value #{hi => 8, lo => 3} IntervalB.
         send_async Ia constrain [IntervalA].
         send_async Ib constrain [IntervalB].
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostPid" => pid}
+      )
 
     slot_result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot ic domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     domain =
       case slot_result do
@@ -319,11 +336,12 @@ defmodule Examples.ALConstraints do
     assert domain == %{class: :interval_value, lo: 4, hi: 13}
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         slot ic domain Domain.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Domain") == %{class: :interval_value, lo: 4, hi: 13}
 

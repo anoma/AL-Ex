@@ -11,7 +11,7 @@ defmodule AL.JAM.IR.Program do
   def lower(%__MODULE__{} = program), do: program
 
   def lower(goals) when is_list(goals) do
-    {entry, {blocks, _}} = build(goals, 0, {%{0 => %Block{id: 0}}, 1})
+    {entry, {blocks, _}} = lower_goals(goals, 0, {%{0 => %Block{id: 0}}, 1})
     %__MODULE__{entry: entry, blocks: blocks}
   end
 
@@ -21,44 +21,46 @@ defmodule AL.JAM.IR.Program do
     end)
   end
 
-  defp build(goals, next, state) do
-    Enum.reduce(Enum.reverse(goals), {next, state}, fn goal, {next, state} ->
-      operation = IR.lower(goal)
+  defp lower_goals(goals, next, state) do
+    Enum.reduce(Enum.reverse(goals), {next, state}, &lower_goal/2)
+  end
 
-      case operation do
-        %IR{kind: :branch, args: [left, right]} ->
-          {left, state} = build(left, next, state)
-          {right, state} = build(right, next, state)
-          insert([], {:choice, left, right, next}, state)
+  defp lower_goal(goal, {next, state}) do
+    operation = IR.lower(goal)
 
-        %IR{kind: :condition, args: [condition, yes, no]} ->
-          {condition_return, state} = insert([], :yield, state)
-          {condition, state} = build(condition, condition_return, state)
-          {yes, state} = build(yes, next, state)
-          {no, state} = build(no, next, state)
-          insert([], {:condition, condition, yes, no, next}, state)
+    case operation do
+      %IR{kind: :branch, args: [left, right]} ->
+        {left, state} = lower_goals(left, next, state)
+        {right, state} = lower_goals(right, next, state)
+        insert([], {:choice, left, right, next}, state)
 
-        %IR{kind: kind} when kind in [:send, :invoke] ->
-          insert([], {:call, operation, next}, state)
+      %IR{kind: :condition, args: [condition, yes, no]} ->
+        {condition_return, state} = insert([], :yield, state)
+        {condition, state} = lower_goals(condition, condition_return, state)
+        {yes, state} = lower_goals(yes, next, state)
+        {no, state} = lower_goals(no, next, state)
+        insert([], {:condition, condition, yes, no, next}, state)
 
-        %IR{kind: :scope} ->
-          operation = %{
-            operation
-            | regions: Map.new(operation.regions, fn {k, v} -> {k, lower(v)} end)
-          }
+      %IR{kind: kind} when kind in [:send, :invoke] ->
+        insert([], {:call, operation, next}, state)
 
-          insert([], {:execute, operation, next}, state)
+      %IR{kind: :scope} ->
+        operation = %{
+          operation
+          | regions: Map.new(operation.regions, fn {k, v} -> {k, lower(v)} end)
+        }
 
-        %IR{kind: :direct, name: :fail} ->
-          insert([], :fail, state)
+        insert([], {:execute, operation, next}, state)
 
-        %IR{kind: :unsupported} ->
-          insert([], {:execute, operation, next}, state)
+      %IR{kind: :direct, name: :fail} ->
+        insert([], :fail, state)
 
-        _ ->
-          insert([operation], {:jump, next}, state)
-      end
-    end)
+      %IR{kind: :unsupported} ->
+        insert([], {:execute, operation, next}, state)
+
+      _ ->
+        insert([operation], {:jump, next}, state)
+    end
   end
 
   defp insert(operations, exit, {blocks, id}),

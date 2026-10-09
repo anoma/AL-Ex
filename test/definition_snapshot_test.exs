@@ -6,7 +6,7 @@ defmodule AL.DefinitionSnapshotTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @snapshot_probe #{super => value}.
                snapshot_probe >> answer

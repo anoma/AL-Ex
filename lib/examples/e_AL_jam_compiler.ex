@@ -3,7 +3,7 @@ defmodule Examples.ALJAMCompiler do
   import ExUnit.Assertions
 
   defp evaluate(source, options \\ []),
-    do: AL.eval_source(source, %AL.Branch{id: Examples.Support.branch()}, options)
+    do: AL.run(source, %AL.Branch{id: Examples.Support.branch()}, options)
 
   example transaction_context_survives_calls_mutations_and_collections() do
     source = ~S"""
@@ -541,16 +541,16 @@ defmodule Examples.ALJAMCompiler do
     branch = AL.Branch.fork(:tip, %AL.Branch{id: Examples.Support.branch()})
 
     try do
-      {:atomic, _} = AL.eval_source(source, branch)
+      {:atomic, _} = AL.run(source, branch)
 
       {:atomic, {bindings, _, state}} =
-        AL.eval_source("exercise jam_mutation_target Values.", branch)
+        AL.run("exercise jam_mutation_target Values.", branch)
 
       assert bindings["$Values"] == [2, 3]
-      assert {:aborted, _} = AL.eval_source("abort_write jam_mutation_target.", branch)
+      assert {:aborted, _} = AL.run("abort_write jam_mutation_target.", branch)
 
       {:atomic, {afterwards, _, _}} =
-        AL.eval_source("get jam_mutation_target count Value.", branch)
+        AL.run("get jam_mutation_target count Value.", branch)
 
       assert afterwards["$Value"] == 4
 
@@ -667,7 +667,7 @@ defmodule Examples.ALJAMCompiler do
       for branch <- [parent, child] do
         source = "inspect \#{class => jam_branch_reader} Result."
 
-        {:atomic, {actual, _, _}} = AL.eval_source(source, branch)
+        {:atomic, {actual, _, _}} = AL.run(source, branch)
         [id, keys, parents, children] = actual["$Result"]
         assert id == branch.id
         assert :system_time in keys

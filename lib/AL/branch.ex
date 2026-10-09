@@ -75,7 +75,7 @@ defmodule AL.Branch do
   Non-destructive; doesn't touch `:main` or HEAD.
 
       branch = AL.Branch.fork_fresh()
-      run branch: branch.id do ... end
+      AL.run(source, branch: branch.id)
       AL.Branch.discard(branch)
   """
   @spec fork_fresh(t(), atom() | nil) :: t()
@@ -199,7 +199,7 @@ defmodule AL.Branch do
 
   def on(id, fun), do: fun.(%__MODULE__{id: id})
 
-  @doc "Check out a branch (Git HEAD-style): `run do ... end` now acts against it."
+  @doc "Check out a branch (Git HEAD-style): `AL.run(source)` now acts against it."
   @spec checkout(AL.Branch.t()) :: :ok
   def checkout(branch), do: set_head(branch)
 

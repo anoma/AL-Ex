@@ -6,7 +6,7 @@ defmodule AL.ProviderInvalidationTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @provider_a
                #{super => object}.
@@ -54,14 +54,14 @@ defmodule AL.ProviderInvalidationTest do
     assert {:ok, _, _} = target(receiver, :extra, branch)
     rows = cache({:instance, :provider_a}, branch)
     assert [{:providers, _, %{identify: [_ | _], extra: [_ | _]}}] = rows
-    assert {:atomic, _} = AL.eval_source("= X 1.", branch)
+    assert {:atomic, _} = AL.run("= X 1.", branch)
     assert cache({:instance, :provider_a}, branch) == rows
     assert {:ok, _, _} = target(receiver, :extra, branch)
   end
 
   test "class replacement invalidates the receiver within the same query", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                identify provider_probe Before,
                vm_retract_class provider_probe provider_a,
@@ -79,18 +79,18 @@ defmodule AL.ProviderInvalidationTest do
     assert :miss = target(:missing_probe, :identify, branch)
     assert {:ok, _, _} = target(%{class: :provider_a}, :identify, branch)
     rows = cache({:instance, :provider_a}, branch)
-    assert {:atomic, _} = AL.eval_source("vm_set_class missing_probe provider_a.", branch)
+    assert {:atomic, _} = AL.run("vm_set_class missing_probe provider_a.", branch)
     assert {:ok, _, _} = target(:missing_probe, :identify, branch)
     assert cache({:instance, :provider_a}, branch) == rows
   end
 
   test "wildcard class retraction invalidates all affected receivers", %{branch: branch} do
-    assert {:atomic, _} = AL.eval_source("vm_set_class provider_other provider_a.", branch)
+    assert {:atomic, _} = AL.run("vm_set_class provider_other provider_a.", branch)
 
     for receiver <- [:provider_probe, :provider_other],
         do: assert({:ok, _, _} = target(receiver, :identify, branch))
 
-    assert {:atomic, _} = AL.eval_source("vm_retract_class Object provider_a.", branch)
+    assert {:atomic, _} = AL.run("vm_retract_class Object provider_a.", branch)
 
     for receiver <- [:provider_probe, :provider_other],
         do: assert(:miss = target(receiver, :identify, branch))
@@ -101,7 +101,7 @@ defmodule AL.ProviderInvalidationTest do
     assert {:ok, _, _} = target(%{class: :provider_a}, :identify, branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                provider_a >> identify
                | _Self changed |.
@@ -112,7 +112,7 @@ defmodule AL.ProviderInvalidationTest do
              )
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                identify provider_probe X,
                identify #{class => provider_a} Y.

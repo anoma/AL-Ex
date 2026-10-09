@@ -12,8 +12,8 @@ defmodule Examples.ALNinetyNine do
 
   example butlast_composes_reverse_tl_hd() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         list >> butlast
         | Xs Butlast |
         reverse Xs Sx,
@@ -21,8 +21,9 @@ defmodule Examples.ALNinetyNine do
         hd SxTl Butlast.
 
         butlast [a, b, c, d] Result.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Result") == :c
     :ok

@@ -10,8 +10,8 @@ defmodule Examples.ALPeer do
     message = %{kind: :greeting, text: "hello", values: [1, 2, {:three, true}]}
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @observed_peer
         #{super => peer}.
 
@@ -19,7 +19,7 @@ defmodule Examples.ALPeer do
         | Self Socket Message |
         call_next_method Self Socket Message,
         = Event #{event => peer_message, message => Message, peer => Self, socket => Socket},
-        send_elixir ^pid Event.
+        send_elixir HostPid Event.
 
         new peer #{name => peer_alice, peer_name => "Alice"} Alice.
         new observed_peer #{name => peer_bob, peer_name => "Bob"} Bob.
@@ -32,22 +32,26 @@ defmodule Examples.ALPeer do
         Alice >> connection_established
         | Self Socket |
         call_next_method Self Socket,
-        send_message Self Socket ^message _.
-        """
-      end
+        send_message Self Socket HostMessage _.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostMessage" => message, "HostPid" => pid}
+      )
 
     assert_receive %{event: :peer_message, peer: :peer_bob, socket: socket, message: ^message},
                    1_000
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get peer_bob name "Bob".
-        get peer_bob messages [[^socket, ^message]].
-        get ^socket status connected.
+        get peer_bob messages [[HostSocket, HostMessage]].
+        get HostSocket status connected.
         stop peer_alice.
         stop peer_bob.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostMessage" => message, "HostSocket" => socket}
+      )
   end
 end

@@ -150,7 +150,7 @@ node and therefore see the same store and branches as GT and IEx.
 - Use `evaluate` for read-only Elixir inspection and runtime administration. It
   imports `AL` and aliases the common AL modules for each call.
 - Use `evaluateSource` for AL definitions and mutations. It calls
-  `AL.eval_source/3`, retains exactly the submitted AL text, and returns the
+  `AL.run/3`, retains exactly the submitted AL text, and returns the
   committed or failed transaction object.
 - Treat a generic `evaluate` call as live code execution. Do not use raw Mnesia
   writes or projection writes to bypass AL's transaction path.

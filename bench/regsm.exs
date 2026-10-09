@@ -32,47 +32,50 @@ defmodule Bench.Regsm do
 
   def install(branch, p) do
     {:atomic, _} =
-      run branch: branch.id, trace: [] do
-        defmethod(:number, :regsm_entry, [1, 1, 1, 0])
+      run(
+        ~S"""
+        number >> regsm_entry
+        | 1 1 1 0 |.
 
-        defmethod(:number, :regsm_entry, [x, a, b, q]) do
-          x > 1
-          a1 + b1 = q * ^p + a
-          a < ^p
-          a + 1 > 0
-          q + 1 > 0
-          b = a1
-          x1 = x - 1
-          regsm_entry(x1, a1, b1, q1)
-        end
+        number >> regsm_entry
+        | X A B Q |
+        > X 1,
+        = (+ A1 B1) (+ (* Q InputModulus) A),
+        < A InputModulus,
+        > (+ A 1) 0,
+        > (+ Q 1) 0,
+        = B A1,
+        = X1 (- X 1),
+        regsm_entry X1 A1 B1 Q1.
 
-        defmethod(:number, :regsm_body, [1, 1, 1, 0])
+        number >> regsm_body
+        | 1 1 1 0 |.
 
-        defmethod(:number, :regsm_body, [x, a, b, q]) do
-          x > 1
-          b = a1
-          x1 = x - 1
-          regsm_body(x1, a1, b1, q1)
-          a1 + b1 = q * ^p + a
-          a < ^p
-          a + 1 > 0
-          q + 1 > 0
-        end
-      end
+        number >> regsm_body
+        | X A B Q |
+        > X 1,
+        = B A1,
+        = X1 (- X 1),
+        regsm_body X1 A1 B1 Q1,
+        = (+ A1 B1) (+ (* Q InputModulus) A),
+        < A InputModulus,
+        > (+ A 1) 0,
+        > (+ Q 1) 0.
+        """,
+        branch,
+        bindings: %{"InputModulus" => p},
+        trace: []
+      )
 
     :ok
   end
 
   def entry(branch, n) do
-    run branch: branch.id, trace: [] do
-      regsm_entry(^n, out, _b, _q)
-    end
+    run("regsm_entry InputN Out _B _Q.", branch, bindings: %{"InputN" => n}, trace: [])
   end
 
   def body(branch, n) do
-    run branch: branch.id, trace: [] do
-      regsm_body(^n, out, _b, _q)
-    end
+    run("regsm_body InputN Out _B _Q.", branch, bindings: %{"InputN" => n}, trace: [])
   end
 
   def expected(n, p) do
@@ -80,8 +83,8 @@ defmodule Bench.Regsm do
   end
 
   def check!(result, n, p) do
-    {bindings, _} = Bench.Support.assert_atomic!(result)
-    got = Map.get(bindings, "$out")
+    {bindings, _constraints, _state} = Bench.Support.assert_atomic!(result)
+    got = Map.get(bindings, "$Out")
     expected = expected(n, p)
 
     if got != expected do

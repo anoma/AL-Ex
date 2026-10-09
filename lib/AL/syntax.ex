@@ -103,7 +103,7 @@ defmodule AL.Syntax do
              :vm_oapply,
              :vm_set_oapply
            ] ++ @primitives ++ AL.Goal.call_names()
-  @argument_starts ["[", "\#{", "{", "(", "^"]
+  @argument_starts ["[", "\#{", "{", "("]
 
   defguardp goal_body(node)
             when is_tuple(node) and tuple_size(node) == 4 and elem(node, 0) in [:block, :paren]
@@ -114,19 +114,17 @@ defmodule AL.Syntax do
   @spec primitive?(atom()) :: boolean()
   def primitive?(method_id), do: method_id in @primitives
 
-  @spec parse(String.t(), keyword()) :: {:ok, Result.t()} | {:error, Error.t()}
-  def parse(text, options \\ [])
-
-  def parse(text, options) when is_binary(text) do
+  @spec parse(String.t()) :: {:ok, Result.t()} | {:error, Error.t()}
+  def parse(text) when is_binary(text) do
     with :ok <- valid_text(text),
          {:ok, items} <- read(text),
          items = definitions(items),
-         {:ok, program} <- compile(items, Keyword.get(options, :pins, false)) do
+         {:ok, program} <- compile(items) do
       {:ok, %Result{program: program, captures: captures(items)}}
     end
   end
 
-  def parse(_text, _options), do: error(:parse, "source must be a UTF-8 string", nil)
+  def parse(_text), do: error(:parse, "source must be a UTF-8 string", nil)
 
   @spec parse_program(String.t()) ::
           {:ok, %{name: atom(), version: term(), deps: [atom()]}, Result.t()}
@@ -139,7 +137,7 @@ defmodule AL.Syntax do
           rest = definitions(rest)
 
           with {:ok, options} <- program_options(options, start),
-               {:ok, program} <- compile(rest, false) do
+               {:ok, program} <- compile(rest) do
             {:ok,
              %{
                name: name,
@@ -174,7 +172,7 @@ defmodule AL.Syntax do
   end
 
   defp program_options(options, start) do
-    {:ok, term(options, false)}
+    {:ok, term(options)}
   rescue
     exception in ArgumentError -> error(:parse, Exception.message(exception), start)
   end
@@ -252,7 +250,7 @@ defmodule AL.Syntax do
      %{
        kind: if(class.extend, do: :extension, else: :class),
        name: name,
-       options: term(class.options, false)
+       options: term(class.options)
      }, methods}
   rescue
     exception in ArgumentError -> {:error, Exception.message(exception)}
@@ -433,7 +431,7 @@ defmodule AL.Syntax do
   defp lex(<<one, rest::binary>>, line, column, tokens) when one in ~c"=<>+-*/",
     do: operator(rest, <<one>>, line, column, tokens)
 
-  defp lex(<<one, rest::binary>>, line, column, tokens) when one in ~c"@()[]{},|.;^",
+  defp lex(<<one, rest::binary>>, line, column, tokens) when one in ~c"@()[]{},|.;",
     do: punct(rest, <<one>>, line, column, tokens)
 
   defp lex(text, line, column, tokens) do
@@ -610,10 +608,6 @@ defmodule AL.Syntax do
 
   defp class_name([{kind, _, _, _} = name | rest], _start) when kind in [:atom, :var],
     do: {:ok, name, rest}
-
-  defp class_name([{:punct, "^", start, _}, {kind, name, _, stop} | rest], _start)
-       when kind in [:atom, :var],
-       do: {:ok, {:pin, name, start, stop}, rest}
 
   defp class_name([token | _], _start), do: unexpected(token, "a class name after @")
   defp class_name([], start), do: error(:parse, "@ needs a class name", start)
@@ -796,10 +790,6 @@ defmodule AL.Syntax do
   defp argument([{:var, name, start, stop} | rest]), do: {:ok, {:var, name, start, stop}, rest}
   defp argument([{:atom, name, start, stop} | rest]), do: {:ok, {:atom, name, start, stop}, rest}
 
-  defp argument([{:punct, "^", start, _}, {kind, name, _, stop} | rest])
-       when kind in [:atom, :var],
-       do: {:ok, {:pin, name, start, stop}, rest}
-
   defp argument([{:punct, "[", start, _} | rest]) do
     with {:ok, items, rest} <- rest |> list_items([]) |> at(start),
          [{:punct, "]", _, stop} | rest] <- rest do
@@ -903,9 +893,9 @@ defmodule AL.Syntax do
 
   defp definition_key({kind, name, _start, _stop}), do: {kind, name}
 
-  defp compile(items, pins) do
+  defp compile(items) do
     {items, _count} = items |> Enum.reject(&comment?/1) |> number_anonymous(0)
-    {:ok, Enum.map(items, &item(&1, pins))}
+    {:ok, Enum.map(items, &item(&1))}
   rescue
     exception in ArgumentError -> error(:compile, Exception.message(exception), nil)
   end
@@ -933,22 +923,22 @@ defmodule AL.Syntax do
 
   defp number_anonymous(other, count), do: {other, count}
 
-  defp item({:clear, owner, selector}, pins),
-    do: compound(:clear_method, [term(owner, pins), term(selector, pins)])
+  defp item({:clear, owner, selector}),
+    do: compound(:clear_method, [term(owner), term(selector)])
 
-  defp item({:method, method}, pins) do
+  defp item({:method, method}) do
     compound(:defmethod, [
-      term(method.owner, pins),
-      term(method.selector, pins),
-      head_term(method, pins),
-      body(method.body, pins)
+      term(method.owner),
+      term(method.selector),
+      head_term(method),
+      body(method.body)
     ])
   end
 
-  defp item({:class, %{extend: true} = class}, pins) do
+  defp item({:class, %{extend: true} = class}) do
     options =
       case class.options do
-        {:map, _, _, _} = options -> term(options, pins)
+        {:map, _, _, _} = options -> term(options)
         other -> raise ArgumentError, "@+ at #{describe(start(other))} needs a map of options"
       end
 
@@ -959,21 +949,21 @@ defmodule AL.Syntax do
         :error -> raise ArgumentError, "@+ at #{describe(class.start)} needs a super: option"
       end
 
-    compound(:extend_class, [term(class.name, pins), supers])
+    compound(:extend_class, [term(class.name), supers])
   end
 
-  defp item({:class, class}, pins) do
+  defp item({:class, class}) do
     options =
       case class.options do
         {:map, _, _, _} = options ->
-          term(options, pins)
+          term(options)
 
         other ->
           raise ArgumentError, "a class at #{describe(start(other))} needs a map of options"
       end
 
     compound(:defclass, [
-      term(class.name, pins),
+      term(class.name),
       Map.get(options, :metaclass, :class),
       Map.get(options, :super) ||
         raise(ArgumentError, "a class at #{describe(class.start)} needs a super: option"),
@@ -982,156 +972,149 @@ defmodule AL.Syntax do
     ])
   end
 
-  defp item(node, pins), do: goal(node, pins)
+  defp item(node), do: goal(node)
 
   defp compound(name, args), do: %Goal.Compound{name: name, args: args}
 
-  defp head_term(method, pins) do
-    arguments = Enum.map(method.arguments, &term(&1, pins))
+  defp head_term(method) do
+    arguments = Enum.map(method.arguments, &term(&1))
 
     case method.tail do
       nil -> arguments
-      tail -> arguments ++ term(tail, pins)
+      tail -> arguments ++ term(tail)
     end
   end
 
-  defp goal({:binary, :";", left, right, _, _}, pins),
-    do: compound(:";", [goals(left, pins), goals(right, pins)])
+  defp goal({:binary, :";", left, right, _, _}),
+    do: compound(:";", [goals(left), goals(right)])
 
-  defp goal({:binary, :->, condition, then, _, _}, pins),
-    do: compound(:->, [goals(condition, pins), goals(then, pins)])
+  defp goal({:binary, :->, condition, then, _, _}),
+    do: compound(:->, [goals(condition), goals(then)])
 
-  defp goal({:paren, inner, _, _}, pins), do: goal(inner, pins)
-  defp goal({:atom, name, _, _}, _pins), do: compound(name, [])
-  defp goal({:call, name, arguments, start, _}, pins), do: call(name, arguments, start, pins)
-  defp goal({:var, _, _, _} = variable, pins), do: term(variable, pins)
+  defp goal({:paren, inner, _, _}), do: goal(inner)
+  defp goal({:atom, name, _, _}), do: compound(name, [])
+  defp goal({:call, name, arguments, start, _}), do: call(name, arguments, start)
+  defp goal({:var, _, _, _} = variable), do: term(variable)
 
-  defp goal({:block, _, start, _}, _pins),
+  defp goal({:block, _, start, _}),
     do: raise(ArgumentError, "a block at #{describe(start)} is not a goal on its own")
 
-  defp goal(node, _pins), do: raise(ArgumentError, "expected a goal at #{describe(start(node))}")
+  defp goal(node), do: raise(ArgumentError, "expected a goal at #{describe(start(node))}")
 
-  defp call(:defmethod, [class, selector, head, block], _start, pins)
+  defp call(:defmethod, [class, selector, head, block], _start)
        when goal_body(block),
        do:
          compound(:defmethod, [
-           term(class, pins),
-           term(selector, pins),
-           term(head, pins),
-           goals(block, pins)
+           term(class),
+           term(selector),
+           term(head),
+           goals(block)
          ])
 
-  defp call(:findnsols, [count, template, result, block], _start, pins)
+  defp call(:findnsols, [count, template, result, block], _start)
        when goal_body(block),
        do:
          compound(:findnsols, [
-           term(count, pins),
-           term(template, pins),
-           term(result, pins),
-           goals(block, pins)
+           term(count),
+           term(template),
+           term(result),
+           goals(block)
          ])
 
-  defp call(:findall, [template, result, block], _start, pins)
+  defp call(:findall, [template, result, block], _start)
        when goal_body(block),
-       do: compound(:findall, [term(template, pins), term(result, pins), goals(block, pins)])
+       do: compound(:findall, [term(template), term(result), goals(block)])
 
-  defp call(:forall, [condition, block], _start, pins)
+  defp call(:forall, [condition, block], _start)
        when goal_body(block),
-       do: compound(:forall, [goals(condition, pins), goals(block, pins)])
+       do: compound(:forall, [goals(condition), goals(block)])
 
-  defp call(:not, [condition], _start, pins), do: compound(:not, [goals(condition, pins)])
+  defp call(:not, [condition], _start), do: compound(:not, [goals(condition)])
 
-  defp call(:lambda, [arguments, method, block], _start, pins)
+  defp call(:lambda, [arguments, method, block], _start)
        when goal_body(block),
-       do: compound(:lambda, [term(arguments, pins), term(method, pins), goals(block, pins)])
+       do: compound(:lambda, [term(arguments), term(method), goals(block)])
 
-  defp call(:spawn, [block], start, pins)
+  defp call(:spawn, [block], start)
        when goal_body(block) do
-    case goals(block, pins) do
+    case goals(block) do
       [] -> raise ArgumentError, "spawn at #{describe(start)} requires at least one goal"
       goals -> compound(:spawn, [goals])
     end
   end
 
-  defp call(:await, [effect, {:list, _, _, _} = head, block], start, pins)
+  defp call(:await, [effect, {:list, _, _, _} = head, block], start)
        when goal_body(block) do
-    case goals(block, pins) do
+    case goals(block) do
       [] -> raise ArgumentError, "await at #{describe(start)} requires at least one goal"
-      goals -> compound(:await, [term(effect, pins), term(head, pins), goals])
+      goals -> compound(:await, [term(effect), term(head), goals])
     end
   end
 
-  defp call(:vm_source_scope, [capture_id, block], _start, pins)
+  defp call(:vm_source_scope, [capture_id, block], _start)
        when goal_body(block),
-       do: compound(:vm_source_scope, [term(capture_id, pins), goals(block, pins)])
+       do: compound(:vm_source_scope, [term(capture_id), goals(block)])
 
-  defp call(:freeze, [variable, goals], _start, pins),
-    do: compound(:freeze, [term(variable, pins), goals(goals, pins)])
+  defp call(:freeze, [variable, goals], _start),
+    do: compound(:freeze, [term(variable), goals(goals)])
 
-  defp call(:call, [head, body, args], _start, pins),
-    do: compound(:call, [term(head, pins), goals(body, pins), term(args, pins)])
+  defp call(:call, [head, body, args], _start),
+    do: compound(:call, [term(head), goals(body), term(args)])
 
-  defp call(:vm_set_oapply, [object, head, body], _start, pins),
-    do: compound(:vm_set_oapply, [term(object, pins), term(head, pins), goals(body, pins)])
+  defp call(:vm_set_oapply, [object, head, body], _start),
+    do: compound(:vm_set_oapply, [term(object), term(head), goals(body)])
 
-  defp call(:vm_set_oapply, [object, seq, head, body], _start, pins),
+  defp call(:vm_set_oapply, [object, seq, head, body], _start),
     do:
       compound(:vm_set_oapply, [
-        term(object, pins),
-        term(seq, pins),
-        term(head, pins),
-        goals(body, pins)
+        term(object),
+        term(seq),
+        term(head),
+        goals(body)
       ])
 
-  defp call(name, arguments, _start, pins),
-    do: compound(name, Enum.map(arguments, &term(&1, pins)))
+  defp call(name, arguments, _start),
+    do: compound(name, Enum.map(arguments, &term(&1)))
 
-  defp body(nil, _pins), do: []
+  defp body(nil), do: []
 
-  defp body(items, pins) when is_list(items) do
+  defp body(items) when is_list(items) do
     Enum.map(items, fn
       {:comment, text, _, _} -> compound(:comment, [text])
-      item -> goal(item, pins)
+      item -> goal(item)
     end)
   end
 
-  defp body({:block, items, _, _}, pins), do: body(items, pins)
+  defp body({:block, items, _, _}), do: body(items)
 
-  defp goals({:block, _, _, _} = block, pins), do: body(block, pins)
-  defp goals({:var, _, _, _} = variable, pins), do: term(variable, pins)
-  defp goals({:pin, _, _, _} = pin, pins), do: term(pin, pins)
-  defp goals({:paren, inner, _, _}, pins), do: goals(inner, pins)
-  defp goals(node, pins), do: [goal(node, pins)]
+  defp goals({:block, _, _, _} = block), do: body(block)
+  defp goals({:var, _, _, _} = variable), do: term(variable)
+  defp goals({:paren, inner, _, _}), do: goals(inner)
+  defp goals(node), do: [goal(node)]
 
-  defp term({:literal, value, _, _}, _pins), do: value
-  defp term({:atom, value, _, _}, _pins), do: value
-  defp term({:var, name, _, _}, _pins), do: AL.Var.var(name)
+  defp term({:literal, value, _, _}), do: value
+  defp term({:atom, value, _, _}), do: value
+  defp term({:var, name, _, _}), do: AL.Var.var(name)
 
-  defp term({:paren, {:atom, name, _, _}, _, _}, _pins), do: compound(name, [])
+  defp term({:paren, {:atom, name, _, _}, _, _}), do: compound(name, [])
 
-  defp term({:paren, inner, _, _}, pins), do: term(inner, pins)
-  defp term({:block, _, _, _} = block, pins), do: body(block, pins)
+  defp term({:paren, inner, _, _}), do: term(inner)
+  defp term({:block, _, _, _} = block), do: body(block)
 
-  defp term({:list, items, _, _}, pins) do
+  defp term({:list, items, _, _}) do
     case Enum.split(items, -1) do
-      {init, [{:tail, tail}]} -> Enum.map(init, &term(&1, pins)) ++ term(tail, pins)
-      _ -> Enum.map(items, &term(&1, pins))
+      {init, [{:tail, tail}]} -> Enum.map(init, &term(&1)) ++ term(tail)
+      _ -> Enum.map(items, &term(&1))
     end
   end
 
-  defp term({:map, entries, _, _}, pins),
-    do: Map.new(entries, fn {key, value} -> {term(key, pins), term(value, pins)} end)
+  defp term({:map, entries, _, _}),
+    do: Map.new(entries, fn {key, value} -> {term(key), term(value)} end)
 
-  defp term({:binary, op, _, _, _, _} = node, pins) when op in [:";", :->],
-    do: goal(node, pins)
+  defp term({:binary, op, _, _, _, _} = node) when op in [:";", :->],
+    do: goal(node)
 
-  defp term({:call, _, _, _, _} = node, pins), do: goal(node, pins)
-
-  defp term({:pin, name, start, _}, pins) do
-    if pins,
-      do: {:unquote, [], [{name, [], nil}]},
-      else: raise(ArgumentError, "^#{name} at #{describe(start)} is only valid in ~AL")
-  end
+  defp term({:call, _, _, _, _} = node), do: goal(node)
 
   defp captures(items) do
     {captures, _ordinal} =

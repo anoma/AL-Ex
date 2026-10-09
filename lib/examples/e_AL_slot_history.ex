@@ -27,7 +27,7 @@ defmodule Examples.ALSlotHistory do
 
     try do
       {:atomic, _} =
-        AL.eval_source(
+        AL.run(
           ~S"""
           vm_set_slot current_slots_probe count 1.
           vm_set_slot current_slots_probe other kept.
@@ -51,13 +51,13 @@ defmodule Examples.ALSlotHistory do
           assert {:atomic, {^current, ^history}} = inspect_slots.(child)
 
           assert {:aborted, _} =
-                   AL.eval_source(
+                   AL.run(
                      "vm_set_slot current_slots_probe count 999, fail.",
                      child
                    )
 
           assert {:atomic, {^current, ^history}} = inspect_slots.(child)
-          {:atomic, _} = AL.eval_source("vm_set_slot current_slots_probe count 4.", child)
+          {:atomic, _} = AL.run("vm_set_slot current_slots_probe count 4.", child)
           {:atomic, {[{:slots, :current_slots_probe, %{count: 4}}], _}} = inspect_slots.(child)
           assert {:atomic, {^current, ^history}} = inspect_slots.(parent)
         after
@@ -71,8 +71,8 @@ defmodule Examples.ALSlotHistory do
 
   example slot_history_finds_every_value_a_slot_has_held() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @history_probe
         #{super => object, ivars => [#{name => count}]}.
 
@@ -81,8 +81,9 @@ defmodule Examples.ALSlotHistory do
         set_slot Obj count 2.
         set_slot Obj count 3.
         slot_history Obj count Values.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Values") == [1, 2, 3]
     :ok
@@ -95,8 +96,8 @@ defmodule Examples.ALSlotHistory do
   # is what makes that true, not an accident of how few writes happened.
   example slot_history_collapses_repeats_from_unrelated_key_changes() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @history_probe_unrelated
         #{super => object, ivars => [#{name => count}, #{name => other}]}.
 
@@ -105,8 +106,9 @@ defmodule Examples.ALSlotHistory do
         set_slot Obj other a.
         set_slot Obj other b.
         slot_history Obj count Values.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Values") == [1]
     :ok
@@ -126,8 +128,8 @@ defmodule Examples.ALSlotHistory do
   # avoids it entirely instead).
   example slot_at_ground_time_finds_the_value_in_effect_at_the_boundary() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @clp_boundary_probe
         #{super => object, ivars => [#{name => count}]}.
 
@@ -138,8 +140,9 @@ defmodule Examples.ALSlotHistory do
         label T1.
         = Boundary (+ T1 1).
         vm_slot_at Obj count VAtBoundary Boundary.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$VAtBoundary") == 2
     :ok
@@ -158,8 +161,8 @@ defmodule Examples.ALSlotHistory do
   # together, same as it would for any other two already-bounded vars.
   example slot_at_open_time_posts_a_real_upper_bound() do
     result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @clp_upper_bound_probe
         #{super => object, ivars => [#{name => count}]}.
 
@@ -169,8 +172,9 @@ defmodule Examples.ALSlotHistory do
         vm_slot_at Obj count 1 T.
         vm_slot_at Obj count 2 T2.
         >= T T2.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert {:aborted, _} = result
     :ok

@@ -482,10 +482,6 @@ defmodule AL.Syntax.Printer do
 
   defp term(%Goal.Compound{} = compound, indent, context), do: goal(compound, indent, context)
 
-  defp term({:unquote, _, [{name, _, context}]}, _indent, _context)
-       when is_atom(name) and is_atom(context),
-       do: "^#{name}"
-
   defp term(%Goal.OApply{method_id: method_id, args: []} = goal, indent, context)
        when is_atom(method_id) do
     if AL.Var.var?(method_id) or Syntax.reserved?(method_id) or

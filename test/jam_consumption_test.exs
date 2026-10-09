@@ -54,7 +54,7 @@ defmodule AL.JAM.ConsumptionTest do
     assert answers(branch, :blanks, ~c"  x", ~c" x") == [~c" x"]
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(~S"gap #{class => al_grammar} Input [].", branch)
+             AL.run(~S"gap #{class => al_grammar} Input [].", branch)
 
     assert bindings["$Input"] == [32]
   end
@@ -63,7 +63,7 @@ defmodule AL.JAM.ConsumptionTest do
     branch: branch
   } do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @return_probe
                #{super => value}.
@@ -95,7 +95,7 @@ defmodule AL.JAM.ConsumptionTest do
     branch: branch
   } do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @consume_probe #{super => value}.
                consume_probe >> repeat
@@ -118,7 +118,7 @@ defmodule AL.JAM.ConsumptionTest do
     assert %Scan{} = compiled
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                defmethod consume_probe one [_Self, [65 . Rest], Rest] {}.
                """,
@@ -129,7 +129,7 @@ defmodule AL.JAM.ConsumptionTest do
     assert is_nil(plan(branch, :repeat, receiver))
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                consume_probe >> one
                | _Self [65 . Rest] Rest |

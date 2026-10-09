@@ -13,8 +13,8 @@ defmodule Examples.ALDefclass do
 
   example defclass_declares_class_imports_and_methods() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new category #{name => widget_behaviour} _.
 
         widget_behaviour >> describe
@@ -35,8 +35,9 @@ defmodule Examples.ALDefclass do
         new widget #{label => ok} W.
         send W label [L].
         describe W Kind.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$L") == :ok
     assert Map.get(bindings, "$Kind") == :a_widget
@@ -46,15 +47,16 @@ defmodule Examples.ALDefclass do
   # metaclass defaults to :class — same as new(:class, %{...}, _) by hand.
   example defclass_defaults_metaclass_to_class() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @durable_thing
         #{super => object}.
 
         new durable_thing Instance.
         class Instance Class.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Class") == :durable_thing
     assert is_atom(Map.get(bindings, "$Instance"))
@@ -65,8 +67,8 @@ defmodule Examples.ALDefclass do
   # per-instance construction.
   example defclass_supports_metaclass_override() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @singleton_thing
         #{super => object, metaclass => object}.
 
@@ -74,8 +76,9 @@ defmodule Examples.ALDefclass do
         | Self pong |.
 
         ping singleton_thing Reply.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Reply") == :pong
     :ok
@@ -83,8 +86,8 @@ defmodule Examples.ALDefclass do
 
   example custom_metaclass_keeps_instance_side_methods_off_the_class() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @side_meta
         #{super => class}.
 
@@ -100,8 +103,9 @@ defmodule Examples.ALDefclass do
         new sided_thing Instance.
         findall R OnClass (describe sided_thing R).
         findall R OnInstance (describe Instance R).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$OnClass") == [:class_side]
     assert Map.get(bindings, "$OnInstance") == [:instance_side]
@@ -115,8 +119,8 @@ defmodule Examples.ALDefclass do
   # now branches on `class(super, :list)` and writes one fact per element.
   example defclass_supports_multiple_supers() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @multi_super_a
         #{super => object}.
 
@@ -136,8 +140,9 @@ defmodule Examples.ALDefclass do
         from_a Instance Av.
         from_b Instance Bv.
         findall S Supers (super multi_super_child S).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Av") == :a_val
     assert Map.get(bindings, "$Bv") == :b_val
@@ -151,8 +156,8 @@ defmodule Examples.ALDefclass do
   # defining any of them, so both survive.
   example defclass_supports_multiple_clauses_on_one_selector() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @multi_clause_thing
         #{super => object}.
 
@@ -165,8 +170,9 @@ defmodule Examples.ALDefclass do
         new multi_clause_thing Instance.
         pick Instance a R1.
         pick Instance b R2.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$R1") == :first
     assert Map.get(bindings, "$R2") == :second
@@ -175,8 +181,8 @@ defmodule Examples.ALDefclass do
 
   example defclass_supports_bodyless_methods() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @bodyless_thing
         #{super => value}.
 
@@ -185,8 +191,9 @@ defmodule Examples.ALDefclass do
 
         new bodyless_thing X.
         = X 42.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$X") == 42
     :ok
@@ -194,39 +201,42 @@ defmodule Examples.ALDefclass do
 
   example defclass_rejects_bare_ivar_names() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @bare_ivar_probe
         #{super => object, ivars => [count]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @named_ivar_probe
         #{super => object, ivars => [#{name => count}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example redeclaring_a_class_replaces_its_declaration() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_probe_b
         #{super => object}.
 
         redef_probe_b >> generation
         | Self first |.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_probe_b
         #{super => value}.
 
@@ -236,8 +246,9 @@ defmodule Examples.ALDefclass do
         findall S Supers (super redef_probe_b S).
         new redef_probe_b Obj.
         generation Obj G.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Supers") == [:value]
     assert Map.get(bindings, "$G") == :second
@@ -246,31 +257,34 @@ defmodule Examples.ALDefclass do
 
   example renewing_a_named_instance_resets_its_slots() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_probe_c
         #{super => object, ivars => [#{default => 0, name => count, type => number}]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings1, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new redef_probe_c #{name => redef_probe_c_instance} Obj.
         set_slot Obj count 99.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings1, "$Count") == 99
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new redef_probe_c #{name => redef_probe_c_instance} Obj.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$Count") == 0
     :ok
@@ -278,34 +292,37 @@ defmodule Examples.ALDefclass do
 
   example renewing_a_named_instance_resets_its_soa_slots() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_probe_soa
         #{
           super => object,
           ivars => [#{default => 0, name => count, storage => soa, type => number}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings1, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new redef_probe_soa #{name => redef_probe_soa_instance} Obj.
         set_slot Obj count 99.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings1, "$Count") == 99
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new redef_probe_soa #{name => redef_probe_soa_instance} Obj.
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings2, "$Count") == 0
     :ok
@@ -313,8 +330,8 @@ defmodule Examples.ALDefclass do
 
   example redeclaring_a_class_keeps_methods_it_does_not_define() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redeclared_probe
         #{super => object}.
 
@@ -322,12 +339,13 @@ defmodule Examples.ALDefclass do
         | Self hello_v1 |.
 
         vm_set_class redeclared_probe_instance redeclared_probe.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redeclared_probe
         #{super => object}.
 
@@ -336,8 +354,9 @@ defmodule Examples.ALDefclass do
 
         greet redeclared_probe_instance G1.
         greet_v2 redeclared_probe_instance G2.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$G1") == :hello_v1
     assert Map.get(bindings, "$G2") == :hello_v2
@@ -356,8 +375,8 @@ defmodule Examples.ALDefclass do
   # :logging_metaclass` picks up the override on every redef.
   example custom_metaclass_overrides_class_redefined() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @logging_metaclass
         #{super => class}.
 
@@ -369,18 +388,20 @@ defmodule Examples.ALDefclass do
 
         @logged_thing
         #{super => object, metaclass => logging_metaclass}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @logged_thing
         #{super => value, metaclass => logging_metaclass}.
 
         get logged_thing redef_log Log.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Log") == [[:object], [:value]]
     :ok
@@ -393,8 +414,8 @@ defmodule Examples.ALDefclass do
   # this is `:class`'s own `class_redefined` body.
   example redef_backfills_new_ivars_with_their_default_on_existing_instances() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_backfill_probe
         #{super => object}.
 
@@ -404,8 +425,9 @@ defmodule Examples.ALDefclass do
         #{super => object, ivars => [#{default => 0, name => count, type => number}]}.
 
         get Obj count Count.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Count") == 0
     :ok
@@ -416,8 +438,8 @@ defmodule Examples.ALDefclass do
   # initform-less slot unbound rather than inventing a value).
   example redef_leaves_new_ivars_without_a_default_unset() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_backfill_probe2
         #{super => object}.
 
@@ -427,8 +449,9 @@ defmodule Examples.ALDefclass do
         #{super => object, ivars => [#{name => nickname}]}.
 
         not (get Obj nickname _).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -441,8 +464,8 @@ defmodule Examples.ALDefclass do
   # data an ivar-less class no longer claims to own.
   example redef_invalidates_removed_ivars_on_existing_instances() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @redef_shrink_probe
         #{super => object, ivars => [#{name => legs}]}.
 
@@ -452,8 +475,9 @@ defmodule Examples.ALDefclass do
         #{super => object}.
 
         not (get Obj legs _).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

@@ -5,8 +5,8 @@ defmodule Examples.ALBnf do
 
   example a_grammar_writes_its_rules_as_bnf() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @dashed
         #{super => syntax, metaclass => grammar}.
 
@@ -23,8 +23,9 @@ defmodule Examples.ALBnf do
         bnf dashed Dashed.
         bnf more_dashed MoreDashed.
         bnf lisp_syntax Lisp.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Dashed"] ==
              ~S"""
@@ -62,12 +63,14 @@ defmodule Examples.ALBnf do
     """
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        parse bnf_syntax (document Read) ^source.
+      run(
+        ~S"""
+        parse bnf_syntax (document Read) HostSource.
         bnf_rules term_syntax Rules, bnf term_syntax Text, parse bnf_syntax (document Again) Text.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostSource" => source}
+      )
 
     assert bindings["$Read"] == [
              rule(:list, [
@@ -111,11 +114,13 @@ defmodule Examples.ALBnf do
       end)
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        parse al_grammar (program Items) ^source.
-        """
-      end
+      run(
+        ~S"""
+        parse al_grammar (program Items) HostSource.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostSource" => source}
+      )
 
     assert bindings["$Items"] == expected
   end

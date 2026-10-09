@@ -10,52 +10,57 @@ defmodule Examples.ALVariant do
 
   example variant_accepts_a_consistent_renaming() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         variant [X, Y, X, a] [P, Q, P, a].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example variant_rejects_an_inconsistent_renaming() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         variant [X, Y] [P, P].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         variant [X, X] [P, Q].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example variant_distinguishes_a_variable_from_a_value() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         variant [X, 1] [1, X].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example variant_leaves_both_sides_unbound() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X #{size => [1, Y]}.
         variant X #{size => [1, Z]}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Y") == {:"$var", "Y"}
     assert Map.get(bindings, "$Z") == {:"$var", "Z"}
@@ -63,8 +68,8 @@ defmodule Examples.ALVariant do
 
   example separately_retrieved_clauses_are_variants_but_not_equal() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         variant_example >> describe
         | Self Size small |
         get Self size Size,
@@ -75,8 +80,9 @@ defmodule Examples.ALVariant do
         clause M HeadB BodyB.
         variant [HeadA, BodyA] [HeadB, BodyB].
         not (== [HeadA, BodyA] [HeadB, BodyB]).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

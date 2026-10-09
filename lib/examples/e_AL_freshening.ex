@@ -13,8 +13,8 @@ defmodule Examples.ALFreshening do
     branch = AL.Branch.fork()
 
     {:atomic, _} =
-      run branch: branch.id do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class depth object.
 
         depth >> down
@@ -25,17 +25,19 @@ defmodule Examples.ALFreshening do
         > N 0,
         = Next (- N 1),
         down Self Next.
-        """
-      end
+        """,
+        branch: branch.id
+      )
 
     before = :erlang.system_info(:atom_count)
 
     {:atomic, _} =
-      run branch: branch.id do
-        ~AL"""
+      run(
+        ~S"""
         down depth 5000.
-        """
-      end
+        """,
+        branch: branch.id
+      )
 
     minted = :erlang.system_info(:atom_count) - before
     AL.Branch.discard(branch)

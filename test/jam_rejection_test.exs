@@ -6,7 +6,7 @@ defmodule AL.JAM.RejectionTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @rejection_probe #{super => value}.
                rejection_probe >> choose
@@ -63,10 +63,10 @@ defmodule AL.JAM.RejectionTest do
         "rejection_probe >> many\n| _Self Input Output |\n#{test},\n= Output #{value}."
       end)
 
-    assert {:atomic, _} = AL.eval_source(clauses, branch)
+    assert {:atomic, _} = AL.run(clauses, branch)
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Output Atoms {many #{class => rejection_probe} example Output},
                findall Output Numbers {many #{class => rejection_probe} 42 Output}.
@@ -94,7 +94,7 @@ defmodule AL.JAM.RejectionTest do
            ) == 1
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Kind Kinds {choose #{class => rejection_probe} [1] Kind}.
                """,
@@ -106,7 +106,7 @@ defmodule AL.JAM.RejectionTest do
 
   test "open arguments retain constraint-producing alternatives in order", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Kind Kinds {choose #{class => rejection_probe} Input Kind, = Input []}.
                """,
@@ -121,7 +121,7 @@ defmodule AL.JAM.RejectionTest do
     assert length(candidates(%{class: {:"$var", "Class"}}, branch)) == 2
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                vm_set_class rejection_item list,
                findall Kind Kinds {choose #{class => rejection_probe} rejection_item Kind},
@@ -136,7 +136,7 @@ defmodule AL.JAM.RejectionTest do
 
   test "body failure remains failure when all rejection tests fail", %{branch: branch} do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                rejection_probe >> does_not_understand
                | _Self choose _Args |.
@@ -144,13 +144,13 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert {:aborted, _} = AL.eval_source("choose \#{class => rejection_probe} 42 Kind.", branch)
-    assert {:atomic, _} = AL.eval_source("choose \#{class => rejection_probe}.", branch)
+    assert {:aborted, _} = AL.run("choose \#{class => rejection_probe} 42 Kind.", branch)
+    assert {:atomic, _} = AL.run("choose \#{class => rejection_probe}.", branch)
   end
 
   test "rejected matching heads still fail when retained heads do not match", %{branch: branch} do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                rejection_probe >> guarded
                | _Self Input wanted |
@@ -164,12 +164,12 @@ defmodule AL.JAM.RejectionTest do
              )
 
     assert {:aborted, _} =
-             AL.eval_source("guarded \#{class => rejection_probe} [] wanted.", branch)
+             AL.run("guarded \#{class => rejection_probe} [] wanted.", branch)
   end
 
   test "effects and cuts before tests retain their execution boundaries", %{branch: branch} do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                rejection_probe >> effect
                | _Self Input |
@@ -189,7 +189,7 @@ defmodule AL.JAM.RejectionTest do
                branch
              )
 
-    assert {:aborted, _} = AL.eval_source("committed \#{class => rejection_probe} [].", branch)
+    assert {:aborted, _} = AL.run("committed \#{class => rejection_probe} [].", branch)
   end
 
   test "method replacement refreshes rejection decisions and keeps duplicate answers", %{
@@ -198,7 +198,7 @@ defmodule AL.JAM.RejectionTest do
     assert length(candidates([1], branch)) == 1
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                rejection_probe >> choose
                | _Self Input yes |
@@ -213,7 +213,7 @@ defmodule AL.JAM.RejectionTest do
     assert length(candidates([1], branch)) == 2
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Kind Kinds {choose #{class => rejection_probe} [] Kind}.
                """,

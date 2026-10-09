@@ -31,7 +31,9 @@ defmodule AL.JAM.Registers do
     end
   end
 
-  defp writes_first?({:local, index, {:eq, _, _}}, index), do: true
+  defp writes_first?({:local, index, {name, _, _}}, index)
+       when name in [:eq, :unify_structural],
+       do: true
 
   defp writes_first?({:local, index, {:map_put, _, _, _, _}}, index), do: true
   defp writes_first?({:collect, _, {:destination, index}, _}, index), do: true
@@ -51,6 +53,12 @@ defmodule AL.JAM.Registers do
     do: destination(operation, index, value, fresh)
 
   defp specialize_operation({:eq, value, {:register, index}} = operation, fresh),
+    do: destination(operation, index, value, fresh)
+
+  defp specialize_operation({:unify_structural, {:register, index}, value} = operation, fresh),
+    do: destination(operation, index, value, fresh)
+
+  defp specialize_operation({:unify_structural, value, {:register, index}} = operation, fresh),
     do: destination(operation, index, value, fresh)
 
   defp specialize_operation({:map_get, map, key, {:register, index}} = operation, fresh),

@@ -83,9 +83,9 @@ also starts/stops the Outbox per branch.
 ## Architecture (lib/AL)
 
 - **`AL` (lib/AL.ex)** — the transaction driver:
-  - `run do ~AL"""…""" end` → `AL.Syntax` compiles the AL source to
-    `AL.Goal` structs at compile time → `eval_captured` runs them in
-    `:mnesia.transaction`. `run branch: b do … end` targets fork `b`; bare `run`
+  - `AL.run(text, bindings: %{"Name" => value})` → `AL.Syntax` parses the AL
+    source to `AL.Goal` structs → `eval_with_retained_source` runs them in
+    `:mnesia.transaction`. `branch: b` targets fork `b`; otherwise `run`
     uses `AL.Branch.head()`.
   - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, trace, …}`.
     `start_program/1` compiles the whole program into one machine query

@@ -10,12 +10,13 @@ defmodule Examples.ALVar do
 
   example unbound_is_var() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         var X.
         = X 1.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$X") == 1
     :ok
@@ -23,23 +24,25 @@ defmodule Examples.ALVar do
 
   example bound_is_not_var() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X 1.
         var X.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example compound_is_not_var() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         var [add, X, 1].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

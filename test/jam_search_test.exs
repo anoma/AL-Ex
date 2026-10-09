@@ -6,7 +6,7 @@ defmodule AL.JAM.SearchTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         list >> seek
         | [Value . _Tail] Value |.
@@ -29,7 +29,7 @@ defmodule AL.JAM.SearchTest do
 
   test "search keeps duplicates and open output enumeration in source order", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall yes Matches {seek [before, found, after, found] found},
                findall Value Values {seek [first, second, first] Value}.
@@ -43,7 +43,7 @@ defmodule AL.JAM.SearchTest do
 
   test "unknown elements and structural values still unify", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                seek [Value, after] found,
                seek [before, #{key => Nested}] #{key => 7},
@@ -58,7 +58,7 @@ defmodule AL.JAM.SearchTest do
 
   test "the last cell retains ordinary missing-method behavior", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         list >> does_not_understand
         | [] seek [missing] |.
@@ -66,14 +66,14 @@ defmodule AL.JAM.SearchTest do
         branch
       )
 
-    assert {:atomic, _} = AL.eval_source("seek [first, second, third] missing.", branch)
+    assert {:atomic, _} = AL.run("seek [first, second, third] missing.", branch)
   end
 
   test "changing the recursive clause disables the cached search", %{branch: branch} do
-    {:atomic, _} = AL.eval_source("seek [first, second, third] third.", branch)
+    {:atomic, _} = AL.run("seek [first, second, third] third.", branch)
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         list >> seek
         | [Value . _Tail] Value |.
@@ -83,13 +83,13 @@ defmodule AL.JAM.SearchTest do
         branch
       )
 
-    assert {:aborted, _} = AL.eval_source("seek [first, second, third] third.", branch)
-    assert {:atomic, _} = AL.eval_source("seek [first, second, third] changed.", branch)
+    assert {:aborted, _} = AL.run("seek [first, second, third] third.", branch)
+    assert {:atomic, _} = AL.run("seek [first, second, third] changed.", branch)
   end
 
   test "list-copy fusion preserves arbitrary elements and aliases", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         list >> join_parts
         | [] Tail Tail |.
@@ -101,7 +101,7 @@ defmodule AL.JAM.SearchTest do
       )
 
     assert {:atomic, {bindings, _, state}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                join_parts [Value, atom, #{key => Nested}] [end] Output,
                = Value 7,

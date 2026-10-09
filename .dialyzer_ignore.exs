@@ -1,5 +1,5 @@
 [
-  {"lib/AL/jam/ir/loop.ex", :improper_list_constr},
+  {"lib/AL/jam/ir/optimization/loop.ex", :improper_list_constr},
   {"lib/examples/e_AL_dcg.ex", :improper_list_constr},
   {"lib/examples/e_AL_functor.ex", :improper_list_constr},
   {"lib/examples/e_AL_clauses.ex", :improper_list_constr},

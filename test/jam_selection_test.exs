@@ -11,7 +11,7 @@ defmodule AL.JAM.SelectionTest do
   end
 
   defp snapshot(program, store) do
-    {code, slots} = AL.JAM.Compiler.runtime(program)
+    {code, slots} = AL.JAM.IR.Assembler.compile(program)
     %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store}
   end
 
@@ -20,7 +20,7 @@ defmodule AL.JAM.SelectionTest do
 
   test "instruction selection composes comparisons without specializing runtime values" do
     selected = Selection.select(range())
-    {code, _} = AL.JAM.Compiler.runtime(selected)
+    {code, _} = AL.JAM.IR.Assembler.compile(selected)
     assert {{:numeric_tests, {:register, 0}, [{:>=, 1}, {:<, 4}], fallback}} = code
     assert tuple_size(fallback) == 2
 

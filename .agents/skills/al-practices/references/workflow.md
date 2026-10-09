@@ -41,11 +41,9 @@ migration layer.
 Tracing uses composable flags:
 
 ```elixir
-run trace: [:domino, :vm] do
-  ~AL"""
-  goals.
-  """
-end
+run(~S"""
+goals.
+""", trace: [:domino, :vm])
 ```
 
 - No flags retain no execution history.

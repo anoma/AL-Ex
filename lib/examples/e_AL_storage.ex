@@ -12,11 +12,12 @@ defmodule Examples.ALStorage do
 
   example durable_identities_are_atoms() do
     result =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class [not, an_identity] object.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert {:aborted, reason} = result
     assert inspect(reason) =~ "requires an atom durable identity"
@@ -27,19 +28,20 @@ defmodule Examples.ALStorage do
   # site, only observable via the explicit `slot/4` checks below.
   example set_slot_and_get_route_by_declared_storage() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @storage_probe
         #{
           super => object,
           ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new storage_probe Obj.
         set_slot Obj regulators [geneA].
         set_slot Obj concentration 5.
@@ -47,8 +49,9 @@ defmodule Examples.ALStorage do
         get Obj concentration Concentration.
         slot Obj regulators RegulatorsDirect.
         slot Obj concentration ConcentrationDirect soa.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Regulators") == [:geneA]
     assert Map.get(bindings, "$Concentration") == 5
@@ -63,25 +66,27 @@ defmodule Examples.ALStorage do
   # a later migration.
   example construction_routes_a_storage_soa_ivar_to_soa() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @storage_probe_construction
         #{
           super => object,
           ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new storage_probe_construction #{concentration => 5, regulators => [geneA]} Obj.
         slot Obj regulators RegulatorsDirect.
         slot Obj concentration ConcentrationDirect soa.
         findall [K, V] AllSlots (slot Obj K V).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$RegulatorsDirect") == [:geneA]
     assert Map.get(bindings, "$ConcentrationDirect") == 5
@@ -100,27 +105,29 @@ defmodule Examples.ALStorage do
   # its own `soa` row, writing `regulators` again doesn't touch it at all.
   example an_unrelated_slot_write_never_disturbs_a_storage_soa_slot() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @storage_probe_independence
         #{
           super => object,
           ivars => [#{name => regulators}, #{name => concentration, storage => soa}]
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new storage_probe_independence Obj.
         set_slot Obj concentration 5.
         set_slot Obj regulators [geneA].
         set_slot Obj regulators [geneA, geneB].
         get Obj concentration Concentration.
         get Obj regulators Regulators.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Concentration") == 5
     assert Map.get(bindings, "$Regulators") == [:geneA, :geneB]

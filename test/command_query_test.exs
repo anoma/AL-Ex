@@ -9,7 +9,7 @@ defmodule AL.CommandQueryTest do
 
   test "method-local variables enumerate command history", %{branch: branch} do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @history_probe #{super => value}.
                history_probe >> commands
@@ -27,7 +27,7 @@ defmodule AL.CommandQueryTest do
     cutoff = Enum.max(times)
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                commands #{class => history_probe} Local.
                """,

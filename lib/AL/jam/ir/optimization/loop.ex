@@ -177,7 +177,7 @@ defmodule AL.JAM.IR.Loop do
             rec_state = unify(rec_head, rec_call, %{bindings: %{}, guards: []})
 
             if base && rec_state do
-              {paths, analysis} = walk(Enum.map(body, &IR.lower/1), rec_state, analysis)
+              {paths, analysis} = walk(body, rec_state, analysis)
 
               descriptions =
                 Enum.map(paths, fn {state, next} ->
@@ -277,7 +277,7 @@ defmodule AL.JAM.IR.Loop do
     analysis = %{analysis | fuel: analysis.fuel - 1}
     resolve = &Var.subst(&1, state.bindings)
 
-    case operation do
+    case IR.lower(operation) do
       %IR{kind: :direct, name: :pass} ->
         walk(rest, state, analysis)
 
@@ -330,7 +330,7 @@ defmodule AL.JAM.IR.Loop do
                                                   {paths, analysis} ->
             {head, body} = rename(head, body)
             matched = unify(head, [receiver | args], state)
-            {next, analysis} = walk(Enum.map(body, &IR.lower/1) ++ rest, matched, analysis)
+            {next, analysis} = walk(body ++ rest, matched, analysis)
             {paths ++ next, analysis}
           end)
         end

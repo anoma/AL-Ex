@@ -18,11 +18,12 @@ defmodule Examples.ALFormat do
   example format_aesthetic_prints_a_string_with_no_quotes() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           vm_format "~a~%" ["hello"].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == "hello\n"
@@ -32,11 +33,12 @@ defmodule Examples.ALFormat do
   example format_aesthetic_inspects_non_string_terms() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           vm_format "~a~%" [on].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == ":on\n"
@@ -46,12 +48,13 @@ defmodule Examples.ALFormat do
   example format_decimal_prints_a_bound_var_resolved_value() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           = X (+ 2 2).
           vm_format "x is ~d~%" [X].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == "x is 4\n"
@@ -61,11 +64,12 @@ defmodule Examples.ALFormat do
   example format_consumes_multiple_directives_left_to_right() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           vm_format "~a plus ~a is ~d~%" [2, 2, 4].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == "2 plus 2 is 4\n"
@@ -75,11 +79,12 @@ defmodule Examples.ALFormat do
   example format_tilde_tilde_is_a_literal_tilde_not_a_directive() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           vm_format "100~~" [].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == "100~"
@@ -89,8 +94,8 @@ defmodule Examples.ALFormat do
   example format_o_resolves_through_print_object_override() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           @format_o_print_object_class
           #{super => object}.
 
@@ -100,8 +105,9 @@ defmodule Examples.ALFormat do
 
           new format_o_print_object_class Obj.
           vm_format "~o~%" [Obj].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == "a shiny thing\n"
@@ -111,15 +117,16 @@ defmodule Examples.ALFormat do
   example format_o_falls_through_to_default_print_object() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           @format_o_default_class
           #{super => object}.
 
           new format_o_default_class Obj.
           vm_format "~o~%" [Obj].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == ":format_o_default_class\n"
@@ -129,8 +136,8 @@ defmodule Examples.ALFormat do
   example format_o_handles_multiple_directives_in_one_call() do
     output =
       capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           @format_o_multi_class
           #{super => object}.
 
@@ -141,8 +148,9 @@ defmodule Examples.ALFormat do
           new format_o_multi_class A.
           new format_o_multi_class B.
           vm_format "~o and ~o~%" [A, B].
-          """
-        end
+          """,
+          branch: Examples.Support.branch()
+        )
       end)
 
     assert output == "widget and widget\n"
@@ -151,8 +159,8 @@ defmodule Examples.ALFormat do
 
   example format_o_fails_when_print_object_has_no_matching_clause() do
     {:aborted, _reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @format_o_no_match_class
         #{super => object}.
 
@@ -161,8 +169,9 @@ defmodule Examples.ALFormat do
 
         new format_o_no_match_class Obj.
         vm_format "~o~%" [Obj].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

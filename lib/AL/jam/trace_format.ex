@@ -12,6 +12,9 @@ defmodule AL.JAM.Trace.Format do
   def instruction({:compare, op, left, right}),
     do: "compare #{operand(left)} #{op} #{operand(right)}"
 
+  def instruction({:unify_structural, left, right}),
+    do: "unify_structural #{operand(left)} = #{operand(right)}"
+
   def instruction({:eq, left, right}), do: "unify #{operand(left)} = #{operand(right)}"
   def instruction({:local, dest, code}), do: "local R#{dest}: " <> instruction(code)
   def instruction(op) when is_atom(op), do: Atom.to_string(op)

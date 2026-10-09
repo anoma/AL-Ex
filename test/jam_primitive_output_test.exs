@@ -6,7 +6,7 @@ defmodule AL.JAM.PrimitiveOutputTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @primitive_output_probe
                #{super => value}.
@@ -48,7 +48,7 @@ defmodule AL.JAM.PrimitiveOutputTest do
 
   test "conversion chains preserve both directions and Unicode", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                text #{class => primitive_output_probe} [955, 128512] Atom,
                codes #{class => primitive_output_probe} Atom Codes.
@@ -62,7 +62,7 @@ defmodule AL.JAM.PrimitiveOutputTest do
 
   test "suspended outputs preserve aliases and later bindings", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                delayed #{class => primitive_output_probe} Codes Text.
                """,
@@ -73,7 +73,7 @@ defmodule AL.JAM.PrimitiveOutputTest do
     assert bindings["$Text"] == "a"
 
     assert {:aborted, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                delayed_conflict #{class => primitive_output_probe} Codes Text.
                """,
@@ -83,7 +83,7 @@ defmodule AL.JAM.PrimitiveOutputTest do
 
   test "maps retain shared values and pair ordering", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                map #{class => primitive_output_probe} [[b, Value], [a, Value]] Map,
                pairs #{class => primitive_output_probe} Map Pairs,
@@ -101,13 +101,13 @@ defmodule AL.JAM.PrimitiveOutputTest do
           ~S"text #{class => primitive_output_probe} [55296] Result.",
           ~S"map #{class => primitive_output_probe} [[a, 1], [a, 2]] Result."
         ] do
-      assert {:aborted, _} = AL.eval_source(program, branch)
+      assert {:aborted, _} = AL.run(program, branch)
     end
   end
 
   test "constrained outputs and alternative answer order are preserved", %{branch: branch} do
     assert {:aborted, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                dif Output a,
                text #{class => primitive_output_probe} [97] Output.
@@ -116,7 +116,7 @@ defmodule AL.JAM.PrimitiveOutputTest do
              )
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Output Answers {
                  text #{class => primitive_output_probe} [97] Output ;

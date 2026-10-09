@@ -36,8 +36,8 @@ defmodule Examples.ALDCG do
 
   example grammar_rules_parse_and_generate_text() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @colors
         #{super => syntax, metaclass => grammar}.
 
@@ -54,8 +54,9 @@ defmodule Examples.ALDCG do
         new colors Receiver.
         parse colors (color blue) Generated.
         findall [Text, Color] Pairs {parse colors (color Color) Text}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Parsed"] == :red
     assert bindings["$Word"] == :abc
@@ -66,8 +67,8 @@ defmodule Examples.ALDCG do
 
   example a_recursive_nonterminal_parses_zero_or_more_as() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @a_runs
         #{super => syntax, metaclass => grammar}.
 
@@ -77,8 +78,9 @@ defmodule Examples.ALDCG do
         parse a_runs (as Empty) "".
         parse a_runs (as Parsed) "aaa".
         parse a_runs (as [a, a, a]) Generated.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Empty"] == []
     assert bindings["$Parsed"] == [:a, :a, :a]
@@ -87,8 +89,8 @@ defmodule Examples.ALDCG do
 
   example grammar_rules_compose_using_the_remaining_codes() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @dashed_pairs
         #{super => syntax, metaclass => grammar}.
 
@@ -101,8 +103,9 @@ defmodule Examples.ALDCG do
         parse dashed_pairs (pair [b, a]) Generated.
         new dashed_pairs Reader.
         pair Reader [97, 45, 98, 33] Remainder [a, b].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Parsed"] == [:a, :b]
     assert bindings["$Generated"] == "b-a"
@@ -111,8 +114,8 @@ defmodule Examples.ALDCG do
 
   example phrase_runs_a_grammar_over_any_list() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @sum_tokens
         #{super => syntax, metaclass => grammar}.
 
@@ -124,8 +127,9 @@ defmodule Examples.ALDCG do
         phrase sum_tokens (sum Prefix) [5, plus, 6, times, 7] Rest.
         not (phrase sum_tokens (sum _) [1, minus, 2]).
         phrase syntax [a, b] Terminal.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Sum"] == [1, 2]
     assert bindings["$Tokens"] == [3, :plus, 4]
@@ -138,8 +142,8 @@ defmodule Examples.ALDCG do
     source = "(add 1 (neg (mul 2 x)))"
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @tree_pass
         #{super => syntax, metaclass => grammar}.
 
@@ -157,12 +161,14 @@ defmodule Examples.ALDCG do
         defrule tree_pass (nodes []) [].
         defrule tree_pass (nodes [Node . Nodes]) [node Node, nodes Nodes].
 
-        parse number_syntax (expr Ast) ^source.
+        parse number_syntax (expr Ast) HostSource.
         phrase tree_pass (node Tree) [Ast].
         findall Back Backs {phrase tree_pass (node Tree) [Back]}.
         findall Text Texts {phrase tree_pass (node Tree) [Form], parse number_syntax (expr Form) Text}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostSource" => source}
+      )
 
     num = fn n -> %{num: n} end
     apply = fn op, args -> %{op: op, args: args} end
@@ -181,8 +187,8 @@ defmodule Examples.ALDCG do
 
   example a_rule_captures_values_without_capturing_syntax() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @bracketed_pairs
         #{super => syntax, metaclass => grammar}.
 
@@ -194,8 +200,9 @@ defmodule Examples.ALDCG do
 
         parse bracketed_pairs (pair Parsed) "(a,b)".
         parse bracketed_pairs (pair [b, a]) Generated.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Parsed"] == [:a, :b]
     assert bindings["$Generated"] == "(b,a)"
@@ -203,8 +210,8 @@ defmodule Examples.ALDCG do
 
   example a_grammar_rule_overrides_its_parents_and_next_reaches_them() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @letters
         #{super => syntax, metaclass => grammar}.
 
@@ -238,8 +245,9 @@ defmodule Examples.ALDCG do
         findall Letter Overridden {parse only_a (letter Letter) _}.
         findall [Text, Letter] Prefixed {parse prefixed_letters (letter Letter) Text}.
         parse renamed_letters (letter Renamed) "xc".
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Base"] == [:b, :c, :d]
     assert bindings["$Extended"] == [:a, :b, :c, :d]
@@ -252,9 +260,9 @@ defmodule Examples.ALDCG do
     source = "(add (mul x y))"
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        parse lisp_syntax (expr Ast) ^source.
+      run(
+        ~S"""
+        parse lisp_syntax (expr Ast) HostSource.
         parse lisp_syntax (expr Ast) Generated.
         parse lisp_syntax (expr Called) "(f)".
         parse lisp_syntax (expr ListCall) "(list a)".
@@ -265,8 +273,10 @@ defmodule Examples.ALDCG do
         parse lisp_syntax (expr Spaced) "( add\r\n  (mul\tx y) )".
         parse lisp_syntax (expr Symbols) "(+ 1 foo-bar Baz)".
         parse lisp_syntax (expr (- '2' 'Qux')) GeneratedSymbols.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostSource" => source}
+      )
 
     assert bindings["$Ast"] == term(source)
     assert bindings["$Generated"] == source
@@ -279,8 +289,8 @@ defmodule Examples.ALDCG do
 
   example the_tag_reader_adds_lisp_lists_and_maps() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         parse tag_syntax (expr Nil) "()".
         parse tag_syntax (expr List) "(list a (b c))".
         parse tag_syntax (expr Cons) "(list* a b c)".
@@ -291,8 +301,9 @@ defmodule Examples.ALDCG do
         parse tag_syntax (expr [a . b]) GeneratedCons.
         parse tag_syntax (expr #{k => v}) GeneratedMap.
         not (parse tag_syntax (expr [a, 'b c']) _Spaced).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Nil"] == []
     assert bindings["$List"] == [:a, term("(b c)")]
@@ -307,8 +318,8 @@ defmodule Examples.ALDCG do
 
   example the_list_reader_adds_bracketed_lists() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         parse list_syntax (expr Empty) "[]".
         parse list_syntax (expr List) "[a, (b c), d]".
         parse list_syntax (expr Cons) "[a, b . c]".
@@ -316,8 +327,9 @@ defmodule Examples.ALDCG do
         parse list_syntax (expr ListCall) "(list a)".
         parse list_syntax (expr [a, [b . c]]) Generated.
         not (parse list_syntax (expr _Incomplete) "[a, b").
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Empty"] == []
     assert bindings["$List"] == term("[a, (b c), d]")
@@ -331,21 +343,23 @@ defmodule Examples.ALDCG do
     map_source = ~S"#{k => v}"
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         parse list_syntax (expr Brace) "{f}".
         parse block_syntax (expr Block) "{f a, g}".
         parse block_syntax (expr Bracket) "[a]".
-        not (parse block_syntax (expr _Map) ^map_source).
-        parse map_syntax (expr Map) ^map_source.
+        not (parse block_syntax (expr _Map) HostMapSource).
+        parse map_syntax (expr Map) HostMapSource.
         parse number_syntax (expr Numbers) "(f 1 -2 v)".
         parse variable_syntax (expr Variables) "(f a V _ V)".
 
         parse block_syntax (expr [(f a), (g)]) GeneratedBlock.
         parse map_syntax (expr #{k => v}) GeneratedMap.
         parse number_syntax (expr (f 1 -2 v)) GeneratedNumbers.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostMapSource" => map_source}
+      )
 
     assert bindings["$Brace"] == :"{f}"
     assert bindings["$Block"] == term("{f a, g}")
@@ -367,18 +381,26 @@ defmodule Examples.ALDCG do
     listed = ~S([a, "b c"])
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        parse string_syntax (expr Plain) ^plain.
-        parse string_syntax (expr Escaped) ^escaped.
-        parse string_syntax (expr Hash) ^hash.
-        not (parse string_syntax (expr _) ^interpolated).
+      run(
+        ~S"""
+        parse string_syntax (expr Plain) HostPlain.
+        parse string_syntax (expr Escaped) HostEscaped.
+        parse string_syntax (expr Hash) HostHash.
+        not (parse string_syntax (expr _) HostInterpolated).
         parse string_syntax (expr Called) "(f \"x y\")".
-        parse term_syntax (expr Listed) ^listed.
+        parse term_syntax (expr Listed) HostListed.
         parse string_syntax (expr Escaped) Generated.
         parse term_syntax (expr [a, "b c"]) GeneratedList.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{
+          "HostEscaped" => escaped,
+          "HostHash" => hash,
+          "HostInterpolated" => interpolated,
+          "HostListed" => listed,
+          "HostPlain" => plain
+        }
+      )
 
     {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, decoded]}]}} =
       AL.Syntax.parse("= _ " <> escaped <> ".")
@@ -416,31 +438,39 @@ defmodule Examples.ALDCG do
       expected = statement(source)
 
       {:atomic, {bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           @declarations
           #{super => [declaration_syntax, term_syntax], metaclass => grammar}.
 
-          findall Statement Statements {parse declarations (declaration Statement) ^source}.
-          parse declarations (declaration ^expected) Generated.
-          """
-        end
+          findall Statement Statements {parse declarations (declaration Statement) HostSource}.
+          parse declarations (declaration HostExpected) Generated.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostExpected" => expected, "HostSource" => source}
+        )
 
       assert bindings["$Statements"] == [expected]
       if source in canonical, do: assert(bindings["$Generated"] == source)
     end
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @declarations
         #{super => [declaration_syntax, term_syntax], metaclass => grammar}.
 
-        not (parse declarations (declaration _) ^unfinished).
-        not (parse declarations (declaration _) ^not_a_map).
-        not (parse declarations (declaration _) ^no_super).
-        """
-      end
+        not (parse declarations (declaration _) HostUnfinished).
+        not (parse declarations (declaration _) HostNotAMap).
+        not (parse declarations (declaration _) HostNoSuper).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{
+          "HostNoSuper" => no_super,
+          "HostNotAMap" => not_a_map,
+          "HostUnfinished" => unfinished
+        }
+      )
   end
 
   example the_method_reader_reads_clauses_as_the_al_reader_does() do
@@ -473,15 +503,17 @@ defmodule Examples.ALDCG do
       text = String.trim_trailing(source)
 
       {:atomic, {bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
+        run(
+          ~S"""
           @methods
           #{super => [method_syntax, term_syntax], metaclass => grammar}.
 
-          findall Clause Clauses {parse methods (clause Clause) ^text}.
-          parse methods (clause ^expected) Generated.
-          """
-        end
+          findall Clause Clauses {parse methods (clause Clause) HostText}.
+          parse methods (clause HostExpected) Generated.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostExpected" => expected, "HostText" => text}
+        )
 
       assert bindings["$Clauses"] == [expected]
       assert bindings["$Generated"] == text
@@ -490,8 +522,8 @@ defmodule Examples.ALDCG do
 
   example a_grammar_translates_text_into_another_grammar() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         translate tag_syntax term_syntax (expr Tree) "(list a (list (g x)))" Term.
         translate term_syntax tag_syntax (expr Back) Term Lisp.
         translate tag_syntax term_syntax (expr _) "(list a b)" Anonymous.
@@ -503,8 +535,9 @@ defmodule Examples.ALDCG do
 
         translate lisp_terms term_syntax (expr Shared) "(f 1 foo (list a -2))" Termed.
         translate term_syntax lisp_terms (expr Again) Termed Lisped.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Tree"] == term("[a, {g x}]")
     assert bindings["$Term"] == "[a, {g x}]"
@@ -542,26 +575,29 @@ defmodule Examples.ALDCG do
       expected = term(source)
 
       {:atomic, _} =
-        run branch: Examples.Support.branch() do
-          ~AL"""
-          findall Term Terms {parse term_syntax (expr Term) ^source}.
-          = Terms [^expected].
-          parse term_syntax (expr ^expected) Text.
+        run(
+          ~S"""
+          findall Term Terms {parse term_syntax (expr Term) HostSource}.
+          = Terms [HostExpected].
+          parse term_syntax (expr HostExpected) Text.
           parse term_syntax (expr Again) Text.
-          == Again ^expected.
-          """
-        end
+          == Again HostExpected.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostExpected" => expected, "HostSource" => source}
+        )
     end
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         parse term_syntax (expr Anonymous) "[_, _]".
         parse term_syntax (expr [a, (var "X"), (var "_")]) Quoted.
         parse term_syntax (expr -12) GeneratedNumber.
         parse term_syntax (expr [42, (f x), [a . b], #{k => [(g a)]}]) Generated.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Anonymous"] == term("[_, _]")
     assert bindings["$Quoted"] == "[a, X, _]"
@@ -591,23 +627,23 @@ defmodule Examples.ALDCG do
     {:ok, %{program: [_clear, variable_method]}} = AL.Syntax.parse(variable_headers)
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = Expected [
           (defclass greeter class object [] []),
           (defmethod greeter greeting [Self, First, Second] {greet Self First, echo Self Second})
         ].
 
-        parse al_syntax (document Parsed) ^source.
+        parse al_syntax (document Parsed) HostSource.
         variant Parsed Expected.
-        variant Parsed ^goals.
+        variant Parsed HostGoals.
 
         = VariableExpected [
           (defmethod Owner Selector [Self] {greet Self})
         ].
-        parse al_syntax (document VariableParsed) ^variable_headers.
+        parse al_syntax (document VariableParsed) HostVariableHeaders.
         variant VariableParsed VariableExpected.
-        variant VariableParsed [^variable_method].
+        variant VariableParsed [HostVariableMethod].
 
         = GroundExpected [
           (defmethod greeter greeting [hello, world] {greet hello world, echo world hello})
@@ -615,8 +651,15 @@ defmodule Examples.ALDCG do
         parse al_syntax (document GroundExpected) Generated.
         parse al_syntax (document GroundRoundTrip) Generated.
         variant GroundRoundTrip GroundExpected.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{
+          "HostGoals" => goals,
+          "HostSource" => source,
+          "HostVariableHeaders" => variable_headers,
+          "HostVariableMethod" => variable_method
+        }
+      )
 
     assert [%AL.Goal.Compound{name: :defclass}, %AL.Goal.Compound{name: :defmethod}] =
              bindings["$Parsed"]

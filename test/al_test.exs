@@ -7,7 +7,6 @@ serial = [
   Examples.ALClauses,
   Examples.ALSource,
   Examples.ALFreshening,
-  Examples.ALGuarded,
   Examples.ALMaps,
   Examples.ALTransactionPrograms,
   Examples.ALPackages,

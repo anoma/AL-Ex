@@ -20,7 +20,7 @@ This notebook is self-contained. The cell above installs AL directly, no separat
 
 If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
 
-`Mix.install` has to finish running before AL's `run` macro and `~AL` sigil can be brought into scope, so that happens in its own cell here.
+`Mix.install` has to finish before `use AL` loads the library, so that happens in its own cell here.
 
 ```elixir
 use AL
@@ -34,8 +34,7 @@ An aborted `run` comes back with a structured reason naming exactly what went wr
 
 ```elixir
 result =
-  run do
-    ~AL"""
+  run(~S"""
     @failgreeter
     #{super => value}.
 
@@ -47,8 +46,7 @@ result =
 
     new failgreeter G.
     greett G world.
-    """
-  end
+    """)
 
 {:aborted, reason} = result
 {reason.reason, reason.message}
@@ -57,14 +55,12 @@ result =
 AL's reporter can also report domain violations.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @failure_domain_probe
   #{super => object, ivars => [#{domain => ["on", "off"], name => state}]}.
 
   new failure_domain_probe #{name => failure_domain_instance, state => "on"} _.
-  """
-end
+  """)
 ```
 
 ## A custom `does_not_understand` suppresses the failure entirely
@@ -72,8 +68,7 @@ end
 If a class handles its own misses, sending it something unknown doesn't abort. This allows for custom fallback behaviour.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @failquiet
   #{super => value}.
 
@@ -85,8 +80,7 @@ run do
 
   new failquiet Q.
   anything Q x.
-  """
-end
+  """)
 ```
 
 ## The domino tracing model
@@ -97,11 +91,9 @@ Retained traces are opt-in and composable. Use `trace: [:domino]` when you need 
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace: [:domino] do
-    ~AL"""
+  run(~S"""
     fibonacci 3 X.
-    """
-  end
+    """, trace: [:domino])
 
 state.trace.events
 |> Enum.reverse()
@@ -122,11 +114,9 @@ Each of the three recursive `fibonacci` calls opens its own method box immediate
 ```elixir
 AL.trace(:cell)
 
-run do
-  ~AL"""
+run(~S"""
   new cell #{name => traced} C.
-  """
-end
+  """)
 
 AL.notrace()
 ```
@@ -136,11 +126,9 @@ AL.notrace()
 ```elixir
 AL.trace(:list_member)
 
-run do
-  ~AL"""
+run(~S"""
   member [a, b] z.
-  """
-end
+  """)
 
 AL.notrace()
 ```
@@ -150,23 +138,19 @@ AL.notrace()
 Dispatch on an open receiver can have several candidate legs- a value/ephemeral leg and a durable leg, at minimum. Tracing shows which legs are being considered before a match is even found.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @trace_leg_class
   #{super => value}.
 
   trace_leg_class >> trace_next
   | #{class => trace_leg_class, letter => a} #{class => trace_leg_class, letter => b} |.
-  """
-end
+  """)
 
 AL.trace(:trace_next)
 
-run do
-  ~AL"""
+run(~S"""
   trace_next X #{class => trace_leg_class, letter => b}.
-  """
-end
+  """)
 
 AL.notrace()
 ```
@@ -176,11 +160,9 @@ AL.notrace()
 `AL.Trace.derivation_tree/1` turns a completed run state into an operational derivation tree. Call nodes have successful answer children; answers carry the selected clause and what that call derived, and their children are the ordered nested calls and constraint evidence that produced the answer. Open variables nested inside a receiver or argument are included in a call's derivation. Unsuccessful attempts are pruned.
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace: [:domino] do
-    ~AL"""
+  run(~S"""
     fibonacci 3 X.
-    """
-  end
+    """, trace: [:domino])
 
 [root] = AL.Trace.derivation_tree(state)
 [answer] = root.children
@@ -191,8 +173,7 @@ AL.notrace()
 When a method has more than one clause that could structurally match, redo tries the next one in place. The tree keeps only the attempt that actually won, not a trail of every clause that was tried.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @redo_demo
   #{super => object}.
 
@@ -201,19 +182,16 @@ run do
 
   redo_demo >> pick
   | Self second |.
-  """
-end
+  """)
 ```
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace: [:domino] do
-    ~AL"""
+  run(~S"""
     new redo_demo #{} Obj.
     pick Obj Result.
     = Result second.
-    """
-  end
+    """, trace: [:domino])
 
 roots = AL.Trace.derivation_tree(state)
 pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
@@ -225,8 +203,7 @@ pick_node = Enum.find(roots, &match?(%{label: {_, :pick, _}}, &1))
 The first clause (`first`) is attempted and then upon fail, redone into the second clause. The derivation tree though, only shows the winner. It prunes the failed branches.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @probe_box
   #{super => object}.
 
@@ -251,18 +228,15 @@ run do
   probe_box >> probe_answer
   | Self V |
   probe_reject Self V ; probe_top Self V.
-  """
-end
+  """)
 ```
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace: [:domino] do
-    ~AL"""
+  run(~S"""
     new probe_box #{} Obj.
     probe_answer Obj R.
-    """
-  end
+    """, trace: [:domino])
 
 roots = AL.Trace.derivation_tree(state)
 answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
@@ -282,26 +256,22 @@ answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
 Constraint goals (from [logic and constraints](./logic_and_constraints.livemd)) remain explicit derivation steps inside the successful answer that posted them. Each constraint node carries the variable descriptions immediately before and immediately after that constraint ran. A later method or collection answer cannot be mistaken for something the earlier constraint derived.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @triple_class
   #{super => object}.
 
   triple_class >> triple
   | Self N Result |
   = Result (* N 3).
-  """
-end
+  """)
 ```
 
 ```elixir
 {:atomic, {bindings, state}} =
-  run trace: [:domino] do
-    ~AL"""
+  run(~S"""
     new triple_class #{} Obj.
     triple Obj 4 R.
-    """
-  end
+    """, trace: [:domino])
 
 roots = AL.Trace.derivation_tree(state)
 

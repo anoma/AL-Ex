@@ -20,7 +20,7 @@ This notebook is self-contained. The cell above installs AL directly, no separat
 
 If you already have a real AL node running and want the persistent, shared store instead (useful for actual development, or for [the command log](./command_log.livemd)'s multi-session material), see the [intro](./intro.livemd) for how to attach to it instead.
 
-`Mix.install` has to finish running before AL's `run` macro and `~AL` sigil can be brought into scope, so that happens in its own cell here.
+`Mix.install` has to finish before `use AL` loads the library, so that happens in its own cell here.
 
 ```elixir
 use AL
@@ -30,16 +30,14 @@ AL.Branch.head()
 
 ## Goals
 
-An AL program is a sequence of goals, run together as one transaction with `run do ~AL"""...""" end`. A goal either succeeds, maybe binding some variables along the way, or it fails.
+An AL program is a sequence of goals, run together as one transaction with `run(~S"""...""")`. A goal either succeeds, maybe binding some variables along the way, or it fails.
 
 AL has its own Prolog-like syntax. `selector Receiver Arg1 Arg2` sends `selector` to `Receiver`, and operators are ordinary names written first, like any other call: `= X 1`, `< X 5`, `= Y (+ X 1)`. Arguments are single terms, so a nested call or sum goes in brackets: `between Self (+ Low 1) High V`. Capitalised names like `X` are variables and lowercase words like `ok` are atoms. Goals are separated by commas and a top-level goal ends with a full stop. Comments start with `#`.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X 1.
-  """
-end
+  """)
 ```
 
 Capitalised names like `X` are variables. You never declare them, you just use them, and AL fills them in as it runs.
@@ -47,12 +45,10 @@ Capitalised names like `X` are variables. You never declare them, you just use t
 A goal that fails aborts the whole transaction.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X 1.
   = X 2.
-  """
-end
+  """)
 ```
 
 `X` can't be both `1` and `2`, so this one fails.
@@ -62,23 +58,19 @@ end
 `=` is value equality. On structures it unifies, binding whatever variables that takes. Wherever an arithmetic expression appears, at any depth, it means numeric equality: with ground operands it evaluates and binds; with open operands it posts a constraint that narrows as they become known.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X (+ 2 (* 3 4)).
-  """
-end
+  """)
 ```
 
 Comparisons are written directly.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X 10.
   > X 5.
   < X 20.
-  """
-end
+  """)
 ```
 
 This section does not cover constraint propagation.
@@ -88,11 +80,9 @@ This section does not cover constraint propagation.
 Lists are written in square brackets, with `.` separating a tail: `[Head . Tail]`. Maps are written `#{key => Value}`.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = [H . T] [1, 2, 3].
-  """
-end
+  """)
 ```
 
 The same pattern shows up directly in method and clause heads later on, not just in `=`.
@@ -102,11 +92,9 @@ The same pattern shows up directly in method and clause heads later on, not just
 `vm_format` writes straight to output. `~a` prints a value as-is if it's already a string, or its plain representation otherwise. `~d` prints an integer. `~%` is a newline.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   vm_format "the answer is ~d~%" [42].
-  """
-end
+  """)
 ```
 
 There's also a `~o` directive for printing objects specifically, covered in [working with objects](./working_with_objects.livemd).
@@ -116,11 +104,9 @@ There's also a `~o` directive for printing objects specifically, covered in [wor
 Some goals can succeed more than one way. `member` checks whether something is in a list, and if the second argument is still open, it enumerates every element instead of just checking one.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   findall X Results (member [1, 2, 3] X).
-  """
-end
+  """)
 ```
 
 `findall Template Result {Goals}` runs `Goals`, collects every way they can succeed, and gathers `Template`'s binding from each into a list.
@@ -130,11 +116,9 @@ end
 `forall` is `findall`'s side-effecting sibling. It doesn't collect anything, it just runs its body once for every way the condition can succeed.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   forall (member [1, 2, 3] X) (vm_format "~d~%" [X]).
-  """
-end
+  """)
 ```
 
 ## Control flow
@@ -142,43 +126,35 @@ end
 `C -> T ; E` picks the branch whose condition succeeds first and commits to it. `C1 -> T1 ; C2 -> T2 ; E` chains conditions top to bottom. As in Prolog, `C -> T` with no else fails when `C` fails. Where a condition or branch needs several goals, group them in a `{...}` block.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X 5.
   > X 3 -> = Result big ; = Result small.
-  """
-end
+  """)
 ```
 
 `A ; B` is a plain backtracking choice between two goals. Both sides stay live for backtracking.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   findall X Results (= X a ; = X b).
-  """
-end
+  """)
 ```
 
 `cut` commits to whatever's been decided so far in the current call and discards any remaining alternatives.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   findall X Results ({= X a, cut} ; = X b).
-  """
-end
+  """)
 ```
 
 `fail` always fails. `pass` always succeeds without doing anything, useful as an empty branch.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X 1.
   pass.
-  """
-end
+  """)
 ```
 
 ## Inspecting terms
@@ -186,11 +162,9 @@ end
 `var` succeeds if its argument is still open. `ground` succeeds if a term has no open variables left in it anywhere.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   var X.
-  """
-end
+  """)
 ```
 
 ## Anonymous methods
@@ -198,11 +172,9 @@ end
 An `anonymous_method` is an ephemeral value with a head and body. `add_arg` returns a new value with one argument loaded, and `run` supplies the remaining arguments.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   new anonymous_method #{args => [], body => [(= Result [A, B])], head => [A, B, Result]} Method.
   add_arg Method first Partial.
   run Partial [second, Result].
-  """
-end
+  """)
 ```

@@ -404,7 +404,7 @@ defmodule AL.JAM.IRProgramTest do
   test "static callable sites carry code and fixed capture locations" do
     body = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, {:"$var", "Capture"}]}]
     goal = %Goal.Call{head: [{:"$var", "Argument"}], body: body, args: [{:"$var", "Output"}]}
-    {code, slots} = AL.JAM.Compiler.runtime([goal])
+    {code, slots} = AL.JAM.IR.Assembler.compile([goal])
     assert {{:call, _, _, {:compiled_callable, {:constant, template}, _, _}, _}} = code
     assert %AL.JAM.Callable.Template{capture_slots: [0, 1]} = template
 
@@ -434,7 +434,7 @@ defmodule AL.JAM.IRProgramTest do
       args: [{:"$var", "Output"}]
     }
 
-    {code, _} = AL.JAM.Compiler.runtime([call])
+    {code, _} = AL.JAM.IR.Assembler.compile([call])
     assert {{:call, _, _, {:register, _}, _}} = code
 
     program =
@@ -453,7 +453,7 @@ defmodule AL.JAM.IRProgramTest do
     body = [%Goal.Compound{name: :=, args: [{:"$var", "Argument"}, {:"$var", "Capture"}]}]
 
     {code, slots} =
-      AL.JAM.Compiler.runtime([
+      AL.JAM.IR.Assembler.compile([
         %Goal.Call{head: [{:"$var", "Argument"}], body: body, args: [{:"$var", "Output"}]}
       ])
 
@@ -491,7 +491,7 @@ defmodule AL.JAM.IRProgramTest do
       args: [{:"$var", "Output"}]
     }
 
-    {code, slots} = AL.JAM.Compiler.runtime([call])
+    {code, slots} = AL.JAM.IR.Assembler.compile([call])
     refute match?({{:call, _, _, {:compiled_callable, _, _, _}, _}}, code)
 
     for value <- [:first, :second] do
@@ -514,7 +514,7 @@ defmodule AL.JAM.IRProgramTest do
       args: [:value]
     }
 
-    {code, slots} = AL.JAM.Compiler.runtime([selected])
+    {code, slots} = AL.JAM.IR.Assembler.compile([selected])
 
     snapshot = %AL.JAM.Frame{
       id: :test,

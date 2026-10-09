@@ -53,14 +53,15 @@ defmodule Examples.ALSource do
     branch = AL.Branch.fork()
 
     {:atomic, _} =
-      run branch: branch.id do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class scoped object.
 
         scoped >> hi
         | _Self |.
-        """
-      end
+        """,
+        branch: branch.id
+      )
 
     sources = AL.Source.method_sources(:scoped, branch.id)
     assert [["hi", "scoped >> hi\n| _Self |"]] == sources
@@ -107,15 +108,17 @@ defmodule Examples.ALSource do
       | Self hi |.
       """
 
-      {:atomic, _} = AL.eval_source(source, branch)
+      {:atomic, _} = AL.run(source, branch)
 
       output =
         capture_io(fn ->
-          run branch: branch.id do
-            ~AL"""
-            listing ^class greet.
-            """
-          end
+          run(
+            ~S"""
+            listing HostClass greet.
+            """,
+            branch: branch.id,
+            bindings: %{"HostClass" => class}
+          )
         end)
 
       assert output == "#{AL.Syntax.Printer.term(class)} >> greet\n| Self hi |\n\n"

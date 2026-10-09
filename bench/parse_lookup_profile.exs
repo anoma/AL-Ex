@@ -123,8 +123,8 @@ source =
 source |> String.replace(":mnesia.read(", "Bench.LookupProfile.read(") |> Code.compile_string()
 
 for {file, kind, signature} <- [
-      {"AL/jam/ir/plan.ex", :plan, "  def valid?(plan, branch) do"},
-      {"AL/jam/ir/loop.ex", :loop, "  def valid?(%__MODULE__{} = plan, branch) do"}
+      {"AL/jam/ir/optimization/plan.ex", :plan, "  def valid?(plan, branch) do"},
+      {"AL/jam/ir/optimization/loop.ex", :loop, "  def valid?(%__MODULE__{} = plan, branch) do"}
     ] do
   File.read!(Path.join(root, file))
   |> Profile.patch(

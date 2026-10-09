@@ -13,7 +13,7 @@ defmodule AL.CollectionStateTest do
       output =
         capture_io(fn ->
           assert {:atomic, {%{"$R" => [2]}, _, _}} =
-                   AL.eval_source(
+                   AL.run(
                      ~s(vm_format "before" [], #{collector} {{vm_format "failed" [], fail} ; {= X 2, vm_format "answer" []}}, vm_format "after" [].),
                      branch
                    )
@@ -27,7 +27,7 @@ defmodule AL.CollectionStateTest do
     output =
       capture_io(fn ->
         assert {:atomic, {%{"$Batches" => [[1], [2], [3]]}, _, _}} =
-                 AL.eval_source(
+                 AL.run(
                    ~S(findall B Batches {findnsols 1 X B {member [1,2,3] X, vm_format "~d" [X]}}.),
                    branch
                  )
@@ -40,7 +40,7 @@ defmodule AL.CollectionStateTest do
     output =
       capture_io(fn ->
         assert {:atomic, {_, _, state}} =
-                 AL.eval_source(
+                 AL.run(
                    ~S(findnsols 1 X R {member [1,2] X, vm_format "~d" [X]}.),
                    branch
                  )
@@ -59,7 +59,7 @@ defmodule AL.CollectionStateTest do
   test "zero count executes no output", %{branch: branch} do
     assert capture_io(fn ->
              assert {:atomic, {%{"$R" => []}, _, _}} =
-                      AL.eval_source(
+                      AL.run(
                         ~S(findnsols 0 X R {vm_format "unexpected" [], = X 1}.),
                         branch
                       )
@@ -67,7 +67,7 @@ defmodule AL.CollectionStateTest do
   end
 
   test "child work is charged on both machine and driver collection paths", %{branch: branch} do
-    assert {:atomic, {_, _, plain}} = AL.eval_source("count_to 0 1000.", branch)
+    assert {:atomic, {_, _, plain}} = AL.run("count_to 0 1000.", branch)
 
     for source <- [
           "findall X R {count_to 0 1000, = X 1}.",
@@ -76,7 +76,7 @@ defmodule AL.CollectionStateTest do
           "not {count_to 0 1000, fail}.",
           "forall {count_to 0 1000} {pass}."
         ] do
-      assert {:atomic, {_, _, collected}} = AL.eval_source(source, branch)
+      assert {:atomic, {_, _, collected}} = AL.run(source, branch)
       assert collected.reductions >= plain.reductions
       assert collected.reductions < plain.reductions + 100
     end
@@ -85,7 +85,7 @@ defmodule AL.CollectionStateTest do
   test "separate child searches share the transaction budget", %{branch: branch} do
     for collector <- ["findall X R", "findnsols 1 X R"] do
       assert {:aborted, %{reason: {:resource_limit_exceeded, 2_000_000}}} =
-               AL.eval_source(
+               AL.run(
                  "#{collector} {count_to 0 400000, = X 1}, #{collector} {count_to 0 400000, = X 1}.",
                  branch
                )

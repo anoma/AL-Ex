@@ -58,12 +58,15 @@ defmodule Bench.Sudoku do
   def seventeen_puzzle, do: @seventeen_puzzle
 
   def solve(branch, givens) do
-    run branch: branch.id, trace: [] do
-      ~AL"""
-      new sudoku_puzzle #{givens => ^givens} Puzzle.
+    run(
+      ~S"""
+      new sudoku_puzzle #{givens => HostGivens} Puzzle.
       solve Puzzle Solved.
-      """
-    end
+      """,
+      branch: branch.id,
+      trace: [],
+      bindings: %{"HostGivens" => givens}
+    )
   end
 
   def check_solution(result, givens) do

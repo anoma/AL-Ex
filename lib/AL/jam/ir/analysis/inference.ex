@@ -37,6 +37,16 @@ defmodule AL.JAM.IR.Inference do
     end
   end
 
+  defp infer(%IR{kind: :direct, name: :unify_structural, args: [a, b]}, exposed) do
+    case IR.Binding.infer_structural(a, b, exposed) do
+      nil ->
+        %__MODULE__{effect: :binding}
+
+      binding ->
+        %__MODULE__{determinism: :det, suspension: :never, effect: :local, binding: binding}
+    end
+  end
+
   defp infer(%IR{kind: :compare, args: args}, exposed) do
     if Enum.all?(args, &(mode(&1, exposed) == :ground and is_number(&1))),
       do: %__MODULE__{determinism: :semidet, suspension: :never, effect: :pure},

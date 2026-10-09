@@ -10,31 +10,31 @@ defmodule AL.CleanupCorrectnessTest do
   test "nil remains bound through aliases and subsequent goals", %{branch: branch} do
     for opts <- [[], [trace: [:vm]]] do
       assert {:atomic, {%{"$X" => nil, "$Y" => nil}, _, _}} =
-               AL.eval_source("= X nil, = Y X.", branch, opts)
+               AL.run("= X nil, = Y X.", branch, opts)
 
-      assert {:aborted, _} = AL.eval_source("= X nil, = X 42.", branch, opts)
+      assert {:aborted, _} = AL.run("= X nil, = X 42.", branch, opts)
     end
   end
 
   test "literal match-spec atoms never broaden reads or retractions", %{branch: branch} do
     assert {:atomic, {%{"$Victim" => victim}, _, _}} =
-             AL.eval_source(~S"@audit_class #{super => object}. new audit_class Victim.", branch)
+             AL.run(~S"@audit_class #{super => object}. new audit_class Victim.", branch)
 
     for atom <- [:_, :"$1", :"$2"] do
       assert {:atomic, []} =
                :mnesia.transaction(fn -> AL.Object.scan_class(atom, :audit_class, branch) end)
 
       assert {:atomic, _} =
-               AL.eval_source("vm_set_class #{AL.Syntax.Printer.term(atom)} audit_class.", branch)
+               AL.run("vm_set_class #{AL.Syntax.Printer.term(atom)} audit_class.", branch)
 
       assert {:atomic, [{:class, ^atom, _, :audit_class}]} =
                :mnesia.transaction(fn -> AL.Object.scan_class(atom, :audit_class, branch) end)
 
       assert {:atomic, _} =
-               AL.eval_source("vm_set_super #{AL.Syntax.Printer.term(atom)} object.", branch)
+               AL.run("vm_set_super #{AL.Syntax.Printer.term(atom)} object.", branch)
 
       source = "vm_retract_class #{AL.Syntax.Printer.term(atom)} audit_class."
-      assert {:atomic, _} = AL.eval_source(source, branch)
+      assert {:atomic, _} = AL.run(source, branch)
 
       assert {:atomic, []} =
                :mnesia.transaction(fn -> AL.Object.scan_class(atom, :audit_class, branch) end)
@@ -91,11 +91,11 @@ defmodule AL.CleanupCorrectnessTest do
     {[%AL.JAM.CompiledClause{locals: locals, code: code}], _} =
       AL.JAM.Compiler.compile([{:oapply, :probe, 0, [output], body}])
 
-    assert {:local, index, {:map_put, _, _, _, _}} = elem(code, 0)
+    assert {:local, index, {:unify_structural, _, _}} = elem(code, 0)
     refute Enum.any?(locals, fn {slot, _} -> slot == index end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @scope_probe #{super => value}.
                scope_probe >> build
@@ -109,7 +109,7 @@ defmodule AL.CleanupCorrectnessTest do
 
     for opts <- [[], [trace: [:vm]]] do
       assert {:atomic, {%{"$Output" => %{key: :value}}, _, _}} =
-               AL.eval_source(~S"build #{class => scope_probe} Output.", branch, opts)
+               AL.run(~S"build #{class => scope_probe} Output.", branch, opts)
     end
   end
 end

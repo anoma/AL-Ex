@@ -32,7 +32,7 @@ defmodule AL.JAM.IR do
     do: operation(:term, :functor, [term, name, args])
 
   def lower(%AL.Goal.Or{or: left, then: right}),
-    do: operation(:branch, nil, [Enum.map(left, &lower/1), Enum.map(right, &lower/1)])
+    do: operation(:branch, nil, [left, right])
 
   def lower(%AL.Goal.Pass{}), do: operation(:direct, :pass, [])
   def lower(%AL.Goal.Fail{}), do: operation(:direct, :fail, [])
@@ -104,7 +104,10 @@ defmodule AL.JAM.IR do
   end
 
   def effects(%__MODULE__{kind: :direct, name: :pass}), do: :pure
-  def effects(%__MODULE__{kind: :direct, name: name}) when name in [:eq, :dif], do: :binding
+
+  def effects(%__MODULE__{kind: :direct, name: name}) when name in [:eq, :dif, :unify_structural],
+    do: :binding
+
   def effects(%__MODULE__{kind: :mutation}), do: :write
   def effects(%__MODULE__{kind: :relation}), do: :read_and_bind
   def effects(%__MODULE__{kind: :scope}), do: :scoped

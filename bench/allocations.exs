@@ -14,7 +14,7 @@ try do
   true = count > 0
 
   {:atomic, _} =
-    AL.eval_source(~S"""
+    AL.run(~S"""
     @allocation_runner #{super => object}.
     @allocation_object #{super => object, ivars => [#{name => index}]}.
     @allocation_value #{super => value, ivars => [#{name => index}]}.

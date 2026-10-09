@@ -36,11 +36,12 @@ defmodule Examples.ALNative do
       AL.Native.register(:number, :al_native_gcd, Integer, :gcd, 2, branch: examples_branch())
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         al_native_gcd 12 8 Result.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Result") == 4
 
@@ -61,11 +62,12 @@ defmodule Examples.ALNative do
     AL.Native.Registry.delete(method_id)
 
     {:aborted, reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         al_native_missing_demo 12 8 Result.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert match?({:native_missing, ^method_id, {Integer, :gcd, 2}}, reason.reason)
     assert reason.message =~ "declared native"
@@ -90,11 +92,12 @@ defmodule Examples.ALNative do
       )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         al_native_idempotent 9 6 Result.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Result") == 3
 
@@ -140,11 +143,12 @@ defmodule Examples.ALNative do
       )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall D All (al_native_divisors 6 D).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.sort(Map.get(bindings, "$All")) == [1, 2, 3, 6]
 

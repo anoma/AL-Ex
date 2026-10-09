@@ -11,12 +11,13 @@ defmodule Examples.ALFreeze do
 
   example bound_runs_at_once() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X 3.
         freeze X (= Y (+ X 1)).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$Y") == 4
     :ok
@@ -24,12 +25,13 @@ defmodule Examples.ALFreeze do
 
   example binding_wakes_in_place() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         freeze X (= Y (+ X 1)).
         = X 3.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$Y") == 4
     :ok
@@ -37,13 +39,14 @@ defmodule Examples.ALFreeze do
 
   example a_binding_made_by_propagation_wakes_too() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         freeze C (= Y (+ C 1)).
         = D (- C 48).
         = D 7.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$Y") == 56
     :ok
@@ -51,8 +54,8 @@ defmodule Examples.ALFreeze do
 
   example a_clause_head_wakes_too() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         vm_set_class frozen object.
 
         frozen >> five
@@ -60,8 +63,9 @@ defmodule Examples.ALFreeze do
 
         freeze V (= W (+ V 1)).
         five frozen V.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$W") == 6
     :ok
@@ -69,11 +73,12 @@ defmodule Examples.ALFreeze do
 
   example floundering_fails() do
     {:aborted, _reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         freeze X (= Y (+ X 1)).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -84,13 +89,14 @@ defmodule Examples.ALFreeze do
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _constraints, _}} =
-                  run branch: Examples.Support.branch() do
-                    ~AL"""
+                  run(
+                    ~S"""
                     freeze A (= B (* A 2)).
                     freeze B (= A (/ B 2)).
                     = A 21.
-                    """
-                  end
+                    """,
+                    branch: Examples.Support.branch()
+                  )
 
                 {Map.fetch!(b, "$A"), Map.fetch!(b, "$B")}
               end).()
@@ -98,13 +104,14 @@ defmodule Examples.ALFreeze do
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _constraints, _}} =
-                  run branch: Examples.Support.branch() do
-                    ~AL"""
+                  run(
+                    ~S"""
                     freeze A (= B (* A 2)).
                     freeze B (= A (/ B 2)).
                     = B 42.
-                    """
-                  end
+                    """,
+                    branch: Examples.Support.branch()
+                  )
 
                 {Map.fetch!(b, "$A"), Map.fetch!(b, "$B")}
               end).()
@@ -115,13 +122,14 @@ defmodule Examples.ALFreeze do
   # Aliasing moves the wait to the chain's end; binding there fires it.
   example aliased_variable_still_wakes() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         freeze X (= Fired yes).
         = X Y.
         = Y 5.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$Fired") == :yes
     :ok

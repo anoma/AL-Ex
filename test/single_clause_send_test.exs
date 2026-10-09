@@ -3,7 +3,7 @@ defmodule AL.SingleClauseSendTest do
 
   test "a clause added after a send is visible in the same transaction" do
     {:atomic, _result} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @send_plan_probe #{super => object}.
 
       send_plan_probe >> pick
@@ -18,7 +18,7 @@ defmodule AL.SingleClauseSendTest do
 
   test "a single clause keeps body alternatives and next-method dispatch" do
     {:atomic, {bindings, _constraints, _state}} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @send_plan_parent #{super => object}.
 
       send_plan_parent >> describe
@@ -45,7 +45,7 @@ defmodule AL.SingleClauseSendTest do
 
   test "open arguments retain multiple matching clauses in source order" do
     {:atomic, {bindings, _constraints, _state}} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @send_mode_probe #{super => object}.
 
       send_mode_probe >> choose
@@ -64,7 +64,7 @@ defmodule AL.SingleClauseSendTest do
 
   test "next-method dispatch works inside a nested goal" do
     {:atomic, {bindings, _constraints, _state}} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @nested_next_parent #{super => object}.
 
       nested_next_parent >> describe

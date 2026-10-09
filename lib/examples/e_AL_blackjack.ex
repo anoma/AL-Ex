@@ -13,13 +13,14 @@ defmodule Examples.ALBlackjack do
 
   example hand_total_computes_forward() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new card #{rank => king, suit => spades} King.
         new card #{rank => queen, suit => hearts} Queen.
         hand_total [King, Queen] Total.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Total") == 20
     :ok
@@ -27,15 +28,16 @@ defmodule Examples.ALBlackjack do
 
   example hand_finds_every_card_that_completes_21() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new card #{rank => king, suit => spades} King.
         new card #{rank => ace, suit => hearts} Ace.
         new card #{suit => clubs} C3.
         get C3 rank R3.
         findall R3 Completions {label R3, hand_total [King, Ace, C3] 21}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.sort(Map.get(bindings, "$Completions")) == [10, :jack, :king, :queen]
     :ok
@@ -44,13 +46,14 @@ defmodule Examples.ALBlackjack do
   # Wildcard args -- both ivars stay open, domain-constrained but unbound.
   example new_with_wildcard_args_leaves_both_ivars_open() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new card _ C.
         get C suit Suit.
         get C rank Rank.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert AL.Var.var?(Map.get(bindings, "$Suit"))
     assert AL.Var.var?(Map.get(bindings, "$Rank"))
@@ -62,12 +65,13 @@ defmodule Examples.ALBlackjack do
   # domain, isa :number), guard passes.
   example card_value_finds_a_card_for_a_valid_value() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         card_value C 7.
         label C.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$C") != nil
     :ok
@@ -75,11 +79,12 @@ defmodule Examples.ALBlackjack do
 
   example repeated_symbolic_slot_reads_share_their_value() do
     {:atomic, {bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall [Card, Rank, Value] Triples {card_value Card Value, get Card rank Rank}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     triples = Map.fetch!(bindings, "$Triples")
 
@@ -105,12 +110,13 @@ defmodule Examples.ALBlackjack do
 
   example symbolic_slot_relations_are_exposed_in_the_answer() do
     {:atomic, {bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         card_value Card Value.
         get Card rank Rank.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.fetch!(bindings, "$Value") == 10
     assert Map.fetch!(bindings, "$Rank") == :jack
@@ -121,11 +127,12 @@ defmodule Examples.ALBlackjack do
 
   example labeling_a_symbolic_slot_value_uses_the_value_witness_domain() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall [Rank, Value] Pairs {card_value Card Value, get Card rank Rank, label Rank}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     expected =
       [
@@ -142,12 +149,13 @@ defmodule Examples.ALBlackjack do
   # No rank produces 29 -- domain rejects it before any clause's guard runs.
   example card_value_fails_for_an_impossible_value() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         card_value C 29.
         label C.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -155,11 +163,12 @@ defmodule Examples.ALBlackjack do
   # Out-of-domain rank rejected at construction time, not just query time.
   example new_with_out_of_domain_rank_aborts() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new card #{rank => 29} _C.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -168,12 +177,13 @@ defmodule Examples.ALBlackjack do
   # not a domain violation (the field's no longer open).
   example reading_a_bound_field_against_a_different_value_aborts() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         new card #{rank => 7} C.
         get C rank 2.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

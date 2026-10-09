@@ -14,11 +14,13 @@ defmodule AL.GtBridge do
     id = self.id
 
     result =
-      AL.run branch: AL.Object.branch_id(self) do
-        ~AL"""
-        slot ^id name Name.
-        """
-      end
+      AL.run(
+        ~S"""
+        slot HostId name Name.
+        """,
+        branch: AL.Object.branch_id(self),
+        bindings: %{"HostId" => id}
+      )
 
     case result do
       {:atomic, {bindings, _constraints, _}} ->
@@ -39,11 +41,13 @@ defmodule AL.GtBridge do
     id = self.id
 
     result =
-      AL.run branch: branch do
-        ~AL"""
-        examine ^id Info.
-        """
-      end
+      AL.run(
+        ~S"""
+        examine HostId Info.
+        """,
+        branch: branch,
+        bindings: %{"HostId" => id}
+      )
 
     case result do
       {:atomic, {bindings, _constraints, _}} ->
@@ -309,11 +313,13 @@ defmodule AL.GtBridge do
     id = self.id
 
     result =
-      AL.run branch: AL.Object.branch_id(self) do
-        ~AL"""
-        dependents ^id Dependents.
-        """
-      end
+      AL.run(
+        ~S"""
+        dependents HostId Dependents.
+        """,
+        branch: AL.Object.branch_id(self),
+        bindings: %{"HostId" => id}
+      )
 
     case result do
       {:atomic, {bindings, _constraints, _program_state}} ->

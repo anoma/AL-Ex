@@ -6,7 +6,7 @@ defmodule AL.JAM.InlineDispatchTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @inline_probe #{super => value}.
                inline_probe >> check
@@ -21,19 +21,19 @@ defmodule AL.JAM.InlineDispatchTest do
 
   test "a warmed optimized method retains callable events when tracing", %{branch: branch} do
     source = "check \#{class => inline_probe} 1."
-    assert {:atomic, _} = AL.eval_source(source, branch)
-    assert {:atomic, {_, _, state}} = AL.eval_source(source, branch, trace: [:goals, :domino])
+    assert {:atomic, _} = AL.run(source, branch)
+    assert {:atomic, {_, _, state}} = AL.run(source, branch, trace: [:goals, :domino])
     assert Enum.any?(AL.Trace.payloads(state.trace.events), &match?(%AL.Goal.Call{}, &1))
-    assert {:atomic, _} = AL.eval_source(source, branch)
+    assert {:atomic, _} = AL.run(source, branch)
   end
 
   test "editing an inlined method invalidates ordinary and traced caches", %{branch: branch} do
     for opts <- [[], [trace: [:vm]]] do
-      assert {:atomic, _} = AL.eval_source("check \#{class => inline_probe} 1.", branch, opts)
+      assert {:atomic, _} = AL.run("check \#{class => inline_probe} 1.", branch, opts)
     end
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                inline_probe >> check
                | _Self Value |
@@ -43,14 +43,14 @@ defmodule AL.JAM.InlineDispatchTest do
              )
 
     for opts <- [[], [trace: [:vm]]] do
-      assert {:aborted, _} = AL.eval_source("check \#{class => inline_probe} 1.", branch, opts)
-      assert {:atomic, _} = AL.eval_source("check \#{class => inline_probe} 2.", branch, opts)
+      assert {:aborted, _} = AL.run("check \#{class => inline_probe} 1.", branch, opts)
+      assert {:atomic, _} = AL.run("check \#{class => inline_probe} 2.", branch, opts)
     end
   end
 
   test "recursive clauses preserve answer order with inlined guards", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                inline_probe >> walk
                | _Self [] |.

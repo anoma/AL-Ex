@@ -61,17 +61,18 @@ defmodule Examples.ALSourceInput do
 
     try do
       {:atomic, {_bindings, _constraints, state}} =
-        run branch: branch.id do
-          ~AL"""
+        run(
+          ~S"""
           # retained comment
           vm_set_class captured_run_object object.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       {:atomic, texts} = :mnesia.transaction(fn -> AL.SourceStore.texts(branch) end)
       tx = state.tx_id
 
-      assert {:source_text, ^tx, retained, %{kind: :al_run}} =
+      assert {:source_text, ^tx, retained, %{kind: :al_text}} =
                Enum.find(texts, fn {:source_text, tx_id, _text, _origin} -> tx_id == tx end)
 
       assert retained == "# retained comment\nvm_set_class captured_run_object object.\n"
@@ -109,7 +110,7 @@ defmodule Examples.ALSourceInput do
              """)
 
     assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("42.")
-    assert {:error, %Syntax.Error{phase: :compile}} = AL.eval_source("42.")
+    assert {:error, %Syntax.Error{phase: :compile}} = AL.run("42.")
     assert {:error, %Syntax.Error{phase: :parse}} = Syntax.parse("X =.")
     assert {:error, %Syntax.Error{phase: :compile}} = Syntax.parse("= Pair {ok, 1}.")
     assert {:error, %Syntax.Error{phase: :parse}} = Syntax.parse("receiver >> selector Self.")
@@ -128,7 +129,7 @@ defmodule Examples.ALSourceInput do
       vm_set_class #{al(second)} object.
       """
 
-      {:atomic, _} = AL.eval_source(source, branch)
+      {:atomic, _} = AL.run(source, branch)
 
       {:atomic, commands} =
         :mnesia.transaction(fn -> AL.Command.commands_since(0, branch) end)
@@ -156,7 +157,7 @@ defmodule Examples.ALSourceInput do
       fail.
       """
 
-      assert {:aborted, _reason} = AL.eval_source(source, branch)
+      assert {:aborted, _reason} = AL.run(source, branch)
 
       {:atomic, classes} =
         :mnesia.transaction(fn -> AL.Object.scan_class(object, :object, branch) end)
@@ -166,18 +167,6 @@ defmodule Examples.ALSourceInput do
     after
       AL.Branch.discard(branch)
     end
-  end
-
-  example source_input_preserves_heap_limited_evaluation() do
-    source = """
-    = Result ok.
-    """
-
-    assert {:atomic, {bindings, _constraints, nil}} =
-             AL.eval_source(source, %AL.Branch{id: Examples.Support.branch()}, heap: 2_000_000)
-
-    assert Map.fetch!(bindings, "$Result") == :ok
-    :ok
   end
 
   example durable_rows_use_exact_definition_commands_and_read_authored_source() do
@@ -199,7 +188,7 @@ defmodule Examples.ALSourceInput do
         = Self Self.
       """
 
-      {:atomic, _} = AL.eval_source(source, branch)
+      {:atomic, _} = AL.run(source, branch)
 
       {:atomic, {texts, spans, class_rows, ping_id, ping_rows, outside_id, outside_rows}} =
         :mnesia.transaction(fn ->
@@ -238,7 +227,7 @@ defmodule Examples.ALSourceInput do
           }
         end)
 
-      assert {:source_text, tx_id, ^source, %{kind: :eval_source, label: nil}} =
+      assert {:source_text, tx_id, ^source, %{kind: :al_text}} =
                Enum.find(texts, fn {:source_text, _tx_id, text, _origin} -> text == source end)
 
       own_spans =
@@ -291,7 +280,7 @@ defmodule Examples.ALSourceInput do
                text: ^ping_text,
                start_line: 3,
                provenance: :retained,
-               origin: %{kind: :eval_source, label: nil},
+               origin: %{kind: :al_text},
                diagnostic: nil
              } = AL.Source.method_clause_source(class, :ping, ping_id, 0, branch)
 
@@ -336,7 +325,7 @@ defmodule Examples.ALSourceInput do
       fail.
       """
 
-      assert {:aborted, reason} = AL.eval_source(source, branch)
+      assert {:aborted, reason} = AL.run(source, branch)
       tx = reason.state.tx_id
 
       {:atomic, {texts, spans, classes, commands}} =
@@ -351,7 +340,7 @@ defmodule Examples.ALSourceInput do
 
       assert texts_before != texts
 
-      assert {:source_text, ^tx, ^source, %{kind: :eval_source, label: nil}} =
+      assert {:source_text, ^tx, ^source, %{kind: :al_text}} =
                Enum.find(texts, fn {:source_text, tx_id, _text, _origin} -> tx_id == tx end)
 
       assert spans == spans_before
@@ -378,7 +367,7 @@ defmodule Examples.ALSourceInput do
     second_source = "object >> #{al(second)}\n| Self |.\n"
     child_source = "object >> #{al(child_only)}\n| Self |.\n"
 
-    {:atomic, _} = AL.eval_source(first_source, parent)
+    {:atomic, _} = AL.run(first_source, parent)
 
     {:atomic, {first_id, first_command_t}} =
       :mnesia.transaction(fn ->
@@ -399,7 +388,7 @@ defmodule Examples.ALSourceInput do
         {first_id, first_command_t}
       end)
 
-    {:atomic, _} = AL.eval_source(second_source, parent)
+    {:atomic, _} = AL.run(second_source, parent)
 
     {:atomic, {_second_id, second_command_t}} =
       :mnesia.transaction(fn ->
@@ -440,7 +429,7 @@ defmodule Examples.ALSourceInput do
 
       assert second_methods == []
 
-      {:atomic, _} = AL.eval_source(child_source, child)
+      {:atomic, _} = AL.run(child_source, child)
 
       {:atomic, {parent_texts, child_texts, parent_child_only_methods}} =
         :mnesia.transaction(fn ->
@@ -486,7 +475,7 @@ defmodule Examples.ALSourceInput do
     source = "object >> #{al(method)}\n| Self |.\n"
 
     try do
-      {:atomic, _} = AL.eval_source(source, branch)
+      {:atomic, _} = AL.run(source, branch)
 
       {:atomic, {method_id, archive_before}} =
         :mnesia.transaction(fn ->
@@ -611,7 +600,7 @@ defmodule Examples.ALSourceInput do
     second_source = "object >> #{al(method)}\n| Self second |.\n"
 
     try do
-      {:atomic, _} = AL.eval_source(first_source, branch)
+      {:atomic, _} = AL.run(first_source, branch)
 
       {:atomic, {method_id, old_clause_seq, old_command_t, old_head}} =
         :mnesia.transaction(fn ->
@@ -645,7 +634,7 @@ defmodule Examples.ALSourceInput do
                  branch
                )
 
-      {:atomic, _} = AL.eval_source(second_source, branch)
+      {:atomic, _} = AL.run(second_source, branch)
 
       {:atomic, {open_rows, history, spans}} =
         :mnesia.transaction(fn ->
@@ -773,7 +762,7 @@ defmodule Examples.ALSourceInput do
       | Self big |.
       """
 
-      {:atomic, _} = AL.eval_source(source, branch)
+      {:atomic, _} = AL.run(source, branch)
 
       output = capture_io(fn -> AL.Source.print_method(class, :describe, branch) end)
 

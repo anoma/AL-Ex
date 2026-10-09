@@ -28,15 +28,13 @@ defmodule Examples.ALTransactionPrograms do
       assert {:atomic, _} = AL.TransactionProgram.install(program)
 
       result =
-        AL.run do
-          ~AL"""
-          class transaction_program_fixture program_execution.
-          get program_created_object answer Answer.
-          get transaction_program_fixture tx Transaction.
-          class Transaction transaction.
-          listing transaction_program_fixture Source.
-          """
-        end
+        AL.run(~S"""
+        class transaction_program_fixture program_execution.
+        get program_created_object answer Answer.
+        get transaction_program_fixture tx Transaction.
+        class Transaction transaction.
+        listing transaction_program_fixture Source.
+        """)
 
       assert {:atomic, {bindings, _constraints, _}} = result
 
@@ -104,11 +102,9 @@ defmodule Examples.ALTransactionPrograms do
       retained = source
 
       result =
-        AL.run do
-          ~AL"""
-          listing retained_program_fixture Text.
-          """
-        end
+        AL.run(~S"""
+        listing retained_program_fixture Text.
+        """)
 
       assert {:atomic, {bindings, _constraints, _}} = result
 
@@ -117,11 +113,9 @@ defmodule Examples.ALTransactionPrograms do
       printed =
         ExUnit.CaptureIO.capture_io(fn ->
           result =
-            AL.run do
-              ~AL"""
-              listing retained_program_fixture.
-              """
-            end
+            AL.run(~S"""
+            listing retained_program_fixture.
+            """)
 
           assert {:atomic, _} = result
         end)

@@ -6,7 +6,7 @@ defmodule AL.JAM.PlanTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         @query_probe #{super => value}.
         query_probe >> pipeline
@@ -54,7 +54,7 @@ defmodule AL.JAM.PlanTest do
     branch: branch
   } do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_probe >> calculated
                | Self Output |
@@ -81,7 +81,7 @@ defmodule AL.JAM.PlanTest do
     assert {:atomic, _} = run(:pipeline, [{:"$var", "Output"}], branch)
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> dispatch
         | _Self _Kind Output |
@@ -96,7 +96,7 @@ defmodule AL.JAM.PlanTest do
 
   test "known compound fields and local argument lists disappear from a plan", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> route
         | Self Output |
@@ -128,7 +128,7 @@ defmodule AL.JAM.PlanTest do
 
   test "a call site guards receiver values sharing a dispatch class", %{branch: branch} do
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                string >> query_echo
                | Self Output |
@@ -146,7 +146,7 @@ defmodule AL.JAM.PlanTest do
 
   test "alternatives retain answer order and duplicate answers", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> choices
         | Self Value |
@@ -166,7 +166,7 @@ defmodule AL.JAM.PlanTest do
       )
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {choices #{class => query_probe} Value}.
                """,
@@ -178,7 +178,7 @@ defmodule AL.JAM.PlanTest do
 
   test "class metadata assumptions are guarded", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> typed
         | Self Output |
@@ -192,13 +192,13 @@ defmodule AL.JAM.PlanTest do
       )
 
     assert {:aborted, _} = run(:typed, [{:"$var", "Output"}], branch)
-    {:atomic, _} = AL.eval_source("vm_set_class query_marker list.", branch)
+    {:atomic, _} = AL.run("vm_set_class query_marker list.", branch)
     assert {:atomic, {%{"$Output" => :yes}, _, _}} = run(:typed, [{:"$var", "Output"}], branch)
   end
 
   test "effects stop planning before a later class read", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> changing
         | Self Output |
@@ -220,7 +220,7 @@ defmodule AL.JAM.PlanTest do
 
   test "cuts retain their method boundary", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> bounded
         | Self Value |
@@ -240,7 +240,7 @@ defmodule AL.JAM.PlanTest do
       )
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {bounded #{class => query_probe} Value}.
                """,
@@ -252,7 +252,7 @@ defmodule AL.JAM.PlanTest do
 
   test "uncertain head matching retains the callee's missing-method behavior", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> outer
         | Self Value |
@@ -270,7 +270,7 @@ defmodule AL.JAM.PlanTest do
 
   test "a region propagates a local selector across equality and calls", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> region_route
         | Self Output |
@@ -297,7 +297,7 @@ defmodule AL.JAM.PlanTest do
 
   test "a region resumes local propagation after an opaque operation", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> region_boundary
         | Self Input Output |
@@ -331,7 +331,7 @@ defmodule AL.JAM.PlanTest do
 
   test "escaped variables keep unification and suspension behavior", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> region_suspended
         | Self Output |
@@ -350,7 +350,7 @@ defmodule AL.JAM.PlanTest do
 
   test "failure after a boundary retains the preceding operation", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> region_failure
         | Self Input |
@@ -377,7 +377,7 @@ defmodule AL.JAM.PlanTest do
 
   test "region equality preserves aliases visible to the caller", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> region_alias
         | Self Input Output |
@@ -401,7 +401,7 @@ defmodule AL.JAM.PlanTest do
 
   test "rejected region expansion retains the profitable prefix", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> region_fallback
         | Self Output |
@@ -431,7 +431,7 @@ defmodule AL.JAM.PlanTest do
     assert length(elem(plan.compiled, 0)) == 1
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {region_fallback #{class => query_probe} Value}.
                """,
@@ -445,7 +445,7 @@ defmodule AL.JAM.PlanTest do
     branch: branch
   } do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         query_probe >> joined
         | Self Output |
@@ -475,7 +475,7 @@ defmodule AL.JAM.PlanTest do
            end)
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {joined #{class => query_probe} Value}.
                """,
@@ -498,7 +498,7 @@ defmodule AL.JAM.PlanTest do
 
   defp providers(branch) do
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @query_base #{super => value}.
                @query_middle #{super => query_base}.
@@ -525,7 +525,7 @@ defmodule AL.JAM.PlanTest do
     providers(branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_probe >> inherited_wrapper
                | Self Input Output |
@@ -560,7 +560,7 @@ defmodule AL.JAM.PlanTest do
     assert constraints != %{}
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_base >> inherited
                | _Self _Input Output |
@@ -572,7 +572,7 @@ defmodule AL.JAM.PlanTest do
     assert {:atomic, false} = :mnesia.transaction(fn -> AL.JAM.IR.Plan.valid?(plan, branch) end)
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {inherited_wrapper #{class => query_probe} ignored Value}.
                """,
@@ -611,7 +611,7 @@ defmodule AL.JAM.PlanTest do
     assert {:atomic, _} = run(:inherited, [[:old], {:"$var", "Output"}], branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_base >> inherited
                | _Self _Input Output |
@@ -628,7 +628,7 @@ defmodule AL.JAM.PlanTest do
     plan = provider_plan(branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                @query_other #{super => value}.
                query_other >> inherited
@@ -649,7 +649,7 @@ defmodule AL.JAM.PlanTest do
     providers(branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_base >> inherited
                | _Self _Input Output |
@@ -661,7 +661,7 @@ defmodule AL.JAM.PlanTest do
     assert provider_plan(branch).compiled != nil
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {inherited #{class => query_probe} ignored Value}.
                """,
@@ -675,7 +675,7 @@ defmodule AL.JAM.PlanTest do
     providers(branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_base >> inherited
                | _Self _Input first |.
@@ -688,7 +688,7 @@ defmodule AL.JAM.PlanTest do
     assert provider_plan(branch).compiled == nil
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Value Values {inherited #{class => query_probe} ignored Value}.
                """,
@@ -704,7 +704,7 @@ defmodule AL.JAM.PlanTest do
     providers(branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_middle >> inherited
                | Self Input Output |
@@ -718,7 +718,7 @@ defmodule AL.JAM.PlanTest do
     assert {:atomic, _} = run(:inherited, [[:ok], {:"$var", "Output"}], branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_middle >> inherited
                | Self Input Output |
@@ -736,7 +736,7 @@ defmodule AL.JAM.PlanTest do
     providers(branch)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_base >> inherited
                | Self _Input Output |
@@ -757,7 +757,7 @@ defmodule AL.JAM.PlanTest do
     on_exit(fn -> AL.Branch.discard(child) end)
 
     assert {:atomic, _} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                query_base >> inherited
                | _Self _Input Output |

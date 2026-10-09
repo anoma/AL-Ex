@@ -37,16 +37,16 @@ defmodule Examples.ALSyntax do
     class = fresh_id("syntax_counter")
 
     try do
-      {:atomic, _} = AL.eval_source(counter_source(class), branch)
+      {:atomic, _} = AL.run(counter_source(class), branch)
 
       {:atomic, {bindings, _constraints, _}} =
-        AL.eval_source(
+        AL.run(
           "new #{al(class)} \#{} Counter.\nbump Counter 5.\nget Counter count Count.",
           branch
         )
 
       {:aborted, _} =
-        AL.eval_source(
+        AL.run(
           "new #{al(class)} \#{} Counter.\nbump Counter 5.\nbump Counter -2.",
           branch
         )
@@ -59,20 +59,22 @@ defmodule Examples.ALSyntax do
 
   example a_conditional_without_else_fails_when_its_condition_fails() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X 1.
         > X 5 -> = Y big.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X 1.
         > X 5 -> = Y big ; = Y small.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Y"] == :small
     :ok
@@ -80,12 +82,13 @@ defmodule Examples.ALSyntax do
 
   example alternatives_backtrack_into_their_second_branch() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X 1 ; = X 2.
         > X 1.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$X"] == 2
     :ok
@@ -96,15 +99,17 @@ defmodule Examples.ALSyntax do
     class = fresh_id("syntax_counter")
 
     try do
-      {:atomic, _} = AL.eval_source(counter_source(class), branch)
+      {:atomic, _} = AL.run(counter_source(class), branch)
 
       output =
         capture_io(fn ->
-          run branch: branch.id do
-            ~AL"""
-            listing ^class bump.
-            """
-          end
+          run(
+            ~S"""
+            listing HostClass bump.
+            """,
+            branch: branch.id,
+            bindings: %{"HostClass" => class}
+          )
         end)
 
       assert output =~ "#{al(class)} >> bump\n| Self By |\n  # refuse to count down\n"
@@ -122,8 +127,8 @@ defmodule Examples.ALSyntax do
     branch = Examples.Support.isolated_branch()
 
     define = fn ->
-      run branch: branch.id do
-        ~AL"""
+      run(
+        ~S"""
         @syntax_redefined
         #{super => object}.
 
@@ -134,8 +139,9 @@ defmodule Examples.ALSyntax do
         | _ second |.
 
         new syntax_redefined #{name => syntax_redefined_instance} _.
-        """
-      end
+        """,
+        branch: branch.id
+      )
     end
 
     try do
@@ -143,21 +149,23 @@ defmodule Examples.ALSyntax do
       {:atomic, _} = define.()
 
       {:atomic, {bindings, _constraints, _}} =
-        run branch: branch.id do
-          ~AL"""
+        run(
+          ~S"""
           findall P Picks (pick syntax_redefined_instance P).
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert Map.get(bindings, "$Picks") == [:first, :second]
 
       {:atomic, {bindings, _constraints, _}} =
-        run branch: branch.id do
-          ~AL"""
+        run(
+          ~S"""
           defmethod syntax_redefined pick [_, third] {}.
           findall P Picks (pick syntax_redefined_instance P).
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       assert Map.get(bindings, "$Picks") == [:first, :second, :third]
       bindings
@@ -170,12 +178,14 @@ defmodule Examples.ALSyntax do
     amount = 7
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        = Total (+ ^amount 3).
-        = [First . Rest] [Total, ^amount].
-        """
-      end
+      run(
+        ~S"""
+        = Total (+ HostAmount 3).
+        = [First . Rest] [Total, HostAmount].
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostAmount" => amount}
+      )
 
     assert bindings["$Total"] == 10
     assert bindings["$First"] == 10
@@ -188,23 +198,25 @@ defmodule Examples.ALSyntax do
 
     try do
       {:atomic, _} =
-        run branch: branch.id do
-          ~AL"""
+        run(
+          ~S"""
           @syntax_run_counter
           #{super => object}.
 
           syntax_run_counter >> greet
           | Self hi |.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       output =
         capture_io(fn ->
-          run branch: branch.id do
-            ~AL"""
+          run(
+            ~S"""
             listing syntax_run_counter greet.
-            """
-          end
+            """,
+            branch: branch.id
+          )
         end)
 
       assert output == "syntax_run_counter >> greet\n| Self hi |\n\n"

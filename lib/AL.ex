@@ -8,7 +8,6 @@ defmodule AL do
   """
   use TypedStruct
   alias AL.Goal
-  alias AL.JAM.Frame
 
   @type scope() :: non_neg_integer()
   @type failure_call() ::
@@ -67,85 +66,39 @@ defmodule AL do
   defdelegate await_effect(effect, options \\ []), to: AL.Edge, as: :await
 
   @doc """
-  I run an AL transaction against a live branch.
-  Options:
-  - `branch: s` runs against branch s
-  - `trace: flags` retains the requested composable trace families. Supported
-    flags are `:domino`, `:goals`, and `:vm`; the default `[]` retains nothing
+  Executes AL source text in one transaction.
+
+  `bindings:` supplies initial values for named AL variables. `branch:` selects
+  a branch, and `trace:` selects retained trace families.
   """
-  defmacro sigil_AL({:<<>>, _meta, [text]}, []) when is_binary(text), do: text
+  def run(text) when is_binary(text), do: run(text, AL.Branch.head(), [])
 
-  defmacro run(opts \\ [], do: program) do
-    trace_opts = Keyword.take(opts, [:trace])
+  def run(text, opts) when is_binary(text) and is_list(opts) do
+    {branch, opts} = Keyword.pop(opts, :branch)
+    run(text, branch || AL.Branch.head(), opts)
+  end
 
-    branch_ast =
-      if Keyword.has_key?(opts, :branch) do
-        quote do: %AL.Branch{id: unquote(opts[:branch])}
-      else
-        quote do: AL.Branch.head()
-      end
+  def run(text, branch) when is_binary(text), do: run(text, branch, [])
 
-    case program do
-      {:sigil_AL, meta, [{:<<>>, _, [text]}, []]} when is_binary(text) ->
-        source_run(text, meta, branch_ast, trace_opts, __CALLER__)
+  def run(text, branch, opts) when is_binary(text) do
+    {bindings, transaction_opts} = Keyword.pop(opts, :bindings, %{})
+    initial_store = Map.new(bindings, fn {name, value} -> {AL.Var.var(name), value} end)
+    branch = if match?(%AL.Branch{}, branch), do: branch, else: %AL.Branch{id: branch}
 
-      _program ->
-        raise CompileError,
-          file: __CALLER__.file,
-          line: __CALLER__.line,
-          description: ~s(AL.run takes AL source: run do ~AL"""...""" end)
+    with {:ok, result} <- AL.Syntax.parse(text) do
+      eval_with_retained_source(
+        result,
+        text,
+        %{kind: :al_text},
+        initial_store,
+        branch,
+        transaction_opts
+      )
     end
-  end
-
-  defp source_run(text, meta, branch_ast, trace_opts, caller) do
-    first_line = meta[:line] + if(meta[:delimiter] == ~s("""), do: 1, else: 0)
-
-    case AL.Syntax.parse(text, pins: true) do
-      {:ok, result} ->
-        origin = %{kind: :al_run, file: Path.relative_to_cwd(caller.file), line: first_line}
-
-        quote do
-          AL.eval_captured(
-            unquote(Macro.escape(result, unquote: true)),
-            unquote(text),
-            unquote(Macro.escape(origin)),
-            nil,
-            unquote(branch_ast),
-            unquote(trace_opts)
-          )
-        end
-
-      {:error, error} ->
-        raise CompileError,
-          file: caller.file,
-          line: first_line + (error.line || 1) - 1,
-          description: "AL: " <> Exception.message(error)
-    end
-  end
-
-  @doc "Compiles AL source without executing goals or accessing a branch."
-  def compile(text) when is_binary(text) do
-    with {:ok, result} <- AL.Syntax.parse(text),
-         {:ok, source} <- AL.Source.prepare(result, %{kind: :eval_source, label: nil}, text) do
-      ir = AL.JAM.IR.Program.lower(source.program)
-      {code, registers} = AL.JAM.Compiler.runtime(ir)
-      snapshot = AL.JAM.compile({code, registers})
-
-      {:ok, %AL.CompiledProgram{source: source, ir: ir, jam: snapshot.code, registers: registers}}
-    end
-  end
-
-  @doc "Executes a compiled program in a fresh transaction on the given branch."
-  def execute(%AL.CompiledProgram{} = compiled, branch \\ AL.Branch.head(), opts \\ []) do
-    eval_program(compiled, nil, branch, opts, compiled.source)
-  end
-
-  def eval_source(text, branch \\ AL.Branch.head(), opts \\ []) do
-    with {:ok, compiled} <- compile(text), do: execute(compiled, branch, opts)
   end
 
   @doc false
-  @spec eval_captured(
+  @spec eval_with_retained_source(
           AL.Syntax.Result.t(),
           String.t(),
           AL.SourceStore.origin(),
@@ -156,18 +109,15 @@ defmodule AL do
           {:atomic, {%{String.t() => AL.Var.t()}, map(), t() | nil}}
           | {:aborted, term()}
           | {:error, term()}
-  def eval_captured(result, text, origin, initial_store, branch, opts) do
-    case AL.Source.prepare(result, origin, text) do
-      {:ok, source} -> eval_program(source.program, initial_store, branch, opts, source)
-      {:error, _error} -> eval_program(result.program, initial_store, branch, opts, nil)
+  def eval_with_retained_source(result, text, origin, initial_store, branch, opts) do
+    with {:ok, source} <- AL.Source.prepare(result, origin, text) do
+      eval_program(source.program, initial_store, branch, opts, source)
     end
   end
 
   @doc """
   Runs a goal list in a Mnesia transaction. Returns
   `{:atomic, {bindings, constraints, state}}` or `{:aborted, reason}`.
-
-  `heap: words` runs in a capped process and returns bindings only.
   """
   @spec eval([AL.Goal.t()], AL.Var.store() | nil, AL.Branch.t(), keyword()) ::
           {:atomic, {%{String.t() => AL.Var.t()}, map(), t() | nil}}
@@ -178,37 +128,7 @@ defmodule AL do
   end
 
   defp eval_program(program, initial_store, branch, opts, source) do
-    case Keyword.pop(opts, :heap) do
-      {nil, transaction_opts} ->
-        eval_transaction(program, initial_store, branch, transaction_opts, source)
-
-      {heap, transaction_opts} ->
-        {pid, ref} =
-          spawn_monitor(fn ->
-            Process.flag(:max_heap_size, %{size: heap, kill: true, error_logger: false})
-
-            exit({
-              :derived,
-              shed(eval_program(program, initial_store, branch, transaction_opts, source))
-            })
-          end)
-
-        receive do
-          {:DOWN, ^ref, :process, ^pid, {:derived, result}} ->
-            result
-
-          {:DOWN, ^ref, :process, ^pid, _killed} ->
-            {:error, "the derivation exceeded #{heap} heap words"}
-        end
-    end
-  end
-
-  defp eval_transaction(input, initial_store, branch, opts, source) do
-    {program, compiled} =
-      case input do
-        %AL.CompiledProgram{source: source} = compiled -> {source.program, compiled}
-        program -> {program, nil}
-      end
+    Keyword.validate!(opts, [:trace])
 
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
@@ -241,7 +161,7 @@ defmodule AL do
               source_refs: source_refs,
               source_anchors: %{}
             }
-            |> start_program(compiled)
+            |> start_program()
             |> continue()
             |> finalize_trace()
 
@@ -535,23 +455,9 @@ defmodule AL do
   defp continuation_goals({:collect_next, snapshot, _, _}), do: AL.JAM.failed_goal(snapshot)
   defp continuation_goals({:resume, snapshot}), do: AL.JAM.pending_goals(snapshot)
 
-  defp start_program(state, compiled) do
+  defp start_program(state) do
     choice = state.active_choicepoint
-
-    snapshot =
-      case compiled do
-        nil ->
-          AL.JAM.compile(state.program)
-
-        %AL.CompiledProgram{jam: code, registers: slots} ->
-          %Frame{
-            id: {:root, 0},
-            code: code,
-            slots: slots
-          }
-      end
-
-    continuations = [{:resume, snapshot}]
+    continuations = [{:resume, AL.JAM.compile(state.program)}]
     %AL{state | active_choicepoint: %AL.Choicepoint{choice | continuations: continuations}}
   end
 
@@ -665,7 +571,7 @@ defmodule AL do
 
   defp apply_machine_result({:forall, snapshot, choices, steps, solutions}, state) do
     state = install_machine_choices(state, choices)
-    next = AL.JAM.forall_continuation(snapshot, solutions, visible_vars(state))
+    next = AL.JAM.Collection.forall_continuation(snapshot, solutions, visible_vars(state))
 
     %AL{
       state
@@ -717,10 +623,11 @@ defmodule AL do
 
     case collected do
       {:ok, solutions} ->
-        if AL.JAM.forall?(snapshot) do
+        if AL.JAM.Collection.forall?(snapshot) do
           apply_machine_result({:forall, snapshot, [], 0, solutions}, state)
         else
-          {next, new_store} = AL.JAM.collection_continuation(snapshot, solutions, state.branch)
+          {next, new_store} =
+            AL.JAM.Collection.collection_continuation(snapshot, solutions, state.branch)
 
           if is_nil(new_store) do
             backtrack(state)
@@ -803,7 +710,7 @@ defmodule AL do
       source_refs: state.source_refs,
       source_anchors: state.source_anchors,
       trace: AL.Trace.new(state.trace.flags),
-      program: AL.JAM.collection_condition(snapshot)
+      program: AL.JAM.Collection.collection_condition(snapshot)
     }
   end
 
@@ -863,7 +770,9 @@ defmodule AL do
           else: state.choicepoint_stack
 
       state = %AL{state | choicepoint_stack: choices}
-      {next, next_store} = AL.JAM.collection_continuation(snapshot, solutions, state.branch)
+
+      {next, next_store} =
+        AL.JAM.Collection.collection_continuation(snapshot, solutions, state.branch)
 
       if is_nil(next_store),
         do: backtrack(state),
@@ -974,22 +883,6 @@ defmodule AL do
         continuations: woken ++ choice.continuations
     }
   end
-
-  # Only bindings may leave the capped process, and a refusal's goal
-  # crosses as bounded text.
-  defp shed({:atomic, {bindings, constraints, _state}}),
-    do: {:atomic, {bindings, constraints, nil}}
-
-  defp shed({:aborted, %{failed_on: goal} = reason}) do
-    {:aborted,
-     %{
-       reason
-       | failed_on: goal |> inspect(limit: 8) |> String.slice(0, 200),
-         state: nil
-     }}
-  end
-
-  defp shed(other), do: other
 
   # Vars a `run` reports. `findall`/`not`/`forall` are local scopes: only a
   # `findall`'s result var escapes.

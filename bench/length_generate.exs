@@ -18,9 +18,7 @@ defmodule Bench.LengthGenerate do
   use AL
 
   def generate(branch, n) do
-    run branch: branch.id, trace: [] do
-      length(xs, ^n)
-    end
+    run("length Xs InputLength.", branch, bindings: %{"InputLength" => n}, trace: [])
   end
 
   def profile_one(n) do

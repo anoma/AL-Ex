@@ -444,7 +444,7 @@ defmodule AL.MCP.Tools do
          {:ok, max_length} <- max_length(arguments) do
       try do
         source
-        |> AL.eval_source(branch)
+        |> AL.run(branch)
         |> source_result(branch, max_length)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
@@ -462,7 +462,7 @@ defmodule AL.MCP.Tools do
          {:ok, max_length} <- max_length(arguments) do
       try do
         source
-        |> AL.eval_source(branch)
+        |> AL.run(branch)
         |> query_source_result(branch, max_length)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)

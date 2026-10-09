@@ -117,7 +117,7 @@ defmodule AL.TransactionProgram do
         ]
       }
 
-      AL.eval_captured(
+      AL.eval_with_retained_source(
         %{result | program: result.program ++ [receipt]},
         program.text,
         program.origin,

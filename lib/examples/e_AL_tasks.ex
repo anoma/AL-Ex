@@ -13,19 +13,21 @@ defmodule Examples.ALTasks do
 
   defp register_worker(name, subscriber, pid) do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => ^subscriber, pid => ^pid} _.
-        vm_set_class ^name object.
+      AL.run(
+        """
+        new process \#{name => Subscriber, pid => Pid} _.
+        vm_set_class Name object.
 
-        ^name >> handle
+        Name >> handle
         | Self Object |
         vm_set_slot Object processed true,
-        get ^subscriber pid P,
-        = Message #{event => handled, object => Object},
+        get Subscriber pid P,
+        = Message \#{event => handled, object => Object},
         send_elixir P Message.
-        """
-      end
+        """,
+        %AL.Branch{id: Examples.Support.branch()},
+        bindings: %{"Name" => name, "Subscriber" => subscriber, "Pid" => pid}
+      )
 
     :ok
   end
@@ -52,13 +54,15 @@ defmodule Examples.ALTasks do
     branch = %AL.Branch{id: Examples.Support.branch()}
 
     {:atomic, {_, _, state}} =
-      run branch: branch.id do
-        ~AL"""
-        not {call [Same, Same] {send_elixir ^pid mismatched} [one, two]}.
+      run(
+        ~S"""
+        not {call [Same, Same] {send_elixir HostPid mismatched} [one, two]}.
         call [Receiver, Message] {send_elixir Receiver Message}
-          [^pid, committed_callable].
-        """
-      end
+          [HostPid, committed_callable].
+        """,
+        branch: branch.id,
+        bindings: %{"HostPid" => pid}
+      )
 
     assert_receive :committed_callable, 1000
     refute_receive :mismatched, 20
@@ -75,12 +79,14 @@ defmodule Examples.ALTasks do
            end) == 1
 
     {:aborted, _} =
-      run branch: branch.id do
-        ~AL"""
-        call [Receiver] {send_elixir Receiver aborted_callable} [^pid].
+      run(
+        ~S"""
+        call [Receiver] {send_elixir Receiver aborted_callable} [HostPid].
         fail.
-        """
-      end
+        """,
+        branch: branch.id,
+        bindings: %{"HostPid" => pid}
+      )
 
     refute_receive :aborted_callable, 100
   end
@@ -89,11 +95,12 @@ defmodule Examples.ALTasks do
     register_worker(:async_worker_1, :async_subscriber_1, self())
 
     {:atomic, {_bindings, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         send_async async_worker_1 handle [async_obj].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     await_handled(:async_obj)
     assert processed?(:async_obj)
@@ -116,12 +123,13 @@ defmodule Examples.ALTasks do
     register_worker(:async_worker_2, :async_subscriber_2, self())
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = W async_worker_2.
         send_async W handle [async_obj_2].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     await_handled(:async_obj_2)
     assert processed?(:async_obj_2)
@@ -131,9 +139,9 @@ defmodule Examples.ALTasks do
     observer = self()
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => zero_argument_observer, pid => ^observer} _.
+      run(
+        ~S"""
+        new process #{name => zero_argument_observer, pid => HostObserver} _.
         vm_set_class zero_argument_receiver object.
 
         zero_argument_receiver >> mark
@@ -150,8 +158,10 @@ defmodule Examples.ALTasks do
         send zero_argument_receiver SyncSelector.
         send_async zero_argument_receiver AsyncSelector.
         get zero_argument_receiver marked Marked.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostObserver" => observer}
+      )
 
     assert bindings["$Marked"]
     assert_receive :zero_argument_async_send, 1_000
@@ -161,9 +171,9 @@ defmodule Examples.ALTasks do
     pid = self()
 
     {:atomic, {_bindings, _constraints, spawning_state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => spawn_observer, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => spawn_observer, pid => HostPid} _.
         vm_set_class spawn_target object.
         spawn {
           set_slot spawn_target value done,
@@ -171,8 +181,10 @@ defmodule Examples.ALTasks do
           = Message #{event => spawned, object => spawn_target},
           send_elixir Observer Message
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostPid" => pid}
+      )
 
     assert_receive %{event: :spawned, object: :spawn_target}, 1_000
 
@@ -193,20 +205,21 @@ defmodule Examples.ALTasks do
            end)
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get spawn_target value done.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
   end
 
   example await_arranges_a_transaction_after_effect_completion() do
     pid = self()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new process #{name => await_observer, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => await_observer, pid => HostPid} _.
         vm_set_class await_target object.
         vm_set_class await_effect effect.
         set_slot await_effect status pending.
@@ -216,17 +229,20 @@ defmodule Examples.ALTasks do
           = Message #{event => continued, outcome => Outcome},
           send_elixir Observer Message
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostPid" => pid}
+      )
 
     refute_receive %{event: :continued}, 25
 
     {:atomic, {_bindings, _constraints, completion_state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         complete await_effect #{status => ok, value => connected}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert_receive %{event: :continued, outcome: %{status: :ok, value: :connected}}, 1_000
 
@@ -247,12 +263,13 @@ defmodule Examples.ALTasks do
            end)
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         get await_effect status completed.
         get await_effect outcome #{status => ok, value => connected}.
         get await_target outcome #{status => ok, value => connected}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
   end
 end

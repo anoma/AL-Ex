@@ -48,8 +48,7 @@ Define an ordinary object method that emits a file effect and arranges what AL s
 
 ```elixir
 {:atomic, _} =
-  run do
-    ~AL"""
+  run(~S"""
     @file_reader
     #{
       super => object,
@@ -84,11 +83,10 @@ Define an ordinary object method that emits a file effect and arranges what AL s
     get Observer pid Pid,
     = Message #{event => file_read_failed, reader => Self, reason => Reason},
     send_elixir Pid Message.
-    """
-  end
+    """)
 ```
 
-Create a file, then start the operation from a regular `run do` transaction.
+Create a file, then start the operation from a regular `run(source)` transaction.
 
 ```elixir
 path =
@@ -101,13 +99,11 @@ File.write!(path, "hello from an effect")
 notebook = self()
 
 {:atomic, {bindings, _state}} =
-  run do
-    ~AL"""
-    new process #{name => notebook, pid => ^notebook} _.
-    new file_reader #{name => guide_reader, path => ^path} Reader.
+  run(~S"""
+    new process #{name => notebook, pid => HostNotebook} _.
+    new file_reader #{name => guide_reader, path => HostPath} Reader.
     read Reader notebook Effect.
-    """
-  end
+    """, bindings: %{"HostNotebook" => notebook, "HostPath" => path})
 
 effect = bindings["$Effect"]
 
@@ -127,11 +123,9 @@ It does not suspend the transaction containing it. If that transaction aborts, n
 `spawn {Goals}` arranges a fresh transaction immediately after the current transaction commits. It is useful when the future work does not depend on an effect.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   spawn (set_slot guide_reader error cleared).
-  """
-end
+  """)
 ```
 
 Like an effect continuation, spawned goals are durable data. They never run inside the transaction that arranged them.
@@ -141,12 +135,10 @@ Like an effect continuation, spawned goals are durable data. They never run insi
 The effect remains available for history and introspection.
 
 ```elixir
-run do
-  ~AL"""
-  get ^effect status completed.
-  get ^effect outcome Outcome.
-  """
-end
+run(~S"""
+  get HostEffect status completed.
+  get HostEffect outcome Outcome.
+  """, bindings: %{"HostEffect" => effect})
 ```
 
 If Elixir itself needs the result, `AL.await_effect/2` waits on a completion event without polling AL state. AL application code should normally use `await` instead.

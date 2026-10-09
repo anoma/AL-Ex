@@ -179,83 +179,93 @@ defmodule AL.Tooling do
   end
 
   defp reference_run(target, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
-      findall Class TargetClasses (class ^target Class).
-      findall Object Instances {isa Object ^target, label Object}.
-      findall Superclass Supers (super ^target Superclass).
-      findall Subclass Subclasses (super Subclass ^target).
+    AL.run(
+      ~S"""
+      findall Class TargetClasses (class HostTarget Class).
+      findall Object Instances {isa Object HostTarget, label Object}.
+      findall Superclass Supers (super HostTarget Superclass).
+      findall Subclass Subclasses (super Subclass HostTarget).
       findall [Owner, Selector, MethodId] MethodBindings {method Owner Selector MethodId, label Owner}.
       findall [MethodId, Sequence, Head, Body] Clauses {clause MethodId Sequence Head Body, label MethodId}.
-      """
-    end
+      """,
+      branch: branch.id,
+      bindings: %{"HostTarget" => target}
+    )
     |> al_run_result()
   end
 
   defp failure_run(tx, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
+    AL.run(
+      ~S"""
       findall [Transaction, Status, Reasons, Sources] Failures {
         class Transaction transaction,
         label Transaction,
-        get Transaction tx ^tx,
+        get Transaction tx HostTx,
         get Transaction status Status,
         findall Reason Reasons (get Transaction reason Reason),
         findall Source Sources (listing Transaction Source)
       }.
-      """
-    end
+      """,
+      branch: branch.id,
+      bindings: %{"HostTx" => tx}
+    )
     |> al_run_result()
   end
 
   defp object_run(object, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
-      findall Class ObjectClasses (class ^object Class).
-      findall Superclass ObjectSupers (super ^object Superclass).
-      findall [Selector, MethodId] ObjectMethods (method ^object Selector MethodId).
-      findall [Sequence, Head, Body] ObjectClauses (clause ^object Sequence Head Body).
-      findall [Key, Value] ObjectAosSlots (slot ^object Key Value).
-      findall [Key, Value] ObjectSoaSlots (slot ^object Key Value soa).
-      """
-    end
+    AL.run(
+      ~S"""
+      findall Class ObjectClasses (class HostObject Class).
+      findall Superclass ObjectSupers (super HostObject Superclass).
+      findall [Selector, MethodId] ObjectMethods (method HostObject Selector MethodId).
+      findall [Sequence, Head, Body] ObjectClauses (clause HostObject Sequence Head Body).
+      findall [Key, Value] ObjectAosSlots (slot HostObject Key Value).
+      findall [Key, Value] ObjectSoaSlots (slot HostObject Key Value soa).
+      """,
+      branch: branch.id,
+      bindings: %{"HostObject" => object}
+    )
     |> al_run_result()
   end
 
   defp method_run(owner, selector, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
+    AL.run(
+      ~S"""
       findall [MethodId, Clauses, Sources] InspectedMethods {
-        method ^owner ^selector MethodId,
+        method HostOwner HostSelector MethodId,
         findall [Sequence, Head, Body] Clauses (clause MethodId Sequence Head Body),
         findall [Sequence, Text, Provenance] Sources (vm_method_source MethodId Sequence Text Provenance)
       }.
-      """
-    end
+      """,
+      branch: branch.id,
+      bindings: %{"HostOwner" => owner, "HostSelector" => selector}
+    )
     |> al_run_result()
   end
 
   defp transaction_run(tx, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
+    AL.run(
+      ~S"""
       findall [Transaction, Status, Reasons, Slots] InspectedTransactions {
         class Transaction transaction,
         label Transaction,
-        get Transaction tx ^tx,
+        get Transaction tx HostTx,
         get Transaction status Status,
         findall Reason Reasons (get Transaction reason Reason),
         findall [Key, Value] Slots (slot Transaction Key Value)
       }.
-      findall [Text, Origin] TransactionSources (vm_transaction_source ^tx Text Origin).
-      findall [Time, Operation] TransactionCommands (vm_command ^tx Time Operation).
-      """
-    end
+      findall [Text, Origin] TransactionSources (vm_transaction_source HostTx Text Origin).
+      findall [Time, Operation] TransactionCommands (vm_command HostTx Time Operation).
+      """,
+      branch: branch.id,
+      bindings: %{"HostTx" => tx}
+    )
     |> al_run_result()
   end
 
   defp packages_run(branch) do
-    AL.run branch: branch.id do
-      ~AL"""
+    AL.run(
+      ~S"""
       findall [Package, ActiveBuilds, Builds, Providers] Packages {
         class Package package,
         label Package,
@@ -267,45 +277,50 @@ defmodule AL.Tooling do
           provides Provider Package
         }
       }.
-      """
-    end
+      """,
+      branch: branch.id
+    )
     |> al_run_result()
   end
 
   defp package_run(name, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
+    AL.run(
+      ~S"""
       findall [ActiveBuilds, Builds, Providers] InspectedPackages {
-        class ^name package,
-        findall ActiveBuild ActiveBuilds (active_build ^name ActiveBuild),
+        class HostName package,
+        findall ActiveBuild ActiveBuilds (active_build HostName ActiveBuild),
         findall [Build, Slots] Builds {
-          class Build ^name,
+          class Build HostName,
           label Build,
           findall [Key, Value] Slots (slot Build Key Value)
         },
         findall [Provider, Slots] Providers {
           class Provider package_provider,
           label Provider,
-          provides Provider ^name,
+          provides Provider HostName,
           findall [Key, Value] Slots (slot Provider Key Value)
         }
       }.
-      """
-    end
+      """,
+      branch: branch.id,
+      bindings: %{"HostName" => name}
+    )
     |> al_run_result()
   end
 
   defp method_lookup_run(receiver, selector, branch) do
-    AL.run branch: branch.id do
-      ~AL"""
-      inheritance_chain ^receiver LookupScopes.
+    AL.run(
+      ~S"""
+      inheritance_chain HostReceiver LookupScopes.
       findall [Scope, MethodId, Clauses] LookupProviders {
         member LookupScopes Scope,
-        method Scope ^selector MethodId,
+        method Scope HostSelector MethodId,
         findall [Sequence, Head, Body] Clauses (clause MethodId Sequence Head Body)
       }.
-      """
-    end
+      """,
+      branch: branch.id,
+      bindings: %{"HostReceiver" => receiver, "HostSelector" => selector}
+    )
     |> al_run_result()
   end
 

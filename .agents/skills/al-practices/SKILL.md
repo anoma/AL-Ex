@@ -55,9 +55,8 @@ control-flow tools.
 - AL has no tuples. Use lists for positional relational data, maps for named
   value data, and value classes when behavior belongs with that data.
 - Transaction programs are `priv/programs/*.al` files that start with
-  `defprogram name #{version => V, deps => [...]}.`. Elixir code embeds AL only as
-  `run do ~AL"""...""" end` (where `^name` pins an Elixir value) or as text
-  for `AL.eval_source/3`. Package definition files are AL source: an `@name`
+  `defprogram name #{version => V, deps => [...]}.`. Elixir code passes AL text
+  to `AL.run/1,2,3` and host values as named AL variable bindings. Package definition files are AL source: an `@name`
   class or `@+name #{super => [...]}.` extension declaration followed by that
   owner's method clauses. Inside an Elixir
   `"..."` string an AL map is written `\#{...}`.

@@ -10,8 +10,8 @@ defmodule Examples.ALArithmetic do
 
   example arithmetic() do
     {:atomic, {bindings, _constraints, result}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = A (- (+ 123 5) 3).
         = F (- 10000 3).
         = A (+ 122 3).
@@ -23,8 +23,9 @@ defmodule Examples.ALArithmetic do
         = E (- (+ (- 5 E) (* 2 E)) 5).
         = G -7.
         = H 7.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$A") == 125
     assert Map.get(bindings, "$F") == 9997
@@ -39,12 +40,13 @@ defmodule Examples.ALArithmetic do
 
   example eq_over_an_open_operand_posts_a_constraint() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X (+ Y 1).
         = Y 4.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$X") == 5
     :ok
@@ -52,23 +54,25 @@ defmodule Examples.ALArithmetic do
 
   example eq_fails_on_division_by_zero() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X (/ 1 0).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example remainder() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = A (rem 7 2).
         = B (rem 10 5).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$A") == 1
     assert Map.get(bindings, "$B") == 0
@@ -77,26 +81,28 @@ defmodule Examples.ALArithmetic do
 
   example rem_by_zero_fails_gracefully() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X (rem 1 0).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example comparison_succeeds_when_true() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = X 5.
         > X 3.
         >= X 5.
         < X 10.
         <= X 5.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$X") == 5
     :ok
@@ -104,24 +110,26 @@ defmodule Examples.ALArithmetic do
 
   example comparison_evaluates_expression_operands() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         > 10 (+ 2 3).
         <= (+ 2 3) 5.
         >= (** 2 3) 8.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example comparison_fails_when_false() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         > 3 5.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -131,20 +139,22 @@ defmodule Examples.ALArithmetic do
   # operand has no interval to narrow, so it's still a hard failure.
   example comparison_narrows_rather_than_failing_on_unbound() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         > Y 1.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert AL.Var.var?(Map.get(bindings, "$Y"))
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         > Y not_a_number.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

@@ -19,24 +19,22 @@ defmodule AL.JAM.Trace do
     end
   end
 
-  def active?, do: mode() in [:semantic, :both]
+  def active? do
+    {semantic?, _vm?} = enabled_channels()
+    semantic?
+  end
 
-  def mode do
+  def enabled_channels do
     case Process.get(@key) do
       nil ->
-        :off
+        {false, false}
 
       trace ->
         semantic =
           AL.Trace.enabled?(trace, :domino) or AL.Trace.enabled?(trace, :goals) or
             MapSet.size(trace.runtime.tracepoints) > 0
 
-        case {semantic, AL.Trace.enabled?(trace, :vm)} do
-          {true, true} -> :both
-          {true, false} -> :semantic
-          {false, true} -> :vm
-          {false, false} -> :off
-        end
+        {semantic, AL.Trace.enabled?(trace, :vm)}
     end
   end
 

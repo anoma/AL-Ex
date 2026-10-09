@@ -54,7 +54,7 @@ defmodule AL.JAM.SendPlanTest do
   end
 
   test "instruction trace exposes resolved and cached send plans", %{branch: branch} do
-    assert {:atomic, {_, _, state}} = AL.eval_source("count_to 0 4.", branch, trace: [:vm])
+    assert {:atomic, {_, _, state}} = AL.run("count_to 0 4.", branch, trace: [:vm])
     plans = for %{payload: {:dispatch, path, plan}} <- state.trace.events, do: {path, plan}
     assert Enum.any?(plans, fn {path, _} -> path == :resolved end)
     assert Enum.any?(plans, fn {path, _} -> path == :cache_hit end)

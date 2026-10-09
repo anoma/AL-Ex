@@ -1299,7 +1299,7 @@ defmodule AL.Package do
 
   defp evaluate_chunks_result(chunks, origin, branch) do
     with {:ok, parsed, source} <- Changes.compile(chunks) do
-      case AL.eval_captured(parsed, source, origin, nil, branch, []) do
+      case AL.eval_with_retained_source(parsed, source, origin, nil, branch, []) do
         {:atomic, result} -> {:ok, result}
         {:aborted, reason} -> {:error, {:package_operation_failed, reason}}
         {:error, reason} -> {:error, {:invalid_generated_package_operation, reason}}

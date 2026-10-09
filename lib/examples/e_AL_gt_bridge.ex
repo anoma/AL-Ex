@@ -8,12 +8,13 @@ defmodule Examples.ALGtBridge do
 
     try do
       {:atomic, _} =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           vm_set_class inspector_sample object.
           set_slots inspector_sample #{count => 3, name => "Inspector sample"}.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       object = %AL.Object{id: :inspector_sample, branch: branch.id}
       assert AL.GtBridge.display_name(object) == "Inspector sample"
@@ -38,13 +39,14 @@ defmodule Examples.ALGtBridge do
 
     try do
       {:atomic, _} =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           vm_set_class inheritance_dag_instance inheritance_dag_class.
           vm_set_super inheritance_dag_class object.
           vm_set_super inheritance_dag_instance object.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       graph =
         AL.GtBridge.inheritance_dag(%AL.Object{id: :inheritance_dag_instance, branch: branch.id})
@@ -70,16 +72,17 @@ defmodule Examples.ALGtBridge do
 
     try do
       {:atomic, _} =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           vm_set_super dag_base object.
           vm_set_super dag_left dag_base.
           vm_set_super dag_right dag_base.
           vm_set_super dag_child dag_left.
           vm_set_super dag_child dag_right.
           vm_set_class dag_instance dag_child.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       graph = AL.GtBridge.inheritance_dag(%AL.Object{id: :dag_instance, branch: branch.id})
 
@@ -108,16 +111,17 @@ defmodule Examples.ALGtBridge do
 
     try do
       {:atomic, _} =
-        AL.run branch: branch.id do
-          ~AL"""
+        AL.run(
+          ~S"""
           vm_set_super inspector_execution_class program_execution.
           vm_set_class inspector_execution inspector_execution_class.
           get package_system tx InstalledTx.
           set_slots inspector_execution #{name => package_system, tx => InstalledTx}.
           vm_set_class inspector_unknown_execution program_execution.
           set_slots inspector_unknown_execution #{name => inspector_unknown_execution}.
-          """
-        end
+          """,
+          branch: branch.id
+        )
 
       object = %AL.Object{id: :inspector_execution, branch: branch.id}
       assert {:ok, source} = AL.TransactionProgram.source(object)
@@ -152,7 +156,7 @@ defmodule Examples.ALGtBridge do
     source = "fail.\n"
 
     try do
-      assert {:aborted, failure} = AL.eval_source(source, branch)
+      assert {:aborted, failure} = AL.run(source, branch)
       state = failure.state
       transaction = state.transaction_object
       tx = state.tx_id
@@ -171,7 +175,7 @@ defmodule Examples.ALGtBridge do
       assert [{:slots, ^transaction, %{status: :failed, reason: reason}}] = slots
       assert reason.message =~ "failed"
 
-      {:atomic, {:source_text, ^tx, ^source, %{kind: :eval_source, label: nil}}} =
+      {:atomic, {:source_text, ^tx, ^source, %{kind: :al_text}}} =
         :mnesia.transaction(fn -> AL.SourceStore.text(tx, branch) end)
 
       child = AL.Branch.fork(:tip, branch)
@@ -213,7 +217,7 @@ defmodule Examples.ALGtBridge do
     """
 
     try do
-      assert {:atomic, _} = AL.eval_source(text, branch)
+      assert {:atomic, _} = AL.run(text, branch)
       object = %AL.Object{id: :program_execution_coder_fixture, branch: branch.id}
       rows = AL.TransactionProgram.source_rows(object)
       assert length(rows) == 2
@@ -224,7 +228,7 @@ defmodule Examples.ALGtBridge do
       assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "= Result original_b" end)
 
       assert {:atomic, _} =
-               AL.eval_source(
+               AL.run(
                  """
                  program_execution_receiver_a >> hello
                  | Self Result |

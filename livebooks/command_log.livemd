@@ -20,7 +20,7 @@ This notebook is self-contained. The cell above installs AL directly, no separat
 
 If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
 
-`Mix.install` has to finish running before AL's `run` macro and `~AL` sigil can be brought into scope, so that happens in its own cell here.
+`Mix.install` has to finish before `use AL` loads the library, so that happens in its own cell here.
 
 ```elixir
 use AL
@@ -35,11 +35,9 @@ Durable objects (classes, methods, slots) live in Mnesia tables you can query di
 ```elixir
 before = AL.Command.system_time()
 
-run do
-  ~AL"""
+run(~S"""
   vm_set_class command_log_demo object.
-  """
-end
+  """)
 
 {:atomic, commands} =
   :mnesia.transaction(fn -> AL.Command.commands_since(before, AL.Branch.head()) end)
@@ -53,12 +51,11 @@ The command log is thus the singular origin of truth for AL.
 
 ## How transactions work
 
-A `run do ... end` block is one transaction. Every write inside it, no matter how many separate command rows it produces, gets tagged with the same `tx_id`.
+A `run(source)` call is one transaction. Every write inside it, no matter how many separate command rows it produces, gets tagged with the same `tx_id`.
 
 ```elixir
 {:atomic, {bindings, _}} =
-  run do
-    ~AL"""
+  run(~S"""
     @tx_demo
     #{super => object, ivars => [#{name => greeting}]}.
 
@@ -67,8 +64,7 @@ A `run do ... end` block is one transaction. Every write inside it, no matter ho
 
     new tx_demo Obj.
     set_slot Obj greeting "hi".
-    """
-  end
+    """)
 
 {:atomic, commands} =
   :mnesia.transaction(fn -> AL.Command.commands_since(before, AL.Branch.head()) end)
@@ -84,18 +80,14 @@ a = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower) |> String.to_ato
 c = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower) |> String.to_atom()
 
 {:atomic, _} =
-  run do
-    ~AL"""
-    vm_set_class ^a object.
-    """
-  end
+  run(~S"""
+    vm_set_class HostA object.
+    """, bindings: %{"HostA" => a})
 
 {:atomic, _} =
-  run do
-    ~AL"""
-    vm_set_class ^c object.
-    """
-  end
+  run(~S"""
+    vm_set_class HostC object.
+    """, bindings: %{"HostC" => c})
 
 {:atomic, commands} =
   :mnesia.transaction(fn -> AL.Command.commands_since(before, AL.Branch.head()) end)
@@ -118,8 +110,7 @@ Since the log is the real source of truth, the durable object tables (`class`, `
 
 ```elixir
 {:atomic, {bindings, _}} =
-  run do
-    ~AL"""
+  run(~S"""
     @hydration_demo
     #{super => object, ivars => [#{name => greeting}]}.
 
@@ -128,8 +119,7 @@ Since the log is the real source of truth, the durable object tables (`class`, `
 
     new hydration_demo Obj.
     set_slot Obj greeting "hi".
-    """
-  end
+    """)
 
 obj = Map.get(bindings, "$Obj")
 
@@ -137,12 +127,10 @@ obj = Map.get(bindings, "$Obj")
 :ok = AL.Object.create_tables(AL.Branch.head())
 {:atomic, _} = AL.Object.hydrate_since(0)
 
-run do
-  ~AL"""
-  class ^obj C.
-  get ^obj greeting G.
-  """
-end
+run(~S"""
+  class HostObj C.
+  get HostObj greeting G.
+  """, bindings: %{"HostObj" => obj})
 ```
 
 The instance's class and its slot value both come back exactly as they were, rebuilt by replaying every command from the start. We call this 'hydration'. It means that you can take your system down and bring it back up online later to continue work. It means that if a crash occurs, the work is not lost. It also means that we can understand the system as it existed in the past. In essence, this should allow us to perform version control and bitemporal queries against AL.
@@ -155,12 +143,10 @@ The instance's class and its slot value both come back exactly as they were, reb
 tip = AL.Branch.fork()
 
 {:atomic, {bindings, _}} =
-  run branch: tip.id do
-    ~AL"""
+  run(~S"""
     vm_set_slot widget x 3.
     vm_get_slot widget x X.
-    """
-  end
+    """, branch: tip.id)
 
 Map.get(bindings, "$X")
 ```
@@ -168,11 +154,9 @@ Map.get(bindings, "$X")
 Main never saw it.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   vm_get_slot widget x X.
-  """
-end
+  """)
 ```
 
 ```elixir
@@ -186,36 +170,28 @@ A fork taken before a write does not see it, even though a fork taken right afte
 ```elixir
 before_fork = AL.Command.system_time()
 
-run do
-  ~AL"""
+run(~S"""
   vm_set_class fork_timing_demo object.
-  """
-end
+  """)
 
 past = AL.Branch.fork(before_fork)
 tip = AL.Branch.fork()
 
-run branch: tip.id do
-  ~AL"""
+run(~S"""
   class fork_timing_demo object.
-  """
-end
+  """, branch: tip.id)
 ```
 
 ```elixir
-run branch: past.id do
-  ~AL"""
+run(~S"""
   class fork_timing_demo object.
-  """
-end
+  """, branch: past.id)
 ```
 
 ```elixir
-run branch: past.id do
-  ~AL"""
+run(~S"""
   class object class.
-  """
-end
+  """, branch: past.id)
 ```
 
 ```elixir
@@ -225,33 +201,27 @@ AL.Branch.discard(tip)
 
 ## Checking out a branch
 
-`AL.Branch.checkout/1` changes which branch a plain `run do ... end` acts against.
+`AL.Branch.checkout/1` changes which branch a plain `run(source)` acts against.
 
 ```elixir
 branch = AL.Branch.fork()
 AL.Branch.checkout(branch)
 
-run do
-  ~AL"""
+run(~S"""
   vm_set_class checkout_demo object.
-  """
-end
+  """)
 
-run do
-  ~AL"""
+run(~S"""
   class checkout_demo object.
-  """
-end
+  """)
 ```
 
 ```elixir
 AL.Branch.checkout(AL.Branch.main())
 
-run do
-  ~AL"""
+run(~S"""
   class checkout_demo object.
-  """
-end
+  """)
 ```
 
 ```elixir
@@ -276,17 +246,13 @@ AL.Branch.discard(parent)
 ```
 
 ```elixir
-run branch: child.id do
-  ~AL"""
+run(~S"""
   vm_set_class survivor object.
-  """
-end
+  """, branch: child.id)
 
-run branch: child.id do
-  ~AL"""
+run(~S"""
   class survivor object.
-  """
-end
+  """, branch: child.id)
 ```
 
 ```elixir
@@ -300,8 +266,7 @@ The same isolation composes when you fork a fork, and even async sends stay scop
 Slots keep their own history. `slot_history/3` reads it back from oldest first.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @history_probe
   #{super => object, ivars => [#{name => count}]}.
 
@@ -310,8 +275,7 @@ run do
   set_slot Obj count 2.
   set_slot Obj count 3.
   slot_history Obj count Values.
-  """
-end
+  """)
 ```
 
 ## Temporality: what a slot's value was at a given point in time
@@ -319,8 +283,7 @@ end
 `vm_slot_at/4` asks what a slot held at a specific transaction time, not just what it holds now.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @boundary_probe
   #{super => object, ivars => [#{name => count}]}.
 
@@ -331,8 +294,7 @@ run do
   label T1.
   = Boundary (+ T1 1).
   vm_slot_at Obj count VAtBoundary Boundary.
-  """
-end
+  """)
 ```
 
 `T1` is the last instant the slot held `1`. Querying one instant later returns `2`, not `1`. The boundary belongs to the value that just took effect, not the one it closed out.
@@ -342,8 +304,7 @@ end
 A `vm_slot_at` call with an open time variable does not just filter, it posts a real bound on that variable, the same bounds machinery from [logic and constraints](./logic_and_constraints.livemd). This means you can perform constraint queries in AL. 
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @upper_bound_probe
   #{super => object, ivars => [#{name => count}]}.
 
@@ -353,8 +314,7 @@ run do
   vm_slot_at Obj count 1 T.
   vm_slot_at Obj count 2 T2.
   >= T T2.
-  """
-end
+  """)
 ```
 
 The interval during which the slot held `1` ends exactly when the interval during which it holds `2` begins, so `>= T T2` is comparing two already-bounded variables whose intervals are disjointed.
@@ -364,8 +324,7 @@ The interval during which the slot held `1` ends exactly when the interval durin
 Since an open `T` from `vm_slot_at` is a real bound, not just a filtered value, you can compare two of them across different objects, not only within one. `=` between two such variables intersects their bounds, the same way `in_domain` intersects two posted domains. If the two objects' value-holding periods actually overlapped, the intersection is non-empty and `=` succeeds. If they never coincided, it fails.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @sensor_a
   #{super => object, ivars => [#{name => status}]}.
 
@@ -374,34 +333,25 @@ run do
 
   new sensor_a #{name => sensor_a_1, status => off} _.
   new sensor_b #{name => sensor_b_1, status => on} _.
-  """
-end
+  """)
 
-run do
-  ~AL"""
+run(~S"""
   set_slot sensor_a_1 status on.
-  """
-end
+  """)
 
-run do
-  ~AL"""
+run(~S"""
   set_slot sensor_b_1 status off.
-  """
-end
+  """)
 
-run do
-  ~AL"""
+run(~S"""
   set_slot sensor_a_1 status off.
-  """
-end
+  """)
 
-run do
-  ~AL"""
+run(~S"""
   vm_slot_at sensor_a_1 status on Ta.
   vm_slot_at sensor_b_1 status on Tb.
   = Ta Tb.
-  """
-end
+  """)
 ```
 
 Sensor B turns on before sensor A does, turning off right after sensor A turns on, so their `on` periods share exactly one instant. The query finds this across two independent objects' histories, with no primitive dedicated to this beyond `vm_slot_at` and `=`.

@@ -48,12 +48,12 @@ object protocols, not as Elixir control flow expressed through AL syntax.
 - Comments start with `#`; `#{` always opens a map.
 - The only Elixir in AL is its AST. Transaction programs live in
   `priv/programs/*.al` and start with `defprogram name #{version => V, deps => [...]}.`.
-  Elixir code embeds AL only as `run do ~AL"""...""" end` (where `^name` pins
-  an Elixir value) or text passed to `AL.eval_source/3`. Definition files
+  Elixir code passes AL text to `AL.run/1,2,3`. Supply host values through
+  `bindings: %{"Name" => value}` and refer to them as AL variables (`Name`). Definition files
   (`*.class.al`, `*.extension.al`) are AL source too: leading `#` comment
   lines, then `@name #{...}.` for a class or `@+name #{super => [...]}.` for an
   extension of a class owned elsewhere, then that owner's method clauses. In an Elixir `"..."` string,
-  write an AL map as `\#{...}`; `~AL` and `~S` do not interpolate.
+  write an AL map as `\#{...}`; `~S` does not interpolate.
 - AL has no tuples. Represent AL data with lists, maps, or classed value
   objects. Tuples are reserved for internal Elixir/VM encodings.
 

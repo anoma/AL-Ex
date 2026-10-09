@@ -17,7 +17,7 @@ try do
     """)
 
   {:atomic, {definitions, _, _}} =
-    AL.eval_source(~S"""
+    AL.run(~S"""
     @compiled_walk_probe #{super => object}.
 
     compiled_walk_probe >> walk

@@ -21,11 +21,13 @@ defmodule ALOutboxTest do
       branch_id = branch.id
 
       {:atomic, _} =
-        run branch: branch_id do
-          ~AL"""
-          send_async 1 outbox_block [^observer, _].
-          """
-        end
+        run(
+          ~S"""
+          send_async 1 outbox_block [HostObserver, _].
+          """,
+          branch: branch_id,
+          bindings: %{"HostObserver" => observer}
+        )
 
       assert_receive {:outbox_call_started, task}, 2_000
       ref = Process.monitor(task)

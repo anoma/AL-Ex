@@ -12,6 +12,7 @@ defmodule AL.JAM.IR.Dataflow do
     defstruct [
       :program,
       :live,
+      :return_facts,
       before: %{},
       uses: %{},
       defines: %{},
@@ -23,20 +24,22 @@ defmodule AL.JAM.IR.Dataflow do
     ]
   end
 
-  def analyze(program, observable \\ MapSet.new(), rewrite \\ true) do
+  def analyze(program, observable \\ MapSet.new(), rewrite \\ true, exposed \\ nil) do
     observable = MapSet.delete(observable, {:"$var", "_"})
-    initial = %Facts{exposed: observable}
+    initial = %Facts{exposed: exposed || observable}
 
     state = %Analysis{program: program, rewrite: rewrite}
 
-    {_facts, state} = walk(program.entry, nil, initial, state)
+    {return_facts, state} = walk(program.entry, nil, initial, state)
     live = liveness(state, observable)
-    %{state | live: live}
+    %{state | live: live, return_facts: return_facts}
   end
 
   def specialize(program, observable \\ MapSet.new()) do
-    analysis = analyze(program, observable)
+    program |> analyze(observable) |> eliminate_dead_bindings()
+  end
 
+  def eliminate_dead_bindings(%Analysis{} = analysis) do
     blocks =
       Map.new(analysis.program.blocks, fn {id, block} ->
         removable = Map.get(analysis.removable, id, %{})
@@ -177,13 +180,18 @@ defmodule AL.JAM.IR.Dataflow do
         do: IR.map_values(operation, &Var.subst(&1, facts.values)),
         else: operation
 
+    operation = if rewrite, do: IR.VirtualObject.specialize(operation), else: operation
+
     inference = AL.JAM.IR.Inference.operation(operation, facts.exposed)
     defined = inference.binding
 
     operation =
       case defined do
-        {variable, value} when rewrite -> IR.operation(:direct, :eq, [variable, value])
-        _ -> operation
+        {variable, value} when rewrite ->
+          IR.operation(:direct, operation.name, [variable, value])
+
+        _ ->
+          operation
       end
 
     values =

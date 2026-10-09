@@ -7,7 +7,7 @@ defmodule AL.JAM.LoopTest do
     on_exit(fn -> AL.Branch.discard(branch) end)
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         @loop_probe #{super => value}.
 
@@ -113,7 +113,7 @@ defmodule AL.JAM.LoopTest do
 
   test "overlapping alternatives cannot become a deterministic loop", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         loop_probe >> accept
         | _Self Value |
@@ -130,7 +130,7 @@ defmodule AL.JAM.LoopTest do
              nil
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                findall Output Outputs {copy #{class => loop_probe} [15] [] Output}.
                """,
@@ -180,7 +180,7 @@ defmodule AL.JAM.LoopTest do
     assert {:atomic, _} = copy(branch, [10, 20])
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         loop_probe >> accept
         | _Self Value |
@@ -197,7 +197,7 @@ defmodule AL.JAM.LoopTest do
 
   test "base-clause restrictions are not discarded", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         loop_probe >> copy
         | _Self [] [99] [99] |.
@@ -227,7 +227,7 @@ defmodule AL.JAM.LoopTest do
                  assert {:atomic, _} = copy(branch, [10])
 
                  assert {:atomic, _} =
-                          AL.eval_source(
+                          AL.run(
                             ~S"""
                             loop_probe >> accept
                             | _Self 99 |.
@@ -244,7 +244,7 @@ defmodule AL.JAM.LoopTest do
 
   test "inherited overrides invalidate cached dispatch dependencies", %{branch: branch} do
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         @loop_child #{super => loop_probe}.
         """,
@@ -262,7 +262,7 @@ defmodule AL.JAM.LoopTest do
     assert {:atomic, _} = AL.eval(goals, nil, branch)
 
     {:atomic, _} =
-      AL.eval_source(
+      AL.run(
         ~S"""
         loop_child >> accept
         | _Self 99 |.
@@ -279,7 +279,7 @@ defmodule AL.JAM.LoopTest do
     assert {:atomic, {%{"$Output" => [11.0]}, _, _}} = copy(branch, [11.0])
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                copy #{class => loop_probe} [Value] [] [15].
                """,
@@ -289,7 +289,7 @@ defmodule AL.JAM.LoopTest do
     assert bindings["$Value"] == 15
 
     assert {:atomic, {bindings, _, _}} =
-             AL.eval_source(
+             AL.run(
                ~S"""
                dif Output [10],
                findall Output Outputs {copy #{class => loop_probe} [15] [] Output}.

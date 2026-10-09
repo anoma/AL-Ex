@@ -15,12 +15,13 @@ defmodule Examples.ALInDomain do
 
   example in_domain_labels_every_candidate_exactly_once() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain X [a, b, c].
         findall X All (label X).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.sort(Map.get(bindings, "$All")) == [:a, :b, :c]
     :ok
@@ -28,13 +29,14 @@ defmodule Examples.ALInDomain do
 
   example two_in_domain_calls_narrow_via_intersection() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain Y [a, b, c, d].
         in_domain Y [c, d, e].
         findall Y All (label Y).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.sort(Map.get(bindings, "$All")) == [:c, :d]
     :ok
@@ -42,23 +44,25 @@ defmodule Examples.ALInDomain do
 
   example an_empty_intersection_fails_immediately() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain Y [a, b].
         in_domain Y [c, d].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example a_domain_narrowed_to_one_value_auto_binds() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain Z [only_one].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Z") == :only_one
     :ok
@@ -68,13 +72,14 @@ defmodule Examples.ALInDomain do
   # no special interaction code needed, the ordinary bind-time check does it.
   example dif_excludes_a_candidate_at_label_time() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         dif V a.
         in_domain V [a, b].
         label V.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$V") == :b
     :ok
@@ -82,12 +87,13 @@ defmodule Examples.ALInDomain do
 
   example unify_against_a_value_outside_the_domain_fails() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain W [a, b].
         = W not_in_set.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert {:constraint_violated, {:domain, domain}} = reason.reason
     assert Enum.sort(domain) == [:a, :b]
@@ -96,18 +102,20 @@ defmodule Examples.ALInDomain do
 
   example ground_membership_check_needs_no_constraint_at_all() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain a [a, b, c].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         in_domain z [a, b, c].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

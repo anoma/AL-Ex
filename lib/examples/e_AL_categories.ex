@@ -13,8 +13,8 @@ defmodule Examples.ALCategories do
   # (a class isn't an instance of itself).
   example import_shares_implementation_without_inheritance() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @greeter_behaviour
         #{super => object, metaclass => category}.
 
@@ -31,8 +31,9 @@ defmodule Examples.ALCategories do
         new cat_b InstanceB.
         greet InstanceA GreetingA.
         greet InstanceB GreetingB.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$GreetingA") == :hello
     assert Map.get(bindings, "$GreetingB") == :hello
@@ -41,8 +42,8 @@ defmodule Examples.ALCategories do
 
   example import_creates_no_super_edge() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @shared_behaviour
         #{super => object, metaclass => category}.
 
@@ -59,8 +60,9 @@ defmodule Examples.ALCategories do
         not (super import_b import_a).
         not (super import_a shared_behaviour).
         = Unrelated true.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Unrelated") == true
     :ok
@@ -68,14 +70,15 @@ defmodule Examples.ALCategories do
 
   example category_is_reflectively_queryable() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @reflect_behaviour
         #{super => object, metaclass => category}.
 
         class reflect_behaviour Kind.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.get(bindings, "$Kind") == :category
     :ok
@@ -87,8 +90,8 @@ defmodule Examples.ALCategories do
   # missed :category/:behaviour until this showed up live.
   example category_is_not_offered_as_an_unbound_receiver_candidate() do
     {:atomic, {b1, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @counts_behaviour
         #{super => object, metaclass => category}.
 
@@ -100,8 +103,9 @@ defmodule Examples.ALCategories do
 
         new countable Instance.
         findall S Candidates {count S 0, label S}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     candidates = Map.get(b1, "$Candidates")
     refute :counts_behaviour in candidates

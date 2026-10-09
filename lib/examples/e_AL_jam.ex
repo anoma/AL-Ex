@@ -1367,7 +1367,7 @@ defmodule Examples.ALJAM do
   end
 
   defp evaluate_source(source),
-    do: AL.eval_source(source, %AL.Branch{id: Examples.Support.branch()})
+    do: AL.run(source, %AL.Branch{id: Examples.Support.branch()})
 
   defp machine_answers({:ok, store, _steps}, choices, branch),
     do: [AL.Var.subst({:"$var", "Pair"}, store) | remaining_answers(choices, branch)]

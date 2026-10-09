@@ -19,17 +19,19 @@ defmodule Examples.ALGenserver do
     def init({object_id, observer, branch}) do
       pid = self()
 
-      run branch: branch do
-        ~AL"""
-        new process #{name => ^object_id, pid => ^pid} _.
+      run(
+        ~S"""
+        new process #{name => HostObjectId, pid => HostPid} _.
 
-        ^object_id >> increment
+        HostObjectId >> increment
         | Self Amount |
         get Self pid P,
         = Message #{amount => Amount, event => increment},
         send_elixir P Message.
-        """
-      end
+        """,
+        branch: branch,
+        bindings: %{"HostObjectId" => object_id, "HostPid" => pid}
+      )
 
       {:ok, %{object_id: object_id, observer: observer, branch: branch, count: 0}}
     end
@@ -45,12 +47,14 @@ defmodule Examples.ALGenserver do
     def terminate(_reason, state) do
       object_id = state.object_id
 
-      run branch: state.branch do
-        ~AL"""
-        vm_retract_class ^object_id C.
-        vm_retract_super ^object_id S.
-        """
-      end
+      run(
+        ~S"""
+        vm_retract_class HostObjectId C.
+        vm_retract_super HostObjectId S.
+        """,
+        branch: state.branch,
+        bindings: %{"HostObjectId" => object_id}
+      )
     end
   end
 
@@ -67,11 +71,12 @@ defmodule Examples.ALGenserver do
     assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :process end)
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         send_async my_counter increment [5].
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert_receive {:count_changed, ^pid, 5}, 1000
 

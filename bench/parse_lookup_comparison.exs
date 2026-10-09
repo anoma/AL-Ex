@@ -52,8 +52,8 @@ File.read!(Path.join(root, "AL/cache/resolution_cache.ex"))
 |> Code.compile_string()
 
 for {file, signature} <- [
-      {"AL/jam/ir/plan.ex", "  def valid?(plan, branch) do"},
-      {"AL/jam/ir/loop.ex", "  def valid?(%__MODULE__{} = plan, branch) do"}
+      {"AL/jam/ir/optimization/plan.ex", "  def valid?(plan, branch) do"},
+      {"AL/jam/ir/optimization/loop.ex", "  def valid?(%__MODULE__{} = plan, branch) do"}
     ] do
   File.read!(Path.join(root, file))
   |> Probe.patch(

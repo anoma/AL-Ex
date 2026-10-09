@@ -47,12 +47,14 @@ defmodule Examples.ALSudoku do
     ]
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new sudoku_puzzle #{givens => ^givens} Puzzle.
+      run(
+        ~S"""
+        new sudoku_puzzle #{givens => HostGivens} Puzzle.
         solve Puzzle Solved.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostGivens" => givens}
+      )
 
     assert Map.get(bindings, "$Solved") == @solved
     :ok
@@ -77,12 +79,14 @@ defmodule Examples.ALSudoku do
     ]
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new sudoku_puzzle #{givens => ^givens} Puzzle.
+      run(
+        ~S"""
+        new sudoku_puzzle #{givens => HostGivens} Puzzle.
         solve Puzzle Solved.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostGivens" => givens}
+      )
 
     assert Map.get(bindings, "$Solved") == [
              [8, 6, 7, 9, 1, 2, 3, 4, 5],
@@ -117,12 +121,14 @@ defmodule Examples.ALSudoku do
     ]
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new sudoku_puzzle #{givens => ^givens} Puzzle.
+      run(
+        ~S"""
+        new sudoku_puzzle #{givens => HostGivens} Puzzle.
         solve Puzzle Solved.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostGivens" => givens}
+      )
 
     assert Map.get(bindings, "$Solved") == [
              [9, 8, 7, 6, 5, 4, 3, 2, 1],
@@ -157,11 +163,13 @@ defmodule Examples.ALSudoku do
     ]
 
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
-        new sudoku_puzzle #{givens => ^givens} _Puzzle.
-        """
-      end
+      run(
+        ~S"""
+        new sudoku_puzzle #{givens => HostGivens} _Puzzle.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostGivens" => givens}
+      )
 
     :ok
   end

@@ -17,6 +17,9 @@ defmodule AL.JAM.IR.Region do
         %IR{kind: :direct, name: :eq, args: [a, b]} ->
           fresh_candidate?(a, observable) or fresh_candidate?(b, observable)
 
+        %IR{kind: :direct, name: name} when name in [:map_get, :map_put, :unify_structural] ->
+          true
+
         _ ->
           false
       end)

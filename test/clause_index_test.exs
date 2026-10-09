@@ -21,7 +21,7 @@ defmodule AL.ClauseIndexTest do
 
   test "ground calls select compatible clauses in source order and open calls keep all" do
     {:atomic, _} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @clause_index_probe #{super => object}.
 
       clause_index_probe >> pick
@@ -50,7 +50,7 @@ defmodule AL.ClauseIndexTest do
     assert sequences(:clause_index_probe, :numeric, [:receiver, 1.0]) != []
 
     {:atomic, _} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       clause_index_probe >> pick
       | _Self green _Value |.
 
@@ -64,7 +64,7 @@ defmodule AL.ClauseIndexTest do
 
   test "list shape selects clauses while an open argument keeps both shapes" do
     {:atomic, _} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @clause_shape_probe #{super => object}.
 
       clause_shape_probe >> choose
@@ -88,7 +88,7 @@ defmodule AL.ClauseIndexTest do
 
   test "literal decisions across positions preserve order and open modes" do
     {:atomic, _} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @clause_tree_probe #{super => object}.
 
       clause_tree_probe >> choose
@@ -123,7 +123,7 @@ defmodule AL.ClauseIndexTest do
 
   test "decision leaves keep clause-local bodies and alternatives" do
     {:atomic, {bindings, _constraints, _state}} =
-      AL.eval_source(~S"""
+      AL.run(~S"""
       @clause_tree_runtime #{super => object}.
 
       clause_tree_runtime >> choose

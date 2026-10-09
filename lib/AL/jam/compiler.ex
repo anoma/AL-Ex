@@ -208,14 +208,11 @@ defmodule AL.JAM.Compiler do
 
     Enum.map(clauses, fn {:oapply, id, seq, head, body} ->
       body =
-        if inline?,
-          do: AL.JAM.IR.Inline.callables(body, MapSet.union(AL.Var.find_vars(head), captures)),
-          else: body
-
-      body =
-        body
-        |> AL.JAM.IR.Region.compile(MapSet.union(AL.Var.find_vars(head), captures))
-        |> AL.JAM.IR.Selection.select()
+        AL.JAM.Optimization.rewrite_method(
+          body,
+          MapSet.union(AL.Var.find_vars(head), captures),
+          inline?
+        )
 
       cursor? = AL.JAM.IR.contains?(body, :next)
 
@@ -260,18 +257,5 @@ defmodule AL.JAM.Compiler do
         usage: usage
       }
     end)
-  end
-
-  def runtime(goals) do
-    program = AL.JAM.IR.Program.lower(goals)
-
-    variables =
-      program
-      |> AL.JAM.IR.Program.variables()
-      |> MapSet.delete({:"$var", "_"})
-      |> MapSet.to_list()
-
-    slots = variables |> Enum.with_index() |> Map.new()
-    {AL.JAM.IR.Program.emit(program, slots) |> List.to_tuple(), List.to_tuple(variables)}
   end
 end

@@ -4,19 +4,25 @@ defmodule Bench.Succ do
   use AL
 
   def dispatch(branch, n) do
-    run branch: branch.id, trace: [] do
-      ~AL"""
-      count_to 0 ^n.
-      """
-    end
+    run(
+      ~S"""
+      count_to 0 HostN.
+      """,
+      branch: branch.id,
+      trace: [],
+      bindings: %{"HostN" => n}
+    )
   end
 
   def oapply(branch, n) do
-    run branch: branch.id, trace: [] do
-      ~AL"""
-      count_to_via_oapply 0 ^n.
-      """
-    end
+    run(
+      ~S"""
+      count_to_via_oapply 0 HostN.
+      """,
+      branch: branch.id,
+      trace: [],
+      bindings: %{"HostN" => n}
+    )
   end
 
   def profile(function, n) do

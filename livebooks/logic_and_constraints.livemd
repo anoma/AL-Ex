@@ -20,7 +20,7 @@ This notebook is self-contained. The cell above installs AL directly, no separat
 
 If you already have a real AL node running and want the persistent, shared store instead, see the [intro](./intro.livemd) for how to attach to it instead.
 
-`Mix.install` has to finish running before AL's `run` macro and `~AL` sigil can be brought into scope, so that happens in its own cell here.
+`Mix.install` has to finish before `use AL` loads the library, so that happens in its own cell here.
 
 ```elixir
 use AL
@@ -31,11 +31,9 @@ AL.Branch.head()
 ## Run a method backwards
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   factorial N 120.
-  """
-end
+  """)
 ```
 
 ## `=`: a real constraint
@@ -43,30 +41,25 @@ end
 `=` doesn't care which side is open. It's a real constraint, checked at bind time like `dif`, not a one-shot evaluation.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = N 5.
   = N1 (- N 1).
-  """
-end
+  """)
 ```
 
 The var can just as easily be buried inside the expression, on either side. No separate mode is needed.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = X 10.
   = X (+ Y 3).
-  """
-end
+  """)
 ```
 
 ## Propagate constraints about and between objects
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   @rectangle
   #{super => value, ivars => [#{name => width}, #{name => height}, #{name => perimeter}]}.
 
@@ -86,8 +79,7 @@ run do
 
   new rectangle #{height => 3, perimeter => 16, width => W} R.
   area R A.
-  """
-end
+  """)
 ```
 
 ## Comparisons narrow instead of failing
@@ -95,21 +87,17 @@ end
 `< > <= >=` don't need a ground operand. An open var just gets its interval narrowed instead.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   > Y 1.
-  """
-end
+  """)
 ```
 
 `Y` is still open here, just narrowed rather than bound to one value. Only a genuinely non-numeric ground operand still hard-fails, since there's no interval to narrow against it.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   > Y not_a_number.
-  """
-end
+  """)
 ```
 
 ## Posting order doesn't matter
@@ -117,23 +105,19 @@ end
 Posting `< X Y` alone narrows nothing observable, since both sides are still open. But once `< Y 5` is posted too, `X` is transitively bound to satisfy the whole chain, without `< X Y` ever being re-checked by hand. This is the propagator sitting parked and re-firing on its own, not a one-shot check.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   < X Y.
   < Y 5.
   = X 2.
-  """
-end
+  """)
 ```
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   < X Y.
   < Y 5.
   = X 10.
-  """
-end
+  """)
 ```
 
 The second one fails: `10` can't be less than something itself less than `5`. Nothing about the order you posted the constraints in mattered, only what they jointly imply.
@@ -143,8 +127,7 @@ The second one fails: `10` can't be less than something itself less than `5`. No
 An open receiver turns the last two calls below into a search, not a lookup.
 
 ```elixir
-run branch: Examples.Support.branch() do
-  ~AL"""
+run(~S"""
   @direct_vehicle
   #{super => object}.
 
@@ -165,8 +148,7 @@ run branch: Examples.Support.branch() do
   isa Candidate Ancestor.
   = Ancestor direct_vehicle.
   = Candidate Car.
-  """
-end
+  """, branch: Examples.Support.branch())
 ```
 
 ## `dif` and `all_dif`
@@ -174,64 +156,52 @@ end
 `dif A B` never resolves by binding anything itself. It only rules out bindings that would make its two sides equal.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   dif X 1.
   = X 2.
-  """
-end
+  """)
 ```
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   dif X 1.
   = X 1.
-  """
-end
+  """)
 ```
 
 Posted on a still-open var, `dif` drives backtracking directly. `member`'s first clause offers `= X 1`, which violates the constraint and fails, so it falls through to `= X 2` without `1` ever surfacing as a candidate.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   dif X 1.
   member [1, 2, 3] X.
-  """
-end
+  """)
 ```
 
 `all_dif` is the same idea over a whole list at once: every pair has to satisfy `dif`.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   all_dif [1, 2, 3].
-  """
-end
+  """)
 ```
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   all_dif [1, 2, 1].
-  """
-end
+  """)
 ```
 
 Combined with `in_domain` below, `all_dif` can force values by elimination alone, with no search: if two elements can only be `1` or `2`, and two more overlap with different ranges, the ones with no other option get pinned down directly.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   in_domain A [1, 2].
   in_domain B [1, 2].
   in_domain C [2, 3].
   in_domain D [3, 4].
   all_dif [A, B, C, D].
-  """
-end
+  """)
 ```
 
 ## `in_domain` and `label`
@@ -239,68 +209,56 @@ end
 `in_domain Var Values` restricts a var to a finite set, the same way `dif`/bounds do: a real constraint on the var, not a class with a `domain` method.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   in_domain X [a, b, c].
   findall X All (label X).
-  """
-end
+  """)
 ```
 
 Posting `in_domain` twice narrows by intersection.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   in_domain Y [a, b, c, d].
   in_domain Y [c, d, e].
   findall Y All (label Y).
-  """
-end
+  """)
 ```
 
 A domain narrowed down to exactly one value binds automatically, no `label` needed.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   in_domain Z [only_one].
-  """
-end
+  """)
 ```
 
 `label` is the one place a bounded-but-still-open var actually becomes concrete. Inequalities and `in_domain` alone only ever narrow, they never enumerate. On an already-ground term, `label` is a no-op.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   label 5.
   = X 5.
-  """
-end
+  """)
 ```
 
 On a genuinely open, bounded var, `label` enumerates every value as ordinary backtracking alternatives, cheapest first.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   >= X 3.
   <= X 5.
   label X.
-  """
-end
+  """)
 ```
 
 A domain that's still open on at least one side has nothing finite to enumerate, so `label` fails rather than looping forever.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   >= X 3.
   label X.
-  """
-end
+  """)
 ```
 
 ### How `label` chooses witnesses
@@ -326,46 +284,38 @@ If AL cannot derive a finite domain, a relational row, a durable identity, or a 
 `or` between two constraints is a real disjunction (`AL.Var.Bounds.either`), not the backtracking choicepoint of `;`. If one side gets refuted, the other is applied for real.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   = A 4.
   or (= A 5) (= B 7).
-  """
-end
+  """)
 ```
 
 If neither side can be decided yet, `either` just stays parked, undetermined, rather than guessing.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   or (= A 5) (= B 6).
-  """
-end
+  """)
 ```
 
 Both `A` and `B` are still open there. `either` is reactive too: post it before anything is ground, and it resolves once a refutation actually arrives.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   or (= A 5) (= B 7).
   = A 4.
-  """
-end
+  """)
 ```
 
 Putting `findall`, `=`, `either`, and `label` together: every multiple of 3 or 5 below 20, with no duplicates. `15` is a multiple of both and would show up twice under a naive backtracking `;`. It doesn't here, because `either` resolves by elimination rather than by trying both branches.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   findall Candidate Candidates {
     < Candidate 20,
     > Candidate 0,
     or (= Candidate (* X 5)) (= Candidate (* Y 3)),
     label Candidate
   }.
-  """
-end
+  """)
 ```

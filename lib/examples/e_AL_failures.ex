@@ -13,8 +13,8 @@ defmodule Examples.ALFailures do
   # naming the receiver, selector, arity, and a ranked suggestion.
   example unknown_selector_reports_does_not_understand() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @failgreeter
         #{super => value}.
 
@@ -26,8 +26,9 @@ defmodule Examples.ALFailures do
 
         new failgreeter G.
         greett G world.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert match?(
              {:does_not_understand, %{class: :failgreeter}, :greett, 1, _suggestions},
@@ -45,11 +46,12 @@ defmodule Examples.ALFailures do
   # free of internal `:backtrack` noise.
   example plain_failure_trace_omits_backtracks() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         class no_such_object_al_failures C.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     refute :backtrack in reason.trace
     :ok
@@ -57,8 +59,8 @@ defmodule Examples.ALFailures do
 
   example unmatched_clause_body_names_the_actual_call() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @failbody
         #{super => value}.
 
@@ -71,8 +73,9 @@ defmodule Examples.ALFailures do
 
         new failbody Obj.
         trigger Obj.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
     assert reason.message =~ "didn't match"
@@ -82,8 +85,8 @@ defmodule Examples.ALFailures do
 
   example no_trace_preserves_plain_clause_failure_context() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @no_trace_failbody
         #{super => value}.
 
@@ -93,16 +96,19 @@ defmodule Examples.ALFailures do
         no_trace_failbody >> trigger
         | Self |
         fail.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace: [] do
-        ~AL"""
+      run(
+        ~S"""
         new no_trace_failbody Obj.
         trigger Obj.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        trace: []
+      )
 
     assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
     assert reason.message =~ "didn't match"
@@ -118,21 +124,24 @@ defmodule Examples.ALFailures do
   # rather than trusting time order or reconstructed-but-pruned scope state.
   example set_slot_domain_violation_survives_backtracking_search() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @failure_domain_probe
         #{super => object, ivars => [#{domain => ["on", "off"], name => state}]}.
 
         new failure_domain_probe #{name => failure_domain_instance, state => "on"} _.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace: [] do
-        ~AL"""
+      run(
+        ~S"""
         set_slot failure_domain_instance state sideways.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        trace: []
+      )
 
     assert match?({:domain_violated, :sideways, ["on", "off"]}, reason.reason)
     assert reason.message =~ "not in the domain"
@@ -144,34 +153,38 @@ defmodule Examples.ALFailures do
 
   example label_of_an_unconstrained_var_is_blamed_over_the_search_that_ran_out() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace: [] do
-        ~AL"""
+      run(
+        ~S"""
         member [1, 2, 3] M.
         label X.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        trace: []
+      )
 
     assert reason.reason == {:label_unconstrained, {:"$var", "X"}}
     assert reason.message =~ "nothing to enumerate"
     refute reason.message =~ "member"
 
     {:aborted, traced} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         member [1, 2, 3] M.
         label X.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert traced.reason == {:label_unconstrained, {:"$var", "X"}}
 
     {:aborted, aliased} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         hd [X, 7] V.
         label X.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert aliased.reason == {:label_unconstrained, {:"$var", "X"}}
     assert aliased.message =~ "label(X)"
@@ -180,11 +193,13 @@ defmodule Examples.ALFailures do
 
   example no_trace_preserves_does_not_understand_errors() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch(), trace: [] do
-        ~AL"""
+      run(
+        ~S"""
         greett 1 world.
-        """
-      end
+        """,
+        branch: Examples.Support.branch(),
+        trace: []
+      )
 
     assert match?({:does_not_understand, 1, :greett, 1, _}, reason.reason)
 
@@ -199,12 +214,13 @@ defmodule Examples.ALFailures do
   # the last attempt), not just a curated summary.
   example failed_run_exposes_the_final_state() do
     {:aborted, reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         dif X 1.
         = X 1.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert %AL{} = reason.state
     assert reason.state.active_choicepoint.store == nil
@@ -215,23 +231,25 @@ defmodule Examples.ALFailures do
   # alone -- reason names which constraint fired.
   example unify_failure_names_the_violated_constraint() do
     {:aborted, dif_reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         dif X 1.
         = X 1.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert match?({:constraint_violated, {:dif, _, _}}, dif_reason.reason)
     assert dif_reason.message =~ "dif"
 
     {:aborted, isa_reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa Y number.
         = Y not_a_number.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert match?({:constraint_violated, {:isa, _, :number}}, isa_reason.reason)
     assert isa_reason.message =~ "class"
@@ -239,11 +257,12 @@ defmodule Examples.ALFailures do
     # a plain mismatch, no constraint involved, still gets the ordinary
     # generic message — this isn't claiming a constraint caused it
     {:aborted, plain_reason} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         = 1 2.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     refute match?({:constraint_violated, _}, plain_reason.reason)
   end
@@ -252,8 +271,8 @@ defmodule Examples.ALFailures do
   # not abort with a does_not_understand reason.
   example custom_dnu_is_not_reported_as_failure() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @failquiet
         #{super => value}.
 
@@ -265,16 +284,17 @@ defmodule Examples.ALFailures do
 
         new failquiet Q.
         anything Q x.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example dnu_resolution_tracks_handler_and_inheritance_changes() do
     {:atomic, {bindings, _, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @dnu_cache_parent #{super => value}.
         @dnu_cache_child #{super => dnu_cache_parent}.
         = Receiver #{class => dnu_cache_child}.
@@ -289,8 +309,9 @@ defmodule Examples.ALFailures do
         not {missing Receiver _}.
         @dnu_cache_child #{super => dnu_cache_parent}.
         missing Receiver Fourth.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Map.take(bindings, ["$First", "$Second", "$Third", "$Fourth"]) == %{
              "$First" => :inherited,

@@ -97,15 +97,13 @@ channel -> provider -> build <- active package
 The package name is itself a class. For example, `interval` is a `package`, while its exact build is an instance of `interval`. Its `active_build` slot selects the definitions currently in use.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   class interval package.
   active_build interval Build.
   class Build interval.
   build_provider Build Provider.
   provider_channel Provider Channel.
-  """
-end
+  """)
 ```
 
 Builds record the classes they own and the methods or inheritance edges they add to existing classes. This lets packages be exported, replaced, and removed without confusing their contributions with somebody else's.
@@ -118,8 +116,7 @@ Creating a package gives it an open active build. Define normal AL classes and m
 author = AL.Branch.head()
 
 {:atomic, _} =
-  run do
-    ~AL"""
+  run(~S"""
     new package #{deps => [], name => greetings, version => 1} greetings.
     active_build greetings Build.
 
@@ -137,22 +134,19 @@ author = AL.Branch.head()
     new greeting #{words => Words} Greeting.
 
     include_method Build list as_greeting.
-    """
-  end
+    """)
 ```
 
 The package owns `greeting` and extends the existing `list` class.
 
 ```elixir
-run do
-  ~AL"""
+run(~S"""
   as_greeting [hello, package] Greeting.
   words Greeting Words.
   active_build greetings Build.
   originates_class Build greeting.
   adds_method Build list as_greeting.
-  """
-end
+  """)
 ```
 
 Use `include_superclass Build Class Superclass` when the package adds an inheritance edge.
@@ -202,12 +196,10 @@ Map.take(imported, [:package, :build, :provider, :definitions])
 ```
 
 ```elixir
-run branch: consumer.id do
-  ~AL"""
+run(~S"""
   as_greeting [hello, consumer] Greeting.
   words Greeting Words.
-  """
-end
+  """, branch: consumer.id)
 ```
 
 Package activation is branch-local. Importing or changing packages on `consumer` does not change `author`; forking a branch from its current tip would instead copy its current package environment.

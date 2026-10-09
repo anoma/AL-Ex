@@ -7,8 +7,8 @@ defmodule Examples.ALObjectLabeling do
 
   example labeling_model() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         @labeling_animal
         #{super => object}.
 
@@ -39,8 +39,9 @@ defmodule Examples.ALObjectLabeling do
         labeling_circle >> init
         | _Self _Args New |
         = New #{class => labeling_circle, radius => 1}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -49,11 +50,12 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall Object Objects {class Object labeling_animal, label Object}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Objects"] == [:labeling_animal_object]
   end
@@ -62,11 +64,12 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall Object Objects {isa Object labeling_animal, label Object}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert MapSet.new(bindings["$Objects"]) ==
              MapSet.new([
@@ -81,13 +84,14 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa Object labeling_animal.
         isa Object labeling_named.
         label Object.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Object"] == :labeling_named_dog_object
   end
@@ -96,13 +100,14 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa Object labeling_animal.
         dif Object labeling_animal_object.
         findall Object Objects (label Object).
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     refute :labeling_animal_object in bindings["$Objects"]
 
@@ -118,12 +123,13 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa Shape labeling_shape.
         label Shape.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Shape"] == %{class: :labeling_circle, radius: 1}
   end
@@ -132,12 +138,13 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         class Shape labeling_circle.
         label Shape.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Shape"] == %{class: :labeling_circle, radius: 1}
   end
@@ -146,13 +153,14 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         class Object labeling_cat.
         isa Object labeling_dog.
         label Object.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -161,16 +169,17 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall [Object, Marker, ExactClass] Answers {
           class Object labeling_dog,
           label Object,
           = Marker after_label,
           class Object ExactClass
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Answers"] == [
              [:labeling_dog_object, :after_label, :labeling_dog]
@@ -181,12 +190,13 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         isa Object labeling_missing_class.
         label Object.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -195,11 +205,12 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall Marker Markers {class Object ExactClass, label ExactClass, = Marker after_class_label}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.uniq(bindings["$Markers"]) == [:after_class_label]
   end
@@ -208,11 +219,12 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall Marker Markers {super Subclass Superclass, label Subclass, = Marker after_super_label}.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert Enum.uniq(bindings["$Markers"]) == [:after_super_label]
   end
@@ -221,15 +233,16 @@ defmodule Examples.ALObjectLabeling do
     labeling_model()
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        ~AL"""
+      run(
+        ~S"""
         findall [Object, Marker] Answers {
           slot Object labeling_unique_slot labeling_unique_value,
           label Object,
           = Marker after_slot_label
         }.
-        """
-      end
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert bindings["$Answers"] == [[:labeling_dog_object, :after_slot_label]]
   end
