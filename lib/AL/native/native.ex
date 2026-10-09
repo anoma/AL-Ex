@@ -36,10 +36,10 @@ defmodule AL.Native do
       passed positionally to `apply(module, function, ground_inputs)`; the
       last position is unified with whatever the function returns.
 
-    - `:raw` -- the wrapped function has the exact `(call_args, state) ::
-      AL.t() | nil` contract `AL.interp/2` itself has. Full responsibility
-      for groundness/constraint handling, and free to use `AL.fan_out/3`
-      to produce multiple solutions (natives may be nondeterministic).
+    - `:raw` -- the wrapped function is `(call_args, store, branch) ::
+      [store]`. It takes full responsibility for groundness and constraint
+      handling, and returns one store per solution: an empty list fails and
+      several stores are alternatives (natives may be nondeterministic).
   """
 
   require AL
@@ -135,7 +135,7 @@ defmodule AL.Native do
   end
 
   defp find_or_create_method_id(class, selector, tx_id, branch) do
-    case AL.Object.scan_method(class, selector, :"$id", branch) do
+    case AL.Object.scan_method(class, selector, {:"$var", "id"}, branch) do
       [{:method, ^class, ^selector, id} | _] ->
         id
 
@@ -148,7 +148,14 @@ defmodule AL.Native do
   end
 
   defp has_interpreted_clauses?(method_id, branch),
-    do: AL.Object.scan_oapply(method_id, :"$seq", :"$head", :"$body", branch) != []
+    do:
+      AL.Object.scan_oapply(
+        method_id,
+        {:"$var", "seq"},
+        {:"$var", "head"},
+        {:"$var", "body"},
+        branch
+      ) != []
 
   @doc "Un-declares a native: closes the durable fact, removes the ephemeral implementation."
   @spec retract(term(), keyword()) :: :ok
@@ -192,48 +199,52 @@ defmodule AL.Native do
     :ok
   end
 
-  @doc false
-  @spec dispatch(term(), [term()], AL.t()) :: :not_native | {:handled, AL.t() | nil}
-  def dispatch(method_id, call_args, state) do
-    case AL.ResolutionCache.fetch_native(state.branch, method_id, fn ->
-           AL.Object.get_native(method_id, state.branch)
+  def invoke(method_id, call_args, store, branch) do
+    case AL.ResolutionCache.fetch_native(branch, method_id, fn ->
+           AL.Object.get_native(method_id, branch)
          end) do
       nil ->
         :not_native
 
-      {module, function, arity, style} = mfa ->
+      {module, function, _arity, style} = mfa ->
         case AL.Native.Registry.lookup(method_id) do
           ^mfa ->
-            {:handled, run(style, module, function, arity, method_id, call_args, state)}
+            case style do
+              :raw -> invoke_raw(module, function, method_id, call_args, store, branch)
+              :value -> invoke_value(module, function, method_id, call_args, store, branch)
+            end
 
           nil ->
-            {:handled, AL.backtrack(record_native_missing(state, method_id, mfa))}
+            {:diagnostic, {:native_missing, {method_id, mfa}}}
 
           other ->
-            {:handled, AL.backtrack(record_native_mismatch(state, method_id, mfa, other))}
+            {:diagnostic, {:native_mismatch, {method_id, mfa, other}}}
         end
     end
   end
 
-  defp run(:raw, module, function, _arity, _method_id, call_args, state),
-    do: apply(module, function, [call_args, state])
+  defp invoke_raw(module, function, method_id, call_args, store, branch) do
+    {:stores, Enum.reject(apply(module, function, [call_args, store, branch]), &is_nil/1)}
+  rescue
+    e -> {:diagnostic, {:native_error, {method_id, {module, function}, Exception.message(e)}}}
+  end
 
-  defp run(:value, module, function, _arity, method_id, call_args, state) do
+  defp invoke_value(module, function, method_id, call_args, store, branch) do
     {inputs, [output]} = Enum.split(call_args, length(call_args) - 1)
-    store = state.active_choicepoint.store
 
     case first_open_position(inputs, store) do
       {:error, position} ->
-        AL.backtrack(record_input_not_ground(state, method_id, position))
+        {:diagnostic, {:native_input_not_ground, {method_id, position}}}
 
       :ok ->
         ground_inputs = Enum.map(inputs, &AL.Var.deref(store, &1))
 
         try do
           result = apply(module, function, ground_inputs)
-          AL.put_bindings(state, AL.unify(state, output, result), [output])
+          {:ok, AL.Var.unify(output, result, store, branch)}
         rescue
-          e -> AL.backtrack(record_native_error(state, method_id, {module, function}, e))
+          e ->
+            {:diagnostic, {:native_error, {method_id, {module, function}, Exception.message(e)}}}
         end
     end
   end
@@ -244,28 +255,5 @@ defmodule AL.Native do
     |> Enum.find_value(:ok, fn {v, i} ->
       if AL.Var.var?(AL.Var.deref(store, v)), do: {:error, i}, else: false
     end)
-  end
-
-  # Every entry below is a tagged 2-tuple ({:tag, payload}), not a flat
-  # N-tuple -- see the matching comment in AL.ex's format_failure/1, whose
-  # pre-existing DNU clause would otherwise silently swallow any
-  # same-arity native diagnostic tuple regardless of its actual tag.
-  defp record_native_missing(state, method_id, mfa) do
-    AL.record_diagnostic(state, {:native_missing, {method_id, mfa}})
-  end
-
-  defp record_native_mismatch(state, method_id, expected, actual) do
-    AL.record_diagnostic(state, {:native_mismatch, {method_id, expected, actual}})
-  end
-
-  defp record_input_not_ground(state, method_id, position) do
-    AL.record_diagnostic(state, {:native_input_not_ground, {method_id, position}})
-  end
-
-  defp record_native_error(state, method_id, {module, function}, exception) do
-    AL.record_diagnostic(
-      state,
-      {:native_error, {method_id, {module, function}, Exception.message(exception)}}
-    )
   end
 end

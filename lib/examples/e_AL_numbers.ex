@@ -12,37 +12,73 @@ defmodule Examples.ALNumbers do
 
   example class_of_number_is_structural() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        class(3, integer_class)
-        class(3.5, float_class)
-      end
+      run(
+        ~S"""
+        class 3 IntegerClass.
+        class 3.5 FloatClass.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$integer_class") == :number
-    assert Map.get(bindings, :"$float_class") == :number
+    assert Map.get(bindings, "$IntegerClass") == :number
+    assert Map.get(bindings, "$FloatClass") == :number
     :ok
   end
 
   example send_dispatches_through_number_class() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        defmethod(:number, :double, [self, result]) do
-          result = self * 2
-        end
+      run(
+        ~S"""
+        number >> double
+        | Self Result |
+        = Result (* Self 2).
 
-        double(21, out)
-      end
+        double 21 Out.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == 42
+    assert Map.get(bindings, "$Out") == 42
+    :ok
+  end
+
+  example negative_literals_are_numbers() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run(
+        ~S"""
+        number >> unit_sign
+        | -1 negative |.
+
+        number >> unit_sign
+        | 1 positive |.
+
+        = X -3.
+        < X 0.
+        = Y (+ X 5).
+        = #{amount => -3} #{amount => X}.
+        = Z 4.
+        unit_sign -1 Sign.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$X") == -3
+    assert Map.get(bindings, "$Y") == 2
+    assert Map.get(bindings, "$Z") == 4
+    assert Map.get(bindings, "$Sign") == :negative
     :ok
   end
 
   example number_falls_back_to_object() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        examine(3, info)
-      end
+      run(
+        ~S"""
+        examine 3 Info.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    info = Map.get(bindings, :"$info")
+    info = Map.get(bindings, "$Info")
     assert info.id == 3
     assert info.classes == [:number]
     :ok
@@ -50,31 +86,40 @@ defmodule Examples.ALNumbers do
 
   example factorial_forward_mode() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        factorial(5, out)
-      end
+      run(
+        ~S"""
+        factorial 5 Out.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == 120
+    assert Map.get(bindings, "$Out") == 120
     :ok
   end
 
   example unbound_receiver_grounds_through_value_leg() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        factorial(x, 1)
-      end
+      run(
+        ~S"""
+        factorial X 1.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == 1
+    assert Map.get(bindings, "$X") == 1
     :ok
   end
 
   example factorial_backward_search() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        factorial(n, 120)
-      end
+      run(
+        ~S"""
+        factorial N 120.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$n") == 5
+    assert Map.get(bindings, "$N") == 5
     :ok
   end
 
@@ -82,9 +127,12 @@ defmodule Examples.ALNumbers do
   # has to fail cleanly rather than loop or crash.
   example factorial_backward_search_fails_for_non_factorial_target() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        factorial(n, 7)
-      end
+      run(
+        ~S"""
+        factorial N 7.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -96,31 +144,40 @@ defmodule Examples.ALNumbers do
   # only 10 candidates ever run even though the domain is ~3.6M wide.
   example factorial_backward_search_stays_fast_on_a_wide_domain() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        factorial(n, 3_628_800)
-      end
+      run(
+        ~S"""
+        factorial N 3628800.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$n") == 10
+    assert Map.get(bindings, "$N") == 10
     :ok
   end
 
   example fibonacci_forward_mode() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        fibonacci(8, out)
-      end
+      run(
+        ~S"""
+        fibonacci 8 Out.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == 21
+    assert Map.get(bindings, "$Out") == 21
     :ok
   end
 
   example fibonacci_backward_search() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        fibonacci(n, 21)
-      end
+      run(
+        ~S"""
+        fibonacci N 21.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$n") == 8
+    assert Map.get(bindings, "$N") == 8
     :ok
   end
 
@@ -128,9 +185,12 @@ defmodule Examples.ALNumbers do
   # shape as factorial's non-target case, exercised on the sibling search.
   example fibonacci_backward_search_fails_for_non_fibonacci_target() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        fibonacci(n, 4)
-      end
+      run(
+        ~S"""
+        fibonacci N 4.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -143,15 +203,22 @@ defmodule Examples.ALNumbers do
   # var's future binds rather than only checking whatever's ground right now.
   example value_dispatch_pins_an_open_receiver_to_its_class() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defmethod(:number, :stays_open, [self])
-      end
+      run(
+        ~S"""
+        number >> stays_open
+        | Self |.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        stays_open(x)
-        x = :not_a_number
-      end
+      run(
+        ~S"""
+        stays_open X.
+        = X not_a_number.
+        """,
+        branch: Examples.Support.branch()
+      )
   end
 
   # `class(x, :number)` (the raw primitive `class/2` sugars to — see
@@ -162,36 +229,46 @@ defmodule Examples.ALNumbers do
   # `:number`) durable object table for one.
   example between_enumerates() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        findall([v], values) do
-          between(:object, 2, 5, v)
-        end
-      end
+      run(
+        ~S"""
+        findall [V] Values (between object 2 5 V).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.subst(Map.get(bindings, :"$values"), bindings) == [[2], [3], [4], [5]]
+    assert AL.Var.subst(Map.get(bindings, "$Values"), bindings) == [[2], [3], [4], [5]]
     :ok
   end
 
   example class_of_an_open_var_registers_direct_class_without_scanning() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        class(x, :number)
-      end
+      run(
+        ~S"""
+        class X number.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.var?(Map.get(bindings, :"$x"))
+    assert AL.Var.var?(Map.get(bindings, "$X"))
 
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        class(x, :number)
-        x = :not_a_number
-      end
+      run(
+        ~S"""
+        class X number.
+        = X not_a_number.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings2, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        class(x, :number)
-        x = 7
-      end
+      run(
+        ~S"""
+        class X number.
+        = X 7.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings2, :"$x") == 7
+    assert Map.get(bindings2, "$X") == 7
   end
 end

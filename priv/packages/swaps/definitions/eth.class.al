@@ -1,0 +1,2 @@
+@eth
+#{super => currency}.

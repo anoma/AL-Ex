@@ -8,6 +8,48 @@ defmodule Examples.ALBranch do
   use AL
   import ExUnit.Assertions
 
+  example branch_classification_tracks_discard_and_reparenting() do
+    parent = AL.Branch.fork(:tip, %AL.Branch{id: Examples.Support.branch()})
+    child = AL.Branch.fork(:tip, parent)
+    parent_id = parent.id
+    child_id = child.id
+
+    try do
+      result =
+        run(
+          ~S"""
+          isa HostParentId branch.
+          isa HostParentId branch.
+          isa HostChildId branch.
+          not {isa jam_missing_branch_registration branch}.
+          not {isa jam_missing_branch_registration branch}.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostChildId" => child_id, "HostParentId" => parent_id}
+        )
+
+      assert {:atomic, _} = result
+      AL.Branch.discard(parent)
+
+      result =
+        run(
+          ~S"""
+          not {isa HostParentId branch}.
+          not {isa HostParentId branch}.
+          isa HostChildId branch.
+          isa HostChildId branch.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostChildId" => child_id, "HostParentId" => parent_id}
+        )
+
+      assert {:atomic, _} = result
+    after
+      AL.Branch.discard(child)
+      if parent in AL.Branch.list(), do: AL.Branch.discard(parent)
+    end
+  end
+
   example read_from_fork() do
     # time just before we introduce :tt_thing
     before = AL.Command.system_time()
@@ -15,32 +57,208 @@ defmodule Examples.ALBranch do
     sym = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
 
     {:atomic, _} =
-      run do
-        vm_set_class(^sym, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class HostSym object.
+        """,
+        bindings: %{"HostSym" => sym}
+      )
 
     past = AL.Branch.fork(before)
     tip = AL.Branch.fork()
 
     # the tip fork sees :tt_thing; the past fork does not
     {:atomic, _} =
-      run branch: tip.id do
-        class(^sym, :object)
-      end
+      run(
+        ~S"""
+        class HostSym object.
+        """,
+        branch: tip.id,
+        bindings: %{"HostSym" => sym}
+      )
 
     {:aborted, _} =
-      run branch: past.id do
-        class(^sym, :object)
-      end
+      run(
+        ~S"""
+        class HostSym object.
+        """,
+        branch: past.id,
+        bindings: %{"HostSym" => sym}
+      )
 
     # both forks still carry the bootstrap
     {:atomic, _} =
-      run branch: past.id do
-        class(:object, :class)
-      end
+      run(
+        ~S"""
+        class object class.
+        """,
+        branch: past.id
+      )
 
     AL.Branch.discard(past)
     AL.Branch.discard(tip)
+    :ok
+  end
+
+  example branches_are_objects_you_can_query() do
+    parent = Examples.Support.isolated_branch()
+    child = AL.Branch.fork(:tip, parent)
+    at_fork = AL.Command.fork_point(child)
+    parent_id = parent.id
+    child_id = child.id
+
+    {:atomic, {bindings, _constraints, _state}} =
+      run(
+        ~S"""
+        class HostChildId Class.
+        parent HostChildId Parent.
+        child HostParentId Child.
+        fork_point HostChildId Point.
+        current Here.
+        findall B Branches {class B branch, label B}.
+        """,
+        branch: parent.id,
+        bindings: %{"HostChildId" => child_id, "HostParentId" => parent_id}
+      )
+
+    assert Map.get(bindings, "$Class") == :branch
+    assert Map.get(bindings, "$Parent") == parent_id
+    assert Map.get(bindings, "$Child") == child_id
+    assert Map.get(bindings, "$Point") == at_fork
+    assert Map.get(bindings, "$Here") == parent_id
+    assert Enum.all?([:main, parent_id, child_id], &(&1 in Map.get(bindings, "$Branches")))
+
+    AL.Branch.discard(child)
+    AL.Branch.discard(parent)
+    :ok
+  end
+
+  example branches_fork_and_discard_through_effects() do
+    parent = Examples.Support.isolated_branch()
+    parent_id = parent.id
+    pid = self()
+
+    report = fn event, goals ->
+      {:atomic, _} =
+        AL.run(
+          """
+          #{goals}
+          await Effect [Outcome] {
+            get branch_effect_observer pid Observer,
+            send_elixir Observer \#{event => #{event}, outcome => Outcome}
+          }.
+          """,
+          parent
+        )
+    end
+
+    try do
+      {:atomic, _} =
+        run(
+          ~S"""
+          new process #{name => branch_effect_observer, pid => HostPid} _.
+          """,
+          branch: parent.id,
+          bindings: %{"HostPid" => pid}
+        )
+
+      report.("forked", "fork #{parent_id} tip Effect.")
+      assert_receive %{event: :forked, outcome: %{status: :ok, value: child_id}}, 2_000
+      assert %AL.Branch{id: child_id} in AL.Branch.list()
+
+      {:atomic, {bindings, _constraints, _state}} =
+        run(
+          ~S"""
+          parent HostChildId Parent.
+          """,
+          branch: parent.id,
+          bindings: %{"HostChildId" => child_id}
+        )
+
+      assert Map.get(bindings, "$Parent") == parent_id
+
+      report.("discarded", "discard #{child_id} Effect.")
+      assert_receive %{event: :discarded, outcome: %{status: :ok, value: ^child_id}}, 2_000
+      refute %AL.Branch{id: child_id} in AL.Branch.list()
+
+      report.("main_discarded", "discard main Effect.")
+      assert_receive %{event: :main_discarded, outcome: %{status: :error}}, 2_000
+
+      report.("own_reset", "reset #{parent_id} Effect.")
+      assert_receive %{event: :own_reset, outcome: %{status: :error}}, 2_000
+    after
+      AL.Branch.discard(parent)
+    end
+
+    :ok
+  end
+
+  example reset_and_reset_to_shift_a_fork_along_its_parent() do
+    parent = Examples.Support.isolated_branch()
+    at_fork = AL.Command.system_time(parent)
+    child = AL.Branch.fork(:tip, parent)
+    assert AL.Command.fork_point(child) == at_fork
+
+    on_parent = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+    on_child = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower) |> String.to_atom()
+
+    {:atomic, _} =
+      run(
+        ~S"""
+        vm_set_class HostOnParent object.
+        """,
+        branch: parent.id,
+        bindings: %{"HostOnParent" => on_parent}
+      )
+
+    {:atomic, _} =
+      run(
+        ~S"""
+        vm_set_class HostOnChild object.
+        """,
+        branch: child.id,
+        bindings: %{"HostOnChild" => on_child}
+      )
+
+    child = AL.Branch.reset(child)
+    assert AL.Command.fork_point(child) == at_fork
+
+    {:aborted, _} =
+      run(
+        ~S"""
+        class HostOnChild object.
+        """,
+        branch: child.id,
+        bindings: %{"HostOnChild" => on_child}
+      )
+
+    {:aborted, _} =
+      run(
+        ~S"""
+        class HostOnParent object.
+        """,
+        branch: child.id,
+        bindings: %{"HostOnParent" => on_parent}
+      )
+
+    grandchild = AL.Branch.fork(:tip, child)
+    child = AL.Branch.reset_to(child, :tip)
+
+    {:atomic, _} =
+      run(
+        ~S"""
+        class HostOnParent object.
+        """,
+        branch: child.id,
+        bindings: %{"HostOnParent" => on_parent}
+      )
+
+    assert {:branch, child, grandchild} in AL.Branch.branch_graph()
+    assert {:branch, parent, child} in AL.Branch.branch_graph()
+
+    AL.Branch.discard(grandchild)
+    AL.Branch.discard(child)
+    AL.Branch.discard(parent)
     :ok
   end
 
@@ -49,18 +267,21 @@ defmodule Examples.ALBranch do
 
     # write only into the fork, then read it back from the fork's projection
     {:atomic, {bindings, _constraints, _}} =
-      run branch: tip.id do
-        vm_set_slot(:widget, :x, 3)
-        slot(:widget, :x, x)
-      end
+      run(
+        ~S"""
+        vm_set_slot widget x 3.
+        slot widget x X.
+        """,
+        branch: tip.id
+      )
 
-    assert Map.get(bindings, :"$x") == 3
+    assert Map.get(bindings, "$X") == 3
 
     # main never saw :widget — the write stayed in the fork's log
     {:aborted, _} =
-      run do
-        slot(:widget, :x, x)
-      end
+      run(~S"""
+      slot widget x X.
+      """)
 
     AL.Branch.discard(tip)
     :ok
@@ -72,22 +293,22 @@ defmodule Examples.ALBranch do
 
     # with the branch checked out, plain `run` acts against it
     {:atomic, _} =
-      run do
-        vm_set_class(:on_branch, :object)
-      end
+      run(~S"""
+      vm_set_class on_branch object.
+      """)
 
     {:atomic, _} =
-      run do
-        class(:on_branch, :object)
-      end
+      run(~S"""
+      class on_branch object.
+      """)
 
     # back on main, the branch's write is invisible
     AL.Branch.checkout(AL.Branch.main())
 
     {:aborted, _} =
-      run do
-        class(:on_branch, :object)
-      end
+      run(~S"""
+      class on_branch object.
+      """)
 
     AL.Branch.discard(branch)
     :ok
@@ -98,34 +319,46 @@ defmodule Examples.ALBranch do
 
     # a write that lives only on the parent fork
     {:atomic, _} =
-      run branch: parent.id do
-        vm_set_class(:on_parent, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class on_parent object.
+        """,
+        branch: parent.id
+      )
 
     # forking the parent (not main) carries the parent's divergent history
     child = AL.Branch.fork(:tip, parent)
 
     {:atomic, _} =
-      run branch: child.id do
-        class(:on_parent, :object)
-      end
+      run(
+        ~S"""
+        class on_parent object.
+        """,
+        branch: child.id
+      )
 
     # writes to the parent after the child forked don't reach the child
     {:atomic, _} =
-      run branch: parent.id do
-        vm_set_class(:later_on_parent, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class later_on_parent object.
+        """,
+        branch: parent.id
+      )
 
     {:aborted, _} =
-      run branch: child.id do
-        class(:later_on_parent, :object)
-      end
+      run(
+        ~S"""
+        class later_on_parent object.
+        """,
+        branch: child.id
+      )
 
     # main never saw any of it
     {:aborted, _} =
-      run do
-        class(:on_parent, :object)
-      end
+      run(~S"""
+      class on_parent object.
+      """)
 
     AL.Branch.discard(child)
     AL.Branch.discard(parent)
@@ -137,26 +370,32 @@ defmodule Examples.ALBranch do
     AL.Branch.checkout(branch)
 
     {:atomic, _} =
-      run do
-        vm_set_class(:on_head, :object)
-      end
+      run(~S"""
+      vm_set_class on_head object.
+      """)
 
     # fork() with no args forks the checked-out branch, not main
     child = AL.Branch.fork()
 
     {:atomic, _} =
-      run branch: child.id do
-        class(:on_head, :object)
-      end
+      run(
+        ~S"""
+        class on_head object.
+        """,
+        branch: child.id
+      )
 
     # main, which was never checked out, has no such object to fork
     AL.Branch.checkout(AL.Branch.main())
     fresh = AL.Branch.fork()
 
     {:aborted, _} =
-      run branch: fresh.id do
-        class(:on_head, :object)
-      end
+      run(
+        ~S"""
+        class on_head object.
+        """,
+        branch: fresh.id
+      )
 
     AL.Branch.discard(fresh)
     AL.Branch.discard(child)
@@ -169,23 +408,29 @@ defmodule Examples.ALBranch do
     pid = self()
 
     {:atomic, _} =
-      run branch: branch.id do
-        new(:process, %{name: :fork_worker_subscriber, pid: ^pid}, _)
+      run(
+        ~S"""
+        new process #{name => fork_worker_subscriber, pid => HostPid} _.
+        vm_set_class fork_worker object.
 
-        vm_set_class(:fork_worker, :object)
-
-        defmethod(:fork_worker, :handle, [self, object]) do
-          vm_set_slot(object, :processed, true)
-          get(:fork_worker_subscriber, :pid, p)
-          message = %{event: :handled, object: object}
-          send_elixir(p, message)
-        end
-      end
+        fork_worker >> handle
+        | Self Object |
+        vm_set_slot Object processed true,
+        get fork_worker_subscriber pid P,
+        = Message #{event => handled, object => Object},
+        send_elixir P Message.
+        """,
+        branch: branch.id,
+        bindings: %{"HostPid" => pid}
+      )
 
     {:atomic, _} =
-      run branch: branch.id do
-        send_async(:fork_worker, :handle, [:fork_obj])
-      end
+      run(
+        ~S"""
+        send_async fork_worker handle [fork_obj].
+        """,
+        branch: branch.id
+      )
 
     receive do
       %{event: :handled, object: :fork_obj} -> :ok
@@ -194,16 +439,19 @@ defmodule Examples.ALBranch do
     end
 
     {:atomic, {fork_bindings, _constraints, _}} =
-      run branch: branch.id do
-        slot(:fork_obj, :processed, v)
-      end
+      run(
+        ~S"""
+        slot fork_obj processed V.
+        """,
+        branch: branch.id
+      )
 
-    assert Map.get(fork_bindings, :"$v") == true
+    assert Map.get(fork_bindings, "$V") == true
 
     {:aborted, _} =
-      run do
-        slot(:fork_obj, :processed, v)
-      end
+      run(~S"""
+      slot fork_obj processed V.
+      """)
 
     AL.Branch.discard(branch)
     :ok
@@ -224,14 +472,20 @@ defmodule Examples.ALBranch do
 
     # the child's log is independent, so it still works after its parent is gone
     {:atomic, _} =
-      run branch: child.id do
-        vm_set_class(:survivor, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class survivor object.
+        """,
+        branch: child.id
+      )
 
     {:atomic, _} =
-      run branch: child.id do
-        class(:survivor, :object)
-      end
+      run(
+        ~S"""
+        class survivor object.
+        """,
+        branch: child.id
+      )
 
     AL.Branch.discard(child)
     :ok
@@ -270,9 +524,9 @@ defmodule Examples.ALBranch do
     assert projection_rows(branch) == before
 
     {:atomic, _} =
-      run do
-        class(:object, :class)
-      end
+      run(~S"""
+      class object class.
+      """)
 
     :ok
   end
@@ -299,13 +553,13 @@ defmodule Examples.ALBranch do
     branch = AL.Branch.fork()
 
     for source <- rebuild_workload() do
-      assert {:atomic, _} = AL.eval_source(source, branch)
+      assert {:atomic, _} = AL.run(source, branch)
     end
 
     soa_before = projection_rows(branch)
     aos_before = slot_rows(branch)
 
-    assert Enum.any?(aos_before, fn {:aos, _object, _from, to, _map} -> to != :open end)
+    assert Enum.any?(aos_before, fn {:aos, _version, _object, _from, to, _map} -> to != :open end)
     assert Enum.any?(soa_before, fn {:soa, _o, _k, _s, _f, to, _v} -> to != :open end)
 
     :ok = AL.Object.drop_tables(branch)
@@ -322,34 +576,34 @@ defmodule Examples.ALBranch do
   defp rebuild_workload do
     [
       """
-      defclass :gadget, super: :object, ivars: [:size, :name] do
-        defmethod(:describe, [self, size]) do
-          get(self, :size, size)
-        end
-      end
+      @gadget \#{super => object, ivars => [\#{name => size}, \#{name => name}]}.
+
+      gadget >> describe
+      | Self Size |
+        get Self size Size.
       """,
       """
-      new(:gadget, %{size: 1, name: :a}, g)
-      set_slot(g, :size, 2)
-      set_slot(g, :size, 3)
-      set_slots(g, %{size: 4, name: :b})
+      new gadget \#{name => a, size => 1} G.
+      set_slot G size 2.
+      set_slot G size 3.
+      set_slots G \#{name => b, size => 4}.
       """,
       """
-      defmethod(:gadget, :describe, [self, size]) do
-        get(self, :size, size)
-        size = size
-      end
+      gadget >> describe
+      | Self Size |
+        get Self size Size,
+        = Size Size.
       """,
       """
-      vm_set_class(:temp_thing, :object)
-      vm_set_super(:temp_thing, :gadget)
-      vm_retract_super(:temp_thing, :gadget)
-      vm_retract_class(:temp_thing, :object)
+      vm_set_class temp_thing object.
+      vm_set_super temp_thing gadget.
+      vm_retract_super temp_thing gadget.
+      vm_retract_class temp_thing object.
       """,
       """
-      vm_set_slot(:temp_thing, :k, 1)
-      vm_set_slot(:temp_thing, :k, 2)
-      vm_retract_slot(:temp_thing, :k)
+      vm_set_slot temp_thing k 1.
+      vm_set_slot temp_thing k 2.
+      vm_retract_slot temp_thing k.
       """
     ]
   end
@@ -359,7 +613,7 @@ defmodule Examples.ALBranch do
       :mnesia.transaction(fn ->
         :mnesia.match_object(
           AL.Object.table(:aos, branch),
-          {:aos, :_, :_, :_, :_},
+          {:aos, :_, :_, :_, :_, :_},
           :read
         )
       end)

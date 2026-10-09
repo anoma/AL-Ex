@@ -12,6 +12,7 @@ defmodule AL.Goal.StorableError do
 end
 
 defmodule AL.Goal do
+  require AL.Block
   use TypedStruct
 
   @type command() ::
@@ -28,13 +29,16 @@ defmodule AL.Goal do
           | AL.Goal.SendAsync.t()
           | AL.Goal.SendElixir.t()
           | AL.Goal.EmitEffect.t()
-          | AL.Goal.Effect.t()
 
   @type instructions() ::
           AL.Goal.GetClass.t()
           | AL.Goal.GetSuper.t()
+          | AL.Goal.SelectedProvider.t()
           | AL.Goal.GetMethod.t()
           | AL.Goal.GetCommand.t()
+          | AL.Goal.BranchEdge.t()
+          | AL.Goal.BranchMeta.t()
+          | AL.Goal.CurrentBranch.t()
           | AL.Goal.GetOapply.t()
           | AL.Goal.MethodSource.t()
           | AL.Goal.TransactionSource.t()
@@ -43,19 +47,26 @@ defmodule AL.Goal do
           | AL.Goal.Cut.t()
           | AL.Goal.Implies.t()
           | AL.Goal.Or.t()
-          | AL.Goal.Then.t()
           | AL.Goal.Forall.t()
           | AL.Goal.Findall.t()
+          | AL.Goal.FindNSols.t()
           | AL.Goal.GetSlots.t()
           | AL.Goal.GetSlotAt.t()
           | AL.Goal.Gensym.t()
-          | AL.Goal.Format.t()
           | AL.Goal.Not.t()
           | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
+          | AL.Goal.Variant.t()
+          | AL.Goal.CopyTerm.t()
+          | AL.Goal.Compound.t()
+          | AL.Goal.StringCodes.t()
+          | AL.Goal.AtomString.t()
+          | AL.Goal.Atom.t()
+          | AL.Goal.Functor.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
+          | AL.Goal.FloorDivide.t()
           | AL.Goal.Either.t()
           | AL.Goal.AllDif.t()
           | AL.Goal.InDomain.t()
@@ -65,11 +76,8 @@ defmodule AL.Goal do
           | AL.Goal.Freeze.t()
           | AL.Goal.Call.t()
           | AL.Goal.Send.t()
-          | AL.Goal.SendQuery.t()
-          | AL.Goal.SendAsValue.t()
           | AL.Goal.CallNextMethod.t()
           | AL.Goal.SourceScope.t()
-          | AL.Goal.SourceScopeExit.t()
           | AL.Goal.Fail.t()
           | AL.Goal.Pass.t()
           | AL.Goal.Comment.t()
@@ -152,13 +160,6 @@ defmodule AL.Goal do
     field(:arguments, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: Effect do
-    field(:provider, AL.Var.t())
-    field(:operation, AL.Var.t())
-    field(:arguments, AL.Var.t())
-    field(:effect, AL.Var.t())
-  end
-
   # General Goals -----------------------------------
 
   typedstruct enforce: true, module: GetClass do
@@ -171,10 +172,31 @@ defmodule AL.Goal do
     field(:super, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: SelectedProvider do
+    field(:object, AL.Var.t())
+    field(:selector, AL.Var.t())
+    field(:provider, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: GetMethod do
     field(:object, AL.Var.t())
     field(:name, AL.Var.t())
     field(:id, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: BranchEdge do
+    field(:parent, AL.Var.t())
+    field(:child, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: BranchMeta do
+    field(:branch, AL.Var.t())
+    field(:key, AL.Var.t())
+    field(:value, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: CurrentBranch do
+    field(:branch, AL.Var.t())
   end
 
   typedstruct enforce: true, module: GetCommand do
@@ -232,13 +254,16 @@ defmodule AL.Goal do
     field(:then, [AL.Goal.t()])
   end
 
-  typedstruct enforce: true, module: Then do
-    field(:then, [AL.Goal.t()])
-  end
-
   typedstruct enforce: true, module: Forall do
     field(:condition, [AL.Goal.t()])
     field(:body, [AL.Goal.t()])
+  end
+
+  typedstruct enforce: true, module: FindNSols do
+    field(:count, AL.Var.t())
+    field(:template, AL.Var.t())
+    field(:condition, [AL.Goal.t()])
+    field(:result, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Findall do
@@ -261,7 +286,7 @@ defmodule AL.Goal do
   # posts that row's interval as `t`'s real `ConstraintSet.bounds`
   # (`AL.Var.add_bounds/3`) rather than returning inert data -- a still-open
   # `t` stays a live, further-narrowable CLP var, not a dead end. See
-  # `AL.Interp.Relations`'s handler and `AL.Object`'s `@relations` doc (no
+  # `AL.JAM.Relation`'s handler and `AL.Object`'s `@relations` doc (no
   # separate history table -- this reads straight off `slots`'s bag, both
   # open and closed rows).
   typedstruct enforce: true, module: GetSlotAt do
@@ -273,11 +298,6 @@ defmodule AL.Goal do
 
   typedstruct enforce: true, module: Gensym do
     field(:var, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: Format do
-    field(:control, AL.Var.t())
-    field(:args, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Not do
@@ -294,6 +314,42 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Variant do
+    field(:a, AL.Var.t())
+    field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Compound do
+    field(:name, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: CopyTerm do
+    field(:term, AL.Var.t())
+    field(:copy, AL.Var.t())
+    field(:goals, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Functor do
+    field(:term, AL.Var.t())
+    field(:name, AL.Var.t())
+    field(:args, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: StringCodes do
+    field(:string, AL.Var.t())
+    field(:codes, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: AtomString do
+    field(:atom, AL.Var.t())
+    field(:string, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: Atom do
+    field(:term, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Dif do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
@@ -308,6 +364,12 @@ defmodule AL.Goal do
     field(:op, atom())
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: FloorDivide do
+    field(:dividend, AL.Var.t())
+    field(:divisor, AL.Var.t())
+    field(:quotient, AL.Var.t())
   end
 
   # `left or right` (CLP(FD) `#\/`) — the constraint that *at least one*
@@ -366,29 +428,9 @@ defmodule AL.Goal do
     field(:args, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: SendQuery do
-    field(:object, AL.Var.t())
-    field(:method, AL.Var.t())
-    field(:args, AL.Var.t())
-  end
-
-  # Internal, dispatch-only: try `class`'s own clauses against a possibly-unbound
-  # `object`, no construction/retrieval — see the "value" dispatch leg in dispatch/5.
-  typedstruct enforce: true, module: SendAsValue do
-    field(:class, AL.Var.t())
-    field(:object, AL.Var.t())
-    field(:method, AL.Var.t())
-    field(:args, AL.Var.t())
-    field(:method_scope, AL.scope())
-  end
-
   typedstruct enforce: true, module: SourceScope do
     field(:capture_id, term())
     field(:goals, [AL.Goal.t()])
-  end
-
-  typedstruct enforce: true, module: SourceScopeExit do
-    field(:capture_id, term())
   end
 
   typedstruct enforce: true, module: CallNextMethod do
@@ -408,40 +450,6 @@ defmodule AL.Goal do
     field(:text, String.t())
   end
 
-  @doc "Transform every leaf of a goal term with `fun`."
-  @spec map(term(), (term() -> term())) :: term()
-  def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)
-  def map([], _fun), do: []
-  def map([head | tail], fun), do: [map(head, fun) | map(tail, fun)]
-
-  def map(term, fun) when is_struct(term),
-    do: struct(term.__struct__, Map.new(Map.from_struct(term), fn {k, v} -> {k, map(v, fun)} end))
-
-  def map(term, fun) when is_map(term),
-    do: Map.new(term, fn {k, v} -> {map(k, fun), map(v, fun)} end)
-
-  def map(term, fun) when is_tuple(term),
-    do: term |> Tuple.to_list() |> Enum.map(&map(&1, fun)) |> List.to_tuple()
-
-  def map(leaf, fun), do: fun.(leaf)
-
-  @doc "Fold `fun` over every leaf of a goal term, in the same order as map/2."
-  @spec reduce(term(), acc, (term(), acc -> acc)) :: acc when acc: var
-  def reduce({:"$fresh", _base, _scope} = leaf, acc, fun), do: fun.(leaf, acc)
-  def reduce([], acc, _fun), do: acc
-  def reduce([head | tail], acc, fun), do: reduce(tail, reduce(head, acc, fun), fun)
-
-  def reduce(term, acc, fun) when is_struct(term),
-    do: Enum.reduce(Map.from_struct(term), acc, fn {_k, v}, a -> reduce(v, a, fun) end)
-
-  def reduce(term, acc, fun) when is_map(term),
-    do: Enum.reduce(term, acc, fn {k, v}, a -> reduce(v, reduce(k, a, fun), fun) end)
-
-  def reduce(term, acc, fun) when is_tuple(term),
-    do: term |> Tuple.to_list() |> reduce(acc, fun)
-
-  def reduce(leaf, acc, fun), do: fun.(leaf, acc)
-
   # struct <-> stored tuple. `:term` fields copy as-is, `:goals` fields recurse.
   @forms [
     {SetClass, :set_class, [object: :term, class: :term]},
@@ -458,9 +466,9 @@ defmodule AL.Goal do
     {SendElixir, :send_elixir, [pid: :term, message: :term]},
     {EmitEffect, :emit_effect,
      [effect: :term, provider: :term, operation: :term, arguments: :term]},
-    {Effect, :effect, [provider: :term, operation: :term, arguments: :term, effect: :term]},
     {GetClass, :get_class, [object: :term, class: :term]},
     {GetSuper, :get_super, [object: :term, super: :term]},
+    {SelectedProvider, :selected_provider, [object: :term, selector: :term, provider: :term]},
     {GetMethod, :get_method, [object: :term, name: :term, id: :term]},
     {GetCommand, :get_command, [transaction: :term, time: :term, operation: :term]},
     {GetOapply, :get_oapply, [object: :term, seq: :term, head: :term, body: :term]},
@@ -471,17 +479,27 @@ defmodule AL.Goal do
     {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
-    {Then, :then, [then: :goals]},
     {Forall, :forall, [condition: :goals, body: :goals]},
+    {FindNSols, :findnsols, [count: :term, template: :term, result: :term, condition: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
     {GetSlotAt, :slot_at, [object: :term, key: :term, value: :term, t: :term]},
     {Gensym, :gensym, [var: :term]},
-    {Format, :format, [control: :term, args: :term]},
     {Not, :not, [condition: :goals]},
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
+    {Variant, :variant, [a: :term, b: :term]},
+    {CopyTerm, :copy_term, [term: :term, copy: :term, goals: :term]},
+    {Compound, :compound, [name: :term, args: :term]},
+    {StringCodes, :string_codes, [string: :term, codes: :term]},
+    {AtomString, :atom_string, [atom: :term, string: :term]},
+    {Atom, :atom, [term: :term]},
+    {Functor, :functor, [term: :term, name: :term, args: :term]},
+    {BranchEdge, :branch_edge, [parent: :term, child: :term]},
+    {BranchMeta, :branch_meta, [branch: :term, key: :term, value: :term]},
+    {CurrentBranch, :current_branch, [branch: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
+    {FloorDivide, :floor_divide, [dividend: :term, divisor: :term, quotient: :term]},
     {Either, :either, [left: :term, right: :term]},
     {AllDif, :all_dif, [vars: :term]},
     {Ground, :ground, [term: :term]},
@@ -493,15 +511,236 @@ defmodule AL.Goal do
     {Freeze, :freeze, [var: :term, goals: :goals]},
     {Call, :call, [head: :term, body: :goals, args: :term]},
     {Send, :send, [object: :term, method: :term, args: :term]},
-    {SendQuery, :send_query, [object: :term, method: :term, args: :term]},
     {CallNextMethod, :call_next_method, [self: :term, args: :term]},
     {Comment, :comment, [text: :term]}
   ]
 
+  @calls [
+    {:class, GetClass, [:object, :class], %{}},
+    {:super, GetSuper, [:object, :super], %{}},
+    {:selected_provider, SelectedProvider, [:object, :selector, :provider], %{}},
+    {:method, GetMethod, [:object, :name, :id], %{}},
+    {:clause, GetOapply, [:object, :head, :body], %{seq: {:"$var", "_"}}},
+    {:clause, GetOapply, [:object, :seq, :head, :body], %{}},
+    {:slot, GetSlots, [:object, :key, :value], %{store: :auto}},
+    {:slot, GetSlots, [:object, :key, :value, :store], %{}},
+    {:send, Send, [:object, :method], %{args: []}},
+    {:send, Send, [:object, :method, :args], %{}},
+    {:send_async, SendAsync, [:object, :method], %{args: []}},
+    {:send_async, SendAsync, [:object, :method, :args], %{}},
+    {:send_elixir, SendElixir, [:pid, :message], %{}},
+    {:gensym, Gensym, [:var], %{}},
+    {:ground, Ground, [:term], %{}},
+    {:label, Label, [:term], %{}},
+    {:var, IsVar, [:term], %{}},
+    {:dif, Dif, [:a, :b], %{}},
+    {:variant, Variant, [:a, :b], %{}},
+    {:copy_term, CopyTerm, [:term, :copy, :goals], %{}},
+    {:string_codes, StringCodes, [:string, :codes], %{}},
+    {:atom_string, AtomString, [:atom, :string], %{}},
+    {:atom, Atom, [:term], %{}},
+    {:functor, Functor, [:term, :name, :args], %{}},
+    {:isa, Isa, [:object, :class], %{}},
+    {:in_domain, InDomain, [:var, :values], %{}},
+    {:all_dif, AllDif, [:vars], %{}},
+    {:floor_divide, FloorDivide, [:dividend, :divisor, :quotient], %{}},
+    {:vm_assert_valid_clause_self, AssertValidClauseSelf, [:class, :head], %{}},
+    {:vm_command, GetCommand, [:transaction, :time, :operation], %{}},
+    {:vm_branch, BranchEdge, [:parent, :child], %{}},
+    {:vm_branch_meta, BranchMeta, [:branch, :key, :value], %{}},
+    {:vm_current_branch, CurrentBranch, [:branch], %{}},
+    {:vm_transaction_source, TransactionSource, [:tx, :text, :origin], %{}},
+    {:vm_method_source, MethodSource, [:object, :seq, :text, :provenance], %{}},
+    {:vm_set_class, SetClass, [:object, :class], %{}},
+    {:vm_set_super, SetSuper, [:object, :super], %{}},
+    {:vm_set_method, SetMethod, [:object, :name, :id], %{}},
+    {:vm_set_slot, SetSlot, [:object, :key, :value], %{}},
+    {:vm_slot_at, GetSlotAt, [:object, :key, :value, :t], %{}},
+    {:vm_retract_class, RetractClass, [:object, :class], %{}},
+    {:vm_retract_super, RetractSuper, [:object, :super], %{}},
+    {:vm_retract_method, RetractMethod, [:object, :name, :id], %{}},
+    {:vm_retract_oapply, RetractOapply, [:object, :head], %{}},
+    {:vm_retract_slot, RetractSlot, [:object, :key], %{}},
+    {:vm_emit_effect, EmitEffect, [:effect, :provider, :operation, :arguments], %{}}
+  ]
+
+  @call_forms Map.new(@calls, fn {name, module, fields, defaults} ->
+                {{name, length(fields)}, {module, fields, defaults}}
+              end)
+
+  @doc "The names of the calls that read as a goal other than a send."
+  @spec call_names() :: [atom()]
+  def call_names, do: @calls |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+  @doc "The goal an AL call reads as, when its name and arity name one."
+  @spec from_call(atom(), [term()]) :: t() | nil
+  def from_call(name, args) do
+    case Map.fetch(@call_forms, {name, length(args)}) do
+      {:ok, {module, fields, defaults}} ->
+        struct(module, Map.merge(defaults, Map.new(Enum.zip(fields, args))))
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc "The shortest AL call that reads back as this goal."
+  @spec to_call(t()) :: {atom(), [term()]} | nil
+  def to_call(%module{} = goal) do
+    Enum.find_value(@calls, fn {name, call_module, fields, defaults} ->
+      if call_module == module and
+           Enum.all?(defaults, fn {key, value} -> Map.fetch!(goal, key) == value end),
+         do: {name, Enum.map(fields, &Map.fetch!(goal, &1))}
+    end)
+  end
+
+  @arithmetic [:+, :-, :*, :/, :**, :rem]
+  @comparisons [:<, :>, :<=, :>=]
+
+  @doc "Whether `term` is a compound term: a goal value, rather than a map, list or atom."
+  @spec compound?(term()) :: boolean()
+  def compound?(%{__struct__: module}),
+    do: String.starts_with?(Elixir.Atom.to_string(module), "Elixir.AL.Goal.")
+
+  def compound?(_term), do: false
+
+  @doc "The name and arguments a goal is written with, receiver first for a send."
+  @spec call_form(term()) :: {atom(), [term()]} | nil
+  def call_form(%Compound{name: name, args: args}), do: {name, args}
+
+  def call_form(%Send{object: object, method: method, args: args}) when is_list(args),
+    do: if(named?(method), do: {method, [object | args]})
+
+  def call_form(%Compare{op: op, a: a, b: b}), do: {op, [a, b]}
+  def call_form(%Either{left: left, right: right}), do: {:or, [left, right]}
+  def call_form(%Eq{a: a, b: b}), do: {:=, [a, b]}
+  def call_form(%Equal{a: a, b: b}), do: {:==, [a, b]}
+  def call_form(%CallNextMethod{self: self, args: args}), do: {:call_next_method, [self | args]}
+  def call_form(%Not{condition: condition}), do: {:not, [condition]}
+  def call_form(%Forall{condition: condition, body: body}), do: {:forall, [condition, body]}
+  def call_form(%Freeze{var: var, goals: goals}), do: {:freeze, [var, goals]}
+
+  def call_form(%FindNSols{
+        count: count,
+        template: template,
+        result: result,
+        condition: condition
+      }),
+      do: {:findnsols, [count, template, result, condition]}
+
+  def call_form(%Findall{template: template, condition: condition, result: result}),
+    do: {:findall, [template, result, condition]}
+
+  def call_form(%OApply{method_id: method_id, args: args}) when is_list(args) do
+    if named?(method_id) and
+         (method_id in @arithmetic or args == [] or AL.Syntax.primitive?(method_id)),
+       do: {method_id, args}
+  end
+
+  def call_form(%Cut{}), do: {:cut, []}
+  def call_form(%Fail{}), do: {:fail, []}
+  def call_form(%Pass{}), do: {:pass, []}
+  def call_form(goal) when is_struct(goal), do: to_call(goal)
+  def call_form(_term), do: nil
+
+  @doc "The compound term with this name and these arguments."
+  @spec from_call_form(atom(), [term()]) :: t()
+  def from_call_form(name, args), do: %Compound{name: name, args: args}
+
+  @statements [:defclass, :extend_class, :clear_method, :defprogram, :defpackage]
+
+  @doc "The goal a compound runs as, once it is called."
+  @spec lower(term()) :: t()
+  def lower(%Compound{name: name, args: args}), do: lower(name, args)
+  def lower(goal), do: goal
+
+  @spec lower(atom(), [term()]) :: t()
+  def lower(:cut, []), do: %Cut{}
+  def lower(:fail, []), do: %Fail{}
+  def lower(:pass, []), do: %Pass{}
+
+  def lower(:";", [[%Compound{name: :->, args: [condition, then]}], otherwise]),
+    do: %Implies{condition: goals(condition), then: goals(then), otherwise: goals(otherwise)}
+
+  def lower(:";", [left, right]), do: %Or{or: goals(left), then: goals(right)}
+
+  def lower(:->, [condition, then]),
+    do: %Implies{condition: goals(condition), then: goals(then), otherwise: [%Fail{}]}
+
+  def lower(op, [a, b]) when op in @comparisons, do: %Compare{op: op, a: a, b: b}
+  def lower(:=, [a, b]), do: %Eq{a: a, b: b}
+  def lower(:==, [a, b]), do: %Equal{a: a, b: b}
+
+  def lower(:or, [left, right]),
+    do: %Either{left: constraint(lower(left)), right: constraint(lower(right))}
+
+  def lower(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
+  def lower(:call_next_method, [self | args]), do: %CallNextMethod{self: self, args: args}
+  def lower(:not, [condition]), do: %Not{condition: goals(condition)}
+
+  def lower(:forall, [condition, body]),
+    do: %Forall{condition: goals(condition), body: goals(body)}
+
+  def lower(:freeze, [var, body]), do: %Freeze{var: var, goals: goals(body)}
+
+  def lower(:findnsols, [count, template, result, condition]),
+    do: %FindNSols{count: count, template: template, result: result, condition: goals(condition)}
+
+  def lower(:findall, [template, result, condition]),
+    do: %Findall{template: template, condition: goals(condition), result: result}
+
+  def lower(:defmethod, [owner, selector, head, body]),
+    do: %OApply{method_id: :defmethod, args: [owner, selector, head, goals(body)]}
+
+  def lower(:lambda, [arguments, method, body]),
+    do: %Send{object: arguments, method: :lambda, args: [method, goals(body)]}
+
+  def lower(:spawn, [body]), do: %OApply{method_id: :spawn_transaction, args: [goals(body)]}
+
+  def lower(:await, [effect, head, body]),
+    do: %OApply{method_id: :await_effect, args: [effect, head, goals(body)]}
+
+  def lower(:vm_source_scope, [capture_id, body]),
+    do: %SourceScope{capture_id: capture_id, goals: goals(body)}
+
+  def lower(:call, [head, body, args]), do: %Call{head: head, body: goals(body), args: args}
+
+  def lower(:vm_set_oapply, [object, head, body]),
+    do: %SetOapply{object: object, seq: :next, head: head, body: goals(body)}
+
+  def lower(:vm_set_oapply, [object, seq, head, body]),
+    do: %SetOapply{object: object, seq: seq, head: head, body: goals(body)}
+
+  def lower(:comment, [text]) when is_binary(text), do: %Comment{text: text}
+  def lower(:vm_oapply, [method_id, args]), do: %OApply{method_id: method_id, args: args}
+
+  def lower(name, args) do
+    cond do
+      name in @statements -> %OApply{method_id: name, args: args}
+      AL.Syntax.primitive?(name) -> %OApply{method_id: name, args: args}
+      goal = from_call(name, args) -> goal
+      args == [] -> %OApply{method_id: name, args: []}
+      true -> %Send{object: hd(args), method: name, args: tl(args)}
+    end
+  end
+
+  defp goals(goals) when is_list(goals), do: goals
+
+  defp goals(goal) do
+    cond do
+      AL.Var.var?(goal) -> goal
+      AL.Block.block?(goal) -> Tuple.to_list(goal)
+      true -> [goal]
+    end
+  end
+
+  defp named?(name), do: is_atom(name)
+
+  defp constraint(%Eq{a: a, b: b}), do: %Compare{op: :=, a: a, b: b}
+  defp constraint(goal), do: goal
+
   @to_form Map.new(@forms, fn {mod, tag, fields} -> {mod, {tag, fields}} end)
-  @from_form @forms
-             |> Map.new(fn {mod, tag, fields} -> {tag, {mod, fields}} end)
-             |> Map.put(:unify, {Eq, [a: :term, b: :term]})
+  @from_form Map.new(@forms, fn {mod, tag, fields} -> {tag, {mod, fields}} end)
 
   @type stored() :: tuple() | atom()
 
@@ -547,6 +786,9 @@ defmodule AL.Goal do
 
   defp do_to_stored([head | tail]), do: [do_to_stored(head) | do_to_stored(tail)]
 
+  defp do_to_stored(block) when AL.Block.is_block(block),
+    do: {:block, block |> Tuple.to_list() |> Enum.map(&do_to_stored/1)}
+
   defp do_to_stored(term) when is_tuple(term),
     do: term |> Tuple.to_list() |> Enum.map(&do_to_stored/1) |> List.to_tuple()
 
@@ -563,11 +805,7 @@ defmodule AL.Goal do
     if AL.Var.var?(capture_id), do: invalid_storable(goals), else: {scope, :concrete_source_scope}
   end
 
-  defp invalid_storable(%SourceScopeExit{} = exit), do: {exit, :source_scope_exit}
   defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
-
-  defp invalid_storable({:al_source_method, _capture_id, _method, _head, _body} = tagged),
-    do: {tagged, :tagged_source_method}
 
   defp invalid_storable({evaluation_ref, ordinal} = capture_id)
        when is_reference(evaluation_ref) and is_integer(ordinal),
@@ -591,12 +829,13 @@ defmodule AL.Goal do
   defp invalid_storable(_term), do: nil
 
   @doc "Rebuild a goal struct from its stored tuple form (inverse of to_stored/1)."
-  @spec from_stored(stored()) :: t()
+  @spec from_stored(term()) :: term()
   def from_stored(:cut), do: %Cut{}
   def from_stored(:fail), do: %Fail{}
   def from_stored(:pass), do: %Pass{}
+  def from_stored({:block, goals}), do: goals |> Enum.map(&from_stored/1) |> AL.Block.new()
 
-  def from_stored(stored) when is_tuple(stored) do
+  def from_stored(stored) when is_tuple(stored) and tuple_size(stored) > 0 do
     [tag | args] = Tuple.to_list(stored)
 
     case Map.fetch(@from_form, tag) do
@@ -618,7 +857,9 @@ defmodule AL.Goal do
   defp load(:goals, gs) when is_list(gs), do: Enum.map(gs, &from_stored/1)
   defp load(:goals, other), do: other
 
-  defp term_from_stored(t) when is_tuple(t) do
+  defp term_from_stored({:block, _goals} = block), do: from_stored(block)
+
+  defp term_from_stored(t) when is_tuple(t) and tuple_size(t) > 0 do
     case Map.fetch(@from_form, elem(t, 0)) do
       {:ok, _} -> from_stored(t)
       :error -> t |> Tuple.to_list() |> Enum.map(&term_from_stored/1) |> List.to_tuple()
@@ -626,5 +867,9 @@ defmodule AL.Goal do
   end
 
   defp term_from_stored([h | t]), do: [term_from_stored(h) | term_from_stored(t)]
+
+  defp term_from_stored(map) when is_map(map) and not is_struct(map),
+    do: Map.new(map, fn {key, value} -> {term_from_stored(key), term_from_stored(value)} end)
+
   defp term_from_stored(other), do: other
 end

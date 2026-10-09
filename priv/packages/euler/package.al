@@ -1,6 +1,1 @@
-Package {
-  #name : :euler,
-  #version : 1,
-  #deps : []
-}
-
+defpackage euler #{deps => [], version => 1}.

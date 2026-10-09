@@ -1,5 +1,1 @@
-Package {
-  #name : :interval,
-  #version : 1,
-  #deps : []
-}
+defpackage interval #{deps => [], version => 1}.

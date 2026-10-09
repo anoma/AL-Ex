@@ -31,7 +31,7 @@ class-membership predicate.
   e.g. `:number`/`:letter_chain`) or comes back a real constructed map (e.g.
   `:interval`/`:mapset`) is entirely up to whether the class's own `:init`
   discards the constructed scaffold or keeps it — `:value`'s default
-  `:init` (bootstrap.ex) is what makes the "stays open" case happen, not a
+  `:init` (`priv/programs/bootstrap.al`) is what makes the "stays open" case happen, not a
   VM-level branch. This replaced what used to be two parallel
   candidate-builders, two parallel descendant scans, and two
   `ResolutionCache` relations (now one `generative_descendants/1`, since
@@ -49,7 +49,7 @@ class-membership predicate.
   through still-open sub-parts — `dif`'s `migrate_constraints` re-attach
   trick, generalized to recurse into revealed structure) is for; not built.
   A generative candidate's construction already never touches anything
-  durable or external (`AL.Interp.Store`'s goals no-op when `object` is a
+  durable or external (`AL.JAM.Mutation`'s writes no-op when `object` is a
   live map) — an invariant to keep honoring as classes gain real `init`
   logic, not something `absento` needs to newly establish.
 - **Durable does not collapse into the others — a different resource, not a
@@ -87,11 +87,11 @@ class-membership predicate.
   `:card_rank` has `defmethod(:two, [:two])`) is reachable both as a
   durable object *and* as a generative candidate for the exact same fact —
   `findall` reports it twice, one proof per leg. Two guards now catch this,
-  at two different points: `AL.Interp.Store`'s `SetClass` interp still
+  at two different points: `AL.JAM.Mutation`'s `set_class` still
   rejects the combination at *classification* time (`vm_set_class`, via
   `AL.Dispatch.value_member?/3`), and `Goal.AssertValidClauseSelf` (native
-  check, `AL.Interp.Store`, called only from `:defmethod`'s own accretion
-  body in `bootstrap.ex`) rejects it even earlier, at *definition* time — a
+  check, `AL.JAM.Mutation`, called only from `:defmethod`'s own accretion
+  body in `priv/programs/bootstrap.al`) rejects it even earlier, at *definition* time — a
   `super: :value` class can no longer define a clause with a bare atom as
   its self-pattern at all, so the ambiguous atom is never created in the
   first place. Neither is a general-purpose primitive; both are narrowly
@@ -111,14 +111,14 @@ class-membership predicate.
   problem: a richer model where one Elixir datatype could belong to
   multiple possible classes — rejected as too complex and not performant
   enough to be worth it now.
-- **A durable atom has exactly one direct class** — `AL.Interp.Store`'s
-  `SetClass` interp also rejects reclassifying an atom that already carries
+- **A durable atom has exactly one direct class** — `AL.JAM.Mutation`'s
+  `set_class` also rejects reclassifying an atom that already carries
   a *different* direct class (`direct_classes/2`, via
   `AL.Object.scan_class/3`); `vm_retract_class` first if the reclassify is
   intentional. Supers/inheritance (`vm_set_super`) stay a free-form,
   unrestricted DAG — this only constrains an object's own class row, not
   its ancestry. Building this surfaced a real, previously-unresolved bug:
-  `AL.TransactionProgram`'s `defprogram` macro creates a durable receipt object via
+  `AL.TransactionProgram` creates a durable receipt object via
   `new(:program_execution, %{name: ...}, _)`, and `:object`'s default `:allocate`
   uses `args[:name]` as the durable identity — so a transaction program whose main
   class shares its own name (a natural, common pattern) durably classifies

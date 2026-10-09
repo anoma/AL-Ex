@@ -6,11 +6,7 @@ config :logger,
   handle_sasl_reports: false
 
 config :al,
-  serialisation_dir: "src/al",
-  transaction_programs: [
-    AL.TransactionProgram.Bootstrap,
-    AL.TransactionProgram.PackageSystem
-  ],
+  transaction_programs: [:bootstrap, :package_system],
   package_channels: [
     {:builtin, {:priv, "packages"}}
   ],
@@ -26,7 +22,9 @@ config :al,
     :constraints,
     :sudoku,
     :blackjack,
-    :euler
+    :euler,
+    :swaps,
+    :bnf
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
@@ -37,7 +35,8 @@ config :al,
     {:tcp_socket, :decode_term, AL.ExternalTerm, :decode, 2}
   ]
 
-config :al, edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP]
+config :al,
+  edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP, AL.Edge.Branch, AL.Edge.Output]
 
 config :al, AL.MCP,
   enabled: true,

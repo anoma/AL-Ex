@@ -12,10 +12,7 @@ Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
   config: [
     al: [
-      transaction_programs: [
-        AL.TransactionProgram.Bootstrap,
-        AL.TransactionProgram.PackageSystem
-      ],
+      transaction_programs: [:bootstrap, :package_system],
       package_channels: [{:builtin, {:priv, "packages"}}],
       package_environment: [:elixir_process],
       edge_providers: [AL.Edge.File],
@@ -51,47 +48,45 @@ Define an ordinary object method that emits a file effect and arranges what AL s
 
 ```elixir
 {:atomic, _} =
-  run do
-    defclass :file_reader,
-      super: :object,
-      redef: true,
-      ivars: [
-        :path,
-        %{name: :contents, default: :none},
-        %{name: :error, default: :none}
-      ] do
-      defmethod(:init, [self, args, self]) do
-        get(args, :path, _)
-        call_next_method(self, args, self)
-      end
+  run(~S"""
+    @file_reader
+    #{
+      super => object,
+      ivars => [
+        #{name => path},
+        #{default => none, name => contents},
+        #{default => none, name => error}
+      ]
+    }.
 
-      defmethod(:read, [self, observer, effect]) do
-        get(self, :path, path)
-        emit_effect(:file, :read, [path], effect)
+    file_reader >> init
+    | Self Args Self |
+    get Args path _,
+    call_next_method Self Args Self.
 
-        await(effect, [outcome]) do
-          read_finished(self, observer, outcome)
-        end
-      end
+    file_reader >> read
+    | Self Observer Effect |
+    get Self path Path,
+    new effect #{arguments => [Path], operation => read, provider => file} Effect,
+    await Effect [Outcome] (read_finished Self Observer Outcome).
 
-      defmethod(:read_finished, [self, observer, %{status: :ok, value: contents}]) do
-        set_slot(self, :contents, contents)
-        get(observer, :pid, pid)
-        message = %{event: :file_read, reader: self, contents: contents}
-        send_elixir(pid, message)
-      end
+    file_reader >> read_finished
+    | Self Observer #{status => ok, value => Contents} |
+    set_slot Self contents Contents,
+    get Observer pid Pid,
+    = Message #{contents => Contents, event => file_read, reader => Self},
+    send_elixir Pid Message.
 
-      defmethod(:read_finished, [self, observer, %{status: :error, reason: reason}]) do
-        set_slot(self, :error, reason)
-        get(observer, :pid, pid)
-        message = %{event: :file_read_failed, reader: self, reason: reason}
-        send_elixir(pid, message)
-      end
-    end
-  end
+    file_reader >> read_finished
+    | Self Observer #{reason => Reason, status => error} |
+    set_slot Self error Reason,
+    get Observer pid Pid,
+    = Message #{event => file_read_failed, reader => Self, reason => Reason},
+    send_elixir Pid Message.
+    """)
 ```
 
-Create a file, then start the operation from a regular `run do` transaction.
+Create a file, then start the operation from a regular `run(source)` transaction.
 
 ```elixir
 path =
@@ -104,13 +99,13 @@ File.write!(path, "hello from an effect")
 notebook = self()
 
 {:atomic, {bindings, _state}} =
-  run do
-    new(:process, %{name: :notebook, pid: ^notebook}, _)
-    new(:file_reader, %{name: :guide_reader, path: ^path}, reader)
-    read(reader, :notebook, effect)
-  end
+  run(~S"""
+    new process #{name => notebook, pid => HostNotebook} _.
+    new file_reader #{name => guide_reader, path => HostPath} Reader.
+    read Reader notebook Effect.
+    """, bindings: %{"HostNotebook" => notebook, "HostPath" => path})
 
-effect = bindings[:"$effect"]
+effect = bindings["$Effect"]
 
 receive do
   message -> message
@@ -119,20 +114,18 @@ after
 end
 ```
 
-`emit_effect(provider, operation, arguments, effect)` returns the effect object. `await(effect, [outcome]) do ... end` registers AL goals to run as a fresh transaction after completion and binds `outcome` to either `%{status: :ok, value: value}` or `%{status: :error, reason: reason}`.
+`new effect #{provider => P, operation => O, arguments => A} Effect` creates the effect object. `await Effect [Outcome] {Goals}` registers AL goals to run as a fresh transaction after completion and binds `Outcome` to either `#{status => ok, value => Value}` or `#{status => error, reason => Reason}`.
 
 It does not suspend the transaction containing it. If that transaction aborts, neither the effect nor its future transaction exists.
 
 ## Arrange work after commit
 
-`spawn do ... end` arranges a fresh transaction immediately after the current transaction commits. It is useful when the future work does not depend on an effect.
+`spawn {Goals}` arranges a fresh transaction immediately after the current transaction commits. It is useful when the future work does not depend on an effect.
 
 ```elixir
-run do
-  spawn do
-    set_slot(:guide_reader, :error, :cleared)
-  end
-end
+run(~S"""
+  spawn (set_slot guide_reader error cleared).
+  """)
 ```
 
 Like an effect continuation, spawned goals are durable data. They never run inside the transaction that arranged them.
@@ -142,10 +135,10 @@ Like an effect continuation, spawned goals are durable data. They never run insi
 The effect remains available for history and introspection.
 
 ```elixir
-run do
-  get(^effect, :status, :completed)
-  get(^effect, :outcome, outcome)
-end
+run(~S"""
+  get HostEffect status completed.
+  get HostEffect outcome Outcome.
+  """, bindings: %{"HostEffect" => effect})
 ```
 
 If Elixir itself needs the result, `AL.await_effect/2` waits on a completion event without polling AL state. AL application code should normally use `await` instead.

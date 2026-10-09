@@ -41,6 +41,8 @@ defmodule AL.Outbox do
   @doc false
   @spec stop_local(AL.Branch.t()) :: :ok
   def stop_local(branch) do
+    AL.Edge.Output.close_branch(branch)
+
     case Process.whereis(name(branch)) do
       nil -> :ok
       pid -> DynamicSupervisor.terminate_child(@supervisor, pid)
@@ -52,7 +54,7 @@ defmodule AL.Outbox do
   def committed(branch, tx_id) do
     case Process.whereis(name(branch)) do
       nil -> :ok
-      pid -> GenServer.cast(pid, {:committed, tx_id})
+      pid -> GenServer.cast(pid, {:committed, tx_id, Process.group_leader()})
     end
   end
 
@@ -63,23 +65,54 @@ defmodule AL.Outbox do
   defp name(branch), do: :"#{__MODULE__}.#{branch.id}"
 
   @impl true
-  def init(branch), do: {:ok, %{branch: branch}, {:continue, :recover}}
-
-  @impl true
-  def handle_continue(:recover, state) do
-    state.branch
-    |> recoverable_future_transactions()
-    |> dispatch_future_transactions(state.branch)
-
-    {:noreply, state}
+  def init(branch) do
+    Process.flag(:trap_exit, true)
+    {:ok, %{branch: branch, tasks: %{}}, {:continue, :recover}}
   end
 
   @impl true
-  def handle_cast({:committed, tx_id}, state) do
+  def handle_continue(:recover, state) do
+    tasks =
+      state.branch
+      |> recoverable_future_transactions()
+      |> dispatch_future_transactions(state.branch)
+
+    {:noreply, monitor_tasks(state, tasks)}
+  end
+
+  @impl true
+  def handle_cast({:committed, tx_id, device}, state) do
     commands = commands_for_transaction(tx_id, state.branch)
-    dispatch_commands(commands, state.branch)
-    dispatch_triggered_future_transactions(commands, state.branch)
-    {:noreply, state}
+
+    tasks =
+      dispatch_commands(commands, state.branch, device) ++
+        dispatch_triggered_future_transactions(commands, state.branch, device)
+
+    {:noreply, monitor_tasks(state, tasks)}
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state),
+    do: {:noreply, %{state | tasks: Map.delete(state.tasks, ref)}}
+
+  @impl true
+  def terminate(_reason, state) do
+    Enum.each(state.tasks, fn {ref, pid} ->
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      end
+    end)
+  end
+
+  defp monitor_tasks(state, pids) do
+    tasks =
+      Enum.reduce(pids, state.tasks, fn pid, tasks ->
+        Map.put(tasks, Process.monitor(pid), pid)
+      end)
+
+    %{state | tasks: tasks}
   end
 
   defp commands_for_transaction(tx_id, branch) do
@@ -92,30 +125,34 @@ defmodule AL.Outbox do
     end
   end
 
-  defp dispatch_commands(commands, branch) do
-    Enum.each(commands, fn
+  defp dispatch_commands(commands, branch, device) do
+    Enum.flat_map(commands, fn
       {:command, _time, _tx_id, {:send_async, {object, method, args}}} ->
-        Task.start(fn ->
-          result =
-            AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+        {:ok, pid} =
+          Task.start(fn ->
+            Process.group_leader(self(), device)
 
-          handle_async_result(result, object, method, branch)
-        end)
+            result =
+              AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
+
+            handle_async_result(result, object, method, branch)
+          end)
+
+        [pid]
 
       {:command, _time, _tx_id, {:send_elixir, {pid, message}}} ->
         send(pid, message)
+        []
 
       {:command, _time, _tx_id, {:effect, {:object, effect_id, provider, operation, arguments}}} ->
-        Task.start(fn ->
-          AL.Edge.dispatch(effect_id, provider, operation, arguments, branch)
-        end)
+        AL.Edge.enqueue(effect_id, provider, operation, arguments, branch, device)
 
       _ ->
-        :ok
+        []
     end)
   end
 
-  defp dispatch_triggered_future_transactions(commands, branch) do
+  defp dispatch_triggered_future_transactions(commands, branch, device) do
     changed = changed_objects(commands)
     created = created_future_transactions(commands)
 
@@ -127,15 +164,19 @@ defmodule AL.Outbox do
         {:aborted, _reason} -> []
       end
 
-    dispatch_future_transactions(futures, branch)
+    dispatch_future_transactions(futures, branch, device)
   end
 
-  defp dispatch_future_transactions(futures, branch) do
-    Enum.each(futures, fn future ->
-      Task.start(fn ->
-        result = AL.eval([%AL.Goal.Send{object: future, method: :run, args: []}], nil, branch)
-        handle_async_result(result, future, :run, branch)
-      end)
+  defp dispatch_future_transactions(futures, branch, device \\ Process.group_leader()) do
+    Enum.map(futures, fn future ->
+      {:ok, pid} =
+        Task.start(fn ->
+          Process.group_leader(self(), device)
+          result = AL.eval([%AL.Goal.Send{object: future, method: :run, args: []}], nil, branch)
+          handle_async_result(result, future, :run, branch)
+        end)
+
+      pid
     end)
   end
 
@@ -247,7 +288,6 @@ defmodule AL.Outbox do
          ) do
       {:atomic, _result} -> :ok
       {:aborted, reason} -> {:error, {failure, reason}}
-      {:error, reason} -> {:error, {failure, reason}}
     end
   end
 

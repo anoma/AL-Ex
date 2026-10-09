@@ -51,6 +51,7 @@ jobs:
         run: mix test
         env:
           AL_MNESIA_DISTRIBUTED: "false"
+          ELIXIR_ERL_OPTIONS: "+t 4000000"
 
       - name: Run dialyzer
         run: mix dialyzer

@@ -12,50 +12,56 @@ defmodule Examples.ALFileWatch do
 
     try do
       {:atomic, {bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          defclass :observed_file_watch,
-            super: :file_watch,
-            redef: true do
-            defmethod(:watching, [self]) do
-              call_next_method(self)
-              send_elixir(^pid, %{event: :file_watch_status, watcher: self, status: :watching})
-            end
+        run(
+          ~S"""
+          @observed_file_watch
+          #{super => file_watch}.
 
-            defmethod(:receive, [self, event]) do
-              get(event, :contents, %{status: :ok, value: contents})
-              call_next_method(self, event)
-              send_elixir(^pid, %{event: :file_changed, watcher: self, contents: contents})
-            end
+          observed_file_watch >> watching
+          | Self |
+          call_next_method Self,
+          send_elixir HostPid #{event => file_watch_status, status => watching, watcher => Self}.
 
-            defmethod(:stopped, [self]) do
-              call_next_method(self)
-              send_elixir(^pid, %{event: :file_watch_status, watcher: self, status: :stopped})
-            end
-          end
+          observed_file_watch >> receive
+          | Self Event |
+          get Event contents #{status => ok, value => Contents},
+          call_next_method Self Event,
+          send_elixir HostPid #{contents => Contents, event => file_changed, watcher => Self}.
 
-          new(
-            :observed_file_watch,
-            %{name: :watched_file, path: ^path, redef: true},
-            watcher
-          )
+          observed_file_watch >> stopped
+          | Self |
+          call_next_method Self,
+          send_elixir HostPid #{event => file_watch_status, status => stopped, watcher => Self}.
 
-          watch(watcher, start_effect)
-        end
+          new observed_file_watch #{name => watched_file, path => HostPath} Watcher.
+          watch Watcher StartEffect.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostPath" => path, "HostPid" => pid}
+        )
 
-      watcher = bindings[:"$watcher"]
-      start_effect = bindings[:"$start_effect"]
+      watcher = bindings["$Watcher"]
+      start_effect = bindings["$StartEffect"]
       assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :watching}, 2_000
 
       {:atomic, _} =
-        run branch: Examples.Support.branch() do
-          class(^watcher, :observed_file_watch)
-          super(:observed_file_watch, :file_watch)
-          super(:file_watch, :object)
-          get(^watcher, :path, ^path)
-          get(^watcher, :contents, :none)
-          class(^start_effect, :effect)
-          get(^start_effect, :outcome, %{status: :ok, value: :watching})
-        end
+        run(
+          ~S"""
+          class HostWatcher observed_file_watch.
+          super observed_file_watch file_watch.
+          super file_watch object.
+          get HostWatcher path HostPath.
+          get HostWatcher contents none.
+          class HostStartEffect effect.
+          get HostStartEffect outcome #{status => ok, value => watching}.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{
+            "HostPath" => path,
+            "HostStartEffect" => start_effect,
+            "HostWatcher" => watcher
+          }
+        )
 
       File.write!(path, "first")
       assert_receive %{event: :file_changed, watcher: ^watcher, contents: "first"}, 2_000
@@ -64,26 +70,38 @@ defmodule Examples.ALFileWatch do
       assert_receive %{event: :file_changed, watcher: ^watcher, contents: "second"}, 2_000
 
       {:atomic, {stop_bindings, _constraints, _state}} =
-        run branch: Examples.Support.branch() do
-          stop_watching(^watcher, stop_effect)
-        end
+        run(
+          ~S"""
+          stop_watching HostWatcher StopEffect.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostWatcher" => watcher}
+        )
 
-      stop_effect = stop_bindings[:"$stop_effect"]
+      stop_effect = stop_bindings["$StopEffect"]
       assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :stopped}, 2_000
 
       {:atomic, _} =
-        run branch: Examples.Support.branch() do
-          class(^stop_effect, :effect)
-          get(^stop_effect, :outcome, %{status: :ok, value: :stopped})
-        end
+        run(
+          ~S"""
+          class HostStopEffect effect.
+          get HostStopEffect outcome #{status => ok, value => stopped}.
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostStopEffect" => stop_effect}
+        )
 
       File.write!(path, "third")
       refute_receive %{event: :file_changed, watcher: ^watcher, contents: "third"}, 150
 
       {:atomic, _} =
-        run branch: Examples.Support.branch() do
-          get(^watcher, :contents, "second")
-        end
+        run(
+          ~S"""
+          get HostWatcher contents "second".
+          """,
+          branch: Examples.Support.branch(),
+          bindings: %{"HostWatcher" => watcher}
+        )
     after
       File.rm(path)
     end

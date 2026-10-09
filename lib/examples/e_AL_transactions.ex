@@ -16,10 +16,15 @@ defmodule Examples.ALTransactions do
   end
 
   example total_failure_aborts_transaction() do
-    {:aborted, _trace} = AL.eval([%AL.Goal.Fail{}])
+    branch = %AL.Branch{id: Examples.Support.branch()}
+    {:aborted, _trace} = AL.eval([%AL.Goal.Fail{}], nil, branch)
 
     {:aborted, _trace} =
-      AL.eval([%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: :"$x"}])
+      AL.eval(
+        [%AL.Goal.GetClass{object: :nonexistent_object_xyz, class: {:"$var", "x"}}],
+        nil,
+        branch
+      )
 
     :ok
   end
@@ -31,17 +36,27 @@ defmodule Examples.ALTransactions do
     b = fresh_id()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^a, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class HostA object.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostA" => a}
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^b, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class HostB object.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostB" => b}
+      )
 
     {:atomic, commands} =
-      :mnesia.transaction(fn -> AL.Command.commands_since(0, %AL.Branch{id: :examples}) end)
+      :mnesia.transaction(fn ->
+        AL.Command.commands_since(0, %AL.Branch{id: Examples.Support.branch()})
+      end)
 
     tx_of = fn obj ->
       Enum.find_value(commands, fn
@@ -59,19 +74,27 @@ defmodule Examples.ALTransactions do
     object = fresh_id()
 
     {:atomic, {_bindings, _constraints, written}} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^object, :object)
-      end
+      run(
+        ~S"""
+        vm_set_class HostObject object.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostObject" => object}
+      )
+
+    tx_id = written.tx_id
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall([time, operation], commands) do
-          vm_command(^written.tx_id, time, operation)
-        end
-      end
+      run(
+        ~S"""
+        findall [Time, Operation] Commands (vm_command HostTxId Time Operation).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostTxId" => tx_id}
+      )
 
     assert [[time, {:set_class, {^object, :object}}]] =
-             Enum.filter(Map.get(bindings, :"$commands"), fn
+             Enum.filter(Map.get(bindings, "$Commands"), fn
                [_time, {:set_class, {^object, :object}}] -> true
                _command -> false
              end)

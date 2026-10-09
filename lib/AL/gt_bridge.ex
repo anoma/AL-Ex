@@ -11,14 +11,20 @@ defmodule AL.GtBridge do
   alias GtBridge.Phlow.ColumnedList
 
   def display_name(self = %AL.Object{}) do
+    id = self.id
+
     result =
-      AL.run branch: AL.Object.branch_id(self) do
-        slot(^self.id, :name, name)
-      end
+      AL.run(
+        ~S"""
+        slot HostId name Name.
+        """,
+        branch: AL.Object.branch_id(self),
+        bindings: %{"HostId" => id}
+      )
 
     case result do
       {:atomic, {bindings, _constraints, _}} ->
-        case Map.get(bindings, :"$name") do
+        case Map.get(bindings, "$Name") do
           name when is_binary(name) and name != "" -> name
           name when is_atom(name) and name not in [nil, false] -> Atom.to_string(name)
           _ -> object_label(self.id)
@@ -32,14 +38,20 @@ defmodule AL.GtBridge do
   def object_info(self = %AL.Object{}) do
     branch = AL.Object.branch_id(self)
 
+    id = self.id
+
     result =
-      AL.run branch: branch do
-        examine(^self.id, info)
-      end
+      AL.run(
+        ~S"""
+        examine HostId Info.
+        """,
+        branch: branch,
+        bindings: %{"HostId" => id}
+      )
 
     case result do
       {:atomic, {bindings, _constraints, _}} ->
-        info = Map.fetch!(bindings, :"$info")
+        info = Map.fetch!(bindings, "$Info")
 
         identity = [
           {"Identity", "ID", inspect(self.id), self},
@@ -114,7 +126,7 @@ defmodule AL.GtBridge do
   end
 
   defp object_classes(object, branch) do
-    AL.Object.scan_class(object, :"$class", branch)
+    AL.Object.scan_class(object, {:"$var", "class"}, branch)
     |> Enum.map(fn {:class, ^object, _seq, class} -> class end)
     |> Enum.uniq()
   end
@@ -126,7 +138,7 @@ defmodule AL.GtBridge do
       collect_super_graph(rest, branch, visited, edges, ids)
     else
       supers =
-        AL.Object.scan_super(object, :"$super", branch)
+        AL.Object.scan_super(object, {:"$var", "super"}, branch)
         |> Enum.map(fn {:super, ^object, _seq, super} -> super end)
         |> Enum.uniq()
 
@@ -159,7 +171,7 @@ defmodule AL.GtBridge do
     self_id = self.id
 
     case :mnesia.transaction(fn ->
-           AL.Object.scan_class(:"$instance", self_id, branch)
+           AL.Object.scan_class({:"$var", "instance"}, self_id, branch)
            |> Enum.map(fn {:class, instance, _seq, ^self_id} ->
              %AL.Object{id: instance, branch: branch.id}
            end)
@@ -298,14 +310,20 @@ defmodule AL.GtBridge do
   defp maybe_failure_row(rows, property, value, format), do: rows ++ [{property, format.(value)}]
 
   defview constraint_view(self = %AL.Object{}, builder) do
+    id = self.id
+
     result =
-      AL.run branch: AL.Object.branch_id(self) do
-        dependents(^self.id, dependents)
-      end
+      AL.run(
+        ~S"""
+        dependents HostId Dependents.
+        """,
+        branch: AL.Object.branch_id(self),
+        bindings: %{"HostId" => id}
+      )
 
     case result do
       {:atomic, {bindings, _constraints, _program_state}} ->
-        dependents = Map.get(bindings, :"$dependents")
+        dependents = Map.get(bindings, "$Dependents")
 
         builder.mondrian()
         |> Mondrian.title("Constraint Graph")

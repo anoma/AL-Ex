@@ -1,5 +1,1 @@
-Package {
-  #name : :blackjack,
-  #version : 2,
-  #deps : []
-}
+defpackage blackjack #{deps => [], version => 2}.

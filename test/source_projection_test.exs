@@ -11,7 +11,7 @@ defmodule ALSourceProjectionTest do
           branch
         )
         |> Enum.flat_map(fn {:method, owner, selector, _seq, _tx, :open, id} ->
-          AL.Serialisation.Snapshot.clause_rows(id, branch)
+          AL.Definition.Snapshot.clause_rows(id, branch)
           |> Enum.map(fn {:oapply, ^id, clause, _seq, _tx, :open, head, body} ->
             {owner, selector, clause, head, body}
           end)
@@ -29,8 +29,12 @@ defmodule ALSourceProjectionTest do
         branch
         |> clauses()
         |> Enum.flat_map(fn {owner, selector, _clause, head, body} ->
-          text = AL.Source.defmethod_source(owner, selector, head, body)
-          if String.contains?(text, "RAW("), do: [{owner, selector, text}], else: []
+          try do
+            AL.Source.defmethod_source(owner, selector, head, body)
+            []
+          rescue
+            exception -> [{owner, selector, Exception.message(exception)}]
+          end
         end)
 
       assert offenders == []
@@ -63,64 +67,78 @@ defmodule ALSourceProjectionTest do
   end
 
   test "ground goals retain their primitive meaning when decompiled" do
-    body = [{:ground, :"$caller"}]
-    rendered = AL.Source.defmethod_source(:owned, :may, [:"$self", :"$caller"], body)
+    body = [{:ground, {:"$var", "Caller"}}]
 
-    assert rendered =~ "ground(caller)"
+    rendered =
+      AL.Source.defmethod_source(:owned, :may, [{:"$var", "Self"}, {:"$var", "Caller"}], body)
 
-    assert {:ok, ast} = Code.string_to_quoted(rendered)
+    assert rendered =~ "ground Caller"
 
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [_class, _name, _head, parsed_body]} =
-             AL.Lowering.ast_to_pattern(ast)
+    assert {:ok,
+            %{
+              program: [
+                _clear,
+                %AL.Goal.Compound{name: :defmethod, args: [_, _, _, parsed_body]}
+              ]
+            }} =
+             AL.Syntax.parse(rendered <> ".")
 
-    assert AL.Goal.to_stored(parsed_body) == body
+    assert Enum.map(parsed_body, &AL.Goal.to_stored(AL.Goal.lower(&1))) == body
   end
 
   test "comments are stored as inert goals and render back as comments" do
     branch = AL.Branch.fork()
 
     source = """
-    defmethod(:object, :commented_example, [self, x]) do
+    object >> commented_example
+    | Self X |
       # leading note
-      x = 1
+      = X 1
       # trailing note
-    end
+    .
     """
 
     try do
-      assert {:atomic, _} = AL.eval_source(source, branch)
+      assert {:atomic, _} = AL.run(source, branch)
 
       {_owner, _selector, _clause, _head, body} =
         branch |> clauses() |> Enum.find(&(elem(&1, 1) == :commented_example))
 
-      assert Enum.filter(body, &match?({:comment, _}, &1)) == [
-               {:comment, " leading note"},
-               {:comment, " trailing note"}
+      assert Enum.filter(body, &match?({:compound, :comment, _}, &1)) == [
+               {:compound, :comment, [" leading note"]},
+               {:compound, :comment, [" trailing note"]}
              ]
 
-      rendered = AL.Source.defmethod_source(:object, :commented_example, [:"$self", :"$x"], body)
+      rendered =
+        AL.Source.defmethod_source(
+          :object,
+          :commented_example,
+          [{:"$var", "Self"}, {:"$var", "X"}],
+          body
+        )
+
       assert rendered =~ "# leading note"
       assert rendered =~ "# trailing note"
 
       assert {:atomic, {bindings, _constraints, _state}} =
-               AL.eval_source("commented_example(:object, answer)\n", branch)
+               AL.run("commented_example object Answer.\n", branch)
 
-      assert Map.get(bindings, :"$answer") == 1
+      assert Map.get(bindings, "$Answer") == 1
     after
       AL.Branch.discard(branch)
     end
   end
 
   defp reparse(owner, selector, text) do
-    with {:ok, ast} <- Code.string_to_quoted(text),
-         %AL.Goal.OApply{method_id: :defmethod, args: [_class, _name, head, body]} <-
-           AL.Lowering.ast_to_pattern(ast) do
+    with {:ok,
+          %{program: [_clear, %AL.Goal.Compound{name: :defmethod, args: [_, _, head, body]}]}} <-
+           AL.Syntax.parse(text <> ".") do
       {:ok,
        AL.Source.defmethod_source(
          owner,
          selector,
          AL.Goal.to_stored(head),
-         AL.Goal.to_stored(body)
+         Enum.map(body, &AL.Goal.to_stored/1)
        )}
     else
       other -> {:error, other}

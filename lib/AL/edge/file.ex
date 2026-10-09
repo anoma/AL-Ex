@@ -20,6 +20,29 @@ defmodule AL.Edge.File do
   @impl AL.Edge
   def execute(:read, [path], _context) when is_binary(path), do: File.read(path)
 
+  def execute(:list, [path], _context) when is_binary(path) do
+    case File.ls(path) do
+      {:ok, entries} -> {:ok, Enum.sort(entries)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def execute(:write, [path, contents], _context)
+      when is_binary(path) and is_binary(contents) do
+    directory = Path.dirname(path)
+    temporary = "#{path}.tmp-#{System.unique_integer([:positive])}"
+
+    try do
+      with :ok <- File.mkdir_p(directory),
+           :ok <- File.write(temporary, contents),
+           :ok <- File.rename(temporary, path) do
+        {:ok, path}
+      end
+    after
+      File.rm(temporary)
+    end
+  end
+
   def execute(
         :watch,
         [receiver, path],
@@ -39,6 +62,12 @@ defmodule AL.Edge.File do
 
   def execute(:read, arguments, _context),
     do: {:error, {:invalid_file_read_arguments, arguments}}
+
+  def execute(:list, arguments, _context),
+    do: {:error, {:invalid_file_list_arguments, arguments}}
+
+  def execute(:write, arguments, _context),
+    do: {:error, {:invalid_file_write_arguments, arguments}}
 
   def execute(:watch, arguments, _context),
     do: {:error, {:invalid_file_watch_arguments, arguments}}

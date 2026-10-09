@@ -1,53 +1,53 @@
-Class {
-  #name : :file_watch,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [
-    :path,
-    %{name: :status, default: :idle},
-    %{name: :contents, default: :none}
+@file_watch
+#{
+  super => object,
+  ivars => [
+    #{name => path},
+    #{default => idle, name => status},
+    #{default => none, name => contents}
   ]
-}
+}.
 
-:file_watch >> :init, [self, args, self] [
-  get_slots(args, %{path: _})
-  call_next_method(self, args, self)
-]
+file_watch >> init
+| Self Args Self |
+get_slots Args #{path => _},
+call_next_method Self Args Self.
 
-:file_watch >> :watch, [self, effect] [
-  get_slots(self, %{path: path, status: :idle})
-  set_slot(self, :status, :starting)
-  emit_effect(:file, :watch, [self, path], effect)
-]
+file_watch >> watch
+| Self Effect |
+get_slots Self #{path => Path, status => idle},
+set_slot Self status starting,
+new effect #{arguments => [Self, Path], operation => watch, provider => file} Effect.
 
-:file_watch >> :watching, [self] [
-  get(self, :status, :starting)
-  set_slot(self, :status, :watching)
-]
+file_watch >> watching
+| Self |
+get Self status starting,
+set_slot Self status watching.
 
-:file_watch >> :watch_failed, [self, reason] [
-  set_slot(self, :status, %{status: :error, reason: reason})
-]
+file_watch >> watch_failed
+| Self Reason |
+set_slot Self status #{reason => Reason, status => error}.
 
-:file_watch >> :receive, [self, %{contents: %{status: :ok, value: contents}}] [
-  set_slot(self, :contents, contents)
-]
+file_watch >> receive
+| Self Event |
+get Event contents #{status => ok, value => Contents},
+set_slot Self contents Contents.
 
-:file_watch >> :stop_watching, [self, effect] [
-  get(self, :status, :watching)
-  set_slot(self, :status, :stopping)
-  emit_effect(:file, :unwatch, [self], effect)
-]
+file_watch >> stop_watching
+| Self Effect |
+get Self status watching,
+set_slot Self status stopping,
+new effect #{arguments => [Self], operation => unwatch, provider => file} Effect.
 
-:file_watch >> :stopped, [self] [
-  get(self, :status, :stopping)
-  set_slot(self, :status, :stopped)
-]
+file_watch >> stopped
+| Self |
+get Self status stopping,
+set_slot Self status stopped.
 
-:file_watch >> :stopped, [self, reason] [
-  set_slot(self, :status, %{status: :error, reason: reason})
-]
+file_watch >> stopped
+| Self Reason |
+set_slot Self status #{reason => Reason, status => error}.
 
-:file_watch >> :stop_failed, [self, reason] [
-  set_slot(self, :status, %{status: :error, reason: reason})
-]
+file_watch >> stop_failed
+| Self Reason |
+set_slot Self status #{reason => Reason, status => error}.

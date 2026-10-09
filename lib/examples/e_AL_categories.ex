@@ -13,63 +13,74 @@ defmodule Examples.ALCategories do
   # (a class isn't an instance of itself).
   example import_shares_implementation_without_inheritance() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :greeter_behaviour, metaclass: :category, super: :object do
-          defmethod(:greet, [self, :hello])
-        end
+      run(
+        ~S"""
+        @greeter_behaviour
+        #{super => object, metaclass => category}.
 
-        defclass :cat_a, super: :object, ivars: [], categories: [:greeter_behaviour] do
-        end
+        greeter_behaviour >> greet
+        | Self hello |.
 
-        defclass :cat_b, super: :object, ivars: [], categories: [:greeter_behaviour] do
-        end
+        @cat_a
+        #{super => object, categories => [greeter_behaviour]}.
 
-        new(:cat_a, instance_a)
-        new(:cat_b, instance_b)
+        @cat_b
+        #{super => object, categories => [greeter_behaviour]}.
 
-        greet(instance_a, greeting_a)
-        greet(instance_b, greeting_b)
-      end
+        new cat_a InstanceA.
+        new cat_b InstanceB.
+        greet InstanceA GreetingA.
+        greet InstanceB GreetingB.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$greeting_a") == :hello
-    assert Map.get(bindings, :"$greeting_b") == :hello
+    assert Map.get(bindings, "$GreetingA") == :hello
+    assert Map.get(bindings, "$GreetingB") == :hello
     :ok
   end
 
   example import_creates_no_super_edge() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :shared_behaviour, metaclass: :category, super: :object do
-          defmethod(:trait, [self, :shared_trait])
-        end
+      run(
+        ~S"""
+        @shared_behaviour
+        #{super => object, metaclass => category}.
 
-        defclass :import_a, super: :object, ivars: [], categories: [:shared_behaviour] do
-        end
+        shared_behaviour >> trait
+        | Self shared_trait |.
 
-        defclass :import_b, super: :object, ivars: [], categories: [:shared_behaviour] do
-        end
+        @import_a
+        #{super => object, categories => [shared_behaviour]}.
 
-        not [super(:import_a, :import_b)]
-        not [super(:import_b, :import_a)]
-        not [super(:import_a, :shared_behaviour)]
+        @import_b
+        #{super => object, categories => [shared_behaviour]}.
 
-        unrelated = true
-      end
+        not (super import_a import_b).
+        not (super import_b import_a).
+        not (super import_a shared_behaviour).
+        = Unrelated true.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$unrelated") == true
+    assert Map.get(bindings, "$Unrelated") == true
     :ok
   end
 
   example category_is_reflectively_queryable() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :reflect_behaviour, metaclass: :category, super: :object do
-        end
+      run(
+        ~S"""
+        @reflect_behaviour
+        #{super => object, metaclass => category}.
 
-        class(:reflect_behaviour, kind)
-      end
+        class reflect_behaviour Kind.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$kind") == :category
+    assert Map.get(bindings, "$Kind") == :category
     :ok
   end
 
@@ -79,25 +90,26 @@ defmodule Examples.ALCategories do
   # missed :category/:behaviour until this showed up live.
   example category_is_not_offered_as_an_unbound_receiver_candidate() do
     {:atomic, {b1, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :counts_behaviour, metaclass: :category, super: :object do
-          defmethod(:count, [self, 0])
-        end
+      run(
+        ~S"""
+        @counts_behaviour
+        #{super => object, metaclass => category}.
 
-        defclass :countable, super: :object, ivars: [], categories: [:counts_behaviour] do
-        end
+        counts_behaviour >> count
+        | Self 0 |.
 
-        new(:countable, instance)
+        @countable
+        #{super => object, categories => [counts_behaviour]}.
 
-        findall(s, candidates) do
-          count(s, 0)
-          label(s)
-        end
-      end
+        new countable Instance.
+        findall S Candidates {count S 0, label S}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    candidates = Map.get(b1, :"$candidates")
+    candidates = Map.get(b1, "$Candidates")
     refute :counts_behaviour in candidates
-    assert Map.get(b1, :"$instance") in candidates
+    assert Map.get(b1, "$Instance") in candidates
     :ok
   end
 end

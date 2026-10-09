@@ -11,8 +11,31 @@ defmodule AL.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       dialyzer: dialyzer()
     ]
+  end
+
+  @atom_limit 4_000_000
+
+  defp aliases, do: [test: &test_with_atom_room/1]
+
+  defp test_with_atom_room(args) do
+    if :erlang.system_info(:atom_limit) >= @atom_limit or System.get_env("AL_ATOM_ROOM") == "1" do
+      Mix.Task.run("test", args)
+    else
+      options = String.trim("#{System.get_env("ELIXIR_ERL_OPTIONS")} +t #{@atom_limit}")
+      color = if IO.ANSI.enabled?(), do: ["--color"], else: []
+
+      {_output, status} =
+        System.cmd("mix", ["test" | color ++ args],
+          env: [{"ELIXIR_ERL_OPTIONS", options}, {"AL_ATOM_ROOM", "1"}],
+          into: IO.stream(),
+          stderr_to_stdout: true
+        )
+
+      System.halt(status)
+    end
   end
 
   defp dialyzer do

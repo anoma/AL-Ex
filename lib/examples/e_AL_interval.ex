@@ -16,103 +16,125 @@ defmodule Examples.ALInterval do
 
   example new_interval_holds_lo_and_hi() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 1, hi: 4}, i)
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 4, lo => 1} I.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$i") == %{class: :interval_value, lo: 1, hi: 4}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: 1, hi: 4}
     :ok
   end
 
   example new_interval_is_empty_when_lo_is_greater_than_hi() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 5, hi: 4}, i)
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 4, lo => 5} I.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$i") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: :empty, hi: :empty}
     :ok
   end
 
   example interval_elem_checks_containment() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 1, hi: 4}, i)
+      run(
+        ~S"""
+        new interval_value #{hi => 4, lo => 1} I.
+        elem I 1.
+        elem I 4.
+        elem I 2.
+        not (elem I 0).
+        not (elem I 5).
+        = Checked true.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        elem(i, 1)
-        elem(i, 4)
-        elem(i, 2)
-        not [elem(i, 0)]
-        not [elem(i, 5)]
-
-        checked = true
-      end
-
-    assert Map.get(bindings, :"$checked") == true
+    assert Map.get(bindings, "$Checked") == true
     :ok
   end
 
   example elem_never_holds_for_the_empty_interval() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 5, hi: 4}, empty)
-        not [elem(empty, 0)]
-        not [elem(empty, 5)]
-        checked = true
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 4, lo => 5} Empty.
+        not (elem Empty 0).
+        not (elem Empty 5).
+        = Checked true.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$checked") == true
+    assert Map.get(bindings, "$Checked") == true
     :ok
   end
 
   example intersection_of_overlapping_intervals_narrows_to_the_overlap() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 1, hi: 5}, a)
-        new(:interval_value, %{lo: 3, hi: 8}, b)
-        intersection(a, b, i)
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 5, lo => 1} A.
+        new interval_value #{hi => 8, lo => 3} B.
+        intersection A B I.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$i") == %{class: :interval_value, lo: 3, hi: 5}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: 3, hi: 5}
     :ok
   end
 
   example intersection_is_commutative() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 1, hi: 5}, a)
-        new(:interval_value, %{lo: 3, hi: 8}, b)
-        intersection(a, b, i1)
-        intersection(b, a, i2)
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 5, lo => 1} A.
+        new interval_value #{hi => 8, lo => 3} B.
+        intersection A B I1.
+        intersection B A I2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$i1") == Map.get(bindings, :"$i2")
+    assert Map.get(bindings, "$I1") == Map.get(bindings, "$I2")
     :ok
   end
 
   example intersection_of_disjoint_intervals_is_empty() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 1, hi: 2}, a)
-        new(:interval_value, %{lo: 3, hi: 4}, b)
-        intersection(a, b, i)
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 2, lo => 1} A.
+        new interval_value #{hi => 4, lo => 3} B.
+        intersection A B I.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$i") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I") == %{class: :interval_value, lo: :empty, hi: :empty}
     :ok
   end
 
   example intersection_with_an_empty_interval_stays_empty() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:interval_value, %{lo: 5, hi: 4}, empty)
-        new(:interval_value, %{lo: 1, hi: 10}, a)
-        intersection(empty, a, i1)
-        intersection(a, empty, i2)
-      end
+      run(
+        ~S"""
+        new interval_value #{hi => 4, lo => 5} Empty.
+        new interval_value #{hi => 10, lo => 1} A.
+        intersection Empty A I1.
+        intersection A Empty I2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$i1") == %{class: :interval_value, lo: :empty, hi: :empty}
-    assert Map.get(bindings, :"$i2") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I1") == %{class: :interval_value, lo: :empty, hi: :empty}
+    assert Map.get(bindings, "$I2") == %{class: :interval_value, lo: :empty, hi: :empty}
     :ok
   end
 end

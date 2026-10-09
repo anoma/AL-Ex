@@ -12,11 +12,14 @@ defmodule Examples.ALEuler do
 
   example euler_1_sums_multiples_of_3_or_5_below_1000() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        euler_1(1000, sum)
-      end
+      run(
+        ~S"""
+        euler_1 1000 Sum.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$sum") == 233_168
+    assert Map.get(bindings, "$Sum") == 233_168
     :ok
   end
 end

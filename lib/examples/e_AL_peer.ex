@@ -10,39 +10,48 @@ defmodule Examples.ALPeer do
     message = %{kind: :greeting, text: "hello", values: [1, 2, {:three, true}]}
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :observed_peer, super: :peer, redef: true do
-          defmethod(:receive, [self, socket, message]) do
-            call_next_method(self, socket, message)
-            event = %{event: :peer_message, peer: self, socket: socket, message: message}
-            send_elixir(^pid, event)
-          end
-        end
+      run(
+        ~S"""
+        @observed_peer
+        #{super => peer}.
 
-        new(:peer, %{name: :peer_alice, peer_name: "Alice"}, alice)
-        new(:observed_peer, %{name: :peer_bob, peer_name: "Bob"}, bob)
+        observed_peer >> receive
+        | Self Socket Message |
+        call_next_method Self Socket Message,
+        = Event #{event => peer_message, message => Message, peer => Self, socket => Socket},
+        send_elixir HostPid Event.
 
-        defmethod(bob, :listening, [self, socket, port]) do
-          call_next_method(self, socket, port)
-          connect(alice, self, _, _)
-        end
+        new peer #{name => peer_alice, peer_name => "Alice"} Alice.
+        new observed_peer #{name => peer_bob, peer_name => "Bob"} Bob.
 
-        defmethod(alice, :connection_established, [self, socket]) do
-          call_next_method(self, socket)
-          send_message(self, socket, ^message, _)
-        end
-      end
+        Bob >> listening
+        | Self Socket Port |
+        call_next_method Self Socket Port,
+        connect Alice Self _ _.
+
+        Alice >> connection_established
+        | Self Socket |
+        call_next_method Self Socket,
+        send_message Self Socket HostMessage _.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostMessage" => message, "HostPid" => pid}
+      )
 
     assert_receive %{event: :peer_message, peer: :peer_bob, socket: socket, message: ^message},
                    1_000
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        get(:peer_bob, :name, "Bob")
-        get(:peer_bob, :messages, [[^socket, ^message]])
-        get(^socket, :status, :connected)
-        stop(:peer_alice)
-        stop(:peer_bob)
-      end
+      run(
+        ~S"""
+        get peer_bob name "Bob".
+        get peer_bob messages [[HostSocket, HostMessage]].
+        get HostSocket status connected.
+        stop peer_alice.
+        stop peer_bob.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostMessage" => message, "HostSocket" => socket}
+      )
   end
 end

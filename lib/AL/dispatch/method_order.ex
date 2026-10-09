@@ -1,4 +1,6 @@
 defmodule AL.Dispatch.MethodOrder do
+  require AL.Block
+
   @moduledoc """
   I compute a receiver's method resolution order — which classes/supers get
   searched, and in what order — as an ordinary topological sort (Kahn's
@@ -8,19 +10,17 @@ defmodule AL.Dispatch.MethodOrder do
 
   # Ordered lookup scopes: the receiver (if an atom), then its classes and their
   # supers, depth-first (or breadth-first, if the receiver's class opts in via a
-  # `dispatch_strategy: :bfs` slot) and deduped. Map/list/number receivers start
-  # from `:map`/`:list`/`:number` and always walk depth-first.
-  def method_scopes(self, branch) when is_map(self),
-    do: cached_super_chain([Map.get(self, :class, :map)], branch, :dfs)
-
-  def method_scopes(self, branch) when is_list(self),
-    do: cached_super_chain([:list], branch, :dfs)
-
-  def method_scopes(self, branch) when is_number(self),
-    do: cached_super_chain([:number], branch, :dfs)
+  # `dispatch_strategy: :bfs` slot) and deduped. Compound/map/list/number/string
+  # receivers start from their structural class and always walk depth-first.
+  def method_scopes(self, branch)
+      when is_map(self) or is_list(self) or is_number(self) or is_binary(self) or
+             AL.Block.is_block(self),
+      do: cached_super_chain([AL.Dispatch.structural_class(self)], branch, :dfs)
 
   def method_scopes(self, branch) do
-    classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)
+    classes =
+      for({:class, _o, _seq, c} <- AL.Object.scan_class(self, {:"$var", "class"}, branch), do: c)
+
     chain = cached_super_chain(classes, branch, dispatch_strategy(classes, branch))
 
     if Enum.any?(chain, &(&1 in [:class, :category, :behaviour])) do
@@ -76,7 +76,7 @@ defmodule AL.Dispatch.MethodOrder do
       children =
         for {:super, child, _seq, ^class} <-
               AL.Object.scan_super(
-                AL.Var.var("descendant_scan_#{AL.fresh_scope()}"),
+                AL.Var.fresh({:"$var", "descendant_scan"}, Integer.to_string(AL.fresh_scope())),
                 class,
                 branch
               ),
@@ -106,7 +106,9 @@ defmodule AL.Dispatch.MethodOrder do
     if MapSet.member?(seen, class) do
       collect_edges(rest, branch, seen, edges)
     else
-      supers = for {:super, _o, _seq, s} <- AL.Object.scan_super(class, :"$super", branch), do: s
+      supers =
+        for {:super, _o, _seq, s} <- AL.Object.scan_super(class, {:"$var", "super"}, branch),
+            do: s
 
       collect_edges(
         supers ++ rest,

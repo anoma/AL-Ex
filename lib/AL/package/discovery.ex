@@ -6,7 +6,7 @@ defmodule AL.Package.Discovery do
   alias AL.Package.ContentAddress
   alias AL.Package.Document
   alias AL.Package.Provider
-  alias AL.Serialisation.Document, as: DefinitionDocument
+  alias AL.Definition.Document, as: DefinitionDocument
 
   @spec manifest(Path.t()) :: {:ok, Document.t()} | {:error, term()}
   def manifest(directory) do

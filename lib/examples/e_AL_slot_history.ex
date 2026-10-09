@@ -11,20 +11,81 @@ defmodule Examples.ALSlotHistory do
   use AL
   import ExUnit.Assertions
 
+  example current_slots_match_history_after_retraction_fork_replay_and_abort() do
+    parent = AL.Branch.fork(:tip, %AL.Branch{id: Examples.Support.branch()})
+
+    inspect_slots = fn branch ->
+      :mnesia.transaction(fn ->
+        current = AL.Object.read_slots(:current_slots_probe, branch)
+        history = AL.Object.scan_slots_history(:current_slots_probe, branch)
+        open = for {:slots, object, _, :open, slots} <- history, do: {:slots, object, slots}
+        assert current == open
+        assert AL.Object.scan_slots(:current_slots_probe, {:"$var", "Slots"}, branch) == current
+        {current, history}
+      end)
+    end
+
+    try do
+      {:atomic, _} =
+        AL.run(
+          ~S"""
+          vm_set_slot current_slots_probe count 1.
+          vm_set_slot current_slots_probe other kept.
+          vm_set_slot current_slots_probe count 2.
+          vm_retract_slot current_slots_probe count.
+          vm_retract_slot current_slots_probe other.
+          not {slot current_slots_probe _ _}.
+          vm_set_slot current_slots_probe count 3.
+          vm_set_slot current_slots_probe count 3.
+          """,
+          parent
+        )
+
+      {:atomic, {current, history}} = inspect_slots.(parent)
+      assert current == [{:slots, :current_slots_probe, %{count: 3}}]
+      assert length(history) == 6
+      assert length(Enum.uniq_by(history, &elem(&1, 2))) == 6
+
+      for child <- [AL.Branch.fork(:tip, parent), AL.Branch.fork_stable(parent)] do
+        try do
+          assert {:atomic, {^current, ^history}} = inspect_slots.(child)
+
+          assert {:aborted, _} =
+                   AL.run(
+                     "vm_set_slot current_slots_probe count 999, fail.",
+                     child
+                   )
+
+          assert {:atomic, {^current, ^history}} = inspect_slots.(child)
+          {:atomic, _} = AL.run("vm_set_slot current_slots_probe count 4.", child)
+          {:atomic, {[{:slots, :current_slots_probe, %{count: 4}}], _}} = inspect_slots.(child)
+          assert {:atomic, {^current, ^history}} = inspect_slots.(parent)
+        after
+          AL.Branch.discard(child)
+        end
+      end
+    after
+      AL.Branch.discard(parent)
+    end
+  end
+
   example slot_history_finds_every_value_a_slot_has_held() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :history_probe, super: :object, ivars: [:count] do
-        end
+      run(
+        ~S"""
+        @history_probe
+        #{super => object, ivars => [#{name => count}]}.
 
-        new(:history_probe, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :count, 2)
-        set_slot(obj, :count, 3)
-        slot_history(obj, :count, values)
-      end
+        new history_probe Obj.
+        set_slot Obj count 1.
+        set_slot Obj count 2.
+        set_slot Obj count 3.
+        slot_history Obj count Values.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$values") == [1, 2, 3]
+    assert Map.get(bindings, "$Values") == [1, 2, 3]
     :ok
   end
 
@@ -35,18 +96,21 @@ defmodule Examples.ALSlotHistory do
   # is what makes that true, not an accident of how few writes happened.
   example slot_history_collapses_repeats_from_unrelated_key_changes() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :history_probe_unrelated, super: :object, ivars: [:count, :other] do
-        end
+      run(
+        ~S"""
+        @history_probe_unrelated
+        #{super => object, ivars => [#{name => count}, #{name => other}]}.
 
-        new(:history_probe_unrelated, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :other, :a)
-        set_slot(obj, :other, :b)
-        slot_history(obj, :count, values)
-      end
+        new history_probe_unrelated Obj.
+        set_slot Obj count 1.
+        set_slot Obj other a.
+        set_slot Obj other b.
+        slot_history Obj count Values.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$values") == [1]
+    assert Map.get(bindings, "$Values") == [1]
     :ok
   end
 
@@ -64,21 +128,23 @@ defmodule Examples.ALSlotHistory do
   # avoids it entirely instead).
   example slot_at_ground_time_finds_the_value_in_effect_at_the_boundary() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :clp_boundary_probe, super: :object, ivars: [:count] do
-        end
+      run(
+        ~S"""
+        @clp_boundary_probe
+        #{super => object, ivars => [#{name => count}]}.
 
-        new(:clp_boundary_probe, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :count, 2)
+        new clp_boundary_probe Obj.
+        set_slot Obj count 1.
+        set_slot Obj count 2.
+        vm_slot_at Obj count 1 T1.
+        label T1.
+        = Boundary (+ T1 1).
+        vm_slot_at Obj count VAtBoundary Boundary.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        vm_slot_at(obj, :count, 1, t1)
-        label(t1)
-        boundary = t1 + 1
-        vm_slot_at(obj, :count, v_at_boundary, boundary)
-      end
-
-    assert Map.get(bindings, :"$v_at_boundary") == 2
+    assert Map.get(bindings, "$VAtBoundary") == 2
     :ok
   end
 
@@ -95,18 +161,20 @@ defmodule Examples.ALSlotHistory do
   # together, same as it would for any other two already-bounded vars.
   example slot_at_open_time_posts_a_real_upper_bound() do
     result =
-      run branch: Examples.Support.branch() do
-        defclass :clp_upper_bound_probe, super: :object, ivars: [:count] do
-        end
+      run(
+        ~S"""
+        @clp_upper_bound_probe
+        #{super => object, ivars => [#{name => count}]}.
 
-        new(:clp_upper_bound_probe, obj)
-        set_slot(obj, :count, 1)
-        set_slot(obj, :count, 2)
-
-        vm_slot_at(obj, :count, 1, t)
-        vm_slot_at(obj, :count, 2, t2)
-        t >= t2
-      end
+        new clp_upper_bound_probe Obj.
+        set_slot Obj count 1.
+        set_slot Obj count 2.
+        vm_slot_at Obj count 1 T.
+        vm_slot_at Obj count 2 T2.
+        >= T T2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert {:aborted, _} = result
     :ok

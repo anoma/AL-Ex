@@ -18,13 +18,16 @@ defmodule Examples.ALClauses do
   @doc "A clause body read via `clause/n` must be executable structs: reflect reverse's recursive clause and run its body through `call`."
   example reflected_clause_body_executes() do
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        method(:list, :reverse, m)
-        clause(m, [[h | t], out], body)
-        call([[h | t], out], body, [[1, 2, 3], result])
-      end
+      run(
+        ~S"""
+        method list reverse M.
+        clause M [[H . T], Out] Body.
+        call [[H . T], Out] Body [[1, 2, 3], Result].
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(b, :"$result") == [3, 2, 1]
+    assert Map.get(b, "$Result") == [3, 2, 1]
     b
   end
 
@@ -33,22 +36,30 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+      run(
+        ~S"""
+        vm_set_class HostC object.
 
-        defmethod(^c, :tag, [self, :first])
+        HostC >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
-      end
+        HostC >> tag
+        | Self second |.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(t, ts) do
-          tag(^c, t)
-        end
-      end
+      run(
+        ~S"""
+        findall T Ts (tag HostC T).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
-    assert Map.get(b, :"$ts") == [:first, :second]
+    assert Map.get(b, "$Ts") == [:first, :second]
     :ok
   end
 
@@ -66,24 +77,32 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: base.id do
-        vm_set_class(^c, :object)
+      run(
+        ~S"""
+        vm_set_class HostC object.
 
-        defmethod(^c, :tag, [self, :first])
+        HostC >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
-      end
+        HostC >> tag
+        | Self second |.
+        """,
+        branch: base.id,
+        bindings: %{"HostC" => c}
+      )
 
     tip = AL.Branch.fork(:tip, base)
 
     {:atomic, {b, _constraints, _}} =
-      run branch: tip.id do
-        findall(t, ts) do
-          tag(^c, t)
-        end
-      end
+      run(
+        ~S"""
+        findall T Ts (tag HostC T).
+        """,
+        branch: tip.id,
+        bindings: %{"HostC" => c}
+      )
 
-    assert Map.get(b, :"$ts") == [:first, :second]
+    assert Map.get(b, "$Ts") == [:first, :second]
 
     AL.Branch.discard(tip)
     AL.Branch.discard(base)
@@ -96,39 +115,51 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+      run(
+        ~S"""
+        vm_set_class HostC object.
 
-        defmethod(^c, :tag, [self, :first])
+        HostC >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
-      end
+        HostC >> tag
+        | Self second |.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-        vm_retract_oapply(id, _)
-      end
+      run(
+        ~S"""
+        method HostC tag Id.
+        vm_retract_oapply Id _.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-
-        vm_set_oapply(id, [self, :second]) do
-        end
-
-        vm_set_oapply(id, [self, :first]) do
-        end
-      end
+      run(
+        ~S"""
+        method HostC tag Id.
+        vm_set_oapply Id [Self, second] {}.
+        vm_set_oapply Id [Self, first] {}.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(t, ts) do
-          tag(^c, t)
-        end
-      end
+      run(
+        ~S"""
+        findall T Ts (tag HostC T).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
-    assert Map.get(b, :"$ts") == [:second, :first]
+    assert Map.get(b, "$Ts") == [:second, :first]
     :ok
   end
 
@@ -143,24 +174,31 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
-        defmethod(^c, :tag, [self, :first])
-      end
+      run(
+        ~S"""
+        vm_set_class HostC object.
+
+        HostC >> tag
+        | Self first |.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-        clause(id, seq_before, [_self, :first], _)
-        vm_retract_oapply(id, [_self, :first])
+      run(
+        ~S"""
+        method HostC tag Id.
+        clause Id SeqBefore [_Self, first] _.
+        vm_retract_oapply Id [_Self, first].
+        vm_set_oapply Id [Self, second] {}.
+        clause Id SeqAfter [_Self, second] _.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
-        vm_set_oapply(id, [self, :second]) do
-        end
-
-        clause(id, seq_after, [_self, :second], _)
-      end
-
-    assert Map.get(b, :"$seq_after") > Map.get(b, :"$seq_before")
+    assert Map.get(b, "$SeqAfter") > Map.get(b, "$SeqBefore")
     :ok
   end
 
@@ -170,24 +208,31 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+      run(
+        ~S"""
+        vm_set_class HostC object.
 
-        defmethod(^c, :tag, [self, :first])
+        HostC >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
-      end
+        HostC >> tag
+        | Self second |.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
+      run(
+        ~S"""
+        method HostC tag Id.
+        findall S Seqs (clause Id S H Body).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
-        findall(s, seqs) do
-          clause(id, s, h, body)
-        end
-      end
-
-    assert Map.get(b, :"$seqs") == [0, 1]
+    assert Map.get(b, "$Seqs") == [0, 1]
     :ok
   end
 
@@ -198,39 +243,51 @@ defmodule Examples.ALClauses do
     c = fresh_class()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(^c, :object)
+      run(
+        ~S"""
+        vm_set_class HostC object.
 
-        defmethod(^c, :tag, [self, :first])
+        HostC >> tag
+        | Self first |.
 
-        defmethod(^c, :tag, [self, :second])
-      end
+        HostC >> tag
+        | Self second |.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-        vm_retract_oapply(id, _)
-      end
+      run(
+        ~S"""
+        method HostC tag Id.
+        vm_retract_oapply Id _.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        method(^c, :tag, id)
-
-        vm_set_oapply(id, 1, [self, :first]) do
-        end
-
-        vm_set_oapply(id, 0, [self, :second]) do
-        end
-      end
+      run(
+        ~S"""
+        method HostC tag Id.
+        vm_set_oapply Id 1 [Self, first] {}.
+        vm_set_oapply Id 0 [Self, second] {}.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(t, ts) do
-          tag(^c, t)
-        end
-      end
+      run(
+        ~S"""
+        findall T Ts (tag HostC T).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c}
+      )
 
-    assert Map.get(b, :"$ts") == [:second, :first]
+    assert Map.get(b, "$Ts") == [:second, :first]
     :ok
   end
 
@@ -241,14 +298,121 @@ defmodule Examples.ALClauses do
   # standardized apart, so the query matches regardless of the names it uses.
   example clause_read_does_not_capture_query_vars() do
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(head, heads) do
-          clause(:defmethod, head, body)
-        end
-      end
+      run(
+        ~S"""
+        findall Head Heads (clause defmethod Head Body).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(b, :"$heads") != []
+    assert Map.get(b, "$Heads") != []
     :ok
+  end
+
+  example clause_heads_refuse_cyclic_bindings() do
+    {:atomic, {b, _constraints, _}} =
+      run(
+        ~S"""
+        @cycle_probe
+        #{super => object}.
+
+        cycle_probe >> wrapped_first
+        | _Self (wrap X) X |.
+
+        cycle_probe >> wrapped_second
+        | _Self X (wrap X) |.
+
+        cycle_probe >> twice
+        | _Self X X |.
+
+        new cycle_probe Probe.
+        not {wrapped_first Probe Y Y}.
+        not {wrapped_second Probe Z Z}.
+        twice Probe (wrap W) Same.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert %AL.Goal.Compound{name: :wrap} = b["$Same"]
+  end
+
+  example unused_head_variables_preserve_open_calls_and_live_variables() do
+    {:atomic, {bindings, _constraints, _}} =
+      run(
+        ~S"""
+        @unused_head_probe
+        #{super => object}.
+
+        unused_head_probe >> accepts
+        | _Self _Unused |.
+
+        unused_head_probe >> repeated
+        | _Self X X |.
+
+        unused_head_probe >> echoes
+        | _Self X Result |
+        = Result X.
+
+        new unused_head_probe Probe.
+        accepts Probe Open.
+        var Open.
+        not {repeated Probe 1 2}.
+        repeated Probe 3 3.
+        echoes Probe 4 Echo.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Echo"] == 4
+  end
+
+  example prepared_clause_cache_tracks_clause_replacement() do
+    {:atomic, _} =
+      run(
+        ~S"""
+        @prepared_clause_probe
+        #{super => object}.
+
+        prepared_clause_probe >> accepts
+        | _Self _Unused |.
+
+        new prepared_clause_probe Probe.
+        accepts Probe anything.
+        method prepared_clause_probe accepts Id.
+        vm_retract_oapply Id _.
+        vm_set_oapply Id [_Self, fixed] {}.
+        not {accepts Probe other}.
+        accepts Probe fixed.
+        """,
+        branch: Examples.Support.branch()
+      )
+  end
+
+  example dispatch_tracks_method_rebinding() do
+    c = fresh_class()
+    probe = fresh_class()
+
+    {:atomic, _} =
+      run(
+        ~S"""
+        vm_set_class HostC object.
+
+        HostC >> tag
+        | _Self first |.
+
+        HostC >> replacement
+        | _Self second |.
+
+        vm_set_class HostProbe HostC.
+        tag HostProbe first.
+        method HostC replacement ReplacementId.
+        vm_retract_method HostC tag _.
+        vm_set_method HostC tag ReplacementId.
+        tag HostProbe second.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostC" => c, "HostProbe" => probe}
+      )
   end
 
   # `:object`'s `reorder_clauses` rewrites a method's clauses into a given order.
@@ -274,52 +438,62 @@ defmodule Examples.ALClauses do
   # improper list `[h | t]` produces before `h`/`t` are bound by a call.
   example defmethod_stores_clause_with_improper_list_arg() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(:cons_arg_test, :object)
+      run(
+        ~S"""
+        vm_set_class cons_arg_test object.
 
-        defmethod(:cons_arg_test, :wrap, [self, h, t, out]) do
-          out = [h | t]
-        end
-      end
+        cons_arg_test >> wrap
+        | Self H T Out |
+        = Out [H . T].
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        wrap(:cons_arg_test, 1, [2, 3], out)
-      end
+      run(
+        ~S"""
+        wrap cons_arg_test 1 [2, 3] Out.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == [1, 2, 3]
+    assert Map.get(bindings, "$Out") == [1, 2, 3]
     :ok
   end
 
   defp at_clause_arities() do
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        method(:list, :at, id)
+      run(
+        ~S"""
+        method list at Id.
+        findall Head Heads (clause Id Head Body).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall(head, heads) do
-          clause(id, head, body)
-        end
-      end
-
-    Enum.map(Map.get(b, :"$heads"), &length/1)
+    Enum.map(Map.get(b, "$Heads"), &length/1)
   end
 
   defp swap_first_two_at_clauses() do
     {:atomic, {b, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        method(:list, :at, id)
+      run(
+        ~S"""
+        method list at Id.
+        findall [Head, Body] Clauses (clause Id Head Body).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall([head, body], clauses) do
-          clause(id, head, body)
-        end
-      end
-
-    [x, y, z] = Map.get(b, :"$clauses")
+    [x, y, z] = Map.get(b, "$Clauses")
     reordered = [y, x, z]
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        reorder_clauses(:list, :at, _, ^reordered)
-      end
+      run(
+        ~S"""
+        reorder_clauses list at _ HostReordered.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostReordered" => reordered}
+      )
   end
 end

@@ -11,34 +11,46 @@ defmodule Examples.ALDif do
 
   example dif_resolves_immediately_when_ground() do
     {:atomic, {_bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        dif(1, 2)
-      end
+      run(
+        ~S"""
+        dif 1 2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        dif(1, 1)
-      end
+      run(
+        ~S"""
+        dif 1 1.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example dif_survives_a_non_conflicting_binding() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        dif(x, 1)
-        x = 2
-      end
+      run(
+        ~S"""
+        dif X 1.
+        = X 2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == 2
+    assert Map.get(bindings, "$X") == 2
   end
 
   example dif_fails_a_conflicting_binding() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        dif(x, 1)
-        x = 1
-      end
+      run(
+        ~S"""
+        dif X 1.
+        = X 1.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -49,12 +61,15 @@ defmodule Examples.ALDif do
   # `x = 2` — never surfacing 1 as a candidate at all.
   example dif_prunes_a_generate_and_test_search() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        dif(x, 1)
-        member([1, 2, 3], x)
-      end
+      run(
+        ~S"""
+        dif X 1.
+        member [1, 2, 3] X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == 2
+    assert Map.get(bindings, "$X") == 2
   end
 
   # Two constraints parked on the same still-open var: both have to survive
@@ -62,27 +77,36 @@ defmodule Examples.ALDif do
   # before landing on the one value that satisfies both.
   example dif_two_direct_constraints_both_enforced() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        dif(x, 1)
-        dif(x, 2)
-        x = 2
-      end
+      run(
+        ~S"""
+        dif X 1.
+        dif X 2.
+        = X 2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        dif(x, 1)
-        dif(x, 2)
-        x = 1
-      end
+      run(
+        ~S"""
+        dif X 1.
+        dif X 2.
+        = X 1.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        dif(x, 1)
-        dif(x, 2)
-        x = 3
-      end
+      run(
+        ~S"""
+        dif X 1.
+        dif X 2.
+        = X 3.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == 3
+    assert Map.get(bindings, "$X") == 3
   end
 
   # An unbound receiver's generative dispatch offers each durable object
@@ -92,26 +116,30 @@ defmodule Examples.ALDif do
   # the excluded object never surfaces as a solution, everything else still does.
   example dif_excludes_a_durable_candidate_from_generative_dispatch() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :dif_dispatch_pingable, super: :object do
-          defmethod(:ping, [_self, :pong])
-        end
+      run(
+        ~S"""
+        @dif_dispatch_pingable
+        #{super => object}.
 
-        new(:dif_dispatch_pingable, %{name: :dif_dispatch_ping_a}, _)
-        new(:dif_dispatch_pingable, %{name: :dif_dispatch_ping_b}, _)
-      end
+        dif_dispatch_pingable >> ping
+        | _Self pong |.
+
+        new dif_dispatch_pingable #{name => dif_dispatch_ping_a} _.
+        new dif_dispatch_pingable #{name => dif_dispatch_ping_b} _.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        dif(o, :dif_dispatch_ping_a)
+      run(
+        ~S"""
+        dif O dif_dispatch_ping_a.
+        findall O Os {ping O pong, label O}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall(o, os) do
-          ping(o, :pong)
-          label(o)
-        end
-      end
-
-    os = Map.get(bindings, :"$os")
+    os = Map.get(bindings, "$Os")
     assert :dif_dispatch_ping_b in os
     refute :dif_dispatch_ping_a in os
   end
@@ -122,11 +150,14 @@ defmodule Examples.ALDif do
   # first solution should already be a one-element list.
   example dif_excludes_the_empty_list_structural_candidate() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        dif(x, [])
-        reverse(x, y)
-      end
+      run(
+        ~S"""
+        dif X [].
+        reverse X Y.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert length(Map.get(bindings, :"$x")) == 1
+    assert length(Map.get(bindings, "$X")) == 1
   end
 end

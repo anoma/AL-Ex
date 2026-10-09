@@ -17,17 +17,20 @@ defmodule Examples.ALGenerative do
   # should generate open lists containing `1`, not just search existing objects.
   example member_is_bidirectional() do
     {:atomic, {b1, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        member(x, 1)
-      end
+      run(
+        ~S"""
+        member X 1.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    [h1 | t1] = Map.get(b1, :"$x")
+    [h1 | t1] = Map.get(b1, "$X")
     assert h1 == 1
     assert AL.Var.var?(t1)
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)
 
-    [h2, h3 | t2] = Map.get(b2, :"$x")
+    [h2, h3 | t2] = Map.get(b2, "$X")
     assert AL.Var.var?(h2)
     assert h3 == 1
     assert AL.Var.var?(t2)
@@ -39,11 +42,14 @@ defmodule Examples.ALGenerative do
   # unbound receiver -- else only ever growing cons cells.
   example reverse_grounds_empty_receiver() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        reverse(x, [])
-      end
+      run(
+        ~S"""
+        reverse X [].
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == []
+    assert Map.get(bindings, "$X") == []
     :ok
   end
 
@@ -51,11 +57,14 @@ defmodule Examples.ALGenerative do
   # because the nested receiver can ground to [].
   example concat_finds_missing_prefix() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        concat(x, [1, 2], [0, 1, 2])
-      end
+      run(
+        ~S"""
+        concat X [1, 2] [0, 1, 2].
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == [0]
+    assert Map.get(bindings, "$X") == [0]
     :ok
   end
 
@@ -63,17 +72,20 @@ defmodule Examples.ALGenerative do
   # one-element list, ...
   example reverse_enumerates_both_unbound() do
     {:atomic, {b1, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        reverse(x, y)
-      end
+      run(
+        ~S"""
+        reverse X Y.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(b1, :"$x") == []
-    assert Map.get(b1, :"$y") == []
+    assert Map.get(b1, "$X") == []
+    assert Map.get(b1, "$Y") == []
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)
 
-    x2 = Map.get(b2, :"$x")
-    y2 = Map.get(b2, :"$y")
+    x2 = Map.get(b2, "$X")
+    y2 = Map.get(b2, "$Y")
     assert length(x2) == 1
     assert x2 == y2
 
@@ -85,14 +97,17 @@ defmodule Examples.ALGenerative do
   # "second").
   example unbound_positions_show_as_anonymous_not_internal_names() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        send([], :concat, z)
-      end
+      run(
+        ~S"""
+        send [] concat Z.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    [a, b] = Map.get(bindings, :"$z")
+    [a, b] = Map.get(bindings, "$Z")
     assert a == b
     assert AL.Var.var?(a)
-    refute Atom.to_string(a) =~ "second"
+    refute AL.Var.name(a) =~ "second"
   end
 
   # value leg isn't :number-specific -- any class opts in via super: :value.
@@ -103,130 +118,142 @@ defmodule Examples.ALGenerative do
   # for what does).
   example custom_class_opts_into_value_dispatch() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :letter_chain, super: :value do
-          defmethod(:next, [
-            %{class: :letter_chain, letter: :a},
-            %{class: :letter_chain, letter: :b}
-          ])
+      run(
+        ~S"""
+        @letter_chain
+        #{super => value}.
 
-          defmethod(:next, [
-            %{class: :letter_chain, letter: :b},
-            %{class: :letter_chain, letter: :c}
-          ])
-        end
-      end
+        letter_chain >> next
+        | #{class => letter_chain, letter => a} #{class => letter_chain, letter => b} |.
+
+        letter_chain >> next
+        | #{class => letter_chain, letter => b} #{class => letter_chain, letter => c} |.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        next(x, %{class: :letter_chain, letter: :b})
-      end
+      run(
+        ~S"""
+        next X #{class => letter_chain, letter => b}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == %{class: :letter_chain, letter: :a}
+    assert Map.get(bindings, "$X") == %{class: :letter_chain, letter: :a}
   end
 
   example unbound_send_stays_open_with_a_dispatch_constraint() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :lazy_dispatch_value, super: :value, ivars: [] do
-          defmethod(:lazy_dispatch_probe, [_self, :reached])
-        end
-      end
+      run(
+        ~S"""
+        @lazy_dispatch_value
+        #{super => value}.
+
+        lazy_dispatch_value >> lazy_dispatch_probe
+        | _Self reached |.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        lazy_dispatch_probe(receiver, result)
-      end
+      run(
+        ~S"""
+        lazy_dispatch_probe Receiver Result.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.var?(Map.fetch!(bindings, :"$receiver"))
-    assert Map.fetch!(bindings, :"$result") == :reached
+    assert AL.Var.var?(Map.fetch!(bindings, "$Receiver"))
+    assert Map.fetch!(bindings, "$Result") == :reached
 
     assert %{
              isa: isa,
              dispatch: [%{selector: :lazy_dispatch_probe, provider: :lazy_dispatch_value}]
-           } = Map.fetch!(constraints, :"$receiver")
+           } = Map.fetch!(constraints, "$Receiver")
 
     assert :lazy_dispatch_value in isa
   end
 
   example inherited_open_send_accepts_a_later_child_binding() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :lazy_dispatch_parent, super: :object do
-          defmethod(:lazy_dispatch_inherited, [_self, :parent])
-        end
+      run(
+        ~S"""
+        @lazy_dispatch_parent
+        #{super => object}.
 
-        defclass :lazy_dispatch_child, super: :lazy_dispatch_parent do
-        end
+        lazy_dispatch_parent >> lazy_dispatch_inherited
+        | _Self parent |.
 
-        new(:lazy_dispatch_child, %{name: :lazy_dispatch_child_instance}, child)
-        lazy_dispatch_inherited(receiver, result)
-        receiver = child
-      end
+        @lazy_dispatch_child
+        #{super => lazy_dispatch_parent}.
 
-    assert Map.fetch!(bindings, :"$receiver") == :lazy_dispatch_child_instance
-    assert Map.fetch!(bindings, :"$result") == :parent
+        new lazy_dispatch_child #{name => lazy_dispatch_child_instance} Child.
+        lazy_dispatch_inherited Receiver Result.
+        = Receiver Child.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.fetch!(bindings, "$Receiver") == :lazy_dispatch_child_instance
+    assert Map.fetch!(bindings, "$Result") == :parent
   end
 
   example overridden_open_send_uses_the_later_receivers_selected_method() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :lazy_override_parent, super: :object do
-          defmethod(:lazy_override_probe, [_self, :parent])
-        end
+      run(
+        ~S"""
+        @lazy_override_parent
+        #{super => object}.
 
-        defclass :lazy_override_child, super: :lazy_override_parent do
-          defmethod(:lazy_override_probe, [_self, :child])
-        end
+        lazy_override_parent >> lazy_override_probe
+        | _Self parent |.
 
-        new(:lazy_override_child, %{name: :lazy_override_child_instance}, child)
-        lazy_override_probe(receiver, result)
-        receiver = child
-      end
+        @lazy_override_child
+        #{super => lazy_override_parent}.
 
-    assert Map.fetch!(bindings, :"$receiver") == :lazy_override_child_instance
-    assert Map.fetch!(bindings, :"$result") == :child
+        lazy_override_child >> lazy_override_probe
+        | _Self child |.
+
+        new lazy_override_child #{name => lazy_override_child_instance} Child.
+        lazy_override_probe Receiver Result.
+        = Receiver Child.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.fetch!(bindings, "$Receiver") == :lazy_override_child_instance
+    assert Map.fetch!(bindings, "$Result") == :child
   end
 
   example open_dispatch_partitions_by_the_effective_provider() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :dispatch_partition_parent, super: :object do
-          defmethod(:dispatch_partition_probe, [_self, :parent])
-        end
+      run(
+        ~S"""
+        @dispatch_partition_parent
+        #{super => object}.
 
-        defclass :dispatch_partition_override, super: :dispatch_partition_parent do
-          defmethod(:dispatch_partition_probe, [_self, :override])
-        end
+        dispatch_partition_parent >> dispatch_partition_probe
+        | _Self parent |.
 
-        defclass :dispatch_partition_inheritor, super: :dispatch_partition_parent do
-        end
+        @dispatch_partition_override
+        #{super => dispatch_partition_parent}.
 
-        new(
-          :dispatch_partition_parent,
-          %{name: :dispatch_partition_parent_instance},
-          _
-        )
+        dispatch_partition_override >> dispatch_partition_probe
+        | _Self override |.
 
-        new(
-          :dispatch_partition_override,
-          %{name: :dispatch_partition_override_instance},
-          _
-        )
+        @dispatch_partition_inheritor
+        #{super => dispatch_partition_parent}.
 
-        new(
-          :dispatch_partition_inheritor,
-          %{name: :dispatch_partition_inheritor_instance},
-          _
-        )
+        new dispatch_partition_parent #{name => dispatch_partition_parent_instance} _.
+        new dispatch_partition_override #{name => dispatch_partition_override_instance} _.
+        new dispatch_partition_inheritor #{name => dispatch_partition_inheritor_instance} _.
+        findall [Receiver, Result] Answers {dispatch_partition_probe Receiver Result, label Receiver}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall([receiver, result], answers) do
-          dispatch_partition_probe(receiver, result)
-          label(receiver)
-        end
-      end
-
-    assert MapSet.new(Map.fetch!(bindings, :"$answers")) ==
+    assert MapSet.new(Map.fetch!(bindings, "$Answers")) ==
              MapSet.new([
                [:dispatch_partition_parent_instance, :parent],
                [:dispatch_partition_override_instance, :override],
@@ -236,26 +263,29 @@ defmodule Examples.ALGenerative do
 
   example labeling_intersecting_isa_constraints_selects_a_common_direct_class() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :label_left_parent, super: :value do
-        end
+      run(
+        ~S"""
+        @label_left_parent
+        #{super => value}.
 
-        defclass :label_right_parent, super: :value do
-        end
+        @label_right_parent
+        #{super => value}.
 
-        defclass :label_common_child,
-          super: [:label_left_parent, :label_right_parent, :value] do
-          defmethod(:init, [_self, _args, new]) do
-            new = %{class: :label_common_child}
-          end
-        end
+        @label_common_child
+        #{super => [label_left_parent, label_right_parent, value]}.
 
-        isa(object, :label_left_parent)
-        isa(object, :label_right_parent)
-        label(object)
-      end
+        label_common_child >> init
+        | _Self _Args New |
+        = New #{class => label_common_child}.
 
-    assert Map.fetch!(bindings, :"$object") == %{class: :label_common_child}
+        isa Object label_left_parent.
+        isa Object label_right_parent.
+        label Object.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.fetch!(bindings, "$Object") == %{class: :label_common_child}
   end
 
   # A bare atom in a value class's own literal clause is structurally
@@ -264,11 +294,16 @@ defmodule Examples.ALGenerative do
   # into the same class and become reachable both ways for the same fact.
   example bare_atom_self_on_a_value_class_fails_at_definition_time() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        defclass :letter_chain_antipattern, super: :value do
-          defmethod(:a, [:a])
-        end
-      end
+      run(
+        ~S"""
+        @letter_chain_antipattern
+        #{super => value}.
+
+        letter_chain_antipattern >> a
+        | a |.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -278,27 +313,38 @@ defmodule Examples.ALGenerative do
   # must fail, bind to a real one must succeed.
   example custom_value_class_pins_an_open_receiver_too() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :letter_word, super: :value, ivars: [] do
-          defmethod(:letter_word_stays_open, [self])
-        end
+      run(
+        ~S"""
+        @letter_word
+        #{super => value}.
 
-        vm_set_class(:letter_word_real_instance, :letter_word)
-      end
+        letter_word >> letter_word_stays_open
+        | Self |.
+
+        vm_set_class letter_word_real_instance letter_word.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        letter_word_stays_open(x)
-        x = :not_a_letter_word
-      end
+      run(
+        ~S"""
+        letter_word_stays_open X.
+        = X not_a_letter_word.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        letter_word_stays_open(x)
-        x = :letter_word_real_instance
-      end
+      run(
+        ~S"""
+        letter_word_stays_open X.
+        = X letter_word_real_instance.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == :letter_word_real_instance
+    assert Map.get(bindings, "$X") == :letter_word_real_instance
   end
 
   # value candidate's isa constraint attaches before its clause runs, live for
@@ -308,42 +354,48 @@ defmodule Examples.ALGenerative do
   # members again, same reasoning as custom_class_opts_into_value_dispatch.
   example value_clause_body_sees_its_own_isa_constraint() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :letter_chain_reflective, super: :value do
-          defmethod(:next, [
-            %{class: :letter_chain_reflective, letter: :a},
-            %{class: :letter_chain_reflective, letter: :b}
-          ])
+      run(
+        ~S"""
+        @letter_chain_reflective
+        #{super => value}.
 
-          defmethod(:next, [
-            %{class: :letter_chain_reflective, letter: :b},
-            %{class: :letter_chain_reflective, letter: :c}
-          ])
+        letter_chain_reflective >> next
+        | #{class => letter_chain_reflective, letter => a} #{class => letter_chain_reflective, letter => b} |.
 
-          defmethod(:chain_from, [self, first]) do
-            next(self, first)
-          end
+        letter_chain_reflective >> next
+        | #{class => letter_chain_reflective, letter => b} #{class => letter_chain_reflective, letter => c} |.
 
-          defmethod(:confirm_class, [self, result]) do
-            isa(self, result)
-          end
-        end
-      end
+        letter_chain_reflective >> chain_from
+        | Self First |
+        next Self First.
 
-    {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        chain_from(x, %{class: :letter_chain_reflective, letter: :b})
-      end
-
-    assert Map.get(bindings, :"$x") == %{class: :letter_chain_reflective, letter: :a}
+        letter_chain_reflective >> confirm_class
+        | Self Result |
+        isa Self Result.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        confirm_class(y, c)
-      end
+      run(
+        ~S"""
+        chain_from X #{class => letter_chain_reflective, letter => b}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$c") == :letter_chain_reflective
-    assert AL.Var.var?(Map.get(bindings, :"$y"))
+    assert Map.get(bindings, "$X") == %{class: :letter_chain_reflective, letter: :a}
+
+    {:atomic, {bindings, _constraints, _}} =
+      run(
+        ~S"""
+        confirm_class Y C.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$C") == :letter_chain_reflective
+    assert AL.Var.var?(Map.get(bindings, "$Y"))
   end
 
   # Two unrelated `super: :value` classes are mutually exclusive on the same
@@ -354,19 +406,25 @@ defmodule Examples.ALGenerative do
   # contradictory class with no check at all.
   example unrelated_value_classes_conflict_on_the_same_var() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :left_value_class, super: :value, ivars: [] do
-        end
+      run(
+        ~S"""
+        @left_value_class
+        #{super => value}.
 
-        defclass :right_value_class, super: :value, ivars: [] do
-        end
-      end
+        @right_value_class
+        #{super => value}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        isa(x, :left_value_class)
-        isa(x, :right_value_class)
-      end
+      run(
+        ~S"""
+        isa X left_value_class.
+        isa X right_value_class.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -380,19 +438,25 @@ defmodule Examples.ALGenerative do
   # a durable object). Found via `class(x, :program_execution)` on the AL.TransactionProgram.
   example exclusive_class_conflicts_with_unrelated_durable_class() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :ghost_value_class, super: :value, ivars: [] do
-        end
+      run(
+        ~S"""
+        @ghost_value_class
+        #{super => value}.
 
-        defclass :ghost_durable_class, super: :object, ivars: [] do
-        end
-      end
+        @ghost_durable_class
+        #{super => object}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        isa(x, :ghost_value_class)
-        isa(x, :ghost_durable_class)
-      end
+      run(
+        ~S"""
+        isa X ghost_value_class.
+        isa X ghost_durable_class.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -405,148 +469,187 @@ defmodule Examples.ALGenerative do
   # instead of once. Bug found via :blackjack package's :card class.
   example class_dispatch_does_not_report_ghost_duplicates() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :ghost_left, super: :value, ivars: [] do
-        end
+      run(
+        ~S"""
+        @ghost_left
+        #{super => value}.
 
-        defclass :ghost_right, super: :value, ivars: [] do
-        end
-      end
+        @ghost_right
+        #{super => value}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(x, xs) do
-          isa(x, :ghost_right)
-        end
-      end
+      run(
+        ~S"""
+        findall X Xs (isa X ghost_right).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert length(Map.get(bindings, :"$xs")) == 1
+    assert length(Map.get(bindings, "$Xs")) == 1
   end
 
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        isa(x, :card)
-        label(x)
-        get(x, :suit, suit)
-      end
+      run(
+        ~S"""
+        isa X card.
+        label X.
+        get X suit Suit.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert %{class: :card} = Map.get(bindings, :"$x")
-    assert AL.Var.var?(Map.get(bindings, :"$suit"))
+    assert %{class: :card} = Map.get(bindings, "$X")
+    assert AL.Var.var?(Map.get(bindings, "$Suit"))
     :ok
   end
 
   example labeling_a_list_selects_an_outer_constructor() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        isa(x, :list)
-        label(x)
-      end
+      run(
+        ~S"""
+        isa X list.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == []
+    assert Map.get(bindings, "$X") == []
 
     {:atomic, {next_bindings, _constraints, _}} = next_solution(state)
-    [_head | tail] = Map.get(next_bindings, :"$x")
+    [_head | tail] = Map.get(next_bindings, "$X")
     assert AL.Var.var?(tail)
     :ok
   end
 
   example labeling_a_value_class_without_a_witness_fails() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :open_value_without_witness, super: :value do
-        end
-      end
+      run(
+        ~S"""
+        @open_value_without_witness
+        #{super => value}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        isa(x, :open_value_without_witness)
-        label(x)
-      end
+      run(
+        ~S"""
+        isa X open_value_without_witness.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example labeling_uses_transitive_value_inheritance() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :inherited_value_parent, super: :value, ivars: [:payload] do
-        end
+      run(
+        ~S"""
+        @inherited_value_parent
+        #{super => value, ivars => [#{name => payload}]}.
 
-        defclass :inherited_value_child, super: :inherited_value_parent do
-        end
-      end
+        @inherited_value_child
+        #{super => inherited_value_parent}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        class(x, :inherited_value_child)
-        label(x)
-      end
+      run(
+        ~S"""
+        class X inherited_value_child.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert %{class: :inherited_value_child} = Map.get(bindings, :"$x")
+    assert %{class: :inherited_value_child} = Map.get(bindings, "$X")
     :ok
   end
 
   example labeling_a_number_uses_its_finite_constraint_domain() do
     {:atomic, {bindings, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        isa(x, :number)
-        x >= 2
-        x <= 3
-        label(x)
-      end
+      run(
+        ~S"""
+        isa X number.
+        >= X 2.
+        <= X 3.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == 2
+    assert Map.get(bindings, "$X") == 2
     {:atomic, {next_bindings, _constraints, _}} = next_solution(state)
-    assert Map.get(next_bindings, :"$x") == 3
+    assert Map.get(next_bindings, "$X") == 3
     :ok
   end
 
   example labeling_an_isa_with_only_a_durable_witness_finds_it() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :durable_witness_class, super: :object, ivars: [] do
-        end
+      run(
+        ~S"""
+        @durable_witness_class
+        #{super => object}.
 
-        new(:durable_witness_class, %{}, obj)
-      end
+        new durable_witness_class #{} Obj.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    obj = Map.get(bindings, :"$obj")
+    obj = Map.get(bindings, "$Obj")
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        isa(x, :durable_witness_class)
-        label(x)
-      end
+      run(
+        ~S"""
+        isa X durable_witness_class.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == obj
+    assert Map.get(bindings, "$X") == obj
     :ok
   end
 
   example dispatch_finds_a_durable_witness_classed_as_a_descendant_of_a_known_isa() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :isa_descendant_parent, super: :object, ivars: [] do
-          defmethod(:isa_descendant_probe, [self, :hit])
-        end
+      run(
+        ~S"""
+        @isa_descendant_parent
+        #{super => object}.
 
-        defclass :isa_descendant_child, super: :isa_descendant_parent, ivars: [] do
-        end
+        isa_descendant_parent >> isa_descendant_probe
+        | Self hit |.
 
-        new(:isa_descendant_child, %{}, obj)
-      end
+        @isa_descendant_child
+        #{super => isa_descendant_parent}.
 
-    obj = Map.get(bindings, :"$obj")
+        new isa_descendant_child #{} Obj.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    obj = Map.get(bindings, "$Obj")
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        isa(x, :isa_descendant_parent)
-        isa_descendant_probe(x, r)
-        label(x)
-      end
+      run(
+        ~S"""
+        isa X isa_descendant_parent.
+        isa_descendant_probe X R.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$x") == obj
-    assert Map.get(bindings, :"$r") == :hit
+    assert Map.get(bindings, "$X") == obj
+    assert Map.get(bindings, "$R") == :hit
     :ok
   end
 
@@ -554,16 +657,22 @@ defmodule Examples.ALGenerative do
   # exactly like an unbounded numeric domain always has, not a crash.
   example labeling_an_isa_with_no_witness_fails() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :witnessless_durable_class, super: :object, ivars: [] do
-        end
-      end
+      run(
+        ~S"""
+        @witnessless_durable_class
+        #{super => object}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        isa(x, :witnessless_durable_class)
-        label(x)
-      end
+      run(
+        ~S"""
+        isa X witnessless_durable_class.
+        label X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -577,17 +686,23 @@ defmodule Examples.ALGenerative do
   # scaffold, result stays as open as it started. No durable object created.
   example new_on_a_value_class_stays_open_not_durable() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :letter_symbol, super: :value, ivars: [] do
-        end
-      end
+      run(
+        ~S"""
+        @letter_symbol
+        #{super => value}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:letter_symbol, obj)
-      end
+      run(
+        ~S"""
+        new letter_symbol Obj.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.var?(Map.get(bindings, :"$obj"))
+    assert AL.Var.var?(Map.get(bindings, "$Obj"))
   end
 
   # one clause, two directions: forward is ordinary dispatch (real square
@@ -596,46 +711,52 @@ defmodule Examples.ALGenerative do
   # (between), same idiom as number's backward factorial.
   example squares_compute_area_forward_and_backward() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        defclass :square, super: :value, ivars: [:side] do
-          defmethod(:init, [self, args, new]) do
-            get(args, :side, side)
-            new = %{class: :square, side: side}
-          end
+      run(
+        ~S"""
+        @square
+        #{super => value, ivars => [#{name => side}]}.
 
-          defmethod(:get, [self, k, v]) do
-            vm_map_get(self, k, v)
-          end
+        square >> init
+        | Self Args New |
+        get Args side Side,
+        = New #{class => square, side => Side}.
 
-          defmethod(:area, [%{class: :square, side: side}, result]) do
-            implies do
-              [ground(side)] ->
-                result = side * side
+        square >> get
+        | Self K V |
+        map_get Self K V.
 
-              :else ->
-                ground(result)
-                between(self, 1, result, side)
-                check = side * side
-                check = result
-            end
-          end
-        end
-      end
-
-    {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:square, %{side: 4}, sq)
-        area(sq, a)
-      end
-
-    assert Map.get(bindings, :"$a") == 16
+        square >> area
+        | #{class => square, side => Side} Result |
+        ground Side -> = Result (* Side Side) ; {
+          ground Result,
+          between Self 1 Result Side,
+          = Check (* Side Side),
+          = Check Result
+        }.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        area(x, 16)
-      end
+      run(
+        ~S"""
+        new square #{side => 4} Sq.
+        area Sq A.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    invented = Map.get(bindings, :"$x")
+    assert Map.get(bindings, "$A") == 16
+
+    {:atomic, {bindings, _constraints, _}} =
+      run(
+        ~S"""
+        area X 16.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    invented = Map.get(bindings, "$X")
     assert invented.side == 4
   end
 
@@ -648,33 +769,37 @@ defmodule Examples.ALGenerative do
   # against the AL search to prove every solution was found.
   example thirty_cents_change_via_backtracking() do
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        new(:class, %{name: :coins, super: :object, ivars: []}, _)
+      run(
+        ~S"""
+        new class #{ivars => [], name => coins, super => object} _.
 
-        defmethod(:coins, :change, [self, 0, _denoms, []])
+        coins >> change
+        | Self 0 _Denoms [] |.
 
-        defmethod(:coins, :change, [self, amount, [c | rest], [c | combo]]) do
-          amount >= c
-          remaining = amount - c
-          change(self, remaining, [c | rest], combo)
-        end
+        coins >> change
+        | Self Amount [C . Rest] [C . Combo] |
+        >= Amount C,
+        = Remaining (- Amount C),
+        change Self Remaining [C . Rest] Combo.
 
-        defmethod(:coins, :change, [self, amount, [_c | rest], combo]) do
-          amount > 0
-          change(self, amount, rest, combo)
-        end
-      end
+        coins >> change
+        | Self Amount [_C . Rest] Combo |
+        > Amount 0,
+        change Self Amount Rest Combo.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:coins, coins)
+      run(
+        ~S"""
+        new coins Coins.
+        findall Combo All (change Coins 30 [25, 10, 5, 1] Combo).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall(combo, all) do
-          change(coins, 30, [25, 10, 5, 1], combo)
-        end
-      end
-
-    combos = Map.get(bindings, :"$all")
+    combos = Map.get(bindings, "$All")
 
     assert Enum.all?(combos, fn combo -> Enum.sum(combo) == 30 end)
     assert [25, 5] in combos
@@ -697,20 +822,26 @@ defmodule Examples.ALGenerative do
 
   example unbound_but_constrained_vars_surface_in_constraints() do
     {:atomic, {bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        isa(o, :class)
-      end
+      run(
+        ~S"""
+        isa O class.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.var?(Map.get(bindings, :"$o"))
-    assert constraints == %{"$o": %{isa: [:class]}}
+    assert AL.Var.var?(Map.get(bindings, "$O"))
+    assert constraints == %{"$O" => %{isa: [:class]}}
     :ok
   end
 
   example unconstrained_vars_have_no_constraints_entry() do
     {:atomic, {_bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        x = 5
-      end
+      run(
+        ~S"""
+        = X 5.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert constraints == %{}
     :ok
@@ -718,48 +849,48 @@ defmodule Examples.ALGenerative do
 
   example labeling_a_durable_object_preserves_following_goals() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :labeled_vehicle,
-          super: :object,
-          ivars: [:color],
-          redef: true do
-        end
+      run(
+        ~S"""
+        @labeled_vehicle
+        #{super => object, ivars => [#{name => color}]}.
 
-        new(:labeled_vehicle, %{name: :labeled_car, color: :red}, _)
-        class(vehicle, :labeled_vehicle)
-        label(vehicle)
-        get(vehicle, :color, color)
-      end
+        new labeled_vehicle #{color => red, name => labeled_car} _.
+        class Vehicle labeled_vehicle.
+        label Vehicle.
+        get Vehicle color Color.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.fetch!(bindings, :"$vehicle") == :labeled_car
-    assert Map.fetch!(bindings, :"$color") == :red
+    assert Map.fetch!(bindings, "$Vehicle") == :labeled_car
+    assert Map.fetch!(bindings, "$Color") == :red
     :ok
   end
 
   example direct_class_constraints_narrow_unbound_receiver_dispatch() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        defclass :dispatch_vehicle, super: :value do
-          defmethod(:dispatch_kind, [_self, :vehicle])
-        end
+      run(
+        ~S"""
+        @dispatch_vehicle
+        #{super => value}.
 
-        defclass :dispatch_car, super: [:dispatch_vehicle, :value] do
-          defmethod(:dispatch_kind, [_self, :car])
-        end
+        dispatch_vehicle >> dispatch_kind
+        | _Self vehicle |.
 
-        findall(kind, exact) do
-          class(receiver, :dispatch_vehicle)
-          dispatch_kind(receiver, kind)
-        end
+        @dispatch_car
+        #{super => [dispatch_vehicle, value]}.
 
-        findall(kind, inherited) do
-          isa(receiver, :dispatch_vehicle)
-          dispatch_kind(receiver, kind)
-        end
-      end
+        dispatch_car >> dispatch_kind
+        | _Self car |.
 
-    assert Map.get(bindings, :"$exact") == [:vehicle]
-    assert Enum.sort(Map.get(bindings, :"$inherited")) == [:car, :vehicle]
+        findall Kind Exact {class Receiver dispatch_vehicle, dispatch_kind Receiver Kind}.
+        findall Kind Inherited {isa Receiver dispatch_vehicle, dispatch_kind Receiver Kind}.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$Exact") == [:vehicle]
+    assert Enum.sort(Map.get(bindings, "$Inherited")) == [:car, :vehicle]
   end
 
   example value_membership_uses_its_explicit_branch() do
@@ -767,14 +898,16 @@ defmodule Examples.ALGenerative do
     branch = %AL.Branch{id: branch_id}
 
     {:atomic, _} =
-      run branch: branch_id do
-        defclass :explicit_branch_value, super: :value do
-          defmethod(:identify, [
-            %{class: :explicit_branch_value, name: :member},
-            :member
-          ])
-        end
-      end
+      run(
+        ~S"""
+        @explicit_branch_value
+        #{super => value}.
+
+        explicit_branch_value >> identify
+        | #{class => explicit_branch_value, name => member} member |.
+        """,
+        branch: branch_id
+      )
 
     :erlang.trace(self(), true, [:call])
     :erlang.trace_pattern({AL.Branch, :head, 0}, true, [:local])

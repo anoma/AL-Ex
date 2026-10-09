@@ -7,13 +7,14 @@ defmodule AL.Var do
   The store is a forest of variable references where the leaves are ground
   terms and act as roots of the reference chain.
 
-  Vars look like :"$<string>"; a freshened var wraps its original as
+  Vars look like {:"$var", "<string>"}; a freshened var wraps its original as
   {:"$fresh", base, scope}, so resolution mints no atoms.
   """
 
   alias AL.Var.ConstraintSet
+  @compile {:inline, deref: 2}
 
-  @type variable() :: atom() | {:"$fresh", variable(), String.t()}
+  @type variable() :: {:"$var", String.t()} | {:"$fresh", variable(), String.t()}
   @type t() :: atom() | number() | binary() | maybe_improper_list(t(), t()) | tuple() | map()
 
   # Binding = most-specific case of "what's known" about a var, same as
@@ -23,18 +24,21 @@ defmodule AL.Var do
   @type entry() :: t() | ConstraintSet.t()
   @type store() :: %{optional(variable()) => entry()}
 
+  def dif_value(a, b, store, branch) do
+    case unify(a, b, store, branch) do
+      nil -> store
+      ^store -> nil
+      _ -> add_dif(store, subst(a, store), subst(b, store))
+    end
+  end
+
   @spec empty_store() :: store()
   def empty_store(), do: %{}
 
   @spec var?(term()) :: boolean()
   def var?({:"$fresh", _base, _scope}), do: true
 
-  def var?(x) when is_atom(x) do
-    case Atom.to_string(x) do
-      <<"$", _::binary>> -> true
-      _ -> false
-    end
-  end
+  def var?({:"$var", name}) when is_binary(name), do: true
 
   def var?(_x) do
     false
@@ -42,97 +46,21 @@ defmodule AL.Var do
 
   @spec var(String.t() | atom()) :: variable()
   def var(x) do
-    :"$#{x}"
+    {:"$var", to_string(x)}
   end
 
   @spec name(variable()) :: String.t()
   def name({:"$fresh", base, scope}), do: name(base) <> "_" <> scope
 
-  def name(x) do
-    "$" <> name = Atom.to_string(x)
-    name
-  end
+  def name({:"$var", name}), do: name
+
+  def key(variable), do: "$" <> name(variable)
 
   @spec fresh(variable(), String.t()) :: variable()
   def fresh(base, scope), do: {:"$fresh", base, scope}
 
-  @typep mnesia_acc() :: {pos_integer(), %{optional(variable()) => pos_integer()}}
-
-  @spec to_mnesia_pattern(t()) :: t()
-  @spec to_mnesia_pattern(t(), mnesia_acc()) :: {t(), mnesia_acc()}
-  def to_mnesia_pattern(p) do
-    {p, _acc} = to_mnesia_pattern(p, {1, %{}})
-    p
-  end
-
-  def to_mnesia_pattern({:"$fresh", _base, _scope} = v, {n, seen}) do
-    case Map.get(seen, v) do
-      nil -> {:"$#{n}", {n + 1, Map.put(seen, v, n)}}
-      existing -> {:"$#{existing}", {n, seen}}
-    end
-  end
-
-  def to_mnesia_pattern(:"$_", acc), do: {:_, acc}
-
-  def to_mnesia_pattern(v, {n, seen}) when is_atom(v) do
-    if var?(v) do
-      case Map.get(seen, v) do
-        nil -> {:"$#{n}", {n + 1, Map.put(seen, v, n)}}
-        existing -> {:"$#{existing}", {n, seen}}
-      end
-    else
-      {v, {n, seen}}
-    end
-  end
-
-  def to_mnesia_pattern([], acc), do: {[], acc}
-
-  def to_mnesia_pattern([x | xs], acc) do
-    {x1, acc1} = to_mnesia_pattern(x, acc)
-    {xs1, acc_final} = to_mnesia_pattern(xs, acc1)
-
-    {[x1 | xs1], acc_final}
-  end
-
-  def to_mnesia_pattern(xs, acc) when is_tuple(xs) do
-    {xs, acc} =
-      xs
-      |> Tuple.to_list()
-      |> to_mnesia_pattern(acc)
-
-    {List.to_tuple(xs), acc}
-  end
-
-  def to_mnesia_pattern(m, acc) when is_map(m) do
-    {kvs, acc2} =
-      m
-      |> Map.to_list()
-      |> Enum.map_reduce(acc, fn {k, v}, a ->
-        {v2, a2} = to_mnesia_pattern(v, a)
-        {{k, v2}, a2}
-      end)
-
-    {Map.new(kvs), acc2}
-  end
-
-  def to_mnesia_pattern(x, acc), do: {x, acc}
-
   @spec deref(store(), t()) :: t()
-  def deref(store, k) do
-    case Map.get(store, k) do
-      nil ->
-        k
-
-      %ConstraintSet{} ->
-        k
-
-      ^k ->
-        k
-
-      v ->
-        if var?(v), do: deref(store, v), else: v
-    end
-  end
+  defdelegate deref(store, variable), to: AL.Var.Store
 
   @spec extend(store(), t(), t(), AL.Branch.t()) :: store() | nil
   def extend(store, x, y, branch) do
@@ -160,7 +88,7 @@ defmodule AL.Var do
   # here, however deep. def not defp: AL.Var.Bounds also binds directly
   # through this path — including recursively, from `propagate/3` below
   # (mutual recursion across the two modules, same pattern as
-  # AL/AL.Dispatch/AL.Interp.Store elsewhere in this codebase).
+  # AL/AL.Dispatch/AL.JAM.Mutation elsewhere in this codebase).
   #
   # `term` is resolved here, once, before anything else touches it —
   # `extend/4`'s own branch selection sometimes passes a raw, still-var-shaped
@@ -174,34 +102,213 @@ defmodule AL.Var do
   # skips the check even when what it ultimately points to is concrete.
   @spec bind(store(), variable(), t(), AL.Branch.t()) :: store() | nil
   def bind(store, var, term, branch) do
-    term = deref(store, term)
+    resolved = deref(store, term)
 
-    if occurs?(var, term, store) do
-      nil
+    if ground_marked?(store, term) do
+      bind_ground(store, var, resolved, branch)
     else
-      old_constraints = constraint_set(store, var)
-      new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
-
-      with propagated_store when not is_nil(propagated_store) <-
-             propagate(old_constraints, new_store, branch),
-           linked_store when not is_nil(linked_store) <-
-             propagate_links(old_constraints, term, propagated_store, branch) do
-        if violated?(old_constraints, linked_store, term, branch) do
-          nil
-        else
-          linked_store
-        end
-      else
-        nil -> nil
+      case scan(var, resolved, store) do
+        :occurs -> nil
+        :ground -> bind_ground(store, var, resolved, branch)
+        :open -> bind_resolved(store, var, resolved, branch)
       end
     end
+  end
+
+  defp bind_ground(store, var, term, branch) do
+    case bind_resolved(store, var, term, branch) do
+      nil -> nil
+      new_store -> mark_ground(new_store, var)
+    end
+  end
+
+  @ground_marks AL.Var.GroundMarks
+
+  defp ground_marked?(store, term) do
+    var?(term) and Map.has_key?(Map.get(store, @ground_marks, %{}), term)
+  end
+
+  defp mark_ground(store, var) do
+    case Map.get(store, var) do
+      [_ | _] -> Map.update(store, @ground_marks, %{var => true}, &Map.put(&1, var, true))
+      _scalar -> store
+    end
+  end
+
+  defp bind_resolved(store, var, term, branch) do
+    old_constraints = constraint_set(store, var)
+    new_store = store |> Map.put(var, term) |> migrate_constraints(old_constraints, term)
+
+    with false <- invalid_integer_binding?(old_constraints, term),
+         propagated_store when not is_nil(propagated_store) <-
+           propagate(old_constraints, new_store, branch),
+         keyed_store when not is_nil(keyed_store) <-
+           propagate_keys(old_constraints, term, propagated_store, branch),
+         functor_store when not is_nil(functor_store) <-
+           propagate_functor(old_constraints, term, keyed_store, branch),
+         linked_store when not is_nil(linked_store) <-
+           propagate_links(old_constraints, term, functor_store, branch) do
+      if violated?(old_constraints, linked_store, term, branch) do
+        nil
+      else
+        linked_store
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp invalid_integer_binding?(%ConstraintSet{integer: true}, term),
+    do: not var?(term) and not is_integer(term)
+
+  defp invalid_integer_binding?(_, _), do: false
+
+  defp propagate_keys(nil, _term, store, _branch), do: store
+
+  defp propagate_keys(%ConstraintSet{keys: keys}, _term, store, _branch) when keys == %{},
+    do: store
+
+  defp propagate_keys(%ConstraintSet{keys: keys}, term, store, branch) do
+    Enum.reduce_while(keys, store, fn {key, value}, acc ->
+      case add_key(acc, term, key, value, branch) do
+        nil -> {:halt, nil}
+        next -> {:cont, next}
+      end
+    end)
+  end
+
+  @spec add_key(store(), t(), t(), t(), AL.Branch.t()) :: store() | nil
+  def add_key(store, map, key, value, branch) do
+    case deref(store, map) do
+      bound when is_map(bound) and not is_struct(bound) ->
+        case Map.fetch(bound, key) do
+          {:ok, existing} -> unify(value, existing, store, branch)
+          :error -> nil
+        end
+
+      open ->
+        if var?(open), do: record_key(store, open, key, value, branch), else: nil
+    end
+  end
+
+  defp record_key(store, var, key, value, branch) do
+    case constraint_set(store, var) do
+      %ConstraintSet{keys: %{^key => existing}} ->
+        unify(value, existing, store, branch)
+
+      %ConstraintSet{} = set ->
+        Map.put(store, var, %{set | keys: Map.put(set.keys, key, value)})
+
+      nil ->
+        Map.put(store, var, %ConstraintSet{keys: %{key => value}})
+    end
+  end
+
+  defp propagate_functor(nil, _term, store, _branch), do: store
+
+  defp propagate_functor(
+         %ConstraintSet{functor: functor, functor_links: links},
+         term,
+         store,
+         branch
+       ) do
+    store =
+      case functor do
+        nil -> store
+        {name, args} -> add_functor(store, term, name, args, branch)
+      end
+
+    Enum.reduce_while(links, store, fn linked, acc ->
+      case acc && resolve_functor(acc, linked, branch) do
+        nil -> {:halt, nil}
+        next -> {:cont, next}
+      end
+    end)
+  end
+
+  @spec add_functor(store(), t(), t(), t(), AL.Branch.t()) :: store() | nil
+  def add_functor(store, term, name, args, branch) do
+    resolved = deref(store, term)
+
+    if var?(resolved) do
+      record_functor(store, resolved, name, args, branch)
+    else
+      case AL.Goal.call_form(resolved) do
+        {term_name, term_args} ->
+          unify([name, args], [term_name, term_args], store, branch)
+
+        nil ->
+          nil
+      end
+    end
+  end
+
+  defp record_functor(store, var, name, args, branch) do
+    recorded =
+      case constraint_set(store, var) do
+        %ConstraintSet{functor: {known_name, known_args}} ->
+          unify([name, args], [known_name, known_args], store, branch)
+
+        %ConstraintSet{} = set ->
+          store |> Map.put(var, %{set | functor: {name, args}}) |> add_isa(var, :compound)
+
+        nil ->
+          store |> Map.put(var, %ConstraintSet{functor: {name, args}}) |> add_isa(var, :compound)
+      end
+
+    recorded && resolve_functor(recorded, var, branch)
+  end
+
+  defp resolve_functor(store, var, branch) do
+    with resolved <- deref(store, var),
+         true <- var?(resolved),
+         %ConstraintSet{functor: {name, args}} <- constraint_set(store, resolved) do
+      build_functor(store, resolved, deref(store, name), spine(store, args, []), branch)
+    else
+      _ -> store
+    end
+  end
+
+  defp build_functor(store, var, name, {:proper, args}, branch) do
+    cond do
+      var?(name) ->
+        link_functor(store, name, var)
+
+      is_atom(name) ->
+        unify(var, AL.Goal.from_call_form(name, subst(args, store)), store, branch)
+
+      true ->
+        nil
+    end
+  end
+
+  defp build_functor(store, var, name, {:open, tail}, _branch) do
+    store = link_functor(store, tail, var)
+    if var?(name), do: link_functor(store, name, var), else: store
+  end
+
+  defp build_functor(_store, _var, _name, :improper, _branch), do: nil
+
+  defp spine(store, list, acc) do
+    case deref(store, list) do
+      [] -> {:proper, Enum.reverse(acc)}
+      [head | tail] -> spine(store, tail, [head | acc])
+      other -> if var?(other), do: {:open, other}, else: :improper
+    end
+  end
+
+  defp link_functor(store, link, term_var) do
+    Map.update(store, link, %ConstraintSet{functor_links: [term_var]}, fn
+      %ConstraintSet{} = set -> %{set | functor_links: Enum.uniq([term_var | set.functor_links])}
+      other -> other
+    end)
   end
 
   # `var`'s own `super_link`/`slot_link` (captured in `old_constraints`,
   # before this bind overwrote its entry) may have a partner that's now
   # cheaply resolvable -- one side just became concrete (`term`), so what
   # used to require a full scan (both sides open) is now a targeted lookup
-  # (`AL.Interp.Relations.GetSuper`/`GetSlots` already treat exactly this as
+  # (`AL.JAM.Relation`'s `super` and `slot` relations already treat exactly this as
   # cheap). Only auto-binds when that lookup is genuinely unique; several
   # matches leave the partner exactly as open as it was -- not a failure,
   # it just isn't determined yet. Recurses through `bind/4` itself when it
@@ -214,13 +321,75 @@ defmodule AL.Var do
   defp propagate_links(nil, _term, store, _branch), do: store
 
   defp propagate_links(%ConstraintSet{} = old, term, store, branch) do
-    case propagate_super_link(old.super_link, term, store, branch) do
-      nil -> nil
-      store1 -> propagate_slot_links(old.slot_links, term, store1, branch)
+    with next when not is_nil(next) <- propagate_class_links(old, term, store, branch),
+         next when not is_nil(next) <- propagate_super_links(old.super_links, term, next, branch) do
+      propagate_slot_links(old.slot_links, term, next, branch)
     end
   end
 
-  defp propagate_super_link(nil, _term, store, _branch), do: store
+  defp propagate_class_links(set, term, store, branch) do
+    term = deref(store, term)
+
+    if var?(term) do
+      store
+    else
+      links =
+        Enum.map(set.direct_class, &{:class, &1}) ++
+          Enum.flat_map(set.isa, fn
+            {:object_link, _} -> []
+            {:isa_object_link, _} -> []
+            class -> [{:isa, class}]
+          end)
+
+      Enum.reduce_while(links, store, fn {relation, raw_class}, acc ->
+        class = deref(acc, raw_class)
+
+        if var?(class) do
+          classes =
+            case relation do
+              :class ->
+                case AL.Dispatch.structural_class(term) do
+                  nil -> AL.Dispatch.direct_classes(term, branch)
+                  structural -> [structural]
+                end
+
+              :isa ->
+                AL.Dispatch.instance_classes(term, branch)
+            end
+
+          {next, _} = add_domain(acc, class, classes)
+          {next, domain} = narrow_domain(next, class, branch)
+
+          case MapSet.to_list(domain) do
+            [] ->
+              {:halt, nil}
+
+            [only] ->
+              case bind(next, class, only, branch) do
+                nil -> {:halt, nil}
+                bound -> {:cont, bound}
+              end
+
+            _ ->
+              {:cont, next}
+          end
+        else
+          {:cont, acc}
+        end
+      end)
+    end
+  end
+
+  defp propagate_super_links([], _term, store, _branch), do: store
+
+  defp propagate_super_links(links, term, store, branch) do
+    Enum.reduce_while(links, store, fn link, acc ->
+      case propagate_super_link(link, term, acc, branch) do
+        nil -> {:halt, nil}
+        next -> {:cont, next}
+      end
+    end)
+  end
 
   defp propagate_super_link({:super, z}, object_value, store, branch),
     do: resolve_super_link(store, object_value, z, branch)
@@ -233,14 +402,25 @@ defmodule AL.Var do
     super_pat = deref(store, super_)
 
     case {var?(object_pat), var?(super_pat)} do
-      {true, false} -> resolve_unique_super(store, object_pat, super_pat, branch)
-      {false, true} -> resolve_unique_super(store, object_pat, super_pat, branch)
-      _ -> store
+      {true, false} ->
+        resolve_unique_super(store, object_pat, super_pat, branch)
+
+      {false, true} ->
+        resolve_unique_super(store, object_pat, super_pat, branch)
+
+      {false, false} ->
+        if AL.Object.scan_super(object_pat, super_pat, branch) == [], do: nil, else: store
+
+      _ ->
+        store
     end
   end
 
   defp resolve_unique_super(store, object_pat, super_pat, branch) do
     case AL.Object.scan_super(object_pat, super_pat, branch) do
+      [] ->
+        nil
+
       [{:super, obj, _seq, sup}] ->
         {target_var, target_val} =
           if var?(object_pat), do: {object_pat, obj}, else: {super_pat, sup}
@@ -254,11 +434,11 @@ defmodule AL.Var do
 
   defp propagate_slot_link(nil, _term, store, _branch), do: store
 
-  defp propagate_slot_link({:slot, key, value_var}, object_value, store, branch),
-    do: resolve_slot_link(store, object_value, key, value_var, branch)
+  defp propagate_slot_link({:slot, key, value_var, storage}, object_value, store, branch),
+    do: resolve_slot_link(store, object_value, key, value_var, storage, branch)
 
-  defp propagate_slot_link({:slot_value, key, object_var}, value_value, store, branch),
-    do: resolve_slot_link(store, object_var, key, value_value, branch)
+  defp propagate_slot_link({:slot_value, key, object_var, storage}, value_value, store, branch),
+    do: resolve_slot_link(store, object_var, key, value_value, storage, branch)
 
   defp propagate_slot_links(links, term, store, branch) do
     Enum.reduce_while(links, store, fn link, acc ->
@@ -269,46 +449,29 @@ defmodule AL.Var do
     end)
   end
 
-  defp resolve_slot_link(store, object, key, value, branch) do
+  defp resolve_slot_link(store, object, key, value, storage, branch) do
     object_pat = deref(store, object)
     value_pat = deref(store, value)
 
     case {var?(object_pat), var?(value_pat)} do
-      # The value just became known -- several objects can share it, so
-      # only auto-bind the object side if exactly one real object does.
-      {true, false} -> resolve_unique_slot_value(store, object_pat, key, value_pat, branch)
-      # The object just became known -- its slots row is a single, keyed
-      # lookup, always resolvable outright if the key is set at all.
-      {false, true} -> resolve_slot_from_object(store, object_pat, key, value_pat, branch)
-      {false, false} -> resolve_slot_from_object(store, object_pat, key, value_pat, branch)
-      _ -> store
+      {true, false} ->
+        store
+
+      {false, true} ->
+        resolve_slot_from_object(store, object_pat, key, value_pat, storage, branch)
+
+      {false, false} ->
+        resolve_slot_from_object(store, object_pat, key, value_pat, storage, branch)
+
+      _ ->
+        store
     end
   end
 
-  defp resolve_slot_from_object(store, object, key, value, branch) do
-    fetched =
-      if is_map(object) do
-        Map.fetch(object, key)
-      else
-        case AL.Object.read_slots(object, branch) do
-          [{:slots, ^object, slots}] when is_map(slots) -> Map.fetch(slots, key)
-          _ -> :error
-        end
-      end
-
-    case fetched do
-      {:ok, resolved} -> unify(value, resolved, store, branch)
-      :error -> nil
-    end
-  end
-
-  defp resolve_unique_slot_value(store, object_var, key, value, branch) do
-    object_var
-    |> AL.Object.scan_slots(:"$slot_propagate_scan", branch)
-    |> Enum.filter(fn {:slots, _object, m} -> is_map(m) and Map.get(m, key) == value end)
-    |> case do
-      [{:slots, object, _m}] -> bind(store, object_var, object, branch)
-      _ -> store
+  defp resolve_slot_from_object(store, object, key, value, storage, branch) do
+    case AL.Var.SlotLink.values(object, key, storage, branch) do
+      [{_, resolved}] -> unify(value, resolved, store, branch)
+      _ -> nil
     end
   end
 
@@ -326,12 +489,7 @@ defmodule AL.Var do
 
   # `def`, not `defp` — `AL.Var.Bounds` reads a var's existing `ConstraintSet`
   # (its propagators, its current bounds) the same way `bind/4` does here.
-  def constraint_set(store, var) do
-    case Map.get(store, var) do
-      %ConstraintSet{} = set -> set
-      _ -> nil
-    end
-  end
+  defdelegate constraint_set(store, var), to: AL.Var.Store, as: :constraints
 
   # `extend/4` picks which of two still-open vars becomes the alias and which
   # stays live by argument position, not by which one carries a constraint —
@@ -358,10 +516,14 @@ defmodule AL.Var do
       isa: MapSet.union(a.isa, b.isa),
       dispatch: MapSet.union(a.dispatch, b.dispatch),
       bounds: merge_bounds(a.bounds, b.bounds),
+      integer: a.integer or b.integer,
       props: a.props ++ b.props,
       domain: merge_domains(a.domain, b.domain),
-      super_link: a.super_link || b.super_link,
-      slot_links: Enum.uniq(a.slot_links ++ b.slot_links)
+      super_links: Enum.uniq(a.super_links ++ b.super_links),
+      slot_links: Enum.uniq(a.slot_links ++ b.slot_links),
+      keys: a.keys,
+      functor: a.functor,
+      functor_links: Enum.uniq(a.functor_links ++ b.functor_links)
     }
 
   defp merge_domains(nil, d), do: d
@@ -449,6 +611,22 @@ defmodule AL.Var do
   # check the result is still feasible (`lo <= hi`) -- callers building a
   # choicepoint from this check that themselves and fail the choicepoint if
   # not, the same way `isa_conflict?/3` is a separate check from `add_isa`.
+  def require_integer(store, term) do
+    case deref(store, term) do
+      number when is_integer(number) ->
+        store
+
+      variable ->
+        if var?(variable) do
+          case constraint_set(store, variable) do
+            %ConstraintSet{integer: true} -> store
+            nil -> Map.put(store, variable, %ConstraintSet{integer: true})
+            set -> Map.put(store, variable, %{set | integer: true})
+          end
+        end
+    end
+  end
+
   @spec add_bounds(store(), variable(), {ConstraintSet.bound(), ConstraintSet.bound()}) ::
           store()
   def add_bounds(store, var, {lo, hi}) do
@@ -462,7 +640,7 @@ defmodule AL.Var do
   end
 
   # A var's already-known class domain, if any — the read side of `add_isa/3`.
-  # Lets a query (e.g. `AL.Interp.Relations`'s `GetClass` asked for self's class with
+  # Lets a query (e.g. `AL.JAM.Relation`'s `class` relation asked for self's class with
   # the class side still open) answer directly from what's already known
   # instead of falling back to a real scan for a receiver that, as a value
   # candidate, was never durably classified in the first place.
@@ -492,34 +670,27 @@ defmodule AL.Var do
     end
   end
 
-  # `super(y, z)` with both sides open (`AL.Interp.Relations.GetSuper`) posts one
+  # `super(y, z)` with both sides open (`AL.JAM.Relation`'s `super` relation) posts one
   # of these on each side instead of scanning -- see `ConstraintSet.super_link/0`
   # for why this can't just reuse `isa` the way `class/2` does (the two
   # slots are the same domain, so there's no asymmetric "instance of" claim
   # to make on either side, just "which slot am I").
   @spec add_super_link(store(), variable(), ConstraintSet.super_link()) :: store()
   def add_super_link(store, var, link) do
-    Map.update(store, var, %ConstraintSet{super_link: link}, fn
-      %ConstraintSet{} = set -> %{set | super_link: link}
+    Map.update(store, var, %ConstraintSet{super_links: [link]}, fn
+      %ConstraintSet{} = set -> %{set | super_links: Enum.uniq([link | set.super_links])}
       other -> other
     end)
   end
 
-  # The read side of `add_super_link/3` -- `nil` if this var was never one
-  # end of a pending `super(y, z)`.
-  @spec super_link_of(store(), variable()) :: ConstraintSet.super_link() | nil
-  def super_link_of(store, var) do
+  @spec super_links_of(store(), variable()) :: [ConstraintSet.super_link()]
+  def super_links_of(store, var) do
     case constraint_set(store, var) do
-      nil -> nil
-      set -> set.super_link
+      nil -> []
+      set -> set.super_links
     end
   end
 
-  # `slot(object, key, value)` with `object` open and `key` ground
-  # (`AL.Interp.Relations.GetSlots`) posts one of these -- `{:slot, key, value}` on
-  # `object`, `{:slot_value, key, object}` on `value` if it's also open.
-  # Same shape as `super_link` (a directional tag, not an isa claim), `key`
-  # just rides along as fixed context rather than needing its own slot.
   @spec add_slot_link(store(), variable(), ConstraintSet.slot_link(), AL.Branch.t()) ::
           store() | nil
   def add_slot_link(store, var, link, branch) do
@@ -544,11 +715,11 @@ defmodule AL.Var do
     end
   end
 
-  defp reconcile_slot_link(store, var, {:slot, key, value}, branch) do
+  defp reconcile_slot_link(store, var, {:slot, key, value, storage}, branch) do
     store
     |> slot_links_of(var)
     |> Enum.reduce_while(store, fn
-      {:slot, ^key, existing}, acc ->
+      {:slot, ^key, existing, ^storage}, acc ->
         case unify(value, existing, acc, branch) do
           nil -> {:halt, nil}
           next -> {:cont, next}
@@ -649,6 +820,7 @@ defmodule AL.Var do
            isa: isa,
            dispatch: dispatch,
            bounds: bounds,
+           integer: integer,
            domain: domain
          },
          store,
@@ -662,6 +834,9 @@ defmodule AL.Var do
       nil ->
         if not var?(term) do
           cond do
+            integer and not is_integer(term) ->
+              {:integer, term}
+
             not in_bounds?(bounds, term) ->
               {:bounds, bounds}
 
@@ -696,7 +871,10 @@ defmodule AL.Var do
   # `def`, not `defp` — `AL.Var.Bounds` uses the same in-bounds feasibility
   # check when applying a freshly-narrowed interval, not just the constraint
   # violation check here.
-  def in_bounds?({lo, hi}, term), do: (lo == nil or term >= lo) and (hi == nil or term <= hi)
+  def in_bounds?({nil, nil}, _term), do: true
+
+  def in_bounds?({lo, hi}, term),
+    do: is_number(term) and (lo == nil or term >= lo) and (hi == nil or term <= hi)
 
   # `def`, not `defp` — this is also the diagnostic entry point
   # (`diagnose_unify_failure/4`) uses to explain *why* a bind was refused, not
@@ -745,16 +923,15 @@ defmodule AL.Var do
   defp tag_class_constraint({:isa, class}, var), do: {:isa, var, class}
   defp tag_class_constraint(other, _var), do: other
 
-  # `{:object_link, obj}` (posted on the *class* side of a still-open
-  # `class(x, y)`, see `AL.Interp.Relations.GetClass`) never asserts "I belong
-  # to a class" at all -- it's a directional marker, not an isa claim, so it
-  # can never be violated. Without this clause, once `obj` (or whatever it
-  # gets bound to) derefs to something concrete, the fallback clause below
-  # would wrongly treat *that* as a class name to check membership against
-  # (e.g. "is `:program_execution` an instance of `:bootstrap`") and reject an
-  # otherwise-valid bind.
-  defp isa_violation_class({:object_link, _obj}, _term, _store, _branch), do: nil
-  defp isa_violation_class({:isa_object_link, _obj}, _term, _store, _branch), do: nil
+  defp isa_violation_class({:object_link, obj}, class, store, branch) do
+    object = deref(store, obj)
+    if not var?(object) and not AL.Dispatch.direct_class?(object, class, branch), do: class
+  end
+
+  defp isa_violation_class({:isa_object_link, obj}, class, store, branch) do
+    object = deref(store, obj)
+    if not var?(object) and not AL.Dispatch.instance_of?(object, class, branch), do: class
+  end
 
   # An isa entry that's still an open var (`class(x, y)` with both sides
   # open posts `y` onto `x` this way) hasn't resolved to a class yet, so it
@@ -769,8 +946,8 @@ defmodule AL.Var do
     if not var?(class) and not isa?(term, class, branch), do: class
   end
 
-  # `:number`/`:list`/`:map` are decidable from `term`'s own shape — no
-  # lookup. A value class beyond those three is provable by matching one of
+  # `:number`/`:list`/`:map`/`:string` are decidable from `term`'s own shape —
+  # no lookup. A value class beyond those four is provable by matching one of
   # its own clause heads in the self position (`AL.Dispatch.value_member?/3`)
   # — `:letter_chain`'s bare-atom `:a`/`:b` were never durably classified,
   # matching one of its own clauses is the only evidence of membership there
@@ -796,79 +973,66 @@ defmodule AL.Var do
   def tighten_min(a, b), do: min(a, b)
 
   @spec occurs?(variable(), t(), store()) :: boolean()
-  def occurs?(var, term, store) do
-    term = if is_atom(term) or var?(term), do: deref(store, term), else: term
+  def occurs?(var, term, store), do: scan(var, term, store) == :occurs
 
-    cond do
-      var?(term) -> term == var
-      # handle cons cells directly so improper lists (`[h | $tail]`) work
-      is_list(term) -> occurs_in_list?(var, term, store)
-      is_tuple(term) -> occurs_in_list?(var, Tuple.to_list(term), store)
-      is_map(term) -> occurs_in_list?(var, Map.values(term), store)
-      true -> false
+  defp scan(_var, term, _store) when is_number(term) or is_binary(term), do: :ground
+  defp scan(var, {:"$fresh", _, _} = term, store), do: scan_var(var, term, store)
+
+  defp scan(var, {:"$var", _name} = term, store), do: scan_var(var, term, store)
+
+  defp scan(var, term, store) when is_list(term), do: scan_list(var, term, store, :ground)
+
+  defp scan(var, term, store) when is_tuple(term),
+    do: scan_list(var, Tuple.to_list(term), store, :ground)
+
+  defp scan(var, term, store) when is_map(term),
+    do: scan_list(var, Map.keys(term) ++ Map.values(term), store, :ground)
+
+  defp scan(_var, _term, _store), do: :ground
+
+  defp scan_var(var, term, store) do
+    if ground_marked?(store, term) do
+      :ground
+    else
+      case deref(store, term) do
+        ^var -> :occurs
+        resolved -> if var?(resolved), do: :open, else: scan(var, resolved, store)
+      end
     end
   end
 
-  defp occurs_in_list?(var, [head | tail], store),
-    do: occurs?(var, head, store) or occurs_in_list?(var, tail, store)
+  defp scan_list(var, [head | tail], store, acc) when is_integer(head),
+    do: scan_list(var, tail, store, acc)
 
-  defp occurs_in_list?(_var, [], _store), do: false
+  defp scan_list(var, [head | tail], store, acc) do
+    case scan(var, head, store) do
+      :occurs -> :occurs
+      found -> scan_list(var, tail, store, both(acc, found))
+    end
+  end
 
-  defp occurs_in_list?(var, tail, store), do: occurs?(var, tail, store)
+  defp scan_list(_var, [], _store, acc), do: acc
+
+  defp scan_list(var, tail, store, acc) do
+    case scan(var, tail, store) do
+      :occurs -> :occurs
+      found -> both(acc, found)
+    end
+  end
+
+  defp both(:ground, :ground), do: :ground
+  defp both(_left, _right), do: :open
 
   @spec unify(t(), t(), store(), AL.Branch.t()) :: store() | nil
   def unify(x, y, store \\ %{}, branch \\ AL.Branch.head()),
-    do: unify(x, y, store, branch, :value)
+    do: AL.Var.Unification.unify(x, y, store, branch, :opaque)
 
-  # `:value` interprets arithmetic (`=` is value equality); `:opaque` is plain
-  # structural matching, used inside goal structs so a body stays data.
-  defp unify(x, y, store, branch, mode) do
-    cond do
-      x == :"$_" || y == :"$_" ->
-        store
+  @spec unify_value(t(), t(), store(), AL.Branch.t()) :: store() | nil
+  def unify_value(x, y, store, branch), do: AL.Var.Unification.unify(x, y, store, branch, :value)
 
-      mode == :value && (AL.Var.Bounds.arithmetic?(x) || AL.Var.Bounds.arithmetic?(y)) ->
-        AL.Var.Bounds.equal(store, x, y, branch)
-
-      var?(x) || var?(y) ->
-        extend(store, x, y, branch)
-
-      is_list(x) && is_list(y) && x != [] && y != [] ->
-        [x | xs] = x
-        [y | ys] = y
-
-        case unify(x, y, store, branch, mode) do
-          nil -> nil
-          new_store -> unify(xs, ys, new_store, branch, mode)
-        end
-
-      is_tuple(x) && is_tuple(y) && tuple_size(x) == tuple_size(y) ->
-        unify(Tuple.to_list(x), Tuple.to_list(y), store, branch, mode)
-
-      is_map(x) && is_map(y) ->
-        keys = Map.keys(x) |> MapSet.new() |> MapSet.intersection(MapSet.new(Map.keys(y)))
-        mode = if goal_struct?(x) or goal_struct?(y), do: :opaque, else: mode
-
-        unify(
-          Enum.map(keys, fn k -> Map.get(x, k) end),
-          Enum.map(keys, fn k -> Map.get(y, k) end),
-          store,
-          branch,
-          mode
-        )
-
-      x == y ->
-        store
-
-      true ->
-        nil
-    end
-  end
-
-  defp goal_struct?(%{__struct__: module}),
-    do: String.starts_with?(Atom.to_string(module), "Elixir.AL.Goal.")
-
-  defp goal_struct?(_), do: false
+  @spec unify_structural(t(), t(), store(), AL.Branch.t()) :: store() | nil
+  def unify_structural(x, y, store, branch),
+    do: AL.Var.Unification.unify(x, y, store, branch, :opaque)
 
   @spec subst(t(), store()) :: t()
   def subst(term, store), do: subst(term, store, & &1)
@@ -878,8 +1042,103 @@ defmodule AL.Var do
   # var back to whichever observable query var it's aliased to) instead of
   # showing it as-is.
   @spec subst(t(), store(), (variable() -> t())) :: t()
-  def subst(term, store, rewrite_unbound),
-    do: AL.Goal.map(term, &subst_leaf(&1, store, rewrite_unbound))
+  def subst(term, store, rewrite_unbound) do
+    case subst_walk(term, store, rewrite_unbound) do
+      :same -> term
+      {:new, new} -> new
+    end
+  end
+
+  defp subst_walk(term, _store, _rewrite)
+       when is_number(term) or is_binary(term) or term == [],
+       do: :same
+
+  defp subst_walk({:"$fresh", _base, _scope} = leaf, store, rewrite),
+    do: changed(leaf, subst_leaf(leaf, store, rewrite))
+
+  defp subst_walk({:"$var", _name} = term, store, rewrite),
+    do: changed(term, subst_leaf(term, store, rewrite))
+
+  defp subst_walk([head | tail], store, rewrite) when is_integer(head) do
+    case subst_walk(tail, store, rewrite) do
+      :same -> :same
+      {:new, new_tail} -> {:new, [head | new_tail]}
+    end
+  end
+
+  defp subst_walk([head | tail], store, rewrite) do
+    case {subst_walk(head, store, rewrite), subst_walk(tail, store, rewrite)} do
+      {:same, :same} -> :same
+      {new_head, new_tail} -> {:new, [kept(head, new_head) | kept(tail, new_tail)]}
+    end
+  end
+
+  defp subst_walk(term, store, rewrite) when is_struct(term) do
+    :maps.fold(
+      fn
+        :__struct__, _value, acc ->
+          acc
+
+        key, value, acc ->
+          case subst_walk(value, store, rewrite) do
+            :same -> acc
+            {:new, new} -> {:new, Map.put(kept(term, acc), key, new)}
+          end
+      end,
+      :same,
+      term
+    )
+  end
+
+  defp subst_walk(term, store, rewrite) when is_map(term) do
+    subst_walk_map(:maps.iterator(term), term, store, rewrite, 0)
+  end
+
+  defp subst_walk(term, store, rewrite) when is_tuple(term) do
+    case subst_walk(Tuple.to_list(term), store, rewrite) do
+      :same -> :same
+      {:new, elements} -> {:new, List.to_tuple(elements)}
+    end
+  end
+
+  defp subst_walk(_term, _store, _rewrite), do: :same
+
+  defp subst_walk_map(iterator, original, store, rewrite, count) do
+    case :maps.next(iterator) do
+      :none ->
+        :same
+
+      {key, value, rest} ->
+        new_key = subst_walk(key, store, rewrite)
+        new_value = subst_walk(value, store, rewrite)
+
+        if new_key == :same and new_value == :same do
+          subst_walk_map(rest, original, store, rewrite, count + 1)
+        else
+          prefix = original |> Enum.take(count) |> Map.new()
+          updated = Map.put(prefix, kept(key, new_key), kept(value, new_value))
+          {:new, subst_walk_map_rest(rest, updated, store, rewrite)}
+        end
+    end
+  end
+
+  defp subst_walk_map_rest(iterator, updated, store, rewrite) do
+    case :maps.next(iterator) do
+      :none ->
+        updated
+
+      {key, value, rest} ->
+        new_key = kept(key, subst_walk(key, store, rewrite))
+        new_value = kept(value, subst_walk(value, store, rewrite))
+        subst_walk_map_rest(rest, Map.put(updated, new_key, new_value), store, rewrite)
+    end
+  end
+
+  defp changed(leaf, leaf), do: :same
+  defp changed(_leaf, new), do: {:new, new}
+
+  defp kept(term, :same), do: term
+  defp kept(_term, {:new, new}), do: new
 
   @spec copy_term_with_constraints(t(), store()) :: {t(), store()}
   def copy_term_with_constraints(term, store) do
@@ -890,7 +1149,7 @@ defmodule AL.Var do
       variables
       |> Enum.sort()
       |> Map.new(fn variable ->
-        {variable, fresh(:"$_G", Integer.to_string(AL.fresh_scope()))}
+        {variable, fresh({:"$var", "_G"}, Integer.to_string(AL.fresh_scope()))}
       end)
 
     rewrite = fn variable -> Map.get(renaming, variable, variable) end
@@ -913,7 +1172,7 @@ defmodule AL.Var do
   defp reachable_constraint_variables(term, store) do
     term
     |> find_vars()
-    |> MapSet.delete(:"$_")
+    |> MapSet.delete({:"$var", "_"})
     |> MapSet.to_list()
     |> collect_constraint_variables(store, MapSet.new())
   end
@@ -924,7 +1183,7 @@ defmodule AL.Var do
     variable = deref(store, variable)
 
     cond do
-      not var?(variable) or variable == :"$_" or MapSet.member?(seen, variable) ->
+      not var?(variable) or variable == {:"$var", "_"} or MapSet.member?(seen, variable) ->
         collect_constraint_variables(rest, store, seen)
 
       true ->
@@ -934,7 +1193,7 @@ defmodule AL.Var do
               set
               |> subst(store)
               |> find_vars()
-              |> MapSet.delete(:"$_")
+              |> MapSet.delete({:"$var", "_"})
               |> MapSet.to_list()
 
             nil ->
@@ -956,32 +1215,30 @@ defmodule AL.Var do
     end
   end
 
-  defp subst_leaf(leaf, store, rewrite_unbound) when is_atom(leaf) do
+  defp subst_leaf({:"$var", _name} = leaf, store, rewrite_unbound) do
     case deref(store, leaf) do
       ^leaf ->
-        if var?(leaf), do: rewrite_unbound.(leaf), else: leaf
+        rewrite_unbound.(leaf)
 
       other ->
         if var?(other), do: rewrite_unbound.(other), else: subst(other, store, rewrite_unbound)
     end
   end
 
-  defp subst_leaf(leaf, _store, _rewrite_unbound), do: leaf
-
   @spec find_vars(t()) :: MapSet.t(variable())
   @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())
   def find_vars(term), do: find_vars(term, MapSet.new())
 
   def find_vars(term, acc) do
-    AL.Goal.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
+    AL.Term.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
   end
 
   # Wrapping rather than minting keeps the atom table flat; a
   # re-freshened var nests, so distinct scopes stay distinct.
   @spec freshen(t(), String.t()) :: t()
   def freshen(term, f) do
-    AL.Goal.map(term, fn
-      :"$_" -> :"$_"
+    AL.Term.map(term, fn
+      {:"$var", "_"} -> {:"$var", "_"}
       {:"$fresh", _base, _scope} = leaf -> fresh(leaf, f)
       leaf -> if var?(leaf), do: fresh(leaf, f), else: leaf
     end)
@@ -989,8 +1246,8 @@ defmodule AL.Var do
 
   @spec freshen(t(), String.t(), MapSet.t(variable())) :: t()
   def freshen(term, f, only) do
-    AL.Goal.map(term, fn
-      :"$_" -> :"$_"
+    AL.Term.map(term, fn
+      {:"$var", "_"} -> {:"$var", "_"}
       leaf -> if MapSet.member?(only, leaf), do: fresh(leaf, f), else: leaf
     end)
   end

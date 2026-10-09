@@ -11,25 +11,29 @@ defmodule Examples.ALGenserver do
     use GenServer
     use AL
 
-    def start_link(object_id, observer) do
-      GenServer.start_link(__MODULE__, {object_id, observer})
+    def start_link(object_id, observer, branch) do
+      GenServer.start_link(__MODULE__, {object_id, observer, branch})
     end
 
     @impl true
-    def init({object_id, observer}) do
+    def init({object_id, observer, branch}) do
       pid = self()
 
-      run branch: Examples.Support.branch() do
-        new(:process, %{name: ^object_id, pid: ^pid}, _)
+      run(
+        ~S"""
+        new process #{name => HostObjectId, pid => HostPid} _.
 
-        defmethod(^object_id, :increment, [self, amount]) do
-          get(self, :pid, p)
-          message = %{event: :increment, amount: amount}
-          send_elixir(p, message)
-        end
-      end
+        HostObjectId >> increment
+        | Self Amount |
+        get Self pid P,
+        = Message #{amount => Amount, event => increment},
+        send_elixir P Message.
+        """,
+        branch: branch,
+        bindings: %{"HostObjectId" => object_id, "HostPid" => pid}
+      )
 
-      {:ok, %{object_id: object_id, observer: observer, count: 0}}
+      {:ok, %{object_id: object_id, observer: observer, branch: branch, count: 0}}
     end
 
     @impl true
@@ -43,27 +47,36 @@ defmodule Examples.ALGenserver do
     def terminate(_reason, state) do
       object_id = state.object_id
 
-      run branch: Examples.Support.branch() do
-        vm_retract_class(^object_id, c)
-        vm_retract_super(^object_id, s)
-      end
+      run(
+        ~S"""
+        vm_retract_class HostObjectId C.
+        vm_retract_super HostObjectId S.
+        """,
+        branch: state.branch,
+        bindings: %{"HostObjectId" => object_id}
+      )
     end
   end
 
   example genserver_registers_as_al_object() do
-    {:ok, pid} = CounterService.start_link(:my_counter, self())
+    {:ok, pid} = CounterService.start_link(:my_counter, self(), Examples.Support.branch())
 
     {:atomic, results} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples})
+        AL.Object.scan_class(:my_counter, {:"$var", "class"}, %AL.Branch{
+          id: Examples.Support.branch()
+        })
       end)
 
     assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :process end)
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        send_async(:my_counter, :increment, [5])
-      end
+      run(
+        ~S"""
+        send_async my_counter increment [5].
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert_receive {:count_changed, ^pid, 5}, 1000
 
@@ -71,7 +84,9 @@ defmodule Examples.ALGenserver do
 
     {:atomic, after_stop} =
       :mnesia.transaction(fn ->
-        AL.Object.scan_class(:my_counter, :"$class", %AL.Branch{id: :examples})
+        AL.Object.scan_class(:my_counter, {:"$var", "class"}, %AL.Branch{
+          id: Examples.Support.branch()
+        })
       end)
 
     assert after_stop == []

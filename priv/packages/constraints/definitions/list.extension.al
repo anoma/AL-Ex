@@ -1,15 +1,7 @@
-Extension {
-  #name : :list
-}
+list >> combos
+| [] [[]] |.
 
-:list >> :combos, [[], [[]]] [
-
-]
-
-:list >> :combos, [[xs | xss], result] [
-  combos(xss, rest_combos)
-  findall([x | rest], result) do
-    member(xs, x)
-    member(rest_combos, rest)
-  end
-]
+list >> combos
+| [Xs . Xss] Result |
+combos Xss RestCombos,
+findall [X . Rest] Result {member Xs X, member RestCombos Rest}.

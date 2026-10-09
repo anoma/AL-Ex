@@ -1,10 +1,6 @@
-Class {
-  #name : :punctuator,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : []
-}
+@punctuator
+#{super => object}.
 
-:punctuator >> :punctuation, [_self, :bang] [
-  pass
-]
+punctuator >> punctuation
+| _Self bang |
+pass.

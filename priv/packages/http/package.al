@@ -1,5 +1,1 @@
-Package {
-  #name : :http,
-  #version : 2,
-  #deps : []
-}
+defpackage http #{deps => [], version => 2}.

@@ -13,50 +13,50 @@ defmodule Examples.ALBlackjack do
 
   example hand_total_computes_forward() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:card, %{suit: :spades, rank: :king}, king)
-        new(:card, %{suit: :hearts, rank: :queen}, queen)
-        hand_total([king, queen], total)
-      end
+      run(
+        ~S"""
+        new card #{rank => king, suit => spades} King.
+        new card #{rank => queen, suit => hearts} Queen.
+        hand_total [King, Queen] Total.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$total") == 20
+    assert Map.get(bindings, "$Total") == 20
     :ok
   end
 
-  # r3's rank is never supplied -- ivar specs leave it open but
-  # domain-constrained, so label enumerates it directly. Ace backtracks
-  # over both its legal values too; king(10) + ace(11) already hits 21, so
-  # ace = 11 never leaves room for a third card -- only ace = 1 survives,
-  # same reasoning the original durable-instance version relied on.
   example hand_finds_every_card_that_completes_21() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:card, %{suit: :spades, rank: :king}, king)
-        new(:card, %{suit: :hearts, rank: :ace}, ace)
-        new(:card, %{suit: :clubs}, c3)
-        get(c3, :rank, r3)
+      run(
+        ~S"""
+        new card #{rank => king, suit => spades} King.
+        new card #{rank => ace, suit => hearts} Ace.
+        new card #{suit => clubs} C3.
+        get C3 rank R3.
+        findall R3 Completions {label R3, hand_total [King, Ace, C3] 21}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall(r3, completions) do
-          label(r3)
-          hand_total([king, ace, c3], 21)
-        end
-      end
-
-    assert Enum.sort(Map.get(bindings, :"$completions")) == [10, :jack, :king, :queen]
+    assert Enum.sort(Map.get(bindings, "$Completions")) == [10, :jack, :king, :queen]
     :ok
   end
 
   # Wildcard args -- both ivars stay open, domain-constrained but unbound.
   example new_with_wildcard_args_leaves_both_ivars_open() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        new(:card, _, c)
-        get(c, :suit, suit)
-        get(c, :rank, rank)
-      end
+      run(
+        ~S"""
+        new card _ C.
+        get C suit Suit.
+        get C rank Rank.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.var?(Map.get(bindings, :"$suit"))
-    assert AL.Var.var?(Map.get(bindings, :"$rank"))
+    assert AL.Var.var?(Map.get(bindings, "$Suit"))
+    assert AL.Var.var?(Map.get(bindings, "$Rank"))
     :ok
   end
 
@@ -65,25 +65,28 @@ defmodule Examples.ALBlackjack do
   # domain, isa :number), guard passes.
   example card_value_finds_a_card_for_a_valid_value() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        card_value(c, 7)
-        label(c)
-      end
+      run(
+        ~S"""
+        card_value C 7.
+        label C.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$c") != nil
+    assert Map.get(bindings, "$C") != nil
     :ok
   end
 
   example repeated_symbolic_slot_reads_share_their_value() do
     {:atomic, {bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall([card, rank, value], triples) do
-          card_value(card, value)
-          get(card, :rank, rank)
-        end
-      end
+      run(
+        ~S"""
+        findall [Card, Rank, Value] Triples {card_value Card Value, get Card rank Rank}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    triples = Map.fetch!(bindings, :"$triples")
+    triples = Map.fetch!(bindings, "$Triples")
 
     assert Enum.map(Enum.take(triples, 5), fn [_card, rank, value] -> [rank, value] end) == [
              [:jack, 10],
@@ -96,10 +99,10 @@ defmodule Examples.ALBlackjack do
     [first_card, :jack, 10] = hd(triples)
     [last_card, last_rank, last_rank] = List.last(triples)
 
-    assert %{slots: %{rank: :jack}} = Map.fetch!(constraints, first_card)
-    assert %{slots: %{rank: ^last_rank}} = Map.fetch!(constraints, last_card)
+    assert %{slots: %{rank: :jack}} = Map.fetch!(constraints, AL.Var.key(first_card))
+    assert %{slots: %{rank: ^last_rank}} = Map.fetch!(constraints, AL.Var.key(last_card))
 
-    assert %{domain: domain, isa: isa} = Map.fetch!(constraints, last_rank)
+    assert %{domain: domain, isa: isa} = Map.fetch!(constraints, AL.Var.key(last_rank))
     assert domain == Enum.to_list(2..10)
     assert :number in isa
     :ok
@@ -107,27 +110,29 @@ defmodule Examples.ALBlackjack do
 
   example symbolic_slot_relations_are_exposed_in_the_answer() do
     {:atomic, {bindings, constraints, _}} =
-      run branch: Examples.Support.branch() do
-        card_value(card, value)
-        get(card, :rank, rank)
-      end
+      run(
+        ~S"""
+        card_value Card Value.
+        get Card rank Rank.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.fetch!(bindings, :"$value") == 10
-    assert Map.fetch!(bindings, :"$rank") == :jack
+    assert Map.fetch!(bindings, "$Value") == 10
+    assert Map.fetch!(bindings, "$Rank") == :jack
 
     assert %{slots: %{rank: :jack}} =
-             Map.fetch!(constraints, :"$card")
+             Map.fetch!(constraints, "$Card")
   end
 
   example labeling_a_symbolic_slot_value_uses_the_value_witness_domain() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall([rank, value], pairs) do
-          card_value(card, value)
-          get(card, :rank, rank)
-          label(rank)
-        end
-      end
+      run(
+        ~S"""
+        findall [Rank, Value] Pairs {card_value Card Value, get Card rank Rank, label Rank}.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     expected =
       [
@@ -138,16 +143,19 @@ defmodule Examples.ALBlackjack do
         [:ace, 1]
       ] ++ Enum.map(2..10, &[&1, &1])
 
-    assert MapSet.new(Map.fetch!(bindings, :"$pairs")) == MapSet.new(expected)
+    assert MapSet.new(Map.fetch!(bindings, "$Pairs")) == MapSet.new(expected)
   end
 
   # No rank produces 29 -- domain rejects it before any clause's guard runs.
   example card_value_fails_for_an_impossible_value() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        card_value(c, 29)
-        label(c)
-      end
+      run(
+        ~S"""
+        card_value C 29.
+        label C.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -155,9 +163,12 @@ defmodule Examples.ALBlackjack do
   # Out-of-domain rank rejected at construction time, not just query time.
   example new_with_out_of_domain_rank_aborts() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        new(:card, %{rank: 29}, _c)
-      end
+      run(
+        ~S"""
+        new card #{rank => 29} _C.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -166,10 +177,13 @@ defmodule Examples.ALBlackjack do
   # not a domain violation (the field's no longer open).
   example reading_a_bound_field_against_a_different_value_aborts() do
     {:aborted, _trace} =
-      run branch: Examples.Support.branch() do
-        new(:card, %{rank: 7}, c)
-        get(c, :rank, 2)
-      end
+      run(
+        ~S"""
+        new card #{rank => 7} C.
+        get C rank 2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

@@ -1,66 +1,44 @@
-Class {
-  #name : :propagator,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [:input_cells, :output_cell, :name]
-}
+@propagator
+#{
+  super => object,
+  ivars => [#{name => input_cells}, #{name => output_cell}, #{name => name}]
+}.
 
-:propagator >> :init, [self, args, self] [
-  get_slots(args, %{input_cells: input_cells, output_cell: output_cell})
-  set_slots(self, %{name: self, input_cells: input_cells, output_cell: output_cell})
+propagator >> init
+| Self Args Self |
+get_slots Args #{input_cells => InputCells, output_cell => OutputCell},
+set_slots Self #{input_cells => InputCells, name => Self, output_cell => OutputCell},
+forall (member InputCells InputCell) (subscribe InputCell Self),
+send_async Self cell_updated [none, none].
 
-  forall(member(input_cells, input_cell)) do
-    subscribe(input_cell, self)
-  end
+propagator >> cell_updated
+| Self _CellName _Domain |
+get_slots Self #{input_cells => InputCells, output_cell => OutputCell},
+findall InputDomain InputDomains {member InputCells InputCell, get InputCell domain InputDomain},
+same_length InputCells InputDomains,
+narrow_output Self InputDomains Candidate,
+send_async OutputCell constrain [Candidate].
 
-  send_async(self, :cell_updated, [:none, :none])
-]
+propagator >> narrow_output
+| Self [First . Rest] Candidate |
+isa First interval_value,
+constrain Self [First . Rest] Candidate.
 
-:propagator >> :cell_updated, [self, _cell_name, _domain] [
-  get_slots(self, %{input_cells: input_cells, output_cell: output_cell})
+propagator >> narrow_output
+| Self InputDomains Candidate |
+findall InputList InputLists {member InputDomains Domain, members Domain InputList},
+combos InputLists InputCombos,
+findall OutputValue OutputValues {member InputCombos Combo, constrain Self Combo OutputValue},
+members Candidate OutputValues.
 
-  findall(input_domain, input_domains) do
-    member(input_cells, input_cell)
-    get(input_cell, :domain, input_domain)
-  end
+propagator >> dependents
+| Self Dependents |
+dependents Self #{} Dependents.
 
-  same_length(input_cells, input_domains)
-  narrow_output(self, input_domains, candidate)
-  send_async(output_cell, :constrain, [candidate])
-]
-
-:propagator >> :narrow_output, [self, [first | rest], candidate] [
-  isa(first, :interval_value)
-  constrain(self, [first | rest], candidate)
-]
-
-:propagator >> :narrow_output, [self, input_domains, candidate] [
-  findall(input_list, input_lists) do
-    member(input_domains, domain)
-    members(domain, input_list)
-  end
-  combos(input_lists, input_combos)
-
-  findall(output_value, output_values) do
-    member(input_combos, combo)
-    constrain(self, combo, output_value)
-  end
-
-  members(candidate, output_values)
-]
-
-:propagator >> :dependents, [self, dependents] [
-  dependents(self, %{}, dependents)
-]
-
-:propagator >> :dependents, [self, acc, dependents] [
-  implies do
-    [get(acc, self, seen)] ->
-      acc = dependents
-
-    :else ->
-      get(self, :output_cell, output_cell)
-      put(acc, self, [output_cell], new_acc)
-      dependents(output_cell, new_acc, dependents)
-  end
-]
+propagator >> dependents
+| Self Acc Dependents |
+get Acc Self Seen -> = Acc Dependents ; {
+  get Self output_cell OutputCell,
+  put Acc Self [OutputCell] NewAcc,
+  dependents OutputCell NewAcc Dependents
+}.

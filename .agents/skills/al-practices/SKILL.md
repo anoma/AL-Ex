@@ -1,6 +1,6 @@
 ---
 name: al-practices
-description: Design, write, refactor, and debug relational-object AL programs, packages, bootstrap methods, and examples. Use for defclass, defmethod, run blocks, collection protocols, value objects, anonymous methods, AL surface syntax, and example-driven verification. Use al-internals as well when changing the interpreter or durable runtime.
+description: Design, write, refactor, and debug relational-object AL programs, packages, bootstrap methods, and examples. Use for class declarations, methods, run blocks, collection protocols, value objects, anonymous methods, AL surface syntax, and example-driven verification. Use al-internals as well when changing the abstract machine or durable runtime.
 ---
 
 # AL practices
@@ -8,6 +8,9 @@ description: Design, write, refactor, and debug relational-object AL programs, p
 AL is an object-oriented logic language. A good AL method states a relation and
 lets unification, constraints, clause choice, backtracking, and object dispatch
 do the work. Do not translate an imperative Elixir algorithm line by line.
+
+When working on a problem, instead of rushing to finish, help to develop the
+model so that the problem can be solved nicely and cleanly by a human.
 
 For any nontrivial AL method, class, collection protocol, or refactor, read
 [references/relational-object-programming.md](references/relational-object-programming.md).
@@ -25,47 +28,78 @@ Before writing a method, identify:
 5. Whether behavior belongs in dispatch on a class instead of a conditional.
 6. Whether the result is durable state or a new immutable value.
 
+If a program seems to need a new VM goal, `vm_*` operation, or native, stop
+and ask the user first; do not add one without explicit permission.
+
 Prefer the smallest set of goals that states those facts. Treat clause order,
-cut, `implies`, labeling, and side effects as semantic commitments, not routine
+cut, `->`, labeling, and side effects as semantic commitments, not routine
 control-flow tools.
 
 ## Core surface rules
 
-- AL has no tuple literals. Use lists for positional relational data, maps for
-  named value data, and value classes when behavior belongs with that data.
-- Multiple `defmethod` entries with the same selector are valid inside one
-  `defclass`. They form ordered clauses of one method. Use this for base cases,
+- AL has its own Prolog-like syntax; `lib/AL/syntax.bnf` is its BNF,
+  generated from the AL grammars by `mix al.bnf`.
+  Variables are capitalised (`Self`, `_`), atoms are lowercase or quoted,
+  `[H . T]` is a list, `#{key => V}` is a map, and `{G1, G2}` is a block of
+  goals. Comments start with `#`.
+- A call is juxtaposition: `sel Recv Arg1 Arg2` sends `sel` to `Recv`.
+  Arguments are single terms, so nested calls and arithmetic are bracketed:
+  `between Self (+ Low 1) High V`. `(foo)` is a goal with no arguments.
+- Operators are ordinary names called in prefix: `= X 1`, `< X 5`,
+  `= Y (+ X 1)`, `or (= C 1) (= C 2)`. The only infix forms are `,`, `;`,
+  `->`, and the list tail `.`.
+- A compound is just a term until it is run. Unification, head unification
+  included, is structural: `(+ Low 1)` passed to a method arrives as that
+  term. Arithmetic is evaluated only by a running `=` or comparison goal.
+- Goals are separated by commas and every top-level form ends with `.`.
+- AL has no tuples. Use lists for positional relational data, maps for named
+  value data, and value classes when behavior belongs with that data.
+- Transaction programs are `priv/programs/*.al` files that start with
+  `defprogram name #{version => V, deps => [...]}.`. Elixir code passes AL text
+  to `AL.run/1,2,3` and host values as named AL variable bindings. Package definition files are AL source: an `@name`
+  class or `@+name #{super => [...]}.` extension declaration followed by that
+  owner's method clauses. Inside an Elixir
+  `"..."` string an AL map is written `\#{...}`.
+- A method clause is `owner >> sel` followed by its head on its own line,
+  `| Self Arg . Rest |`, and then its body goals; it ends with `.`. A clause
+  without a body ends after its head: `| [] [] |.`. Several clauses with the
+  same selector form ordered clauses of one method. Use this for base cases,
   recursive cases, and relational alternatives.
-- Use `defclass` for ordinary class, value-class, metaclass, and category
-  declarations. Reserve raw `new(:class, ...)` construction for implementation
-  or tests of the class protocol itself.
-- Inside `defclass`, methods use `defmethod(selector, head) do ... end`. Keep an
-  explicit `do ... end`, including for an empty body. Top-level definitions use
-  `defmethod(class, selector, head)`.
-- Method and `run` bodies are sequences of goals. `forall` and `findall` take a
-  `do ... end` goal body. `not` and low-level `call` take a list of goals.
-- `implies` is committed if/then/else: it keeps the first successful condition
-  and discards its remaining alternatives. If no condition matches and no
-  `:else` is present, it succeeds vacuously. Use explicit `:else -> fail` when
-  failure is intended.
+- The clauses one source gives for an owner and selector are the method's
+  whole definition: reading them clears its earlier clauses, as a Prolog
+  reconsult does, and keeps the method's id. Add a clause to a method defined
+  elsewhere with `defmethod Owner Sel [Head] {Body}`.
+- Declare ordinary classes, value classes, metaclasses, and categories as
+  `@name #{super => object, ivars => [#{name => count}]}.`. Ivars are a list of
+  maps with a `name:`. Declaring an existing name again replaces its
+  declaration and keeps its methods. Reserve raw `new class ...` construction
+  for implementation or tests of the class protocol itself.
+- `C -> T ; E` is a committed conditional: it keeps the first successful
+  condition and discards its remaining alternatives. As in Prolog, `C -> T`
+  without an else fails when `C` fails; write `C -> T ; pass` when it should
+  succeed. `A ; B` is a backtracking alternative. Each side is one goal or a
+  `{...}` block.
+- Forms that take goals take blocks: `findall T R {G}`, `forall {C} {A}`,
+  `not {G}`, `lambda [Args] M {G}`, `spawn {G}`.
 - Use `cut` only when the relation intentionally commits to choices made in the
   current call scope.
 
 ## Objects and executable values
 
 - Normal calls dispatch a selector through the receiver. When the selector is a
-  value, use `send(receiver, selector, args)`.
-- Method objects and `:anonymous_method` values implement `run(args)`. Execute
-  them with `run(method, args)`.
-- An `:anonymous_method` is a classed value object with `args`, `head`, and
+  value, use `send Receiver Selector` with no arguments, or
+  `send Receiver Selector Args` otherwise.
+- Method objects and `anonymous_method` values implement `run`. Execute them
+  with `run Method Args`.
+- An `anonymous_method` is a classed value object with `args`, `head`, and
   `body`. `add_arg` returns an updated value; it does not mutate the original.
   The loaded arguments and provided arguments are concatenated, unified with
   the head, and then the body runs.
 - When a protocol accepts either a selector or an anonymous method, keep them as
   clauses of the same arity. Use `send` for the selector clause and constrain
-  the executable-value clause with `isa(method, :anonymous_method)` before
+  the executable-value clause with `isa Method anonymous_method` before
   calling `run`.
-- `call(head, body, args)` is the low-level relation used to apply stored clause
+- `call Head Body Args` is the low-level relation used to apply stored clause
   data. It is not the public representation of an anonymous callable.
 
 ## State and values
@@ -76,8 +110,13 @@ control-flow tools.
   value with `put`. Read only the slots required to compute that update.
 - A value class's `init` constructs its result by unifying with a complete map.
   Do not use durable slot mutation on a map scaffold.
+- Maps unify only with maps that have the same keys. To read some keys of a
+  larger map, use `get` or `map_get` in the body rather than a partial map in
+  the head. On a still-open map, `map_get` records a key constraint that the
+  map must satisfy once it is bound.
 - Prefer `get`, `put`, `set_slot`, and `set_slots` in program code. Use
-  `vm_map_get`, `vm_map_put`, or `vm_set_slot` only at the implementation or
+  `map_get` when the receiver may still be open and is known to be a map, and
+  `vm_map_put` or `vm_set_slot` only at the implementation or
   structural-reconciliation boundary.
 
 ## Verification

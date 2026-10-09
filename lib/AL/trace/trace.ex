@@ -6,18 +6,17 @@ defmodule AL.Trace do
   Trace flags select independent detail levels:
 
     * `:domino` retains method/clause ports and constraint evidence
-    * `:vm` retains every raw VM goal plus backtrack/flounder markers
+    * `:goals` retains reconstructed goals plus backtrack/flounder markers
+    * `:vm` retains executed JAM instructions and their input registers
 
-  The legacy `trace_mode` option is normalized onto these flags by
-  `flags_from_options!/1`.
   """
 
   use TypedStruct
 
-  @type flag() :: :domino | :vm
+  @type flag() :: :domino | :goals | :vm
   @type event() :: AL.Trace.Event.t()
 
-  @allowed_flags MapSet.new([:domino, :vm])
+  @allowed_flags MapSet.new([:domino, :goals, :vm])
 
   @derive {Inspect, only: [:flags, :events]}
   typedstruct enforce: true do
@@ -27,21 +26,7 @@ defmodule AL.Trace do
   end
 
   @spec flags_from_options!(keyword()) :: MapSet.t(flag())
-  def flags_from_options!(opts) do
-    case {Keyword.fetch(opts, :trace), Keyword.fetch(opts, :trace_mode)} do
-      {{:ok, _flags}, {:ok, _mode}} ->
-        raise ArgumentError, "trace and trace_mode cannot be used together"
-
-      {{:ok, flags}, :error} ->
-        normalize_flags!(flags)
-
-      {:error, {:ok, mode}} ->
-        legacy_flags!(mode)
-
-      {:error, :error} ->
-        MapSet.new()
-    end
-  end
+  def flags_from_options!(opts), do: normalize_flags!(Keyword.get(opts, :trace, []))
 
   @spec new(MapSet.t(flag())) :: t()
   def new(flags) do
@@ -93,15 +78,6 @@ defmodule AL.Trace do
     end
   end
 
-  defp legacy_flags!(:no_trace), do: MapSet.new()
-  defp legacy_flags!(:derivation_trace), do: MapSet.new([:domino])
-  defp legacy_flags!(:full_trace), do: MapSet.new([:domino, :vm])
-
-  defp legacy_flags!(mode) do
-    raise ArgumentError,
-          "trace_mode must be :no_trace, :derivation_trace, or :full_trace, got: #{inspect(mode)}"
-  end
-
   @spec trace(atom()) :: :ok
   def trace(point) do
     Application.put_env(:al, :tracepoints, MapSet.put(tracepoints(), point))
@@ -127,8 +103,8 @@ defmodule AL.Trace do
   # the chosen provider runs) -- the same Call/Exit/Redo/Fail ports at both
   # levels, just printed with a prefix so a traced line always says which
   # box it's reporting on. These render exactly the port tuples already
-  # appended to `state.trace.events` (see `AL.begin_method_scope/5`,
-  # `mark_exited/2`, `fail_scope/3` in `AL.ex`) -- no separate decision
+  # appended to `state.trace.events` (see `AL.JAM.Trace.method_call/6`,
+  # `exit/2` and `fail/2`) -- no separate decision
   # logic, just formatting.
   @spec call(atom(), non_neg_integer(), term(), term(), [term()]) :: :ok
   def call(level, depth, receiver, method, args) do
@@ -187,7 +163,14 @@ defmodule AL.Trace do
   # from `format_failure/1`, or `state.trace.events` on a success reversed
   # by the caller).
   @spec render([term()]) :: :ok
-  def render(steps) do
+  def render(steps, opts \\ [])
+
+  def render(steps, format: :raw) do
+    Enum.each(steps, &IO.inspect(&1, pretty: true, limit: :infinity))
+    :ok
+  end
+
+  def render(steps, []) do
     Enum.reduce(steps, {0, %{}}, &render_step/2)
     :ok
   end
@@ -260,6 +243,28 @@ defmodule AL.Trace do
   end
 
   defp render_step({:collection_end, _scope}, acc), do: acc
+
+  defp render_step(
+         {:instruction, %{frame: frame, pc: pc, instruction: instruction, registers: registers}},
+         acc
+       ) do
+    IO.puts(
+      "JAM #{AL.JAM.Trace.Format.frame(frame)} pc=#{pc}: #{AL.JAM.Trace.Format.instruction(instruction)}"
+    )
+
+    IO.puts("  registers before: #{AL.JAM.Trace.Format.registers(registers)}")
+    acc
+  end
+
+  defp render_step({:dispatch, path, plan}, acc) do
+    IO.puts("  #{AL.JAM.Trace.Format.dispatch(path, plan)}")
+    acc
+  end
+
+  defp render_step({:fallback, context}, acc) do
+    IO.puts("  relational fallback:")
+    render_step({:instruction, context}, acc)
+  end
 
   defp render_step(entry, {depth, seen}) do
     IO.puts([String.duplicate("  ", depth), inspect(entry)])
@@ -398,15 +403,18 @@ defmodule AL.Trace do
   end
 
   @spec pretty(term()) :: term()
+  def pretty(%AL.Trace.Event{kind: :vm} = event), do: event
+
   def pretty(a) when is_atom(a) do
     s = Atom.to_string(a)
 
     cond do
       hash?(s) -> :"##{AL.Command.id_label(AL.Branch.head(), a)}"
-      AL.Var.var?(a) -> :"#{strip_freshener(s)}"
       true -> a
     end
   end
+
+  def pretty({:"$var", _name} = variable), do: variable
 
   def pretty({:"$fresh", base, _scope}), do: pretty(base)
 
@@ -431,16 +439,4 @@ defmodule AL.Trace do
   defp hash?(s) do
     byte_size(s) == 32 and Enum.all?(String.to_charlist(s), &(&1 in ?0..?9 or &1 in ?a..?f))
   end
-
-  defp strip_freshener(s) do
-    s
-    |> String.split("_")
-    |> Enum.reverse()
-    |> Enum.drop_while(&integer_segment?/1)
-    |> Enum.reverse()
-    |> Enum.join("_")
-  end
-
-  defp integer_segment?(""), do: false
-  defp integer_segment?(s), do: Enum.all?(String.to_charlist(s), &(&1 in ?0..?9))
 end

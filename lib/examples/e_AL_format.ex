@@ -1,147 +1,151 @@
 defmodule Examples.ALFormat do
-  @moduledoc """
-  I provide examples for `vm_format` -- a small, Prolog-`format/2`-shaped
-  subset of directives (`~a`, `~d`, `~o`, `~%`, `~~`), not full Common Lisp
-  FORMAT. Writes straight to stdout via `IO.write`, no bindings produced.
-
-  `~o` resolves its argument through `:print_object` (a real send) before
-  formatting it as `~a` would -- unlike the other directives, which are
-  plain Elixir functions, this one splices a goal and re-runs Format once
-  it resolves. See Goal.Format's interp clause in lib/AL.ex.
-  """
-
   use ExExample
   use AL
   import ExUnit.Assertions
-  import ExUnit.CaptureIO
 
-  example format_aesthetic_prints_a_string_with_no_quotes() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          vm_format("~a~%", ["hello"])
-        end
-      end)
+  example format_prints_a_string_with_no_quotes() do
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        format "~a~%" ["hello"] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert output == "hello\n"
+    assert bindings["$Text"] == "hello\n"
     :ok
   end
 
-  example format_aesthetic_inspects_non_string_terms() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          vm_format("~a~%", [:on])
-        end
-      end)
+  example format_prints_al_terms() do
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        format "~a~%" [object] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert output == ":on\n"
+    assert bindings["$Text"] == "object\n"
     :ok
   end
 
-  example format_decimal_prints_a_bound_var_resolved_value() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          x = 2 + 2
-          vm_format("x is ~d~%", [x])
-        end
-      end)
+  example format_prints_a_bound_var_resolved_value() do
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        = X (+ 2 2).
+        format "x is ~a~%" [X] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert output == "x is 4\n"
+    assert bindings["$Text"] == "x is 4\n"
     :ok
   end
 
   example format_consumes_multiple_directives_left_to_right() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          vm_format("~a plus ~a is ~d~%", [2, 2, 4])
-        end
-      end)
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        format "~a plus ~a is ~a~%" [2, 2, 4] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert output == "2 plus 2 is 4\n"
+    assert bindings["$Text"] == "2 plus 2 is 4\n"
     :ok
   end
 
   example format_tilde_tilde_is_a_literal_tilde_not_a_directive() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          vm_format("100~~", [])
-        end
-      end)
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        format "100~~" [] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert output == "100~"
+    assert bindings["$Text"] == "100~"
     :ok
   end
 
-  example format_o_resolves_through_print_object_override() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          defclass :format_o_print_object_class, super: :object do
-            defmethod(:print_object, [self, text]) do
-              text = "a shiny thing"
-            end
-          end
+  example format_object_resolves_through_print_object_override() do
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        @format_object_print_object_class
+        #{super => object}.
 
-          new(:format_o_print_object_class, obj)
-          vm_format("~o~%", [obj])
-        end
-      end)
+        format_object_print_object_class >> print_object
+        | Self Text |
+        = Text "a shiny thing".
 
-    assert output == "a shiny thing\n"
+        new format_object_print_object_class Obj.
+        format "~a~%" [Obj] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Text"] == "a shiny thing\n"
     :ok
   end
 
-  example format_o_falls_through_to_default_print_object() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          defclass :format_o_default_class, super: :object do
-          end
+  example format_object_falls_through_to_default_print_object() do
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        @format_object_default_class
+        #{super => object}.
 
-          new(:format_o_default_class, obj)
-          vm_format("~o~%", [obj])
-        end
-      end)
+        new format_object_default_class Obj.
+        print_object Obj IdText,
+        atom_string Obj IdText.
+        format "~a~%" [list] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert output == ":format_o_default_class\n"
+    assert bindings["$Text"] == "list\n"
     :ok
   end
 
-  example format_o_handles_multiple_directives_in_one_call() do
-    output =
-      capture_io(fn ->
-        run branch: Examples.Support.branch() do
-          defclass :format_o_multi_class, super: :object do
-            defmethod(:print_object, [self, text]) do
-              text = "widget"
-            end
-          end
+  example format_object_handles_multiple_directives_in_one_call() do
+    {:atomic, {bindings, _, _}} =
+      run(
+        ~S"""
+        @format_object_multi_class
+        #{super => object}.
 
-          new(:format_o_multi_class, a)
-          new(:format_o_multi_class, b)
-          vm_format("~o and ~o~%", [a, b])
-        end
-      end)
+        format_object_multi_class >> print_object
+        | Self Text |
+        = Text "widget".
 
-    assert output == "widget and widget\n"
+        new format_object_multi_class A.
+        new format_object_multi_class B.
+        format "~a and ~a~%" [A, B] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Text"] == "widget and widget\n"
     :ok
   end
 
-  example format_o_fails_when_print_object_has_no_matching_clause() do
+  example format_object_fails_when_print_object_has_no_matching_clause() do
     {:aborted, _reason} =
-      run branch: Examples.Support.branch() do
-        defclass :format_o_no_match_class, super: :object do
-          defmethod(:print_object, [:definitely_not_self, _text]) do
-          end
-        end
+      run(
+        ~S"""
+        @format_object_no_match_class
+        #{super => object}.
 
-        new(:format_o_no_match_class, obj)
-        vm_format("~o~%", [obj])
-      end
+        format_object_no_match_class >> print_object
+        | definitely_not_self _Text |.
+
+        new format_object_no_match_class Obj.
+        format "~a~%" [Obj] Text.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end

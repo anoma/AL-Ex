@@ -1,6 +1,6 @@
 defmodule Examples.ALMaps do
   @moduledoc """
-  I provide examples for map access/update: the raw `vm_map_get`/
+  I provide examples for map access/update: the raw `map_get`/
   `vm_map_put` primitives, and `:map`'s dispatched `get`/`put` sugar over
   them. `get` supports required and defaulted lookup forms.
   """
@@ -11,18 +11,24 @@ defmodule Examples.ALMaps do
 
   example map_get_fails_on_non_map() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        vm_map_get(:not_a_map, :k, v)
-      end
+      run(
+        ~S"""
+        map_get not_a_map k V.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
 
   example map_put_fails_on_non_map() do
     {:aborted, _} =
-      run branch: Examples.Support.branch() do
-        vm_map_put(:not_a_map, :k, :v, out)
-      end
+      run(
+        ~S"""
+        vm_map_put not_a_map k v Out.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -31,51 +37,112 @@ defmodule Examples.ALMaps do
   # backward search -- both keys are valid solutions, found via backtracking.
   example map_get() do
     {:atomic, {bindings, _constraints, program_state}} =
-      run branch: Examples.Support.branch() do
-        get(%{a: 3, b: 4, c: 3}, k, 3)
-      end
+      run(
+        ~S"""
+        get #{a => 3, b => 4, c => 3} K 3.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
+    assert Map.get(bindings, "$K") == :c or Map.get(bindings, "$K") == :a
 
     {:atomic, {bindings, _constraints, program_state}} = next_solution(program_state)
 
-    assert Map.get(bindings, :"$k") == :c or Map.get(bindings, :"$k") == :a
+    assert Map.get(bindings, "$K") == :c or Map.get(bindings, "$K") == :a
 
     program_state
   end
 
   example map_get_with_default() do
     {:atomic, {bindings, _constraints, _}} =
-      run do
-        get(%{present: 7}, :present, :fallback, present)
-        get(%{present: 7}, :missing, :fallback, missing)
-      end
+      run(~S"""
+      get #{present => 7} present fallback Present.
+      get #{present => 7} missing fallback Missing.
+      """)
 
-    assert bindings[:"$present"] == 7
-    assert bindings[:"$missing"] == :fallback
+    assert bindings["$Present"] == 7
+    assert bindings["$Missing"] == :fallback
     :ok
   end
 
   example map_put() do
     {:atomic, {bindings, _constraints, program_state}} =
-      run branch: Examples.Support.branch() do
-        put(%{a: 3, b: 4, c: 3}, :c, 4, m2)
-      end
+      run(
+        ~S"""
+        put #{a => 3, b => 4, c => 3} c 4 M2.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert bindings |> Map.get(:"$m2") |> Map.get(:c) == 4
+    assert bindings |> Map.get("$M2") |> Map.get(:c) == 4
 
     program_state
   end
 
+  example map_get_on_an_open_map_is_a_key_constraint() do
+    {:atomic, {bindings, constraints, _}} =
+      run(
+        ~S"""
+        map_get Shared a First, map_get Shared a Second, = First 1.
+        map_get Later a Found, = Later #{a => 3, b => 4}.
+        map_get Left a Merged, map_get Right a 5, = Left Right.
+        not {map_get Missing a 1, = Missing #{b => 2}}.
+        not {map_get Clash a 1, map_get Clash a 2}.
+        not {map_get Scalar a 1, = Scalar foo}.
+        map_get Open k Value.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Second"] == 1
+    assert bindings["$Found"] == 3
+    assert bindings["$Merged"] == 5
+
+    open = bindings["$Open"]
+    assert AL.Var.var?(open)
+    assert Map.keys(constraints[AL.Var.key(open)].keys) == [:k]
+  end
+
+  example map_pairs_relates_a_map_to_its_sorted_pairs() do
+    {:atomic, {bindings, _constraints, _}} =
+      run(
+        ~S"""
+        map_pairs #{b => 2, a => 1} Pairs.
+        map_pairs #{b => 2, a => 1} [[b, B], [a, 1]].
+        map_pairs Unordered Entries, = Entries [[k, v] . Tail], = Tail [[j, w]].
+        map_pairs Partial PartialEntries, = PartialEntries [[k, Value] . PartialTail], = PartialTail [].
+        map_pairs #{} Empty.
+        map_pairs Built [[x, 1], [y, Y]].
+        map_pairs #{k => Shared} [[k, Same]], = Same 7.
+        map_pairs Later Open, = Open [[k, v]].
+        map_get Constrained a A, map_pairs Constrained [[a, 1], [b, 2]].
+        not (map_pairs _ [[a, 1], [a, 2]]).
+        not (map_pairs foo _).
+        not {map_get Missing z _, map_pairs Missing [[a, 1]]}.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Pairs"] == [[:a, 1], [:b, 2]]
+    assert bindings["$B"] == 2
+    assert bindings["$Unordered"] == %{k: :v, j: :w}
+    assert bindings["$Partial"] == %{k: {:"$var", "Value"}}
+    assert bindings["$Empty"] == []
+    assert bindings["$Built"] == %{x: 1, y: {:"$var", "Y"}}
+    assert bindings["$Shared"] == 7
+    assert bindings["$Later"] == %{k: :v}
+    assert bindings["$A"] == 1
+  end
+
   example map_put_new() do
     {:atomic, {bindings, _constraints, _}} =
-      run do
-        put_new(%{present: 7}, :present, :fallback, preserved)
-        put_new(%{present: 7}, :missing, :fallback, extended)
-      end
+      run(~S"""
+      put_new #{present => 7} present fallback Preserved.
+      put_new #{present => 7} missing fallback Extended.
+      """)
 
-    assert bindings[:"$preserved"] == %{present: 7}
-    assert bindings[:"$extended"] == %{present: 7, missing: :fallback}
+    assert bindings["$Preserved"] == %{present: 7}
+    assert bindings["$Extended"] == %{present: 7, missing: :fallback}
     :ok
   end
 end

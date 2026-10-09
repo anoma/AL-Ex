@@ -10,9 +10,9 @@ defmodule AL.Var.ConstraintSet do
   """
 
   @type bound() :: integer() | nil
-  @type propagator() :: AL.Var.Bounds.propagator()
+  @type propagator() :: AL.Var.Bounds.propagator() | AL.Var.Relation.propagator()
 
-  # A pending `super(y, z)` with both sides open (`AL.Interp.Relations.GetSuper`)
+  # A pending `super(y, z)` with both sides open (`AL.JAM.Relation`'s `super` relation)
   # posts one of these on each side instead of scanning -- `super/2`'s two
   # slots are the *same* domain (a superclass is still just a class), unlike
   # `class/2`'s object/class asymmetry, so a plain `isa`-style entry would be
@@ -22,12 +22,9 @@ defmodule AL.Var.ConstraintSet do
   # one can reconstruct the correct `GetSuper{object:, super:}` goal.
   @type super_link() :: {:object, AL.Var.t()} | {:super, AL.Var.t()}
 
-  # A pending `slot(object, key, value)` with `object` still open and
-  # `key` ground (`AL.Interp.Relations.GetSlots`) -- same shape as `super_link`, one
-  # slot each. `key` isn't itself a var here (it's the fixed context, not a
-  # domain to enumerate), so it just rides along in the tag rather than
-  # needing its own marker.
-  @type slot_link() :: {:slot, atom(), AL.Var.t()} | {:slot_value, atom(), AL.Var.t()}
+  @type slot_link() ::
+          {:slot, atom(), AL.Var.t(), :auto | :aos}
+          | {:slot_value, atom(), AL.Var.t(), :auto | :aos}
 
   @type isa_entry() ::
           atom()
@@ -43,10 +40,14 @@ defmodule AL.Var.ConstraintSet do
           isa: MapSet.t(isa_entry()),
           dispatch: MapSet.t(dispatch_entry()),
           bounds: {bound(), bound()},
+          integer: boolean(),
           props: [propagator()],
           domain: MapSet.t(AL.Var.t()) | nil,
-          super_link: super_link() | nil,
-          slot_links: [slot_link()]
+          super_links: [super_link()],
+          slot_links: [slot_link()],
+          keys: %{optional(AL.Var.t()) => AL.Var.t()},
+          functor: {AL.Var.t(), AL.Var.t()} | nil,
+          functor_links: [AL.Var.variable()]
         }
 
   defstruct dif: [],
@@ -54,8 +55,12 @@ defmodule AL.Var.ConstraintSet do
             isa: MapSet.new(),
             dispatch: MapSet.new(),
             bounds: {nil, nil},
+            integer: false,
             props: [],
             domain: nil,
-            super_link: nil,
-            slot_links: []
+            super_links: [],
+            slot_links: [],
+            keys: %{},
+            functor: nil,
+            functor_links: []
 end

@@ -11,46 +11,74 @@ defmodule Examples.ALFreeze do
 
   example bound_runs_at_once() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        x = 3
-        freeze(x, [y = x + 1])
-      end
+      run(
+        ~S"""
+        = X 3.
+        freeze X (= Y (+ X 1)).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.deref(bindings, :"$y") == 4
+    assert Map.fetch!(bindings, "$Y") == 4
     :ok
   end
 
   example binding_wakes_in_place() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        freeze(x, [y = x + 1])
-        x = 3
-      end
+      run(
+        ~S"""
+        freeze X (= Y (+ X 1)).
+        = X 3.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.deref(bindings, :"$y") == 4
+    assert Map.fetch!(bindings, "$Y") == 4
+    :ok
+  end
+
+  example a_binding_made_by_propagation_wakes_too() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run(
+        ~S"""
+        freeze C (= Y (+ C 1)).
+        = D (- C 48).
+        = D 7.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.fetch!(bindings, "$Y") == 56
     :ok
   end
 
   example a_clause_head_wakes_too() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(:frozen, :object)
+      run(
+        ~S"""
+        vm_set_class frozen object.
 
-        defmethod(:frozen, :five, [_self, 5])
+        frozen >> five
+        | _Self 5 |.
 
-        freeze(v, [w = v + 1])
-        five(:frozen, v)
-      end
+        freeze V (= W (+ V 1)).
+        five frozen V.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.deref(bindings, :"$w") == 6
+    assert Map.fetch!(bindings, "$W") == 6
     :ok
   end
 
   example floundering_fails() do
     {:aborted, _reason} =
-      run branch: Examples.Support.branch() do
-        freeze(x, [y = x + 1])
-      end
+      run(
+        ~S"""
+        freeze X (= Y (+ X 1)).
+        """,
+        branch: Examples.Support.branch()
+      )
 
     :ok
   end
@@ -61,25 +89,31 @@ defmodule Examples.ALFreeze do
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _constraints, _}} =
-                  run branch: Examples.Support.branch() do
-                    freeze(a, [b = a * 2])
-                    freeze(b, [a = b / 2])
-                    a = 21
-                  end
+                  run(
+                    ~S"""
+                    freeze A (= B (* A 2)).
+                    freeze B (= A (/ B 2)).
+                    = A 21.
+                    """,
+                    branch: Examples.Support.branch()
+                  )
 
-                {AL.Var.deref(b, :"$a"), AL.Var.deref(b, :"$b")}
+                {Map.fetch!(b, "$A"), Map.fetch!(b, "$B")}
               end).()
 
     assert {21, 42} ==
              (fn ->
                 {:atomic, {b, _constraints, _}} =
-                  run branch: Examples.Support.branch() do
-                    freeze(a, [b = a * 2])
-                    freeze(b, [a = b / 2])
-                    b = 42
-                  end
+                  run(
+                    ~S"""
+                    freeze A (= B (* A 2)).
+                    freeze B (= A (/ B 2)).
+                    = B 42.
+                    """,
+                    branch: Examples.Support.branch()
+                  )
 
-                {AL.Var.deref(b, :"$a"), AL.Var.deref(b, :"$b")}
+                {Map.fetch!(b, "$A"), Map.fetch!(b, "$B")}
               end).()
 
     :ok
@@ -88,13 +122,16 @@ defmodule Examples.ALFreeze do
   # Aliasing moves the wait to the chain's end; binding there fires it.
   example aliased_variable_still_wakes() do
     {:atomic, {bindings, _constraints, _state}} =
-      run branch: Examples.Support.branch() do
-        freeze(x, [fired = :yes])
-        x = y
-        y = 5
-      end
+      run(
+        ~S"""
+        freeze X (= Fired yes).
+        = X Y.
+        = Y 5.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert AL.Var.deref(bindings, :"$fired") == :yes
+    assert Map.fetch!(bindings, "$Fired") == :yes
     :ok
   end
 end

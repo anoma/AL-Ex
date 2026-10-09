@@ -44,7 +44,25 @@ Install from terminal using `iex -S mix` or as a mix dependency.
 
 `lib/examples` contains examples.
 `lib/AL` contains the runtime code.
+`lib/AL/syntax.bnf` is the grammar of AL source.
+`editors/al-mode.el` is an Emacs major mode for `.al` files.
+`priv/programs` contains the transaction programs, such as `bootstrap.al`, that set up an image.
 `priv/packages` contains the packages that will be installed upon image setup.
+
+### Source and exports
+
+Packages are the authored source boundary. Runtime changes and retained
+transaction source remain in the durable store.
+
+Export through packages when needed:
+
+```elixir
+AL.Package.export(:users, to: "/tmp/users-package")
+AL.Package.export(:my_package, definitions: [:my_class], to: "/tmp/my-package")
+```
+
+Package loading and activation remain explicit. Definition documents, live
+snapshots, and change planning are shared through `AL.Definition`.
 
 ## Livebooks
 
@@ -133,4 +151,13 @@ Metacello new
 	repository: 'github://anoma/AL-Ex:base/src/gt';
 	baseline: 'AL';
 	load: #dev
+```
+
+The standalone allocation benchmark constructs durable objects and value objects
+with the same payload, retaining and checking every result. Startup and branch
+setup are outside the timer:
+
+```sh
+mix run --no-start bench/allocations.exs
+AL_ALLOCATION_COUNT=10000 mix run --no-start bench/allocations.exs
 ```

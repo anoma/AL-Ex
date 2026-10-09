@@ -1,143 +1,121 @@
-Class {
-  #name : :peer,
-  #superclass : [:object],
-  #metaclass : :class,
-  #ivars : [
-    :name,
-    %{name: :host, default: "127.0.0.1"},
-    %{name: :port, default: 0},
-    %{name: :listener, default: :none},
-    %{name: :connections, default: []},
-    %{name: :messages, default: []},
-    %{name: :status, default: :idle}
+@peer
+#{
+  super => object,
+  ivars => [
+    #{name => name},
+    #{default => "127.0.0.1", name => host},
+    #{default => 0, name => port},
+    #{default => none, name => listener},
+    #{default => [], name => connections},
+    #{default => [], name => messages},
+    #{default => idle, name => status}
   ]
-}
+}.
 
-:peer >> :init, [self, args, self] [
-  get(args, :peer_name, name)
-  call_next_method(self, args, self)
-  get_slots(self, %{host: host, port: port})
-  new(:tcp_socket, %{host: host, port: port, packet: 4, owner: self}, listener)
-  configure_listener(self, listener)
-  set_slots(self, %{name: name, listener: listener, status: :starting})
-  listen(listener, _)
-]
+peer >> init
+| Self Args Self |
+get Args peer_name Name,
+call_next_method Self Args Self,
+get_slots Self #{host => Host, port => Port},
+new tcp_socket #{host => Host, owner => Self, packet => 4, port => Port} Listener,
+configure_listener Self Listener,
+set_slots Self #{listener => Listener, name => Name, status => starting},
+listen Listener _.
 
-:peer >> :configure_listener, [_self, listener] [
-  defmethod(listener, :listening, [socket, port]) do
-    call_next_method(socket, port)
-    get(socket, :owner, peer)
-    listening(peer, socket, port)
-  end
+peer >> configure_listener
+| _Self Listener |
+defmethod Listener listening [Socket, Port] {
+  call_next_method Socket Port,
+  get Socket owner Peer,
+  listening Peer Socket Port
+},
+defmethod Listener accept [Socket, Address, Connection] {get Socket owner Peer, accepted Peer Socket Address Connection},
+defmethod Listener accept_failed [Socket, Reason] {
+  get Socket owner Peer,
+  set_slot Peer status #{reason => Reason, status => error}
+}.
 
-  defmethod(listener, :accept, [socket, address, connection]) do
-    get(socket, :owner, peer)
-    accepted(peer, socket, address, connection)
-  end
+peer >> configure_connection
+| _Self Connection |
+defmethod Connection receive [Socket, Bytes] {
+  call_next_method Socket Bytes,
+  decode_term Socket Bytes Message,
+  get Socket owner Peer,
+  receive Peer Socket Message
+}.
 
-  defmethod(listener, :accept_failed, [socket, reason]) do
-    get(socket, :owner, peer)
-    set_slot(peer, :status, %{status: :error, reason: reason})
-  end
-]
+peer >> configure_connection
+| Self Socket Connection |
+configure_connection Self Socket,
+defmethod Socket connected [Socket] {
+  call_next_method Socket,
+  get Socket owner Peer,
+  handshake Peer Socket Connection
+},
+defmethod Socket connection_failed [Socket, Reason] {
+  call_next_method Socket Reason,
+  set_slot Connection state #{reason => Reason, status => error}
+}.
 
-:peer >> :configure_connection, [_self, connection] [
-  defmethod(connection, :receive, [socket, bytes]) do
-    call_next_method(socket, bytes)
-    decode_term(socket, bytes, message)
-    get(socket, :owner, peer)
-    receive(peer, socket, message)
-  end
-]
+peer >> accepted
+| Self Listener Address Socket |
+get_slots Address #{address => Host, port => Port},
+get Listener packet Packet,
+new tcp_socket #{
+  host => Host,
+  listener => Listener,
+  owner => Self,
+  packet => Packet,
+  port => Port,
+  status => connected
+} Socket,
+configure_connection Self Socket,
+add_connection Self Socket.
 
-:peer >> :configure_connection, [self, socket, connection] [
-  configure_connection(self, socket)
+peer >> connect
+| Self Remote Socket Connection |
+get Remote listener Listener,
+get_slots Listener #{host => Host, port => Port},
+new tcp_socket #{host => Host, owner => Self, packet => 4, port => Port} Socket,
+new peer_connection #{socket => Socket} Connection,
+configure_connection Self Socket Connection,
+add_connection Self Socket,
+connect Socket _.
 
-  defmethod(socket, :connected, [socket]) do
-    call_next_method(socket)
-    get(socket, :owner, peer)
-    handshake(peer, socket, connection)
-  end
+peer >> handshake
+| Self Socket Connection |
+set_slot Connection state connected,
+connection_established Self Socket.
 
-  defmethod(socket, :connection_failed, [socket, reason]) do
-    call_next_method(socket, reason)
-    set_slot(connection, :state, %{status: :error, reason: reason})
-  end
-]
+peer >> add_connection
+| Self Socket |
+get Self connections Connections,
+concat Connections [Socket] Updated,
+set_slot Self connections Updated.
 
-:peer >> :accepted, [self, listener, address, socket] [
-  get_slots(address, %{address: host, port: port})
-  get(listener, :packet, packet)
+peer >> send_message
+| Self Socket Message Effect |
+get Self connections Connections,
+member Connections Socket,
+send_term Socket Message Effect.
 
-  new(
-    :tcp_socket,
-    %{
-      host: host,
-      port: port,
-      packet: packet,
-      owner: self,
-      listener: listener,
-      status: :connected
-    },
-    socket
-  )
+peer >> listening
+| Self _Socket Port |
+set_slots Self #{port => Port, status => listening}.
 
-  configure_connection(self, socket)
-  add_connection(self, socket)
-]
+peer >> connection_established
+| _Self _Socket |.
 
-:peer >> :connect, [self, remote, socket, connection] [
-  get(remote, :listener, listener)
-  get_slots(listener, %{host: host, port: port})
-  new(:tcp_socket, %{host: host, port: port, packet: 4, owner: self}, socket)
-  new(
-    :peer_connection,
-    %{socket: socket},
-    connection
-  )
-  configure_connection(self, socket, connection)
-  add_connection(self, socket)
-  connect(socket, _)
-]
+peer >> receive
+| Self Socket Message |
+get Self messages Messages,
+concat Messages [[Socket, Message]] Updated,
+set_slot Self messages Updated.
 
-:peer >> :handshake, [self, socket, connection] [
-  set_slot(connection, :state, :connected)
-  connection_established(self, socket)
-]
-
-:peer >> :add_connection, [self, socket] [
-  get(self, :connections, connections)
-  concat(connections, [socket], updated)
-  set_slot(self, :connections, updated)
-]
-
-:peer >> :send_message, [self, socket, message, effect] [
-  get(self, :connections, connections)
-  member(connections, socket)
-  send_term(socket, message, effect)
-]
-
-:peer >> :listening, [self, _socket, port] [
-  set_slots(self, %{port: port, status: :listening})
-]
-
-:peer >> :connection_established, [_self, _socket] [
-]
-
-:peer >> :receive, [self, socket, message] [
-  get(self, :messages, messages)
-  concat(messages, [[socket, message]], updated)
-  set_slot(self, :messages, updated)
-]
-
-:peer >> :stop, [self] [
-  get(self, :listener, listener)
-  close(listener, _)
-  get(self, :connections, connections)
-
-  forall(member(connections, socket)) do
-    close(socket, _)
-  end
-
-  set_slot(self, :status, :stopping)
-]
+peer >> stop
+| Self |
+get Self listener Listener,
+close Listener _,
+get Self connections Connections,
+forall (member Connections Socket) (close Socket _),
+set_slot Self status stopping.

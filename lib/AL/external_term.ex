@@ -24,6 +24,8 @@ defmodule AL.ExternalTerm do
        do: false
 
   defp portable?([]), do: true
+  defp portable?({:"$var", _name}), do: false
+  defp portable?({:"$fresh", _base, _scope}), do: false
   defp portable?([head | tail]), do: portable?(head) and portable?(tail)
 
   defp portable?(term) when is_map(term) do

@@ -7,6 +7,47 @@ defmodule Examples.ALPackages do
 
   alias AL.Package.Document
 
+  example package_activation_is_an_al_protocol() do
+    branch = Examples.Support.isolated_branch()
+
+    try do
+      {:atomic, {%{"$Build" => build}, _constraints, _state}} =
+        run(
+          ~S"""
+          new package #{name => managed_package, open_build => true} managed_package.
+          installed_package package_manager managed_package.
+          active_package package_manager managed_package Build.
+          """,
+          branch: branch.id
+        )
+
+      {:atomic, _} =
+        run(
+          ~S"""
+          deactivate managed_package.
+          """,
+          branch: branch.id
+        )
+
+      refute AL.Package.active?(:managed_package, branch)
+
+      {:atomic, _} =
+        run(
+          ~S"""
+          activate_build managed_package HostBuild.
+          active_package package_manager managed_package HostBuild.
+          """,
+          branch: branch.id,
+          bindings: %{"HostBuild" => build}
+        )
+
+      assert AL.Package.active_build(:managed_package, branch) == build
+      :ok
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
   example packages_extend_runtime_classes_without_owning_them() do
     branch = AL.Branch.fork(0, AL.Branch.main())
     previous = AL.Branch.head()
@@ -15,11 +56,11 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
-      assert {:ok, before} = AL.Serialisation.Snapshot.capture(branch)
+      assert {:ok, before} = AL.Definition.Snapshot.capture(branch)
 
       assert {:ok, catalog} =
                AL.Package.discover(AL.Package.configured_channels(), branch: branch)
@@ -32,20 +73,23 @@ defmodule Examples.ALPackages do
       assert {:ok, %{changed?: false}} = AL.Package.diff(:blackjack, branch: branch)
 
       result =
-        AL.run branch: branch.id do
-          euler_1(10, 23)
-          factorial(5, 120)
-          active_build(:euler, build)
-          extends_class(build, :number)
-          not [originates_class(build, :number)]
-        end
+        AL.run(
+          ~S"""
+          euler_1 10 23.
+          factorial 5 120.
+          active_build euler Build.
+          extends_class Build number.
+          not (originates_class Build number).
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = result
 
       assert {:ok, empty_plan} = AL.Package.resolve(catalog, [], branch: branch)
       assert {:ok, empty} = AL.Package.realise(empty_plan, branch: branch)
       assert {:ok, _} = AL.Package.activate(empty, branch: branch, replace: true)
-      assert {:ok, after_removal} = AL.Serialisation.Snapshot.capture(branch)
+      assert {:ok, after_removal} = AL.Definition.Snapshot.capture(branch)
       assert after_removal.documents[:number] == before.documents[:number]
       assert after_removal.documents[:list] == before.documents[:list]
       refute Map.has_key?(after_removal.documents, :card)
@@ -59,24 +103,31 @@ defmodule Examples.ALPackages do
   end
 
   example configured_interval_is_imported_as_a_package() do
-    refute Enum.any?(AL.TransactionProgram.configured(), fn module ->
-             module.__program__().name == :interval
+    refute Enum.any?(AL.TransactionProgram.configured(), fn program ->
+             program.name == :interval
            end)
 
     assert AL.Package.installed?(:interval)
     refute AL.TransactionProgram.installed?(:interval)
 
     result =
-      AL.run do
-        class(:interval, :package)
-        super(:interval, :package_build)
-        class(:interval_value, :class)
-        class(build, :interval)
-        active_build(:interval, build)
-        build_version(build, 1)
-        build_digest(build, _)
-        build_status(build, :complete)
-      end
+      AL.run(~S"""
+      class interval package.
+      super interval package_build.
+      class interval_value class.
+      class Build interval.
+      active_build interval Build.
+      build_version Build 1.
+      build_digest Build _.
+      build_status Build complete.
+      available_package package_manager Channel interval Provider.
+      channel_name Channel builtin.
+      provider_version Provider 1.
+      findall Package Packages {
+        available_package package_manager _Channel Package _Provider
+      }.
+      member Packages interval.
+      """)
 
     assert {:atomic, _} = result
     :ok
@@ -84,30 +135,18 @@ defmodule Examples.ALPackages do
 
   example active_users_build_relates_to_its_definitions() do
     result =
-      AL.run do
-        active_build(:users, build)
-
-        findall(class, classes) do
-          originates_class(build, class)
-        end
-
-        findall([owner, selector], methods) do
-          adds_method(build, owner, selector)
-        end
-
-        findall([owner, superclass], superclasses) do
-          adds_superclass(build, owner, superclass)
-        end
-
-        findall(owner, extensions) do
-          extends_class(build, owner)
-        end
-      end
+      AL.run(~S"""
+      active_build users Build.
+      findall Class Classes (originates_class Build Class).
+      findall [Owner, Selector] Methods (adds_method Build Owner Selector).
+      findall [Owner, Superclass] Superclasses (adds_superclass Build Owner Superclass).
+      findall Owner Extensions (extends_class Build Owner).
+      """)
 
     assert {:atomic, {bindings, _constraints, _state}} = result
-    assert Enum.sort(bindings[:"$classes"]) == [:owned, :user]
+    assert Enum.sort(bindings["$Classes"]) == [:owned, :user]
 
-    assert Enum.sort(bindings[:"$methods"]) ==
+    assert Enum.sort(bindings["$Methods"]) ==
              Enum.sort([
                [:owned, :does_not_understand],
                [:owned, :guarded_send],
@@ -115,9 +154,9 @@ defmodule Examples.ALPackages do
                [:owned, :update]
              ])
 
-    assert bindings[:"$extensions"] == []
+    assert bindings["$Extensions"] == []
 
-    assert Enum.sort(bindings[:"$superclasses"]) ==
+    assert Enum.sort(bindings["$Superclasses"]) ==
              Enum.sort([[:owned, :object], [:user, :object]])
 
     :ok
@@ -135,43 +174,38 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       creation =
-        AL.run branch: branch.id do
-          new(
-            :package,
-            %{
-              name: :handmade_package,
-              version: 1,
-              deps: []
-            },
-            :handmade_package
-          )
+        AL.run(
+          ~S"""
+          new package #{deps => [], name => handmade_package, version => 1} handmade_package.
+          active_build handmade_package Build.
+          class Build handmade_package.
+          build_status Build open.
+          originated_classes Build [].
+          added_methods Build [].
+          added_superclasses Build [].
 
-          active_build(:handmade_package, build)
-          class(build, :handmade_package)
-          build_status(build, :open)
-          originated_classes(build, [])
-          added_methods(build, [])
-          added_superclasses(build, [])
+          @handmade_value
+          #{super => object}.
 
-          defclass :handmade_value, super: :object do
-            defmethod(:value, [_self, :made_in_al]) do
-              pass
-            end
-          end
+          handmade_value >> value
+          | _Self made_in_al |
+          pass.
 
-          include_class(build, :handmade_value)
-          originates_class(build, :handmade_value)
-          adds_method(build, :handmade_value, :value)
-          adds_superclass(build, :handmade_value, :object)
-        end
+          include_class Build handmade_value.
+          originates_class Build handmade_value.
+          adds_method Build handmade_value value.
+          adds_superclass Build handmade_value object.
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, {creation_bindings, _constraints, _}} = creation
-      build = creation_bindings[:"$build"]
+      build = creation_bindings["$Build"]
 
       assert {:ok,
               %{
@@ -188,19 +222,23 @@ defmodule Examples.ALPackages do
                AL.Package.manifest(root)
 
       definition = File.read!(Path.join(root, "definitions/handmade_value.class.al"))
-      assert {:ok, document} = AL.Serialisation.Document.parse(definition)
+      assert {:ok, document} = AL.Definition.Document.parse(definition)
       assert document.owner == :handmade_value
       assert document.supers == [:object]
       assert Enum.map(document.methods, & &1.selector) == [:value]
 
       sealed =
-        AL.run branch: branch.id do
-          active_build(:handmade_package, ^build)
-          build_status(^build, :complete)
-          build_provider(^build, ^provider)
-          build_digest(^build, _digest)
-          provides(^provider, :handmade_package)
-        end
+        AL.run(
+          ~S"""
+          active_build handmade_package HostBuild.
+          build_status HostBuild complete.
+          build_provider HostBuild HostProvider.
+          build_digest HostBuild _Digest.
+          provides HostProvider handmade_package.
+          """,
+          branch: branch.id,
+          bindings: %{"HostBuild" => build, "HostProvider" => provider}
+        )
 
       assert {:atomic, _} = sealed
 
@@ -222,23 +260,29 @@ defmodule Examples.ALPackages do
 
     try do
       creation =
-        AL.run branch: branch.id do
-          new(:package, %{name: :working_package}, :working_package)
-          new(:class, %{name: :working_class}, :working_class)
-          active_build(:working_package, build)
-          include_class(build, :working_class)
-        end
+        AL.run(
+          ~S"""
+          new package #{name => working_package} working_package.
+          new class #{name => working_class} working_class.
+          active_build working_package Build.
+          include_class Build working_class.
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = creation
       assert :ok = AL.Application.bootstrap()
 
       retained =
-        AL.run branch: branch.id do
-          active_build(:working_package, build)
-          build_status(build, :open)
-          class(:working_class, :class)
-          originates_class(build, :working_class)
-        end
+        AL.run(
+          ~S"""
+          active_build working_package Build.
+          build_status Build open.
+          class working_class class.
+          originates_class Build working_class.
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = retained
       :ok
@@ -261,8 +305,8 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       assert {:ok, catalog} = AL.Package.discover([{:composition, root}], branch: branch)
@@ -271,26 +315,25 @@ defmodule Examples.ALPackages do
       assert {:ok, _} = AL.Package.activate(realisation, branch: branch, replace: true)
 
       result =
-        AL.run branch: branch.id do
-          active_build(:widget_core, originator)
-          active_build(:widget_rendering, extender)
-          originates_class(originator, :composable_widget)
-          originates_class(extender, :renderable)
-          not [originates_class(extender, :composable_widget)]
-          adds_superclass(extender, :composable_widget, :renderable)
-          adds_method(extender, :composable_widget, :rendering_package)
-
-          findall(class, extensions) do
-            extends_class(extender, class)
-          end
-
-          super(:composable_widget, :renderable)
-          new(:composable_widget, widget)
-          rendering_package(widget, :widget_rendering)
-        end
+        AL.run(
+          ~S"""
+          active_build widget_core Originator.
+          active_build widget_rendering Extender.
+          originates_class Originator composable_widget.
+          originates_class Extender renderable.
+          not (originates_class Extender composable_widget).
+          adds_superclass Extender composable_widget renderable.
+          adds_method Extender composable_widget rendering_package.
+          findall Class Extensions (extends_class Extender Class).
+          super composable_widget renderable.
+          new composable_widget Widget.
+          rendering_package Widget widget_rendering.
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, {bindings, _constraints, _}} = result
-      assert bindings[:"$extensions"] == [:composable_widget]
+      assert bindings["$Extensions"] == [:composable_widget]
 
       assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_core, branch: branch)
       assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_rendering, branch: branch)
@@ -305,7 +348,7 @@ defmodule Examples.ALPackages do
                core_export
                |> Path.join("definitions/composable_widget.class.al")
                |> File.read!()
-               |> AL.Serialisation.Document.parse()
+               |> AL.Definition.Document.parse()
 
       assert core_document.kind == :class
       assert core_document.supers == [:object]
@@ -314,7 +357,7 @@ defmodule Examples.ALPackages do
                rendering_export
                |> Path.join("definitions/composable_widget.extension.al")
                |> File.read!()
-               |> AL.Serialisation.Document.parse()
+               |> AL.Definition.Document.parse()
 
       assert extension_document.kind == :extension
       assert extension_document.supers == [:renderable]
@@ -325,14 +368,17 @@ defmodule Examples.ALPackages do
       assert {:ok, _} = AL.Package.activate(core_realisation, branch: branch, replace: true)
 
       after_removal =
-        AL.run branch: branch.id do
-          active_build(:widget_core, _originator)
-          not [active_build(:widget_rendering, _extender)]
-          not [super(:composable_widget, :renderable)]
-          not [method(:composable_widget, :rendering_package, _method)]
-          new(:composable_widget, widget)
-          package_origin(widget, :widget_core)
-        end
+        AL.run(
+          ~S"""
+          active_build widget_core _Originator.
+          not (active_build widget_rendering _Extender).
+          not (super composable_widget renderable).
+          not (method composable_widget rendering_package _Method).
+          new composable_widget Widget.
+          package_origin Widget widget_core.
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = after_removal
       :ok
@@ -359,9 +405,13 @@ defmodule Examples.ALPackages do
       assert clean_methods == %{added: [], changed: [], removed: []}
 
       change =
-        AL.run branch: branch.id do
-          defmethod(:user, :blah, [self])
-        end
+        AL.run(
+          ~S"""
+          user >> blah
+          | Self |.
+          """,
+          branch: branch.id
+        )
 
       assert {:atomic, _} = change
 
@@ -382,7 +432,7 @@ defmodule Examples.ALPackages do
       assert Enum.sort(exported_definitions) == [:owned, :user]
 
       user_source = File.read!(Path.join(root, "definitions/user.class.al"))
-      assert {:ok, user_document} = AL.Serialisation.Document.parse(user_source)
+      assert {:ok, user_document} = AL.Definition.Document.parse(user_source)
       assert Enum.any?(user_document.methods, &(&1.selector == :blah))
 
       :ok
@@ -401,8 +451,8 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       bundle = Application.app_dir(:al, "priv/packages/interval")
@@ -413,19 +463,23 @@ defmodule Examples.ALPackages do
       assert [%{id: provider}] = AL.Package.providers(:interval, branch)
 
       result =
-        AL.run branch: branch.id do
-          class(:interval, :package)
-          class(^build, :interval)
-          active_build(:interval, ^build)
-          build_package(^build, :interval)
-          build_version(^build, 1)
-          build_provider(^build, ^provider)
-          provides(^provider, :interval)
-          provider_source(^provider, _)
-          build_status(^build, :complete)
-          new(:interval_value, %{lo: 3, hi: 7}, interval)
-          elem(interval, 5)
-        end
+        AL.run(
+          ~S"""
+          class interval package.
+          class HostBuild interval.
+          active_build interval HostBuild.
+          build_package HostBuild interval.
+          build_version HostBuild 1.
+          build_provider HostBuild HostProvider.
+          provides HostProvider interval.
+          provider_source HostProvider _.
+          build_status HostBuild complete.
+          new interval_value #{hi => 7, lo => 3} Interval.
+          elem Interval 5.
+          """,
+          branch: branch.id,
+          bindings: %{"HostBuild" => build, "HostProvider" => provider}
+        )
 
       assert {:atomic, _} = result
       refute AL.TransactionProgram.installed?(:interval, branch)
@@ -449,18 +503,22 @@ defmodule Examples.ALPackages do
 
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       definition =
-        AL.run branch: author.id do
-          defclass :exported_value, super: :object do
-            defmethod(:value, [_self, :from_export]) do
-              pass
-            end
-          end
-        end
+        AL.run(
+          ~S"""
+          @exported_value
+          #{super => object}.
+
+          exported_value >> value
+          | _Self from_export |
+          pass.
+          """,
+          branch: author.id
+        )
 
       assert {:atomic, _} = definition
 
@@ -485,18 +543,21 @@ defmodule Examples.ALPackages do
 
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       assert {:ok, %{package: :exported_tools, definitions: [:exported_value]}} =
                AL.Package.import(root, branch: consumer)
 
       result =
-        AL.run branch: consumer.id do
-          new(:exported_value, value)
-          value(value, :from_export)
-        end
+        AL.run(
+          ~S"""
+          new exported_value Value.
+          value Value from_export.
+          """,
+          branch: consumer.id
+        )
 
       assert {:atomic, _} = result
 
@@ -517,8 +578,8 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       stable = Path.expand("package_channels/stable", __DIR__)
@@ -567,6 +628,66 @@ defmodule Examples.ALPackages do
     end
   end
 
+  example a_channel_lists_only_providers_from_its_current_revision() do
+    branch = AL.Branch.fork(0, AL.Branch.main())
+    previous = AL.Branch.head()
+    AL.Branch.checkout(branch)
+
+    try do
+      assert :ok =
+               AL.TransactionProgram.install_all([
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
+               ])
+
+      stable = Path.expand("package_channels/stable", __DIR__)
+      experimental = Path.expand("package_channels/experimental", __DIR__)
+
+      assert {:ok, stable_catalog} = AL.Package.discover([{:changing, stable}], branch: branch)
+      old_provider = Enum.find(stable_catalog.providers, &(&1.document.name == :greeting)).id
+
+      assert {:ok, current_catalog} =
+               AL.Package.discover([{:changing, experimental}], branch: branch)
+
+      current_provider = Enum.find(current_catalog.providers, &(&1.document.name == :greeting)).id
+      refute old_provider == current_provider
+
+      {:atomic, {bindings, _constraints, _state}} =
+        AL.run(
+          ~S"""
+          registered_channel package_manager Channel.
+          channel_name Channel changing.
+          registered_provider package_manager Channel HostOldProvider.
+          available_package Channel greeting HostCurrentProvider.
+          findall [Package, Provider] Available {
+            available_package Channel Package Provider
+          }.
+          findall Provider Providers {
+            available_package package_manager Channel greeting Provider
+          }.
+          """,
+          branch: branch.id,
+          bindings: %{
+            "HostCurrentProvider" => current_provider,
+            "HostOldProvider" => old_provider
+          }
+        )
+
+      assert bindings["$Providers"] == [current_provider]
+
+      expected =
+        Enum.map(current_catalog.providers, fn provider ->
+          [provider.document.name, provider.id]
+        end)
+
+      assert MapSet.new(bindings["$Available"]) == MapSet.new(expected)
+      :ok
+    after
+      AL.Branch.checkout(previous)
+      AL.Branch.discard(branch)
+    end
+  end
+
   example resolver_backtracks_to_a_provider_with_a_viable_dependency_graph() do
     branch = AL.Branch.fork(0, AL.Branch.main())
     previous = AL.Branch.head()
@@ -579,8 +700,8 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       preferred_root = Path.join(root, "preferred")
@@ -632,8 +753,8 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       preferred_root = Path.join(root, "preferred")
@@ -667,16 +788,13 @@ defmodule Examples.ALPackages do
              ]
 
       extension =
-        AL.run branch: branch.id do
-          defmethod(:package, :accepts_requirement, [
-            :opaque_dependency,
-            provider,
-            _dependencies,
-            ^opaque
-          ]) do
-            provider_version(provider, 1)
-          end
-        end
+        AL.run(
+          ~S"""
+          defmethod package accepts_requirement [opaque_dependency, Provider, _Dependencies, HostOpaque] (provider_version Provider 1).
+          """,
+          branch: branch.id,
+          bindings: %{"HostOpaque" => opaque}
+        )
 
       assert {:atomic, _} = extension
 
@@ -708,8 +826,8 @@ defmodule Examples.ALPackages do
     try do
       assert :ok =
                AL.TransactionProgram.install_all([
-                 AL.TransactionProgram.Bootstrap,
-                 AL.TransactionProgram.PackageSystem
+                 AL.TransactionProgram.load(:bootstrap),
+                 AL.TransactionProgram.load(:package_system)
                ])
 
       historical_root = Path.join(root, "historical")
@@ -749,13 +867,16 @@ defmodule Examples.ALPackages do
 
   defp welcome_parts(branch) do
     result =
-      AL.run branch: branch.id do
-        new(:welcome_message, welcome)
-        parts(welcome, parts)
-      end
+      AL.run(
+        ~S"""
+        new welcome_message Welcome.
+        parts Welcome Parts.
+        """,
+        branch: branch.id
+      )
 
     assert {:atomic, {bindings, _constraints, _}} = result
-    bindings[:"$parts"]
+    bindings["$Parts"]
   end
 
   defp write_bundle(root, name, deps) do

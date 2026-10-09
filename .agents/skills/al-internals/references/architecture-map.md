@@ -7,11 +7,15 @@ reconstructing cross-module contracts from individual call sites.
 
 ```text
 AL source text
-  -> AL.Source.Parser parses, captures exact definition ranges, and lowers
+  -> AL.Syntax reads AL source, captures exact definition ranges, and compiles
+     straight to AL.Goal structs
   -> AL.Source prepares retry-stable source metadata
   -> AL.eval_program opens one Mnesia transaction and creates AL state
-  -> AL.interp / AL.Interp.* execute goals and choicepoints
-  -> AL.Interp.Store applies durable mutation goals
+  -> AL.JAM.IR lowers executable bodies to block programs
+  -> IR transformations specialize regions and inline proven calls
+  -> AL.JAM.Compiler allocates registers and emits machine code
+  -> AL.JAM runs it; AL drives the choicepoints it yields
+  -> AL.JAM.Mutation applies durable mutation instructions
        -> AL.Command appends the command with tx_id and system time
        -> AL.Object updates the branch projection using that same time
        -> AL.Source anchors captured source spans to written commands
@@ -20,7 +24,7 @@ AL source text
 ```
 
 `AL.eval/4` starts from already-lowered goals and normally has no retained
-source. `AL.eval_source/3` and `AL.eval_captured/6` carry source metadata through
+source. `AL.run/1,2,3` and `AL.eval_with_retained_source/6` carry source metadata through
 the same evaluator.
 
 ## Authority and projections
@@ -31,8 +35,8 @@ the same evaluator.
 | Classes, supers, methods, clauses, native declarations | command log | `AL.Object` over branch `soa` | dispatch and resolution caches |
 | Object slots | command log | `AL.Object` over branch `aos`/`soa` according to ivar storage | dispatch, object views |
 | Retained source text and definition spans | source-related commands | `AL.SourceStore`, `AL.Source` | GT views, serialised files |
-| Definition documents | command log plus source projections | `AL.Serialisation.Snapshot` | `AL.Serialisation`, tooling |
-| Source edit transaction plan | snapshot plus edited documents | `AL.Serialisation.Sync` | serialiser now; Mix/MCP later |
+| Definition documents | command log plus source projections | `AL.Definition.Snapshot` | packages, tooling |
+| Source edit transaction plan | snapshot plus edited documents | `AL.Definition.Changes` | package activation |
 | Resolution memoization | none | `AL.ResolutionCache` | dispatch only |
 
 The command log owns history. A table projection may expose transaction-time
@@ -42,29 +46,33 @@ history, but it does not replace the command that produced it.
 
 | Area | Start with | Continue into |
 |---|---|---|
-| Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/interp/`, `lib/AL/trace/domino.ex` |
-| Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/lowering.ex`, `lib/AL/interp/store.ex` |
+| Evaluation state and choicepoints | `lib/AL.ex` | `lib/AL/jam.ex`, `lib/AL/jam/`, `lib/AL/trace/domino.ex` |
+| Answer presentation and failure reports | `lib/AL/answer.ex`, `lib/AL/diagnostics.ex` | trace and residual constraints |
+| Goal definitions and storage safety | `lib/AL/goal.ex` | `lib/AL/syntax.ex`, `lib/AL/jam/mutation.ex` |
 | Dispatch and method order | `lib/AL/dispatch/dispatch.ex` | `lib/AL/dispatch/`, `lib/AL/cache/` |
-| Variables and constraints | `lib/AL/var/var.ex` | `lib/AL/var/`, relation handlers |
+| Terms, variables, and constraints | `lib/AL/term.ex`, `lib/AL/var/var.ex` | `var/store.ex`, `var/unification.ex`, constraint modules |
+| Projection storage access | `lib/AL/mnesia.ex` | literal-safe match specifications and exact deletion; keyed reads in `AL.Object` |
 | Durable writes and replay | `lib/AL/command_log/command.ex` | hydration modules, `lib/AL/view/object.ex` |
 | Branch creation and isolation | `lib/AL/branch.ex` | command/view table naming and copying |
-| Source parsing and capture | `lib/AL/source/parser.ex` | `lib/AL/view/source.ex`, `source_store.ex` |
-| Definition serialisation codec | `lib/AL/serialisation/document.ex` | `serialisation/layout.ex`, `serialisation/snapshot.ex`, `serialisation/sync.ex` |
-| Filesystem synchronization | `lib/AL/serialisation.ex` | file-system dependency and application supervision |
+| Source reading, capture and printing | `lib/AL/syntax.ex` | `lib/AL/syntax/printer.ex`, `lib/AL/view/source.ex`, `source_store.ex` |
+| Definition serialisation codec | `lib/AL/definition/document.ex` | `definition/path.ex`, `definition/snapshot.ex`, `definition/changes.ex` |
+| Package bundle writing | `lib/AL/package/export.ex` | definition documents and filenames |
 | GT inspection | `lib/AL/gt_bridge.ex` | `lib/AL/view/` |
-| Bootstrap language behavior | `lib/AL/transaction_program/bootstrap.ex` | transaction program modules and `al-practices` |
-| Package object protocol | `lib/AL/transaction_program/package_system.ex` | `lib/examples/e_AL_packages.ex` |
+| Bootstrap language behavior | `priv/programs/bootstrap.al` | `lib/AL/transaction_program.ex` and `al-practices` |
+| Package object protocol | `priv/programs/package_system.al` | `lib/examples/e_AL_packages.ex` |
 | Host package discovery | `lib/AL/package/discovery.ex` | package catalog/channel/provider structs and document codecs |
 | Package resolution | `lib/AL/package/resolver.ex` | the AL package resolver object, build specs, and content addresses |
-| Package orchestration and import | `lib/AL/package.ex` | catalog registration, realisation, activation, and the package object protocol |
+| Package orchestration and import | `lib/AL/package.ex` | `package/composition.ex`, `package/activation.ex`, `package/publication.ex`, and the package object protocol |
 
 ## Durable mutation checklist
 
 Follow one mutation from syntax to replay before changing it:
 
 1. `AL.Goal.*` defines the runtime shape.
-2. `AL.Lowering` maps AL syntax to that goal.
-3. `AL.Interp.Store` validates durable values and performs the write.
+2. `AL.Syntax` compiles AL source to that goal and `AL.Syntax.Printer` prints it
+   back.
+3. `AL.JAM.Compiler` compiles it to a `{:mutation, …}` instruction and
+   `AL.JAM.Mutation` validates durable values and performs the write.
 4. `AL.Command` records the operation and transaction identity.
 5. `AL.Object` updates or closes the matching projected fact.
 6. `AL.Source.anchor` associates a captured definition with the command time.
@@ -106,13 +114,14 @@ transaction source_text
   + source_span keyed by command time
   + live method/class projection
       -> AL.Source resolves retained text or decompiles
-      -> AL.Serialisation.Snapshot builds owner documents and diff facts
-      -> AL.Serialisation.Document renders/parses the file format
+      -> AL.Definition.Snapshot builds owner documents and diff facts
+      -> AL.Definition.Document renders/parses the file format
 
 edited documents + old snapshot
-      -> AL.Serialisation.Sync.plan/3
+      -> AL.Definition.Changes.plan/3
       -> source chunks + direct prefix goals
-      -> AL.Serialisation captures method ranges and evaluates one transaction
+      -> AL.Definition.Changes.compile/1 produces goals and source metadata
+      -> AL.Package evaluates the activation transaction
       -> new command/source facts
       -> regenerated documents
 ```
@@ -123,25 +132,24 @@ revision is an optimistic concurrency check against its snapshot.
 
 ## Fast inspection routes
 
-- Find a goal: search its struct in `goal.ex`, then its lowering and `interp`
-  clauses.
+- Find a goal: search its struct in `goal.ex`, then its `AL.Syntax` compile clause and its
+  lowering in `AL.JAM.IR`/`IR.Lower`, then instruction selection in `IR.Emit`.
 - Find a durable operation: search the operation atom in `AL.Command`,
   `AL.Object`, hydration, and cache invalidation.
 - Find a source discrepancy: inspect `AL.SourceStore.text/2`, its span at the
   command time, then `AL.Source.method_clause_source/5`.
 - Find a dispatch discrepancy: inspect direct classes/supers/method bindings,
   then `AL.Dispatch.MethodOrder` and relevant resolution-cache entries.
-- Find a workspace discrepancy: compare `AL.Serialisation.Snapshot.capture/1`, parsed
-  `AL.Serialisation.Document`, and `AL.Serialisation.Sync.plan/3` before inspecting watcher
-  timing.
+- Find a package definition discrepancy: compare `AL.Definition.Snapshot.capture/1`, parsed
+  `AL.Definition.Document`, and `AL.Definition.Changes.plan/3` against the package activation plan.
 
 ## Verification
 
 Use the smallest relevant test first:
 
 ```console
-.agents/skills/al-internals/scripts/test.sh test/serialisation_sync_test.exs
-.agents/skills/al-internals/scripts/test.sh test/serialisation_test.exs:100
+.agents/skills/al-internals/scripts/test.sh test/definition_changes_test.exs
+.agents/skills/al-internals/scripts/test.sh test/definition_document_test.exs
 .agents/skills/al-internals/scripts/test.sh
 ```
 

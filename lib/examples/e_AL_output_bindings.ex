@@ -14,33 +14,37 @@ defmodule Examples.ALOutputBindings do
   # `eval`/`run` does), not just deref the top-level variable.
   example next_solution_substitutes_compound_bindings() do
     {:atomic, {b1, _constraints, state}} =
-      run branch: Examples.Support.branch() do
-        vm_set_super(:next_sol_test, :alpha)
-        vm_set_super(:next_sol_test, :beta)
-        super(:next_sol_test, s)
-        pair = [s, s]
-      end
+      run(
+        ~S"""
+        vm_set_super next_sol_test alpha.
+        vm_set_super next_sol_test beta.
+        super next_sol_test S.
+        = Pair [S, S].
+        """,
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, {b2, _constraints, _}} = next_solution(state)
 
-    pairs = [Map.get(b1, :"$pair"), Map.get(b2, :"$pair")]
+    pairs = [Map.get(b1, "$Pair"), Map.get(b2, "$Pair")]
 
-    # both solutions come back as ground lists, not [:"$s", :"$s"]
+    # both solutions come back as ground lists, not [{:"$var", "S"}, {:"$var", "S"}]
     assert Enum.sort(pairs) == [[:alpha, :alpha], [:beta, :beta]]
     :ok
   end
 
-  # :"$_" never binds (unify/4's first clause), so standardize_apart must
+  # {:"$var", "_"} never binds (unify/4's first clause), so standardize_apart must
   # never rename it either -- else two wildcards collapse onto one fresh var.
   example findall_wildcard_placeholders_stay_independent() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall([1, :"$_", :"$_"], result) do
-          1 == 1
-        end
-      end
+      run(
+        ~S"""
+        findall [1, _, _] Result (== 1 1).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$result") == [[1, :"$_", :"$_"]]
+    assert Map.get(bindings, "$Result") == [[1, {:"$var", "_1"}, {:"$var", "_2"}]]
     :ok
   end
 
@@ -48,12 +52,15 @@ defmodule Examples.ALOutputBindings do
   # that internal name -- not directly, not nested in another output var.
   example output_vars_use_consistent_names_for_aliased_vars() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        concat([3, y], [1, 2], x)
-      end
+      run(
+        ~S"""
+        concat [3, Y] [1, 2] X.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$y") == :"$y"
-    assert Map.get(bindings, :"$x") == [3, :"$y", 1, 2]
+    assert Map.get(bindings, "$Y") == {:"$var", "Y"}
+    assert Map.get(bindings, "$X") == [3, {:"$var", "Y"}, 1, 2]
     :ok
   end
 end

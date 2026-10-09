@@ -1,7 +1,7 @@
 defmodule Examples.ALControlFlow do
   @moduledoc """
   I provide examples for AL's choicepoint-stack control goals: `cut`,
-  `implies` (if-then-else with a soft cut), and `call` (direct lambda
+  `C -> T ; E` (if-then-else with a soft cut), and `call` (direct lambda
   application).
   """
 
@@ -17,10 +17,13 @@ defmodule Examples.ALControlFlow do
 
   example cut() do
     {:atomic, {_bindings, _constraints, result}} =
-      run branch: Examples.Support.branch() do
-        class(object, class)
-        cut
-      end
+      run(
+        ~S"""
+        class Object Class.
+        cut.
+        """,
+        branch: Examples.Support.branch()
+      )
 
     assert result.choicepoint_stack == [{:mark, 0}]
     result
@@ -37,86 +40,87 @@ defmodule Examples.ALControlFlow do
     plain_impl = fresh_id()
 
     {:atomic, _} =
-      run branch: Examples.Support.branch() do
-        vm_set_method(^chooser_cut, :pick, ^cut_impl)
-        vm_set_class(^cut_impl, :behaviour)
-
-        vm_set_oapply(^cut_impl, [self, :a]) do
-          cut
-        end
-
-        vm_set_oapply(^cut_impl, [self, :b]) do
-        end
-
-        vm_set_method(^chooser_plain, :pick, ^plain_impl)
-        vm_set_class(^plain_impl, :behaviour)
-
-        vm_set_oapply(^plain_impl, [self, :a]) do
-        end
-
-        vm_set_oapply(^plain_impl, [self, :b]) do
-        end
-      end
+      run(
+        ~S"""
+        vm_set_method HostChooserCut pick HostCutImpl.
+        vm_set_class HostCutImpl behaviour.
+        vm_set_oapply HostCutImpl [Self, a] (cut).
+        vm_set_oapply HostCutImpl [Self, b] {}.
+        vm_set_method HostChooserPlain pick HostPlainImpl.
+        vm_set_class HostPlainImpl behaviour.
+        vm_set_oapply HostPlainImpl [Self, a] {}.
+        vm_set_oapply HostPlainImpl [Self, b] {}.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{
+          "HostChooserCut" => chooser_cut,
+          "HostChooserPlain" => chooser_plain,
+          "HostCutImpl" => cut_impl,
+          "HostPlainImpl" => plain_impl
+        }
+      )
 
     {:atomic, {cut_bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(x, xs) do
-          pick(^chooser_cut, x)
-        end
-      end
+      run(
+        ~S"""
+        findall X Xs (pick HostChooserCut X).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostChooserCut" => chooser_cut}
+      )
 
     {:atomic, {plain_bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        findall(x, xs) do
-          pick(^chooser_plain, x)
-        end
-      end
+      run(
+        ~S"""
+        findall X Xs (pick HostChooserPlain X).
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"HostChooserPlain" => chooser_plain}
+      )
 
     # the cut in the first clause prunes the second; without it, both are found
-    assert Map.get(cut_bindings, :"$xs") == [:a]
-    assert Enum.sort(Map.get(plain_bindings, :"$xs")) == [:a, :b]
+    assert Map.get(cut_bindings, "$Xs") == [:a]
+    assert Enum.sort(Map.get(plain_bindings, "$Xs")) == [:a, :b]
     :ok
   end
 
   example implies_block_runs_then() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        implies do
-          [class(:object, c)] -> out = :then_ran
-          :else -> out = :else_ran
-        end
-      end
+      run(
+        ~S"""
+        class object C -> = Out then_ran ; = Out else_ran.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == :then_ran
+    assert Map.get(bindings, "$Out") == :then_ran
     :ok
   end
 
   example implies_block_runs_else() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        implies do
-          [class(:nonexistent_xyz, c)] -> out = :then_ran
-          :else -> out = :else_ran
-        end
-      end
+      run(
+        ~S"""
+        class nonexistent_xyz C -> = Out then_ran ; = Out else_ran.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == :else_ran
+    assert Map.get(bindings, "$Out") == :else_ran
     :ok
   end
 
   example implies_block_multiway() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        vm_set_class(:branch_pick, :widget)
+      run(
+        ~S"""
+        vm_set_class branch_pick widget.
+        class branch_pick gadget -> = Out first ; class branch_pick widget -> = Out second ; = Out none.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        implies do
-          [class(:branch_pick, :gadget)] -> out = :first
-          [class(:branch_pick, :widget)] -> out = :second
-          :else -> out = :none
-        end
-      end
-
-    assert Map.get(bindings, :"$out") == :second
+    assert Map.get(bindings, "$Out") == :second
     :ok
   end
 
@@ -124,29 +128,29 @@ defmodule Examples.ALControlFlow do
   # a multi-solution condition, `then` runs once and the else branch is discarded.
   example if_then_else_commits_to_first_condition_solution() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        vm_set_super(:ite_test, :s1)
-        vm_set_super(:ite_test, :s2)
+      run(
+        ~S"""
+        vm_set_super ite_test s1.
+        vm_set_super ite_test s2.
+        findall R Results (super ite_test X -> = R X ; = R none).
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        findall(r, results) do
-          implies do
-            [super(:ite_test, x)] -> r = x
-            :else -> r = :none
-          end
-        end
-      end
-
-    assert length(Map.get(bindings, :"$results")) == 1
+    assert length(Map.get(bindings, "$Results")) == 1
     :ok
   end
 
   example call_lambda() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        call([x, result], [result = x], [:hello, out])
-      end
+      run(
+        ~S"""
+        call [X, Result] (= Result X) [hello, Out].
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == :hello
+    assert Map.get(bindings, "$Out") == :hello
     :ok
   end
 
@@ -154,27 +158,29 @@ defmodule Examples.ALControlFlow do
   # to do (its condition already did the work) shouldn't need a self-unify.
   example pass_succeeds_without_changing_bindings() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        out = :hello
-        pass
-      end
+      run(
+        ~S"""
+        = Out hello.
+        pass.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-    assert Map.get(bindings, :"$out") == :hello
+    assert Map.get(bindings, "$Out") == :hello
     :ok
   end
 
   example pass_as_an_implies_branch() do
     {:atomic, {bindings, _constraints, _}} =
-      run branch: Examples.Support.branch() do
-        implies do
-          [class(:object, c)] -> pass
-          :else -> out = :else_ran
-        end
+      run(
+        ~S"""
+        class object C -> pass ; = Out else_ran.
+        = Out then_ran_and_passed.
+        """,
+        branch: Examples.Support.branch()
+      )
 
-        out = :then_ran_and_passed
-      end
-
-    assert Map.get(bindings, :"$out") == :then_ran_and_passed
+    assert Map.get(bindings, "$Out") == :then_ran_and_passed
     :ok
   end
 end

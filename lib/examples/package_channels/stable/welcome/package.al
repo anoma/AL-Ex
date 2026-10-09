@@ -1,5 +1,1 @@
-Package {
-  #name : :welcome,
-  #version : 1,
-  #deps : [:greeting, :punctuation]
-}
+defpackage welcome #{deps => [greeting, punctuation], version => 1}.

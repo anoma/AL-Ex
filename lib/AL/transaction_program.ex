@@ -1,10 +1,12 @@
 defmodule AL.TransactionProgram do
   @moduledoc """
-  I define named transaction programs with `defprogram/3` and retain their execution receipts.
+  I load named transaction programs from `priv/programs/*.al` and retain their execution receipts.
   """
 
   def configured do
-    Application.get_env(:al, :transaction_programs, [])
+    :al
+    |> Application.get_env(:transaction_programs, [])
+    |> Enum.map(&load/1)
   end
 
   def source(self = %AL.Object{}) do
@@ -57,7 +59,7 @@ defmodule AL.TransactionProgram do
   defp installation_tx(self, branch) do
     scopes = AL.Dispatch.MethodOrder.method_scopes(self.id, branch)
 
-    if Enum.any?(receipt_classes(branch), &(&1 in scopes)) do
+    if :program_execution in scopes do
       case AL.Object.read_slots(self.id, branch) do
         [{:slots, _, %{tx: tx}}] -> {:ok, tx}
         _ -> {:error, :source_unavailable}
@@ -67,62 +69,63 @@ defmodule AL.TransactionProgram do
     end
   end
 
-  defmacro __using__(_opts) do
-    quote do
-      require AL
-      import AL.TransactionProgram, only: [defprogram: 3]
+  @enforce_keys [:name, :version, :deps, :text, :origin]
+  defstruct [:name, :version, :deps, :text, :origin]
+
+  @type t() :: %__MODULE__{
+          name: atom(),
+          version: term(),
+          deps: [atom()],
+          text: String.t(),
+          origin: AL.SourceStore.origin()
+        }
+
+  @spec load(atom()) :: t()
+  def load(name) when is_atom(name) do
+    file = Path.join(["priv", "programs", "#{name}.al"])
+    path = Path.join(:code.priv_dir(:al), Path.relative_to(file, "priv"))
+    program = from_source(File.read!(path), %{kind: :transaction_program, file: file})
+
+    if program.name != name,
+      do: raise("AL transaction program file #{path} declares #{inspect(program.name)}")
+
+    program
+  end
+
+  @spec from_source(String.t(), AL.SourceStore.origin()) :: t()
+  def from_source(text, origin) do
+    case AL.Syntax.parse_program(text) do
+      {:ok, %{name: name, version: version, deps: deps}, _result} ->
+        %__MODULE__{name: name, version: version, deps: deps, text: text, origin: origin}
+
+      {:error, error} ->
+        raise "AL transaction program source is invalid: #{Exception.message(error)}"
     end
   end
 
-  defmacro defprogram(name, opts, do: body) do
-    version = Keyword.get(opts, :version, 1)
-    deps = Keyword.get(opts, :deps, [])
+  @spec install(t()) :: {:atomic, term()} | {:aborted, term()}
+  def install(%__MODULE__{} = program) do
+    retain_install(program.text, program.origin, fn ->
+      {:ok, _declaration, result} = AL.Syntax.parse_program(program.text)
 
-    statements =
-      case body do
-        {:__block__, _, list} -> list
-        single -> [single]
-      end
+      receipt = %AL.Goal.Send{
+        object: :program_execution,
+        method: :new,
+        args: [
+          %{name: program.name, version: program.version, deps: program.deps},
+          AL.Var.var(:_)
+        ]
+      }
 
-    receipt =
-      quote do
-        new(
-          :program_execution,
-          %{
-            name: unquote(name),
-            version: unquote(version),
-            deps: unquote(deps),
-            redef: true
-          },
-          _
-        )
-      end
-
-    program = {:__block__, [], statements ++ [receipt]}
-
-    source_ast = {:defprogram, [], [name, opts, [do: body]]}
-    source = Macro.to_string(source_ast)
-    origin = %{kind: :transaction_program, file: __CALLER__.file, line: __CALLER__.line}
-
-    quote do
-      def __program__ do
-        %{name: unquote(name), version: unquote(version), deps: unquote(deps)}
-      end
-
-      def install do
-        :ok = AL.TransactionProgram.ensure_execution_class()
-
-        AL.TransactionProgram.retain_install(unquote(source), unquote(Macro.escape(origin)), fn ->
-          if function_exported?(__MODULE__, :__prepare_program_install__, 0) do
-            :ok = apply(__MODULE__, :__prepare_program_install__, [])
-          end
-
-          AL.run do
-            unquote(program)
-          end
-        end)
-      end
-    end
+      AL.eval_with_retained_source(
+        %{result | program: result.program ++ [receipt]},
+        program.text,
+        program.origin,
+        nil,
+        AL.Branch.head(),
+        []
+      )
+    end)
   end
 
   def retain_install(text, origin, install) do
@@ -170,16 +173,14 @@ defmodule AL.TransactionProgram do
 
   defp retain_transaction_source(_result, _text, _origin, _branch), do: :ok
 
-  @spec install_all([module()]) :: :ok
-  def install_all(modules) do
-    :ok = ensure_execution_class()
-    by_name = Map.new(modules, fn m -> {metadata(m).name, m} end)
+  @spec install_all([t()]) :: :ok
+  def install_all(programs) do
+    by_name = Map.new(programs, fn program -> {program.name, program} end)
 
-    modules
+    programs
     |> order(by_name)
-    |> Enum.each(fn m ->
-      program = metadata(m)
-      ensure_current(program.name, program.version, &m.install/0)
+    |> Enum.each(fn program ->
+      ensure_installed(program)
     end)
   end
 
@@ -191,21 +192,6 @@ defmodule AL.TransactionProgram do
            end)
          end) do
       {:atomic, installed?} -> installed?
-      _ -> false
-    end
-  end
-
-  @spec current?(atom(), pos_integer(), AL.Branch.t()) :: boolean()
-  def current?(name, version, branch \\ AL.Branch.head()) do
-    case :mnesia.transaction(fn ->
-           Enum.any?(execution_rows(branch), fn {:class, execution, _seq, _class} ->
-             match?(
-               [{:slots, ^execution, %{name: ^name, version: ^version}}],
-               AL.Object.read_slots(execution, branch)
-             )
-           end)
-         end) do
-      {:atomic, current?} -> current?
       _ -> false
     end
   end
@@ -225,20 +211,9 @@ defmodule AL.TransactionProgram do
     end
   end
 
-  @spec ensure_current(atom(), pos_integer(), (-> any())) :: :ok
-  def ensure_current(name, version, install) do
-    if current?(name, version) do
-      :ok
-    else
-      case install.() do
-        {:atomic, _} ->
-          :ok
-
-        {:aborted, reason} ->
-          raise "AL transaction program #{inspect(name)} failed to install: #{explain(reason)}"
-      end
-    end
-  end
+  @spec ensure_installed(t()) :: :ok
+  def ensure_installed(%__MODULE__{} = program),
+    do: ensure(program.name, fn -> install(program) end)
 
   defp explain(%{message: message}), do: message
   defp explain(reason), do: inspect(reason)
@@ -314,15 +289,17 @@ defmodule AL.TransactionProgram do
     end
   end
 
-  defp order(modules, by_name) do
+  defp order(programs, by_name) do
     {ordered, _seen} =
-      Enum.reduce(modules, {[], MapSet.new()}, fn m, acc -> visit(m, by_name, acc, []) end)
+      Enum.reduce(programs, {[], MapSet.new()}, fn program, acc ->
+        visit(program, by_name, acc, [])
+      end)
 
     Enum.reverse(ordered)
   end
 
-  defp visit(m, by_name, {ordered, seen}, stack) do
-    name = metadata(m).name
+  defp visit(program, by_name, {ordered, seen}, stack) do
+    name = program.name
 
     cond do
       name in seen ->
@@ -333,89 +310,20 @@ defmodule AL.TransactionProgram do
 
       true ->
         {ordered, seen} =
-          Enum.reduce(metadata(m).deps, {ordered, seen}, fn dep, acc ->
+          Enum.reduce(program.deps, {ordered, seen}, fn dep, acc ->
             case Map.fetch(by_name, dep) do
-              {:ok, dep_module} ->
-                visit(dep_module, by_name, acc, [name | stack])
+              {:ok, dependency} ->
+                visit(dependency, by_name, acc, [name | stack])
 
               :error ->
                 raise "AL transaction program #{inspect(name)} depends on unknown #{inspect(dep)}"
             end
           end)
 
-        {[m | ordered], MapSet.put(seen, name)}
+        {[program | ordered], MapSet.put(seen, name)}
     end
   end
 
-  defp metadata(module) do
-    Code.ensure_loaded!(module)
-
-    module.__program__()
-  end
-
-  defp receipt_classes(branch) do
-    if legacy_receipt_class?(branch),
-      do: [:program_execution, :package],
-      else: [:program_execution]
-  end
-
-  defp legacy_receipt_class?(branch) do
-    case AL.Object.read_slots(:package, branch) do
-      [{:slots, :package, %{ivars: [:name, :version, :deps, :tx]}}] -> true
-      _ -> false
-    end
-  end
-
-  defp execution_rows(branch \\ AL.Branch.head()) do
-    receipt_classes(branch)
-    |> Enum.flat_map(&AL.Object.scan_class(:"$execution", &1, branch))
-    |> Enum.uniq_by(fn {:class, object, _seq, _class} -> object end)
-  end
-
-  def ensure_execution_class do
-    branch = AL.Branch.head()
-
-    result =
-      :mnesia.transaction(fn ->
-        if legacy_receipt_class?(branch) do
-          program_execution_definition =
-            if AL.Object.scan_class(:program_execution, :class, branch) == [] do
-              """
-              new(:class, %{name: :program_execution, super: :object, ivars: [:name, :version, :deps, :tx]}, _)
-              import(:program_execution, :package)
-              """
-            else
-              ""
-            end
-
-          receipt_migration =
-            AL.Object.scan_class(AL.Var.var("legacy_program_receipt"), :package, branch)
-            |> Enum.map_join("\n", fn {:class, receipt, _seq, :package} ->
-              """
-              vm_retract_class(#{inspect(receipt)}, :package)
-              vm_set_class(#{inspect(receipt)}, :program_execution)
-              """
-            end)
-
-          source =
-            program_execution_definition <>
-              receipt_migration <>
-              """
-              delete_class(:package)
-              """
-
-          case AL.eval_source(source, branch) do
-            {:atomic, _} -> :ok
-            {:aborted, reason} -> :mnesia.abort(reason)
-          end
-        else
-          :ok
-        end
-      end)
-
-    case result do
-      {:atomic, :ok} -> :ok
-      {:aborted, reason} -> raise "AL program execution receipt setup failed: #{explain(reason)}"
-    end
-  end
+  defp execution_rows(branch \\ AL.Branch.head()),
+    do: AL.Object.scan_class({:"$var", "execution"}, :program_execution, branch)
 end
