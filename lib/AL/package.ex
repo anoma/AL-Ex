@@ -687,6 +687,15 @@ defmodule AL.Package do
     do: {:ok, %{provider: state.provider}}
 
   defp open_build_dependency_inputs(requirements, dependency_builds, branch) do
+    case :mnesia.transaction(fn ->
+           open_build_dependency_inputs_in_transaction(requirements, dependency_builds, branch)
+         end) do
+      {:atomic, result} -> result
+      {:aborted, reason} -> {:error, reason}
+    end
+  end
+
+  defp open_build_dependency_inputs_in_transaction(requirements, dependency_builds, branch) do
     required_names = Enum.map(requirements, &requirement_name/1)
     selected_names = Enum.map(dependency_builds, &elem(&1, 0))
 
