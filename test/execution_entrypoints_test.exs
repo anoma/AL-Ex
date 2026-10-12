@@ -62,6 +62,17 @@ defmodule AL.ExecutionEntrypointsTest do
              AL.run("(= X 1 ; = X 2), = X 2.", branch)
   end
 
+  test "open length reaches list and string receivers", %{branch: branch} do
+    assert %AL{result: {:atomic, {bindings, _, _}}} = AL.run("length X 1.", branch)
+    assert [_] = bindings["$X"]
+
+    assert %AL{result: {:atomic, {%{"$X" => "a"}, _, _}}} =
+             AL.run("length X 1, = X \"a\".", branch)
+
+    assert %AL{result: {:atomic, {%{"$N" => 3}, _, _}}} =
+             AL.run("length \"abc\" N.", branch)
+  end
+
   test "run binds AL variables from explicit inputs", %{branch: branch} do
     assert %AL{result: {:atomic, {%{"$Result" => 7}, _, _}}} =
              AL.run("= Result Input.", branch, bindings: %{"Input" => 7})

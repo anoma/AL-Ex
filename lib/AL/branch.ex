@@ -17,6 +17,45 @@ defmodule AL.Branch do
     field(:id, atom(), enforce: true)
   end
 
+  @table_names :al_branch_table_names
+
+  def with_table_name_cache(fun) when is_function(fun, 0) do
+    case Process.get(@table_names) do
+      nil ->
+        Process.put(@table_names, %{})
+
+        try do
+          fun.()
+        after
+          Process.delete(@table_names)
+        end
+
+      _names ->
+        fun.()
+    end
+  end
+
+  @spec cached_table_name(atom(), atom(), atom(), (-> atom())) :: atom()
+  def cached_table_name(namespace, relation, branch, compute) do
+    case Process.get(@table_names) do
+      nil ->
+        compute.()
+
+      names ->
+        key = {namespace, relation, branch}
+
+        case Map.fetch(names, key) do
+          {:ok, table} ->
+            table
+
+          :error ->
+            table = compute.()
+            Process.put(@table_names, Map.put(names, key, table))
+            table
+        end
+    end
+  end
+
   @spec main() :: t()
   def main() do
     %__MODULE__{id: :main}

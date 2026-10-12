@@ -27,14 +27,14 @@ end
 
 alias Bench.LookupComparison, as: Probe
 root = Path.expand("../lib", __DIR__)
-source = File.read!(Path.join(root, "AL/transaction.ex"))
+source = File.read!(Path.join(root, "AL/record.ex"))
 [_, header] = Regex.run(~r/(  def record\([\s\S]*?\) do)/, source)
 
 Probe.patch(
   source,
   header,
   header <>
-    "\n    Bench.LookupComparison.record(fn -> diagnostic_record(tx, object, branch, status, details) end)\n  end\n  defp diagnostic_record(tx, object, branch, status, details) do"
+    "\n    Bench.LookupComparison.record(fn -> diagnostic_record(tx, object, branch, status, details, transaction_slots) end)\n  end\n  defp diagnostic_record(tx, object, branch, status, details, transaction_slots) do"
 )
 |> Code.compile_string()
 

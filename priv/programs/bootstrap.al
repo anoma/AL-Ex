@@ -685,6 +685,7 @@ concat SelfCodes OtherCodes WholeCodes.
 string >> length
 | Self N |
 string_codes Self Codes,
+isa Codes list,
 length Codes N.
 
 string >> split

@@ -1,24 +1,21 @@
-# mix run bench/length_generate.exs            -- Benchee sweep
-# mix run bench/length_generate.exs --profile N -- per-function time via :eprof
-#
-# Times `length(xs, N)` with xs unbound — generative list construction via
-# backtracking over `dispatch/5`'s structural candidates. Existing to establish
-# a before/after baseline for the resolution-cost optimizations discussed
-# around issue #59 (providers/3 caching, ephemeral_descendants indexing,
-# oapply first-argument indexing).
-#
-# `--profile` wraps one run in `:eprof` (OTP's built-in time-profiler, part of
-# `:tools` so no extra setup) instead of just timing it, and prints a
-# per-function call-count/time breakdown — for seeing where the time actually
-# goes, not just how much of it there is.
-
 Code.require_file("support.exs", __DIR__)
 
 defmodule Bench.LengthGenerate do
   use AL
 
   def generate(branch, n) do
-    run("length Xs InputLength.", branch, bindings: %{"InputLength" => n}, trace: [])
+    run("length Xs InputLength.", branch,
+      bindings: %{"InputLength" => n},
+      trace: []
+    )
+  end
+
+  def check_generation(result, n) do
+    {bindings, _, _} = Bench.Support.assert_atomic!(result)
+    xs = Map.fetch!(bindings, "$Xs")
+
+    unless is_list(xs) and length(xs) == n,
+      do: raise("generated list has the wrong length: #{inspect(xs)}")
   end
 
   def profile_one(n) do
@@ -42,12 +39,22 @@ case System.argv() do
       fn -> Bench.LengthGenerate.profile_one(n) end
     )
 
-  _ ->
-    inputs = for n <- [4_000, 8_000, 12_000, 16_000, 20_000], do: {"n=#{n}", n}
+  args ->
+    sizes =
+      case args do
+        [] -> [4_000, 8_000, 12_000, 16_000, 20_000]
+        [n] -> [String.to_integer(n)]
+        _ -> raise ArgumentError, "expected a list length or --profile <length>"
+      end
+
+    inputs = for n <- sizes, do: {"n=#{n}", n}
 
     Bench.Support.run(
       %{
-        "length(xs, n)" => Bench.Support.branch_job(&Bench.LengthGenerate.generate/2)
+        "length(xs, n)" =>
+          Bench.Support.branch_job(&Bench.LengthGenerate.generate/2,
+            check: &Bench.LengthGenerate.check_generation/2
+          )
       },
       title: "Generative list length",
       inputs: inputs

@@ -6,8 +6,8 @@ defmodule Bench.ParseSearchProfile do
       do: Process.put({:search_profile, key}, Process.get({:search_profile, key}, 0) + count)
   end
 
-  defp snapshot({_id, code, _pc, slots, returns, store, pending}),
-    do: {code, slots, returns, store, pending}
+  defp snapshot(%AL.JAM.Frame{code: code, slots: slots, returns: returns, store: store}),
+    do: {code, slots, returns, store}
 
   def measure(kind, run) do
     if Process.get(:search_profile_enabled) do
@@ -57,7 +57,7 @@ defmodule Bench.ParseSearchProfile do
     entries
   end
 
-  def resumed({id, code, pc, _, returns, _, _} = entry) do
+  def resumed(%AL.JAM.Frame{id: id, code: code, pc: pc, returns: returns} = entry) do
     if Process.get(:search_profile_enabled) do
       case Process.delete({:search_choice, snapshot(entry)}) do
         nil ->
@@ -71,7 +71,7 @@ defmodule Bench.ParseSearchProfile do
     end
   end
 
-  def failed({id, code, pc, _, returns, _, _}) do
+  def failed(%AL.JAM.Frame{id: id, code: code, pc: pc, returns: returns}) do
     if Process.get(:search_profile_enabled) do
       case Process.delete({:search_resumed, id, code, returns}) do
         {kind, selector, ^pc} when pc < tuple_size(code) ->
@@ -96,40 +96,23 @@ defmodule Bench.ParseSearchProfile do
   end
 
   def instrument_resume(source) do
-    [prefix, rest] = String.split(source, "  defp resume_entry(", parts: 2)
-    [entry, suffix] = String.split(rest, "\n  defp loop(", parts: 2)
-
-    entry =
-      entry
-      |> patch!(
-        "       do:\n         loop(",
-        "       do:\n         (Bench.ParseSearchProfile.resumed({id, code, pc, slots, returns, store, pending}); loop("
-      )
-      |> patch!("           pending\n         )", "           pending\n         ))")
-
-    prefix <> "  defp resume_entry(" <> entry <> "\n  defp loop(" <> suffix
+    patch!(
+      source,
+      "  defp resume_entry(%Frame{} = frame, %Execution{} = execution) do",
+      "  defp resume_entry(%Frame{} = frame, %Execution{} = execution) do\n    Bench.ParseSearchProfile.resumed(frame)"
+    )
   end
 
   def instrument_forwarded(source) do
-    [prefix, rest] = String.split(source, "  defp returning_entry(", parts: 2)
-    [forwarded, suffix] = String.split(rest, "  defp returning_entry(", parts: 2)
-
-    forwarded =
-      forwarded
-      |> patch!(
-        "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head},",
-        "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head} = matched,"
-      )
-      |> patch!(
-        "    slots =\n",
-        "    {result, reductions} = Bench.ParseSearchProfile.measure(:forwarded, fn ->\n    slots =\n"
-      )
-      |> patch!(
-        "    {caller_id, caller_code, caller_pc, slots, returns, store, %{}}\n",
-        "    {caller_id, caller_code, caller_pc, slots, returns, store, %{}}\n    end)\n    Bench.ParseSearchProfile.prepared(result, matched, reductions)\n"
-      )
-
-    prefix <> "  defp returning_entry(" <> forwarded <> "  defp returning_entry(" <> suffix
+    source
+    |> patch!(
+      "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head},",
+      "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head} = matched,"
+    )
+    |> patch!(
+      "    %__MODULE__{\n      id: caller_id,\n      code: caller_code,\n      pc: caller_pc,\n      slots: slots,\n      returns: returns,\n      store: store\n    }",
+      "    Bench.ParseSearchProfile.prepared(%__MODULE__{\n      id: caller_id,\n      code: caller_code,\n      pc: caller_pc,\n      slots: slots,\n      returns: returns,\n      store: store\n    }, matched, 0)"
+    )
   end
 
   def reset do
@@ -152,7 +135,7 @@ end
 
 alias Bench.ParseSearchProfile, as: Profile
 
-Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
+Path.join([__DIR__, "..", "lib", "AL", "jam", "selection.ex"])
 |> File.read!()
 |> Profile.patch!(
   "  defp match_clause(\n",
@@ -167,10 +150,14 @@ Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
     defp measured_match_clause(
   """
 )
+|> Code.compile_string()
+
+Path.join([__DIR__, "..", "lib", "AL", "jam", "frame.ex"])
+|> File.read!()
 |> Profile.patch!(
-  "  defp entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do",
+  "  def entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do",
   """
-    defp entry(id, matched, returns) do
+    def entry(id, matched, returns) do
       {result, reductions} = Bench.ParseSearchProfile.measure(:entry, fn ->
         measured_entry(id, matched, returns)
       end)
@@ -180,23 +167,27 @@ Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
     defp measured_entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do
   """
 )
+|> Profile.instrument_forwarded()
+|> Code.compile_string()
+
+Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
+|> File.read!()
 |> Profile.patch!(
-  "alternatives = Enum.map(alternatives, &with_pending(&1, pending))",
-  "alternatives = Enum.map(alternatives, &with_pending(&1, pending)) |> Bench.ParseSearchProfile.created(:send, method)"
+  "alternatives = Enum.map(alternatives, &Frame.with_pending(&1, pending))",
+  "alternatives = Enum.map(alternatives, &Frame.with_pending(&1, pending)) |> Bench.ParseSearchProfile.created(:send, method)"
 )
 |> Profile.patch!(
-  "alternatives = Enum.map(rest, &with_pending(entry(frame, &1, returns), pending))",
-  "alternatives = Enum.map(rest, &with_pending(entry(frame, &1, returns), pending)) |> Bench.ParseSearchProfile.created(:next, elem(cursor, 0))"
+  "Enum.map(rest, &Frame.with_pending(Frame.entry(frame, &1, returns), pending))",
+  "Enum.map(rest, &Frame.with_pending(Frame.entry(frame, &1, returns), pending)) |> Bench.ParseSearchProfile.created(:next, elem(next_cursor, 0))"
 )
 |> Profile.instrument_resume()
-|> Profile.instrument_forwarded()
 |> Profile.patch!(
-  "  defp retry(current, [], _branch, _targets, steps, _budget) do",
-  "  defp retry(current, [], _branch, _targets, steps, _budget) do\n Bench.ParseSearchProfile.failed(current)"
+  "  defp retry(current, %Execution{choices: [], steps: steps}) do",
+  "  defp retry(current, %Execution{choices: [], steps: steps}) do\n    Bench.ParseSearchProfile.failed(current)"
 )
 |> Profile.patch!(
-  "  defp retry(_current, [choice | rest], branch, targets, steps, budget) do",
-  "  defp retry(current, [choice | rest], branch, targets, steps, budget) do\n Bench.ParseSearchProfile.failed(current)"
+  "  defp retry(_current, %Execution{choices: [choice | rest]} = execution) do",
+  "  defp retry(current, %Execution{choices: [choice | rest]} = execution) do\n    Bench.ParseSearchProfile.failed(current)"
 )
 |> Code.compile_string()
 

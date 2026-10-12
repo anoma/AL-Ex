@@ -1,6 +1,6 @@
 Code.require_file("language_support.exs", __DIR__)
 
-modules = [AL.JAM.Compiler, AL.JAM, AL.JAM.Callable, AL.JAM.Callable.Template, AL.JAM.Scan]
+modules = [AL.JAM.Compiler, AL.JAM.Selection, AL.JAM.Callable, AL.JAM.Scan]
 originals = Enum.map(modules, &:code.get_object_code/1)
 
 patch = fn source, hook, replacement ->
@@ -13,12 +13,12 @@ root = Path.expand("../lib/AL/jam", __DIR__)
 try do
   File.read!(Path.join(root, "compiler.ex"))
   |> patch.(
-    "locals = AL.JAM.Registers.materialized_locals(code, locals)",
-    "locals = {locals, AL.JAM.Registers.materialized_locals(code, locals)}"
+    "locals = AL.JAM.Registers.materialized_locals(code, locals, usage)",
+    "locals = {locals, AL.JAM.Registers.materialized_locals(code, locals, usage)}"
   )
   |> Code.compile_string()
 
-  File.read!(Path.expand("../lib/AL/jam.ex", __DIR__))
+  File.read!(Path.join(root, "selection.ex"))
   |> patch.(
     "    {call, forwarded} = forward_outputs(call, outputs, head_returns, store)",
     """

@@ -92,10 +92,12 @@ defmodule AL.Dispatch.MethodOrder do
   defp dispatch_strategy([], _branch), do: :dfs
 
   defp dispatch_strategy([class | _rest], branch) do
-    case AL.Object.read_slots(class, branch) do
-      [{:slots, ^class, %{dispatch_strategy: strategy}}] -> strategy
-      _ -> :dfs
-    end
+    AL.ResolutionCache.fetch_dispatch_strategy(branch, class, fn ->
+      case AL.Object.read_slots(class, branch) do
+        [{:slots, ^class, %{dispatch_strategy: strategy}}] -> strategy
+        _ -> :dfs
+      end
+    end)
   end
 
   # Walks every class reachable from `seeds`, recording each one's direct

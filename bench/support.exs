@@ -35,6 +35,8 @@ defmodule Bench.Support do
     }
   end
 
+  def assert_atomic!(%AL{result: result}), do: assert_atomic!(result)
+
   def assert_atomic!({:atomic, value}), do: value
 
   def assert_atomic!({:aborted, %{reason: reason}}) do

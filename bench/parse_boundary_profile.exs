@@ -196,15 +196,19 @@ defmodule Bench.ParseBoundaryProfile do
 
   def matched(nil, _clause), do: nil
 
-  def matched(result, {identity, _, _, _, _, _}) do
-    if active?(), do: Process.put({:boundary_match, match_key(result)}, identity)
+  def matched(result, %AL.JAM.CompiledClause{} = clause) do
+    identity = {clause.method, clause.sequence, clause.head, clause.head_operand}
+
+    if active?() and result != nil,
+      do: Process.put({:boundary_match, match_key(result)}, identity)
+
     result
   end
 
   def match_key({_code, slots, store, _variants, _forwarded, head}), do: {slots, store, head}
 
-  def snapshot({_id, code, _pc, slots, returns, store, pending}),
-    do: {code, slots, returns, store, pending}
+  def snapshot(%AL.JAM.Frame{code: code, slots: slots, returns: returns, store: store}),
+    do: {code, slots, returns, store}
 
   def prepared(entry, matched) do
     if active?(),
@@ -265,54 +269,53 @@ source =
     "          {:ok, callee_id, callee, targets} ->\n            Bench.ParseBoundaryProfile.target(callee_id, method)"
   )
   |> Profile.patch!(
-    "        call =\n          if destinations == [],",
-    "        Bench.ParseBoundaryProfile.send(id, pc, operation, object, method, slots, store)\n        call =\n          if destinations == [],"
+    "        call =\n          if destinations == [] do",
+    "        Bench.ParseBoundaryProfile.send(id, pc, operation, object, method, slots, store)\n        call =\n          if destinations == [] do"
   )
-  |> Profile.patch!("  defp match_clause(\n", """
-    defp match_clause(clause, call, store, branch, outputs) do
-      result = audited_match_clause(clause, call, store, branch, outputs)
-      Bench.ParseBoundaryProfile.matched(result, clause)
+  |> Profile.patch!(
+    "alternatives = Enum.map(alternatives, &Frame.with_pending(&1, pending))",
+    "alternatives = Enum.map(alternatives, &Frame.with_pending(&1, pending)) |> Bench.ParseBoundaryProfile.created(:send, method)"
+  )
+  |> Profile.patch!(
+    "Enum.map(rest, &Frame.with_pending(Frame.entry(frame, &1, returns), pending))",
+    "Enum.map(rest, &Frame.with_pending(Frame.entry(frame, &1, returns), pending)) |> Bench.ParseBoundaryProfile.created(:next, elem(next_cursor, 0))"
+  )
+  |> Profile.patch!(
+    "  defp resume_entry(%Frame{} = frame, %Execution{} = execution) do",
+    "  defp resume_entry(%Frame{} = frame, %Execution{} = execution) do\n    Bench.ParseBoundaryProfile.resumed(frame)"
+  )
+
+File.read!(Path.join([__DIR__, "..", "lib", "AL", "jam", "selection.ex"]))
+|> Profile.patch!("  defp match_clause(\n", """
+  defp match_clause(clause, call, store, branch, outputs) do
+    result = audited_match_clause(clause, call, store, branch, outputs)
+    Bench.ParseBoundaryProfile.matched(result, clause)
+  end
+  defp audited_match_clause(
+""")
+|> Code.compile_string()
+
+File.read!(Path.join([__DIR__, "..", "lib", "AL", "jam", "frame.ex"]))
+|> Profile.patch!(
+  "  def entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do",
+  """
+    def entry(id, matched, returns) do
+      Bench.ParseBoundaryProfile.prepared(audited_entry(id, matched, returns), matched)
     end
-    defp audited_match_clause(
-  """)
-  |> Profile.patch!(
-    "  defp entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do",
-    """
-      defp entry(id, matched, returns) do
-        Bench.ParseBoundaryProfile.prepared(audited_entry(id, matched, returns), matched)
-      end
-      defp audited_entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do
-    """
-  )
-  |> Profile.patch!(
-    "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head},",
-    "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head} = matched,"
-  )
-  |> Profile.patch!(
-    "    {caller_id, caller_code, caller_pc, slots, returns, store, %{}}\n",
-    "    Bench.ParseBoundaryProfile.prepared({caller_id, caller_code, caller_pc, slots, returns, store, %{}}, matched)\n"
-  )
-  |> Profile.patch!(
-    "alternatives = Enum.map(alternatives, &with_pending(&1, pending))",
-    "alternatives = Enum.map(alternatives, &with_pending(&1, pending)) |> Bench.ParseBoundaryProfile.created(:send, method)"
-  )
-  |> Profile.patch!(
-    "alternatives = Enum.map(rest, &with_pending(entry(frame, &1, returns), pending))",
-    "alternatives = Enum.map(rest, &with_pending(entry(frame, &1, returns), pending)) |> Bench.ParseBoundaryProfile.created(:next, elem(cursor, 0))"
-  )
+    defp audited_entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do
+  """
+)
+|> Profile.patch!(
+  "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head},",
+  "{_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head} = matched,"
+)
+|> Profile.patch!(
+  "    %__MODULE__{\n      id: caller_id,\n      code: caller_code,\n      pc: caller_pc,\n      slots: slots,\n      returns: returns,\n      store: store\n    }",
+  "    Bench.ParseBoundaryProfile.prepared(%__MODULE__{\n      id: caller_id,\n      code: caller_code,\n      pc: caller_pc,\n      slots: slots,\n      returns: returns,\n      store: store\n    }, matched)"
+)
+|> Code.compile_string()
 
-[prefix, rest] = String.split(source, "  defp resume_entry(", parts: 2)
-[entry, suffix] = String.split(rest, "\n  defp loop(", parts: 2)
-
-entry =
-  entry
-  |> Profile.patch!(
-    "       do:\n         loop(",
-    "       do:\n         (Bench.ParseBoundaryProfile.resumed({id, code, pc, slots, returns, store, pending}); loop("
-  )
-  |> Profile.patch!("           pending\n         )", "           pending\n         ))")
-
-Code.compile_string(prefix <> "  defp resume_entry(" <> entry <> "\n  defp loop(" <> suffix)
+Code.compile_string(source)
 
 Bench.Language.isolated(fn ->
   path =

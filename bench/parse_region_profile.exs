@@ -42,7 +42,7 @@ end
 
 alias Bench.ParseRegionProfile, as: Profile
 
-Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
+Path.join([__DIR__, "..", "lib", "AL", "jam", "selection.ex"])
 |> File.read!()
 |> Profile.patch!(
   "    case AL.JAM.Head.match(match, call, store, initial, branch) do",
@@ -57,6 +57,18 @@ Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
           Bench.ParseRegionProfile.bump(:fresh_locals, length(locals))
   """
 )
+|> Code.compile_string()
+
+Path.join([__DIR__, "..", "lib", "AL", "jam", "frame.ex"])
+|> File.read!()
+|> Profile.patch!(
+  "  def entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do",
+  "  def entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do\n    Bench.ParseRegionProfile.entry(id)"
+)
+|> Code.compile_string()
+
+Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
+|> File.read!()
 |> Profile.patch!(
   "      {:branch, left, right} ->",
   "      {:branch, left, right} ->\n        Bench.ParseRegionProfile.bump(:branches)"
@@ -72,10 +84,6 @@ Path.join([__DIR__, "..", "lib", "AL", "jam.ex"])
 |> Profile.patch!(
   "      {:numeric_tests, operand, tests, fallback} ->",
   "      {:numeric_tests, operand, tests, fallback} ->\n        Bench.ParseRegionProfile.bump(:numeric_test_groups)"
-)
-|> Profile.patch!(
-  "  defp entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do",
-  "  defp entry(id, {code, slots, store, _variants, _forwarded, head}, returns) do\n    Bench.ParseRegionProfile.entry(id)"
 )
 |> Profile.patch!(
   "              {:region, guard, region_code, region_slots, answer, fallback, used} ->",

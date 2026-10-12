@@ -36,7 +36,7 @@ Bench.Language.isolated(fn ->
       Bench.SymbolRegion.compile(%{class: :al_grammar}, AL.Branch.head())
     end)
 
-  IO.inspect(region.blocks, label: "Inferred region")
+  IO.inspect(region.tests, label: "Inferred tests")
 
   cases =
     Enum.map(

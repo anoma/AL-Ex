@@ -128,4 +128,30 @@ defmodule AL.ProviderInvalidationTest do
     assert bindings["$X"] == :changed
     assert bindings["$Y"] == :changed
   end
+
+  test "dispatch strategy changes affect subsequent sends in the same transaction", %{
+    branch: branch
+  } do
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
+             AL.run(
+               ~S"""
+               @strategy_deep #{super => object}.
+               @strategy_first #{super => strategy_deep}.
+               @strategy_second #{super => object}.
+               @strategy_top #{super => [strategy_first, strategy_second]}.
+               strategy_deep >> identify
+               | _Self deep |.
+               strategy_second >> identify
+               | _Self second |.
+               vm_set_class strategy_instance strategy_top,
+               identify strategy_instance Before,
+               set_slot strategy_top dispatch_strategy bfs,
+               identify strategy_instance After.
+               """,
+               branch
+             )
+
+    assert bindings["$Before"] == :deep
+    assert bindings["$After"] == :second
+  end
 end

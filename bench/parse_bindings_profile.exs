@@ -50,6 +50,15 @@ defmodule Bench.ParseBindingsProfile do
     value
   end
 
+  def fetch(store, key) do
+    result = Map.fetch(store, key)
+
+    if active?(),
+      do: bump({:store_read, shape(if(match?({:ok, _}, result), do: elem(result, 1), else: nil))})
+
+    result
+  end
+
   def bind(store, variable, value) do
     if active?() do
       bump({:bind, shape(value), Map.has_key?(store, variable)})
@@ -149,18 +158,16 @@ alias Bench.ParseBindingsProfile, as: Profile
 source = File.read!(Path.expand("../lib/AL/var/var.ex", __DIR__))
 source = String.replace(source, "Map.get(store, ", "Bench.ParseBindingsProfile.read(store, ")
 
-source =
-  Profile.patch(
-    source,
-    "  defp deref_variable(store, k) do",
-    """
-      defp deref_variable(store, k) do
-        Bench.ParseBindingsProfile.deref(store, k, fn -> profiled_deref_variable(store, k) end)
-      end
-      defp profiled_deref_variable(store, k) do
-    """
-    |> String.trim_trailing()
-  )
+File.read!(Path.expand("../lib/AL/var/store.ex", __DIR__))
+|> Profile.patch(
+  "  def fetch(store, variable), do: Map.fetch(store, variable)",
+  "  def fetch(store, variable), do: Bench.ParseBindingsProfile.fetch(store, variable)"
+)
+|> Profile.patch(
+  "  defp resolve(store, variable) do",
+  "  defp resolve(store, variable) do\n    Bench.ParseBindingsProfile.deref(store, variable, fn -> profiled_resolve(store, variable) end)\n  end\n  defp profiled_resolve(store, variable) do"
+)
+|> Code.compile_string()
 
 source =
   Profile.patch(

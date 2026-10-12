@@ -9,6 +9,10 @@ defmodule AL.JAM.IR.Plan do
       :branch,
       :mode,
       dependencies: %{},
+      direct_classes: %{},
+      generated: MapSet.new(),
+      symbolic_classes: %{},
+      ivar_spec_lists: %{},
       inlined: 0,
       classes: %{},
       ivar_specs: %{},
@@ -25,6 +29,8 @@ defmodule AL.JAM.IR.Plan do
     :inlined,
     :facts,
     dependencies: %{},
+    direct_classes: %{},
+    ivar_spec_lists: %{},
     classes: %{},
     ivar_specs: %{},
     providers: %{}
@@ -147,6 +153,8 @@ defmodule AL.JAM.IR.Plan do
         facts: facts,
         inlined: state.inlined,
         dependencies: state.dependencies,
+        direct_classes: state.direct_classes,
+        ivar_spec_lists: state.ivar_spec_lists,
         classes: state.classes,
         ivar_specs: state.ivar_specs,
         providers: state.providers
@@ -174,6 +182,12 @@ defmodule AL.JAM.IR.Plan do
       end) and
       Enum.all?(plan.classes, fn {{object, class}, rows} ->
         AL.Object.scan_class(object, class, branch) === rows
+      end) and
+      Enum.all?(plan.direct_classes, fn {object, classes} ->
+        AL.Dispatch.direct_classes(object, branch) === classes
+      end) and
+      Enum.all?(plan.ivar_spec_lists, fn {class, specs} ->
+        AL.Dispatch.ivar_specs_for_classes([class], branch) === specs
       end) and
       Enum.all?(plan.ivar_specs, fn {{object, key}, spec} ->
         AL.Dispatch.find_ivar_spec(object, key, branch) === spec
@@ -257,6 +271,9 @@ defmodule AL.JAM.IR.Plan do
       {:control, %{exit: {:choice, _, _, join}}} when state.mode == :region ->
         expand_join(program, join, state, stack)
 
+      {:control, %{exit: {:condition, condition, _yes, no, _join}}} ->
+        expand_condition(program, condition, no, state, stack)
+
       {:control, _} ->
         {[program], state}
 
@@ -291,6 +308,35 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
+  defp expand_condition(program, condition, no, state, stack) do
+    condition = Program.continuation(program, condition)
+
+    case Program.first(condition) do
+      {:operation, %IR{kind: :send, name: :get, args: [receiver, [key, _]]}, tail}
+      when is_map(receiver) ->
+        if state.stable and literal?(key, 12) and not Map.has_key?(receiver, key) and
+             match?({:control, %{exit: :yield}}, Program.first(tail)) do
+          case plain_map_get(receiver, state.branch) do
+            {:ok, dependency} ->
+              state = %{
+                state
+                | dependencies: Map.put(state.dependencies, {receiver, :get}, dependency)
+              }
+
+              expand(Program.continuation(program, no), state, stack)
+
+            :error ->
+              {[program], state}
+          end
+        else
+          {[program], state}
+        end
+
+      _ ->
+        {[program], state}
+    end
+  end
+
   defp expand_operation(goal, rest, body, state, stack) do
     goal = IR.VirtualObject.specialize(goal)
 
@@ -306,6 +352,25 @@ defmodule AL.JAM.IR.Plan do
 
       %IR{kind: :relation, name: :ivar_spec, args: [object, key, spec]} ->
         expand_ivar_spec(object, key, spec, rest, body, state, stack)
+
+      %IR{kind: :relation, name: :ivar_specs, args: [object, specs]} ->
+        expand_ivar_specs(object, specs, rest, body, state, stack)
+
+      %IR{kind: :relation, name: :gensym, args: [symbol]} ->
+        generated =
+          if Var.var?(symbol) and not MapSet.member?(state.protected, symbol),
+            do: MapSet.put(state.generated, symbol),
+            else: state.generated
+
+        boundary(goal, rest, %{state | generated: generated}, stack)
+
+      %IR{kind: :mutation, name: :set_class, args: [object, class]} ->
+        symbolic_classes =
+          if state.stable and is_atom(class) and MapSet.member?(state.generated, object),
+            do: Map.put(state.symbolic_classes, object, class),
+            else: state.symbolic_classes
+
+        boundary(goal, rest, %{state | symbolic_classes: symbolic_classes}, stack)
 
       %IR{kind: :send, name: :get, args: [receiver, [key, result]]} ->
         expand_missing_map_get(receiver, key, result, goal, rest, state, stack)
@@ -419,6 +484,14 @@ defmodule AL.JAM.IR.Plan do
 
   defp dispatch_stable?(%IR{kind: :direct, name: :unify_structural}, _state), do: true
 
+  defp dispatch_stable?(%IR{kind: :direct, name: :eq}, _state), do: true
+
+  defp dispatch_stable?(%IR{kind: :relation, name: :gensym, args: [symbol]}, state),
+    do: MapSet.member?(state.generated, symbol)
+
+  defp dispatch_stable?(%IR{kind: :mutation, name: :set_class, args: [object, class]}, state),
+    do: Map.get(state.symbolic_classes, object) === class
+
   defp dispatch_stable?(
          %IR{kind: :mutation, name: :set_slot, args: [object, key, _]},
          state
@@ -456,6 +529,19 @@ defmodule AL.JAM.IR.Plan do
     known = AL.Dispatch.structural_class(object)
 
     cond do
+      state.stable and Var.var?(class) and class != {:"$var", "_"} and
+        not MapSet.member?(state.protected, class) and literal?(object, 12) ->
+        classes = AL.Dispatch.direct_classes(object, state.branch)
+
+        case classes do
+          [only] ->
+            state = %{state | direct_classes: Map.put(state.direct_classes, object, classes)}
+            expand(Program.subst(rest, %{class => only}), state, stack)
+
+          _ ->
+            retain(body, state, stack)
+        end
+
       Var.var?(class) or not is_atom(class) ->
         retain(body, state, stack)
 
@@ -504,6 +590,19 @@ defmodule AL.JAM.IR.Plan do
       end
     else
       retain(body, state, stack)
+    end
+  end
+
+  defp expand_ivar_specs(object, result, rest, body, state, stack) do
+    with true <- state.stable and Var.var?(result) and result != {:"$var", "_"},
+         false <- MapSet.member?(state.protected, result),
+         {:ok, class} <- Map.fetch(state.symbolic_classes, object),
+         specs <- AL.Dispatch.ivar_specs_for_classes([class], state.branch),
+         true <- length(specs) <= 4 and literal?(specs, 24) do
+      state = %{state | ivar_spec_lists: Map.put(state.ivar_spec_lists, class, specs)}
+      expand(Program.subst(rest, %{result => specs}), state, stack)
+    else
+      _ -> retain(body, state, stack)
     end
   end
 
@@ -682,7 +781,11 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp inline(receiver, selector, args, state, stack) do
-    dispatch_receiver = dispatch_receiver(receiver)
+    dispatch_receiver =
+      case Map.fetch(state.symbolic_classes, receiver) do
+        {:ok, class} -> %{class: class}
+        :error -> dispatch_receiver(receiver)
+      end
 
     if state.stable and literal?(dispatch_receiver, 12) and is_atom(selector) and
          not Var.var?(selector) and
@@ -692,13 +795,14 @@ defmodule AL.JAM.IR.Plan do
           clauses = AL.JAM.Clauses.cached_scan_clauses(id, state.branch)
 
           if (id not in stack or
-                (is_list(receiver) and proper?(receiver) and length(receiver) <= 4)) and
+                (is_list(receiver) and proper?(receiver) and length(receiver) <= 4) or
+                bounded_durable_slots?(dispatch_receiver, selector, args, state.branch)) and
                length(clauses) in 1..6 do
             callees = Compiler.fetch_ir(id, state.branch)
 
             {matches, nested_state} =
               Enum.map_reduce(callees, state, fn {:oapply, _, _, head, body}, state ->
-                {body, fused_state} = fuse_providers(body, receiver, selector, id, state)
+                {body, fused_state} = fuse_providers(body, dispatch_receiver, selector, id, state)
                 scope = Integer.to_string(AL.fresh_scope())
 
                 rename = fn value ->
@@ -710,8 +814,8 @@ defmodule AL.JAM.IR.Plan do
                 head = AL.Term.map(head, rename)
                 body = Program.map_values(body, rename)
 
-                case match(head, [receiver | args], %{}, state.protected) do
-                  {:ok, bindings} ->
+                case match_inline_head(head, receiver, selector, args, body, state) do
+                  {:ok, bindings, body} ->
                     body = Program.subst(body, bindings)
 
                     summary =
@@ -775,6 +879,82 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp dispatch_receiver(receiver), do: receiver
+
+  defp bounded_durable_slots?(receiver, :build_durable_slots, [_, _, specs, _], branch) do
+    is_list(specs) and proper?(specs) and length(specs) <= 4 and
+      AL.Dispatch.selected_provider(receiver, :build_durable_slots, branch) == :object
+  end
+
+  defp bounded_durable_slots?(_, _, _, _), do: false
+
+  defp match_inline_head(head, receiver, selector, args, body, state) do
+    case match(head, [receiver | args], %{}, state.protected) do
+      {:ok, bindings} ->
+        {:ok, bindings, body}
+
+      :unknown ->
+        case match_fresh_init_head(head, receiver, selector, args, body, state) do
+          :unknown -> match_fresh_output_head(head, receiver, args, body, state)
+          result -> result
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp match_fresh_init_head(
+         [self, arguments, self],
+         receiver,
+         :init,
+         [given_arguments, result],
+         body,
+         state
+       ) do
+    class = Map.get(state.symbolic_classes, receiver)
+
+    if class != nil and Var.var?(self) and
+         AL.Dispatch.selected_provider(%{class: class}, :init, state.branch) == :object and
+         length(AL.Dispatch.ivar_specs_for_classes([class], state.branch)) <= 4 do
+      case match([self, arguments], [receiver, given_arguments], %{}, state.protected) do
+        {:ok, bindings} ->
+          equality = IR.operation(:direct, :eq, [result, receiver])
+          {:ok, bindings, Program.prepend(equality, body)}
+
+        other ->
+          other
+      end
+    else
+      :unknown
+    end
+  end
+
+  defp match_fresh_init_head(_, _, _, _, _, _), do: :unknown
+
+  defp match_fresh_output_head(head, receiver, args, body, state) do
+    values = [receiver | args]
+
+    if Map.has_key?(state.symbolic_classes, receiver) and length(head) == length(values) and
+         length(head) > 1 do
+      expected = List.last(head)
+      actual = List.last(values)
+
+      if literal?(expected, 12) and Var.var?(actual) do
+        case match(Enum.drop(head, -1), Enum.drop(values, -1), %{}, state.protected) do
+          {:ok, bindings} ->
+            equality = IR.operation(:direct, :eq, [actual, expected])
+            {:ok, bindings, Program.prepend(equality, body)}
+
+          other ->
+            other
+        end
+      else
+        :unknown
+      end
+    else
+      :unknown
+    end
+  end
 
   defp match({:"$var", "_"}, _, bindings, _protected), do: {:ok, bindings}
 

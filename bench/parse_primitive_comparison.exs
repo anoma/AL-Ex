@@ -1,17 +1,17 @@
 Code.require_file("language_support.exs", __DIR__)
 
-{module, binary, filename} = :code.get_object_code(AL.JAM)
-source = File.read!(Path.expand("../lib/AL/jam.ex", __DIR__))
+{module, binary, filename} = :code.get_object_code(AL.JAM.Instruction)
+source = File.read!(Path.expand("../lib/AL/jam/instruction.ex", __DIR__))
 
 header =
-  "  defp execute({:local, index, {:primitive, name, operands} = operation}, slots, store, branch) do"
+  "  def execute({:local, index, {:primitive, name, operands} = operation}, slots, store, branch) do"
 
 [before, rest] = String.split(source, header)
 
 [body, after_body] =
   String.split(
     rest,
-    "  defp execute({:constraint, operation, arguments}, slots, store, branch) do",
+    "  def execute({:constraint, operation, arguments}, slots, store, branch) do",
     parts: 2
   )
 
@@ -24,7 +24,7 @@ patched =
     header <>
     "\n    if Process.get(:bench_generic_primitive, false) do\n      execute(operation, slots, store, branch)\n    else\n" <>
     body <>
-    "    end\n  end\n\n  defp execute({:constraint, operation, arguments}, slots, store, branch) do" <>
+    "    end\n  end\n\n  def execute({:constraint, operation, arguments}, slots, store, branch) do" <>
     after_body
 
 try do

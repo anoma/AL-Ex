@@ -4,14 +4,14 @@ Bench.Language.isolated(fn ->
   {module, source, disabled} =
     case System.argv() do
       args when args in [["outputs"], ["outputs-interleaved"]] ->
-        source = File.read!(Path.expand("../lib/AL/jam.ex", __DIR__))
+        source = File.read!(Path.expand("../lib/AL/jam/frame.ex", __DIR__))
 
         disabled =
           String.replace(
             source,
-            "  defp region_return(",
+            "  def region_return(",
             """
-              defp region_return(code, _slots, _guard, _destinations, caller, returns, _store),
+              def region_return(code, _slots, _guard, _destinations, caller, returns, _store),
                 do: {code, keep_return(caller, returns)}
 
               defp disabled_region_return(
@@ -19,17 +19,13 @@ Bench.Language.isolated(fn ->
             |> String.trim_trailing()
           )
 
-        {AL.JAM, source, disabled}
+        {AL.JAM.Frame, source, disabled}
 
       [] ->
         source = File.read!(Path.expand("../lib/AL/jam/scan.ex", __DIR__))
 
         disabled =
-          String.replace(
-            source,
-            "  def enter(\n        {[{{_, _, [_, _, _], _}",
-            "  def disabled_enter(\n        {[{{_, _, [_, _, _], _}"
-          )
+          "defmodule AL.JAM.Scan do\n  def enter(_, _, _, _, _, _, _, _), do: :fallback\nend"
 
         {AL.JAM.Scan, source, disabled}
 
@@ -45,9 +41,9 @@ Bench.Language.isolated(fn ->
     if interleaved do
       String.replace(
         source,
-        "  defp region_return(",
+        "  def region_return(",
         """
-          defp region_return(code, slots, guard, destinations, caller, returns, store) do
+          def region_return(code, slots, guard, destinations, caller, returns, store) do
             if Process.get(:benchmark_direct_outputs, false),
               do: selected_region_return(code, slots, guard, destinations, caller, returns, store),
               else: {code, keep_return(caller, returns)}

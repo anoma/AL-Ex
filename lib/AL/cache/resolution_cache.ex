@@ -45,13 +45,15 @@ defmodule AL.ResolutionCache do
   def with_transaction_cache(fun) when is_function(fun, 0) do
     case Process.get(@transaction_cache) do
       nil ->
-        Process.put(@transaction_cache, %{})
+        AL.Branch.with_table_name_cache(fn ->
+          Process.put(@transaction_cache, %{})
 
-        try do
-          fun.()
-        after
-          Process.delete(@transaction_cache)
-        end
+          try do
+            fun.()
+          after
+            Process.delete(@transaction_cache)
+          end
+        end)
 
       _cache ->
         fun.()
@@ -65,7 +67,12 @@ defmodule AL.ResolutionCache do
   end
 
   def table(relation, %AL.Branch{id: :main}), do: :"al_#{relation}_cache"
-  def table(relation, %AL.Branch{id: branch}), do: :"al_#{relation}_cache@#{branch}"
+
+  def table(relation, %AL.Branch{id: branch}) do
+    AL.Branch.cached_table_name(:resolution_cache, relation, branch, fn ->
+      :"al_#{relation}_cache@#{branch}"
+    end)
+  end
 
   @spec create_tables(AL.Branch.t()) :: :ok
   def create_tables(branch) do
@@ -261,6 +268,13 @@ defmodule AL.ResolutionCache do
     end
   end
 
+  def fetch_dispatch_strategy(branch, class, compute) do
+    case Process.get(@transaction_cache) do
+      nil -> compute.()
+      cache -> fetch_local(cache, {:dispatch_strategy, branch.id}, class, compute)
+    end
+  end
+
   def fetch_dispatch(branch, key, compute) do
     table = {@dispatch_cache, table(:providers, branch)}
 
@@ -421,6 +435,7 @@ defmodule AL.ResolutionCache do
 
   @spec invalidate_method_scopes(AL.Branch.t()) :: :ok
   def invalidate_method_scopes(branch) do
+    clear_local({:dispatch_strategy, branch.id})
     clear(table(:method_scopes, branch))
     clear(table(:descendants, branch))
   end

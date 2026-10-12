@@ -58,7 +58,12 @@ defmodule AL.Command do
   @spec table(atom(), AL.Branch.t()) :: atom()
   def table(relation, branch \\ AL.Branch.head())
   def table(relation, %AL.Branch{id: :main}), do: relation
-  def table(relation, %AL.Branch{id: branch}), do: :"#{relation}@#{branch}"
+
+  def table(relation, %AL.Branch{id: branch}) do
+    AL.Branch.cached_table_name(:command, relation, branch, fn ->
+      :"#{relation}@#{branch}"
+    end)
+  end
 
   @doc "Create a fork's command and meta tables (persisted to disc). Idempotent."
   @spec create_tables(AL.Branch.t()) :: {:ok, {atom(), atom()}}
