@@ -20,3 +20,12 @@ Class {
 :wm >> :visible_extent, [self, vis] [
   get_slots(self, %{visible_extent: vis})
 ]
+
+:wm >> :viewport_changed, [self, visible, changed, removed] [
+  get(self, :layout, layout)
+  set_slot(self, :visible_extent, visible)
+  resize(layout, self, new_layout)
+  extent(new_layout, total)
+  placement_changes(new_layout, layout, changed, removed)
+  set_slots(self, %{layout: new_layout, total_extent: total})
+]

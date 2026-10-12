@@ -13,3 +13,10 @@ Class {
   visible_extent(wm, ext)
   new(class, %{windows: [window]}, new_layout)
 ]
+
+:single_layout >> :resize, [self, wm, new_layout] [
+  get(self, :windows, [window])
+  visible_extent(wm, visible)
+  put(window, :extent, visible, resized_window)
+  put(self, :windows, [resized_window], new_layout)
+]

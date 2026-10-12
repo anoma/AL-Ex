@@ -6,6 +6,11 @@ Class {
 }
 
 :layout >> :extent, [self, ext] [
+  get(self, :windows, [])
+  new(:point, %{}, ext)
+]
+
+:layout >> :extent, [self, ext] [
   get_slots(self, %{windows: windows})
   max_by(windows, :extends_to_x, max_window_x)
   max_by(windows, :extends_to_y, max_window_y)
@@ -26,7 +31,7 @@ Class {
     not [member(prev_windows,  window)]
   end
 
-  map(curr_windows, id, curr_ids)
+  map(curr_windows, :id, curr_ids)
   findall(window, removed_windows) do
     member(prev_windows, window)
     id(window, win_id)
@@ -35,5 +40,9 @@ Class {
 ]
 
 :layout >> :spawn, [self, wm, request, new_layout] [
+  fail
+]
+
+:layout >> :resize, [self, wm, new_layout] [
   fail
 ]
