@@ -60,7 +60,7 @@ defmodule Examples.ALSourceInput do
     branch = Examples.Support.isolated_branch()
 
     try do
-      {:atomic, {_bindings, _constraints, state}} =
+      %AL{result: {:atomic, {_bindings, _constraints, state}}} =
         run(
           ~S"""
           # retained comment
@@ -129,7 +129,7 @@ defmodule Examples.ALSourceInput do
       vm_set_class #{al(second)} object.
       """
 
-      {:atomic, _} = AL.run(source, branch)
+      %AL{result: {:atomic, _}} = AL.run(source, branch)
 
       {:atomic, commands} =
         :mnesia.transaction(fn -> AL.Command.commands_since(0, branch) end)
@@ -157,7 +157,7 @@ defmodule Examples.ALSourceInput do
       fail.
       """
 
-      assert {:aborted, _reason} = AL.run(source, branch)
+      assert %AL{result: {:aborted, _reason}} = AL.run(source, branch)
 
       {:atomic, classes} =
         :mnesia.transaction(fn -> AL.Object.scan_class(object, :object, branch) end)
@@ -188,7 +188,7 @@ defmodule Examples.ALSourceInput do
         = Self Self.
       """
 
-      {:atomic, _} = AL.run(source, branch)
+      %AL{result: {:atomic, _}} = AL.run(source, branch)
 
       {:atomic, {texts, spans, class_rows, ping_id, ping_rows, outside_id, outside_rows}} =
         :mnesia.transaction(fn ->
@@ -325,7 +325,7 @@ defmodule Examples.ALSourceInput do
       fail.
       """
 
-      assert {:aborted, reason} = AL.run(source, branch)
+      assert %AL{result: {:aborted, reason}} = AL.run(source, branch)
       tx = reason.state.tx_id
 
       {:atomic, {texts, spans, classes, commands}} =
@@ -367,7 +367,7 @@ defmodule Examples.ALSourceInput do
     second_source = "object >> #{al(second)}\n| Self |.\n"
     child_source = "object >> #{al(child_only)}\n| Self |.\n"
 
-    {:atomic, _} = AL.run(first_source, parent)
+    %AL{result: {:atomic, _}} = AL.run(first_source, parent)
 
     {:atomic, {first_id, first_command_t}} =
       :mnesia.transaction(fn ->
@@ -388,7 +388,7 @@ defmodule Examples.ALSourceInput do
         {first_id, first_command_t}
       end)
 
-    {:atomic, _} = AL.run(second_source, parent)
+    %AL{result: {:atomic, _}} = AL.run(second_source, parent)
 
     {:atomic, {_second_id, second_command_t}} =
       :mnesia.transaction(fn ->
@@ -429,7 +429,7 @@ defmodule Examples.ALSourceInput do
 
       assert second_methods == []
 
-      {:atomic, _} = AL.run(child_source, child)
+      %AL{result: {:atomic, _}} = AL.run(child_source, child)
 
       {:atomic, {parent_texts, child_texts, parent_child_only_methods}} =
         :mnesia.transaction(fn ->
@@ -475,7 +475,7 @@ defmodule Examples.ALSourceInput do
     source = "object >> #{al(method)}\n| Self |.\n"
 
     try do
-      {:atomic, _} = AL.run(source, branch)
+      %AL{result: {:atomic, _}} = AL.run(source, branch)
 
       {:atomic, {method_id, archive_before}} =
         :mnesia.transaction(fn ->
@@ -600,7 +600,7 @@ defmodule Examples.ALSourceInput do
     second_source = "object >> #{al(method)}\n| Self second |.\n"
 
     try do
-      {:atomic, _} = AL.run(first_source, branch)
+      %AL{result: {:atomic, _}} = AL.run(first_source, branch)
 
       {:atomic, {method_id, old_clause_seq, old_command_t, old_head}} =
         :mnesia.transaction(fn ->
@@ -634,7 +634,7 @@ defmodule Examples.ALSourceInput do
                  branch
                )
 
-      {:atomic, _} = AL.run(second_source, branch)
+      %AL{result: {:atomic, _}} = AL.run(second_source, branch)
 
       {:atomic, {open_rows, history, spans}} =
         :mnesia.transaction(fn ->
@@ -762,7 +762,7 @@ defmodule Examples.ALSourceInput do
       | Self big |.
       """
 
-      {:atomic, _} = AL.run(source, branch)
+      %AL{result: {:atomic, _}} = AL.run(source, branch)
 
       output = capture_io(fn -> AL.Source.print_method(class, :describe, branch) end)
 

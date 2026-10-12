@@ -10,7 +10,7 @@ defmodule Examples.ALLists do
   import ExUnit.Assertions
 
   example deep_cons_patterns_bind() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = [First, Second . Rest] [a, b, c, d].
@@ -24,7 +24,7 @@ defmodule Examples.ALLists do
   end
 
   example list_tests() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         hd [w, x, y, z] Head.
@@ -53,7 +53,7 @@ defmodule Examples.ALLists do
   end
 
   example at_is_bidirectional() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         findall [I, X] Elems (at [1, 2, 3] I X).
@@ -67,7 +67,7 @@ defmodule Examples.ALLists do
   end
 
   example sort_sorts_numbers() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         sort [3, 1, 4, 1, 5, 9, 2, 6] Sorted.
@@ -80,7 +80,7 @@ defmodule Examples.ALLists do
   end
 
   example min_by_picks_the_element_with_the_least_value() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         min_by [[3, 5], [4, 5], [6, 3], [4, 7]] hd Min.
@@ -93,7 +93,7 @@ defmodule Examples.ALLists do
   end
 
   example min_by_yields_every_tied_minimum() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall M Mins (min_by [[2, a], [1, b], [1, c]] hd M).
@@ -106,7 +106,7 @@ defmodule Examples.ALLists do
   end
 
   example max_by_picks_the_element_with_the_greatest_value() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         max_by [[3, 5], [4, 5], [6, 3], [4, 7]] hd Max.
@@ -119,7 +119,7 @@ defmodule Examples.ALLists do
   end
 
   example max_by_yields_every_tied_maximum() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall M Maxes (max_by [[1, a], [2, b], [2, c]] hd M).
@@ -132,7 +132,7 @@ defmodule Examples.ALLists do
   end
 
   example min_by_constrains_an_open_element() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         >= X 0.
@@ -153,7 +153,7 @@ defmodule Examples.ALLists do
   end
 
   example forall_binds_shared_open_elements() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = L [A, B].
@@ -168,7 +168,7 @@ defmodule Examples.ALLists do
   end
 
   example forall_keeps_body_locals_per_solution() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         forall (member [1, 2, 3] N) {= Double (* N 2), <= Double 6}.
@@ -182,7 +182,7 @@ defmodule Examples.ALLists do
   end
 
   example dedupe_removes_adjacent_duplicates() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         dedupe [1, 1, 2, 3, 3, 3, 4] Deduped.
@@ -202,7 +202,7 @@ defmodule Examples.ALLists do
   # that clause while `x`/`y` are still open; unifying them equal *afterwards*
   # should still be caught, and only `dif/2` catches it.
   example dedupe_rejects_elements_that_turn_out_equal() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         dedupe [X, Y] Result.
@@ -217,7 +217,7 @@ defmodule Examples.ALLists do
   end
 
   example map_with_method_selector_sends_to_each_element() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         map [[a, b], [c, d, e]] reverse Mapped.
@@ -230,7 +230,7 @@ defmodule Examples.ALLists do
   end
 
   example map_with_anonymous_method_runs_each_element() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new anonymous_method #{args => [], body => [(= Result #{id => X})], head => [X, Result]} Mapper.
@@ -244,7 +244,7 @@ defmodule Examples.ALLists do
   end
 
   example fold_left_with_anonymous_method_threads_the_accumulator() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new anonymous_method #{args => [], body => [(= Next [X . Acc])], head => [Acc, X, Next]} Prepend.
@@ -258,7 +258,7 @@ defmodule Examples.ALLists do
   end
 
   example fold_right_with_anonymous_method_threads_the_accumulator() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new anonymous_method #{args => [], body => [(= Next [X . Acc])], head => [Acc, X, Next]} Prepend.
@@ -272,7 +272,7 @@ defmodule Examples.ALLists do
   end
 
   example all_dif_accepts_pairwise_distinct_elements() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         all_dif [1, 2, 3].
@@ -284,7 +284,7 @@ defmodule Examples.ALLists do
   end
 
   example all_dif_rejects_a_repeated_element() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         all_dif [1, 2, 1].
@@ -299,7 +299,7 @@ defmodule Examples.ALLists do
   # groundedness required), so a later bind that violates one is still
   # caught — same reactive-constraint discipline `dedupe` relies on.
   example all_dif_catches_a_later_bind_between_open_elements() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         = L [1, X, Y].
@@ -314,7 +314,7 @@ defmodule Examples.ALLists do
   end
 
   example label_range_grounds_open_elements_within_bounds() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = L [1, X, 3].
@@ -329,7 +329,7 @@ defmodule Examples.ALLists do
   end
 
   example all_dif_propagation_forces_a_naked_pair_chain() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         in_domain A [1, 2].
@@ -350,7 +350,7 @@ defmodule Examples.ALLists do
   end
 
   example all_dif_eliminates_forced_values_and_preserves_alternative_solutions() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         in_domain A [1].
@@ -374,7 +374,7 @@ defmodule Examples.ALLists do
   end
 
   example all_dif_leaves_slack_domains_unpruned() do
-    {:atomic, {_bindings, constraints, _}} =
+    %AL{result: {:atomic, {_bindings, constraints, _}}} =
       run(
         ~S"""
         = D [1, 2, 3, a, b, c].

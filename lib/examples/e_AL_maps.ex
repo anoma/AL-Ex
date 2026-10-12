@@ -10,7 +10,7 @@ defmodule Examples.ALMaps do
   import ExUnit.Assertions
 
   example map_get_fails_on_non_map() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         map_get not_a_map k V.
@@ -22,7 +22,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_put_fails_on_non_map() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         vm_map_put not_a_map k v Out.
@@ -36,7 +36,7 @@ defmodule Examples.ALMaps do
   # `get/3` on a map with two keys mapping to the same value is a genuine
   # backward search -- both keys are valid solutions, found via backtracking.
   example map_get() do
-    {:atomic, {bindings, _constraints, program_state}} =
+    %AL{result: {:atomic, {bindings, _constraints, program_state}}} =
       run(
         ~S"""
         get #{a => 3, b => 4, c => 3} K 3.
@@ -46,7 +46,8 @@ defmodule Examples.ALMaps do
 
     assert Map.get(bindings, "$K") == :c or Map.get(bindings, "$K") == :a
 
-    {:atomic, {bindings, _constraints, program_state}} = next_solution(program_state)
+    %AL{result: {:atomic, {bindings, _constraints, program_state}}} =
+      next_solution(program_state)
 
     assert Map.get(bindings, "$K") == :c or Map.get(bindings, "$K") == :a
 
@@ -54,7 +55,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_get_with_default() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(~S"""
       get #{present => 7} present fallback Present.
       get #{present => 7} missing fallback Missing.
@@ -66,7 +67,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_put() do
-    {:atomic, {bindings, _constraints, program_state}} =
+    %AL{result: {:atomic, {bindings, _constraints, program_state}}} =
       run(
         ~S"""
         put #{a => 3, b => 4, c => 3} c 4 M2.
@@ -80,7 +81,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_get_on_an_open_map_is_a_key_constraint() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         map_get Shared a First, map_get Shared a Second, = First 1.
@@ -104,7 +105,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_pairs_relates_a_map_to_its_sorted_pairs() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         map_pairs #{b => 2, a => 1} Pairs.
@@ -135,7 +136,7 @@ defmodule Examples.ALMaps do
   end
 
   example map_put_new() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(~S"""
       put_new #{present => 7} present fallback Preserved.
       put_new #{present => 7} missing fallback Extended.

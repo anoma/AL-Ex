@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Al.Bnf do
     try do
       Mix.Task.run("app.start")
 
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         AL.run(~s(write_bnf al_grammar program "#{@path}" Effect.))
 
       {:ok, _} = AL.await_effect(bindings["$Effect"], timeout: 30_000)

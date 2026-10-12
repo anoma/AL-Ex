@@ -5,7 +5,7 @@ defmodule AL.Trace.Domino do
   `AL.Trace.Event` values in the shared chronological journal.
   """
 
-  @type scope() :: AL.scope()
+  @type scope() :: AL.JAM.State.scope()
   @type constraint_summary() :: %{optional(atom()) => term()}
   @type var_description() :: {:bound, term()} | {:open, constraint_summary()}
 

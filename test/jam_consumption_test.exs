@@ -53,7 +53,7 @@ defmodule AL.JAM.ConsumptionTest do
 
     assert answers(branch, :blanks, ~c"  x", ~c" x") == [~c" x"]
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(~S"gap #{class => al_grammar} Input [].", branch)
 
     assert bindings["$Input"] == [32]
@@ -62,7 +62,7 @@ defmodule AL.JAM.ConsumptionTest do
   test "local outputs survive retries while aliases and constrained outputs keep unification", %{
     branch: branch
   } do
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @return_probe
@@ -94,7 +94,7 @@ defmodule AL.JAM.ConsumptionTest do
   test "renamed relations infer the region and reject duplicated or effectful consumers", %{
     branch: branch
   } do
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @consume_probe #{super => value}.
@@ -117,7 +117,7 @@ defmodule AL.JAM.ConsumptionTest do
     compiled = plan(branch, :repeat, receiver)
     assert %Scan{} = compiled
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                defmethod consume_probe one [_Self, [65 . Rest], Rest] {}.
@@ -128,7 +128,7 @@ defmodule AL.JAM.ConsumptionTest do
     assert {:atomic, false} = :mnesia.transaction(fn -> Scan.valid?(compiled, branch) end)
     assert is_nil(plan(branch, :repeat, receiver))
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                consume_probe >> one

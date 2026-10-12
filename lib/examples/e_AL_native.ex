@@ -35,7 +35,7 @@ defmodule Examples.ALNative do
     {:ok, method_id} =
       AL.Native.register(:number, :al_native_gcd, Integer, :gcd, 2, branch: examples_branch())
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         al_native_gcd 12 8 Result.
@@ -61,7 +61,7 @@ defmodule Examples.ALNative do
 
     AL.Native.Registry.delete(method_id)
 
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         al_native_missing_demo 12 8 Result.
@@ -91,7 +91,7 @@ defmodule Examples.ALNative do
         branch: examples_branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         al_native_idempotent 9 6 Result.
@@ -142,7 +142,7 @@ defmodule Examples.ALNative do
         branch: examples_branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall D All (al_native_divisors 6 D).

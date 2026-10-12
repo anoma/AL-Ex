@@ -1,3 +1,6 @@
+if List.keymember?(Application.started_applications(), :al, 0),
+  do: raise("run allocation benchmarks with mix run --no-start")
+
 directory =
   Path.join(System.tmp_dir!(), "al-compiled-bench-#{System.unique_integer([:positive])}")
 
@@ -13,7 +16,7 @@ try do
   count = System.get_env("AL_ALLOCATION_COUNT", "1000") |> String.to_integer()
   true = count > 0
 
-  {:atomic, _} =
+  %AL{result: {:atomic, _}} =
     AL.run(~S"""
     @allocation_runner #{super => object}.
     @allocation_object #{super => object, ivars => [#{name => index}]}.

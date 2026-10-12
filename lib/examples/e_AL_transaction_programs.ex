@@ -36,7 +36,7 @@ defmodule Examples.ALTransactionPrograms do
         listing transaction_program_fixture Source.
         """)
 
-      assert {:atomic, {bindings, _constraints, _}} = result
+      assert %AL{result: {:atomic, {bindings, _constraints, _}}} = result
 
       assert bindings["$Answer"] == 42
       assert bindings["$Source"] =~ "set_slot program_created_object answer 42."
@@ -106,7 +106,7 @@ defmodule Examples.ALTransactionPrograms do
         listing retained_program_fixture Text.
         """)
 
-      assert {:atomic, {bindings, _constraints, _}} = result
+      assert %AL{result: {:atomic, {bindings, _constraints, _}}} = result
 
       assert bindings["$Text"] == retained
 
@@ -117,7 +117,7 @@ defmodule Examples.ALTransactionPrograms do
             listing retained_program_fixture, print "" Done.
             """)
 
-          assert {:atomic, {bindings, _, _}} = result
+          assert %AL{result: {:atomic, {bindings, _, _}}} = result
           assert {:ok, _} = AL.await_effect(bindings["$Done"])
         end)
 

@@ -5,7 +5,7 @@ defmodule AL.JAM.LocalInitializationTest do
     branch = AL.Branch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @local_initialization_probe
@@ -54,7 +54,7 @@ defmodule AL.JAM.LocalInitializationTest do
   end
 
   test "constructed locals preserve aliases and collection order", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                build #{class => local_initialization_probe} Input Output,
@@ -67,7 +67,7 @@ defmodule AL.JAM.LocalInitializationTest do
   end
 
   test "earlier reads and wildcard assignment retain logical variables", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                observe #{class => local_initialization_probe} Observed,
@@ -81,7 +81,7 @@ defmodule AL.JAM.LocalInitializationTest do
   end
 
   test "branch-local assignments retain both answers", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Output Answers {choose #{class => local_initialization_probe} Output}.
@@ -93,7 +93,7 @@ defmodule AL.JAM.LocalInitializationTest do
   end
 
   test "unresolved arithmetic materializes a constrained local", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"arithmetic #{class => local_initialization_probe} Input Output.",
                branch
@@ -105,21 +105,21 @@ defmodule AL.JAM.LocalInitializationTest do
 
   test "nested arithmetic preserves forward, delayed and backtracking answers", %{branch: branch} do
     for opts <- [[], [trace: [:vm]]] do
-      assert {:atomic, {%{"$Answers" => [0, 4, 10]}, _, _}} =
+      assert %AL{result: {:atomic, {%{"$Answers" => [0, 4, 10]}, _, _}}} =
                AL.run(
                  ~S"findall Y Answers {in_domain X [2,3,4], label X, nested #{class => local_initialization_probe} X Y}.",
                  branch,
                  opts
                )
 
-      assert {:atomic, {%{"$X" => 4, "$Y" => 10}, _, _}} =
+      assert %AL{result: {:atomic, {%{"$X" => 4, "$Y" => 10}, _, _}}} =
                AL.run(
                  ~S"nested #{class => local_initialization_probe} X Y, = X 4.",
                  branch,
                  opts
                )
 
-      assert {:aborted, _} =
+      assert %AL{result: {:aborted, _}} =
                AL.run(
                  ~S"nested #{class => local_initialization_probe} 4 9.",
                  branch,
@@ -134,7 +134,9 @@ defmodule AL.JAM.LocalInitializationTest do
     big = Integer.pow(2, 100)
 
     for opts <- [[], [trace: [:vm]]] do
-      assert {:atomic, {%{"$Product" => product, "$Difference" => difference}, _, _}} =
+      assert %AL{
+               result: {:atomic, {%{"$Product" => product, "$Difference" => difference}, _, _}}
+             } =
                AL.run(
                  "multiply \#{class => local_initialization_probe} " <>
                    Integer.to_string(big) <>
@@ -146,7 +148,7 @@ defmodule AL.JAM.LocalInitializationTest do
       assert product == big * -3
       assert difference == product - 7
 
-      assert {:atomic, {%{"$X" => 4, "$Product" => 12}, _, _}} =
+      assert %AL{result: {:atomic, {%{"$X" => 4, "$Product" => 12}, _, _}}} =
                AL.run(
                  ~S"multiply #{class => local_initialization_probe} X 3 Product, = X 4.",
                  branch,

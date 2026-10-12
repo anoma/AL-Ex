@@ -8,13 +8,14 @@ defmodule AL.BlockTest do
   end
 
   test "blocks remain distinct from lists and execute captured goals", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run("= B {= X 7}, class B block, dif B [(= X 7)], run B.", branch: branch)
 
     assert bindings["$X"] == 7
     assert {_goal} = bindings["$B"]
 
-    assert {:atomic, _} = AL.run("= B {}, class B block, dif B [], run B.", branch: branch)
+    assert %AL{result: {:atomic, _}} =
+             AL.run("= B {}, class B block, dif B [], run B.", branch: branch)
   end
 
   test "block values round trip through AL text and stored terms" do
@@ -34,7 +35,7 @@ defmodule AL.BlockTest do
   end
 
   test "block_goals converts both ways and wakes on an open list tail", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                "block_goals {= X 7} Goals, block_goals Copy Goals, " <>
                  "block_goals Later [(= Y 9) . Tail], = Tail [], " <>
@@ -45,12 +46,15 @@ defmodule AL.BlockTest do
     assert bindings["$X"] == 7
     assert bindings["$Y"] == 9
     assert bindings["$Empty"] == {}
-    assert {:atomic, _} = AL.run("block_goals B G, = B {pass}, = G [(pass)].", branch: branch)
-    assert {:aborted, _} = AL.run("block_goals [] [].", branch: branch)
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run("block_goals B G, = B {pass}, = G [(pass)].", branch: branch)
+
+    assert %AL{result: {:aborted, _}} = AL.run("block_goals [] [].", branch: branch)
   end
 
   test "block patterns and DCGs preserve block identity", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                block_pattern >> extract
@@ -70,7 +74,7 @@ defmodule AL.BlockTest do
   end
 
   test "clause reflection exposes a printable executable block", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                @block_owner #{super => object}.

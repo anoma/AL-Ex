@@ -93,6 +93,7 @@ defmodule AL.Syntax do
              :lambda,
              :spawn,
              :await,
+             :on_completion,
              :freeze,
              :call,
              :call_next_method,
@@ -1044,11 +1045,19 @@ defmodule AL.Syntax do
     end
   end
 
-  defp call(:await, [effect, {:list, _, _, _} = head, block], start)
+  defp call(:on_completion, [effect, outcome, block], start)
        when goal_body(block) do
     case goals(block) do
-      [] -> raise ArgumentError, "await at #{describe(start)} requires at least one goal"
-      goals -> compound(:await, [term(effect), term(head), goals])
+      [] -> raise ArgumentError, "on_completion at #{describe(start)} requires at least one goal"
+      goals -> compound(:on_completion, [term(effect), term(outcome), goals])
+    end
+  end
+
+  defp call(:on_completion, [effect, outcome, future, block], start)
+       when goal_body(block) do
+    case goals(block) do
+      [] -> raise ArgumentError, "on_completion at #{describe(start)} requires at least one goal"
+      goals -> compound(:on_completion, [term(effect), term(outcome), term(future), goals])
     end
   end
 

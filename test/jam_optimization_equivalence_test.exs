@@ -5,7 +5,7 @@ defmodule AL.JAM.OptimizationEquivalenceTest do
     branch = AL.Branch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @optimization_probe #{super => value}.
@@ -52,8 +52,11 @@ defmodule AL.JAM.OptimizationEquivalenceTest do
 
   defp answer(source, branch, opts) do
     case AL.run(source, branch, opts) do
-      {:atomic, {bindings, constraints, _state}} -> {:ok, bindings, constraints}
-      {:aborted, _reason} -> :failure
+      %AL{result: {:atomic, {bindings, constraints, _state}}} ->
+        {:ok, bindings, constraints}
+
+      %AL{result: {:aborted, _reason}} ->
+        :failure
     end
   end
 

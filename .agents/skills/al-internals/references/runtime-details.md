@@ -82,21 +82,24 @@ also starts/stops the Outbox per branch.
 
 ## Architecture (lib/AL)
 
-- **`AL` (lib/AL.ex)** — the transaction driver:
+- **`AL` (lib/AL.ex)** — the public runner:
   - `AL.run(text, bindings: %{"Name" => value})` → `AL.Syntax` parses the AL
     source to `AL.Goal` structs → `eval_with_retained_source` runs them in
     `:mnesia.transaction`. `branch: b` targets fork `b`; otherwise `run`
     uses `AL.Branch.head()`.
-  - State = `%AL{active_choicepoint, choicepoint_stack, branch, tx_id, trace, …}`.
-    `start_program/1` compiles the whole program into one machine query
+  - Execution state is `%AL.JAM.State{}` with its choicepoint, branch,
+    transaction ID, and trace. The private `start_program/1` in
+    `AL.Runner.Driver` compiles the whole program into one machine query
     (`AL.JAM.query/1`, an internal progress marker after each top-level goal), so the
     active choicepoint's goals only ever hold `{:resume, frame}` entries, and
     frozen goals are parked as `{frame_id, code, slots}` in both the driver and
     the machine. `continue/1` resumes the machine,
     `apply_machine_result/2` turns what it yields back into driver state
     (installed choices, mutations, diagnostics, collection and `forall`
-    continuations, cuts and commits), and `backtrack/1` pops the stack. Success →
-    `{:atomic, {output_vars, state}}`; failure `:mnesia.abort`s → `{:aborted, reason}`.
+    continuations, cuts and commits), and `backtrack/1` pops the stack.
+    `AL.eval/4` returns `{:atomic, {bindings, constraints, state}}` on success;
+    failure `:mnesia.abort`s to `{:aborted, reason}`. `AL.run/1,2,3` wraps that
+    result in `%AL{}` and dispatches post-commit work and explicit `await` goals.
   - There is no goal interpreter. Every goal runs as machine code (see `AL.JAM`).
   - Object creation is **three-phase**: `construct` (ephemeral object, e.g.
     `%{class: self}`) → `allocate` (persist / give identity) → `init` (setup).

@@ -643,13 +643,17 @@ defmodule AL.MCP.Tools do
   end
 
   defp query_source_result(
-         {:atomic, {bindings, constraints, %AL{} = state}},
+         %AL{
+           result: {:atomic, {bindings, constraints, %AL.JAM.State{} = state}},
+           children: children
+         },
          branch,
          max_length
        ) do
     result =
       transaction_summary("committed", branch, state)
       |> Map.merge(AL.MCP.Term.encode_bindings(bindings, constraints))
+      |> Map.put("children", Enum.map(children, &outcome_summary/1))
 
     result
     |> Jason.encode!(pretty: true)
@@ -657,7 +661,7 @@ defmodule AL.MCP.Tools do
     |> success(result)
   end
 
-  defp query_source_result({:aborted, reason}, branch, max_length) do
+  defp query_source_result(%AL{result: {:aborted, reason}}, branch, max_length) do
     state = if is_map(reason), do: Map.get(reason, :state), else: nil
     encoded_reason = reason |> failure_reason() |> AL.MCP.Term.encode()
 
@@ -699,7 +703,14 @@ defmodule AL.MCP.Tools do
   defp failure_reason(reason) when is_map(reason), do: Map.delete(reason, :state)
   defp failure_reason(reason), do: reason
 
-  defp source_result({:atomic, {bindings, constraints, %AL{} = state}}, branch, max_length) do
+  defp source_result(
+         %AL{
+           result: {:atomic, {bindings, constraints, %AL.JAM.State{} = state}},
+           children: children
+         },
+         branch,
+         max_length
+       ) do
     summary = transaction_summary("committed", branch, state)
 
     text =
@@ -709,11 +720,12 @@ defmodule AL.MCP.Tools do
       summary
       |> Map.put("bindings", inspect_term(bindings, max_length))
       |> Map.put("constraints", inspect_term(constraints, max_length))
+      |> Map.put("children", Enum.map(children, &outcome_summary/1))
 
     success(text, result)
   end
 
-  defp source_result({:aborted, reason}, branch, max_length) do
+  defp source_result(%AL{result: {:aborted, reason}}, branch, max_length) do
     state = if is_map(reason), do: Map.get(reason, :state), else: nil
     summary = transaction_summary("failed", branch, state)
     reason = if is_map(reason), do: Map.delete(reason, :state), else: reason
@@ -742,7 +754,22 @@ defmodule AL.MCP.Tools do
     })
   end
 
-  defp transaction_summary(status, branch, %AL{} = state) do
+  defp outcome_summary(%AL{
+         handle: handle,
+         kind: kind,
+         result: {status, value},
+         children: children
+       }) do
+    %{
+      "handle" => format_id(handle),
+      "kind" => to_string(kind),
+      "status" => to_string(status),
+      "value" => AL.MCP.Term.encode(value),
+      "children" => Enum.map(children, &outcome_summary/1)
+    }
+  end
+
+  defp transaction_summary(status, branch, %AL.JAM.State{} = state) do
     %{
       "status" => status,
       "branch" => to_string(branch.id),

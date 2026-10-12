@@ -9,7 +9,7 @@ defmodule Examples.ALVariant do
   import ExUnit.Assertions
 
   example variant_accepts_a_consistent_renaming() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         variant [X, Y, X, a] [P, Q, P, a].
@@ -21,7 +21,7 @@ defmodule Examples.ALVariant do
   end
 
   example variant_rejects_an_inconsistent_renaming() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         variant [X, Y] [P, P].
@@ -29,7 +29,7 @@ defmodule Examples.ALVariant do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         variant [X, X] [P, Q].
@@ -41,7 +41,7 @@ defmodule Examples.ALVariant do
   end
 
   example variant_distinguishes_a_variable_from_a_value() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         variant [X, 1] [1, X].
@@ -53,7 +53,7 @@ defmodule Examples.ALVariant do
   end
 
   example variant_leaves_both_sides_unbound() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = X #{size => [1, Y]}.
@@ -67,7 +67,7 @@ defmodule Examples.ALVariant do
   end
 
   example separately_retrieved_clauses_are_variants_but_not_equal() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         variant_example >> describe

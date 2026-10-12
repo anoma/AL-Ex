@@ -23,7 +23,7 @@ defmodule AL.Syntax.Printer do
     :not,
     :freeze,
     :spawn,
-    :await,
+    :on_completion,
     :lambda,
     :call,
     :vm_source_scope,
@@ -203,12 +203,34 @@ defmodule AL.Syntax.Printer do
        when is_list(goals) and goals != [],
        do: applied(:spawn, [goal_group(goals, indent)], context)
 
-  defp goal(%Goal.OApply{method_id: :await_effect, args: [effect, head, goals]}, indent, context)
-       when is_list(head) and is_list(goals) and goals != [],
+  defp goal(
+         %Goal.OApply{method_id: :on_completion, args: [effect, [outcome], goals]},
+         indent,
+         context
+       )
+       when is_list(goals) and goals != [],
        do:
          applied(
-           :await,
-           [argument(effect, indent), argument(head, indent), goal_group(goals, indent)],
+           :on_completion,
+           [argument(effect, indent), argument(outcome, indent), goal_group(goals, indent)],
+           context
+         )
+
+  defp goal(
+         %Goal.OApply{method_id: :on_completion, args: [effect, [outcome], goals, future]},
+         indent,
+         context
+       )
+       when is_list(goals) and goals != [],
+       do:
+         applied(
+           :on_completion,
+           [
+             argument(effect, indent),
+             argument(outcome, indent),
+             argument(future, indent),
+             goal_group(goals, indent)
+           ],
            context
          )
 

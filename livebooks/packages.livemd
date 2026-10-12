@@ -115,7 +115,7 @@ Creating a package gives it an open active build. Define normal AL classes and m
 ```elixir
 author = AL.Branch.head()
 
-{:atomic, _} =
+%AL{result: {:atomic, _}} =
   run(~S"""
     new package #{deps => [], name => greetings, version => 1} greetings.
     active_build greetings Build.

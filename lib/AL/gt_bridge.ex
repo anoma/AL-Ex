@@ -23,7 +23,7 @@ defmodule AL.GtBridge do
       )
 
     case result do
-      {:atomic, {bindings, _constraints, _}} ->
+      %AL{result: {:atomic, {bindings, _constraints, _}}} ->
         case Map.get(bindings, "$Name") do
           name when is_binary(name) and name != "" -> name
           name when is_atom(name) and name not in [nil, false] -> Atom.to_string(name)
@@ -50,7 +50,7 @@ defmodule AL.GtBridge do
       )
 
     case result do
-      {:atomic, {bindings, _constraints, _}} ->
+      %AL{result: {:atomic, {bindings, _constraints, _}}} ->
         info = Map.fetch!(bindings, "$Info")
 
         identity = [
@@ -66,7 +66,7 @@ defmodule AL.GtBridge do
 
         identity ++ slots
 
-      {:aborted, reason} ->
+      %AL{result: {:aborted, reason}} ->
         [{"Status", "Unavailable", inspect(reason), reason}]
     end
   end

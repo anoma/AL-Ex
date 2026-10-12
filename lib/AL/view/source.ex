@@ -306,7 +306,7 @@ defmodule AL.Source do
         refs = Map.put(state.source_refs, capture_id, %AL.Source.Ref{ref | context: context})
         choicepoint = state.active_choicepoint
 
-        %AL{
+        %AL.JAM.State{
           state
           | source_refs: refs,
             active_choicepoint: %AL.Choicepoint{
@@ -327,7 +327,7 @@ defmodule AL.Source do
   def exit_scope(state, capture_id) do
     case state.active_choicepoint.source_scopes do
       [^capture_id | rest] ->
-        %AL{
+        %AL.JAM.State{
           state
           | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | source_scopes: rest}
         }
@@ -422,7 +422,7 @@ defmodule AL.Source do
           state.branch
         )
 
-      %AL{
+      %AL.JAM.State{
         state
         | source_anchors:
             Map.update(state.source_anchors, capture_id, [command_t], &[command_t | &1])

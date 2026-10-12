@@ -12,7 +12,7 @@ defmodule Examples.ALCategories do
   # defmethod(SomeClass, ...) -- sending to the class atom itself doesn't work
   # (a class isn't an instance of itself).
   example import_shares_implementation_without_inheritance() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @greeter_behaviour
@@ -41,7 +41,7 @@ defmodule Examples.ALCategories do
   end
 
   example import_creates_no_super_edge() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @shared_behaviour
@@ -69,7 +69,7 @@ defmodule Examples.ALCategories do
   end
 
   example category_is_reflectively_queryable() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @reflect_behaviour
@@ -89,7 +89,7 @@ defmodule Examples.ALCategories do
   # copied onto importers. method_scopes's self-prefix guard covers :class but
   # missed :category/:behaviour until this showed up live.
   example category_is_not_offered_as_an_unbound_receiver_candidate() do
-    {:atomic, {b1, _constraints, _}} =
+    %AL{result: {:atomic, {b1, _constraints, _}}} =
       run(
         ~S"""
         @counts_behaviour

@@ -65,7 +65,7 @@ defmodule ALPackageImportTest do
         bindings: %{"HostBuild" => build, "HostProvider" => provider}
       )
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
 
     assert {:atomic, [_]} =
              :mnesia.transaction(fn ->
@@ -191,7 +191,7 @@ defmodule ALPackageImportTest do
         }
       )
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
   end
 
   test "startup keeps its active graph until the channel content changes", %{
@@ -240,7 +240,7 @@ defmodule ALPackageImportTest do
         branch: branch.id
       )
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
   end
 
   test "distinct channel providers can realise the same package build", %{
@@ -301,7 +301,7 @@ defmodule ALPackageImportTest do
         }
       )
 
-    assert {:atomic, {bindings, _constraints, _}} = result
+    assert %AL{result: {:atomic, {bindings, _constraints, _}}} = result
     assert bindings["$FirstChannel"] != bindings["$SecondChannel"]
   end
 
@@ -378,7 +378,7 @@ defmodule ALPackageImportTest do
         }
       )
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
 
     creation =
       AL.run(
@@ -389,7 +389,7 @@ defmodule ALPackageImportTest do
         branch: branch.id
       )
 
-    assert {:atomic, {bindings, _constraints, _}} = creation
+    assert %AL{result: {:atomic, {bindings, _constraints, _}}} = creation
 
     owned = Map.fetch!(bindings, "$Owned")
 
@@ -402,7 +402,7 @@ defmodule ALPackageImportTest do
         bindings: %{"HostOwned" => owned}
       )
 
-    assert {:aborted, _} = rejected
+    assert %AL{result: {:aborted, _}} = rejected
   end
 
   test "rejects every definition before changing the branch", %{branch: branch, root: root} do
@@ -473,7 +473,7 @@ defmodule ALPackageImportTest do
         branch: branch.id
       )
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
   end
 
   defp write_bundle(root, name, deps) do

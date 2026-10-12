@@ -10,13 +10,13 @@ defmodule Examples.ALHTTP do
     pid = self()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           new process #{name => http_get_observer, pid => HostPid} _.
           new http_request #{body => "", headers => [], method => get, timeout => 1000, url => HostUrl} Request.
           execute Request Response.
-          await Response [Outcome] {
+          on_completion Response Outcome {
             get http_get_observer pid Observer,
             = Event #{event => http_result, outcome => Outcome, response => Response},
             send_elixir Observer Event
@@ -56,7 +56,7 @@ defmodule Examples.ALHTTP do
     pid = self()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           new process #{name => http_post_observer, pid => HostPid} _.
@@ -69,7 +69,7 @@ defmodule Examples.ALHTTP do
             url => HostUrl
           } Request.
           execute Request Response.
-          await Response [Outcome] {
+          on_completion Response Outcome {
             get http_post_observer pid Observer,
             = Event #{event => http_post_result, outcome => Outcome},
             send_elixir Observer Event
@@ -93,13 +93,13 @@ defmodule Examples.ALHTTP do
     url = "http://127.0.0.1:#{closed_tcp_port()}/unavailable"
     pid = self()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         new process #{name => http_failure_observer, pid => HostPid} _.
         new http_request #{body => "", headers => [], method => get, timeout => 1000, url => HostUrl} Request.
         execute Request Response.
-        await Response [Outcome] {
+        on_completion Response Outcome {
           get http_failure_observer pid Observer,
           = Event #{event => http_failure, outcome => Outcome},
           send_elixir Observer Event

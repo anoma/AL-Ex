@@ -9,7 +9,7 @@ defmodule Examples.ALVar do
   import ExUnit.Assertions
 
   example unbound_is_var() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         var X.
@@ -23,7 +23,7 @@ defmodule Examples.ALVar do
   end
 
   example bound_is_not_var() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         = X 1.
@@ -36,7 +36,7 @@ defmodule Examples.ALVar do
   end
 
   example compound_is_not_var() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         var [add, X, 1].

@@ -35,7 +35,7 @@ defmodule Examples.ALDCG do
   end
 
   example grammar_rules_parse_and_generate_text() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @colors
@@ -66,7 +66,7 @@ defmodule Examples.ALDCG do
   end
 
   example a_recursive_nonterminal_parses_zero_or_more_as() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @a_runs
@@ -88,7 +88,7 @@ defmodule Examples.ALDCG do
   end
 
   example grammar_rules_compose_using_the_remaining_codes() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @dashed_pairs
@@ -113,7 +113,7 @@ defmodule Examples.ALDCG do
   end
 
   example phrase_runs_a_grammar_over_any_list() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @sum_tokens
@@ -141,7 +141,7 @@ defmodule Examples.ALDCG do
   example a_grammar_rewrites_one_ast_into_another() do
     source = "(add 1 (neg (mul 2 x)))"
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @tree_pass
@@ -186,7 +186,7 @@ defmodule Examples.ALDCG do
   end
 
   example a_rule_captures_values_without_capturing_syntax() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @bracketed_pairs
@@ -209,7 +209,7 @@ defmodule Examples.ALDCG do
   end
 
   example a_grammar_rule_overrides_its_parents_and_next_reaches_them() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @letters
@@ -259,7 +259,7 @@ defmodule Examples.ALDCG do
   example the_lisp_core_reads_parentheses_as_compounds() do
     source = "(add (mul x y))"
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse lisp_syntax (expr Ast) HostSource.
@@ -288,7 +288,7 @@ defmodule Examples.ALDCG do
   end
 
   example the_tag_reader_adds_lisp_lists_and_maps() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse tag_syntax (expr Nil) "()".
@@ -317,7 +317,7 @@ defmodule Examples.ALDCG do
   end
 
   example the_list_reader_adds_bracketed_lists() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse list_syntax (expr Empty) "[]".
@@ -342,7 +342,7 @@ defmodule Examples.ALDCG do
   example each_reader_mixin_adds_one_form() do
     map_source = ~S"#{k => v}"
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse list_syntax (expr Brace) "{f}".
@@ -380,7 +380,7 @@ defmodule Examples.ALDCG do
     hash = ~S("a#b")
     listed = ~S([a, "b c"])
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse string_syntax (expr Plain) HostPlain.
@@ -437,7 +437,7 @@ defmodule Examples.ALDCG do
     for source <- canonical ++ read_only do
       expected = statement(source)
 
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         run(
           ~S"""
           @declarations
@@ -454,7 +454,7 @@ defmodule Examples.ALDCG do
       if source in canonical, do: assert(bindings["$Generated"] == source)
     end
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @declarations
@@ -502,7 +502,7 @@ defmodule Examples.ALDCG do
       expected = clause(source)
       text = String.trim_trailing(source)
 
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         run(
           ~S"""
           @methods
@@ -521,7 +521,7 @@ defmodule Examples.ALDCG do
   end
 
   example a_grammar_translates_text_into_another_grammar() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         translate tag_syntax term_syntax (expr Tree) "(list a (list (g x)))" Term.
@@ -574,7 +574,7 @@ defmodule Examples.ALDCG do
     for source <- sources do
       expected = term(source)
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           findall Term Terms {parse term_syntax (expr Term) HostSource}.
@@ -588,7 +588,7 @@ defmodule Examples.ALDCG do
         )
     end
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse term_syntax (expr Anonymous) "[_, _]".
@@ -626,7 +626,7 @@ defmodule Examples.ALDCG do
     goals = [declaration, method]
     {:ok, %{program: [_clear, variable_method]}} = AL.Syntax.parse(variable_headers)
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = Expected [

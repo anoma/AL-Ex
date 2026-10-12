@@ -31,7 +31,7 @@ defmodule Examples.ALJAMCompiler do
     exercise jam_context_instance Tx Object Rows.
     """
 
-    {:atomic, {bindings, _, state}} = evaluate(source)
+    %AL{result: {:atomic, {bindings, _, state}}} = evaluate(source)
     assert bindings["$Tx"] == state.tx_id
     assert bindings["$Object"] == state.transaction_object
     tx = state.tx_id
@@ -63,7 +63,7 @@ defmodule Examples.ALJAMCompiler do
     get jam_open_counter_instance count Count.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source)
     assert bindings["$Count"] == 4
   end
 
@@ -118,7 +118,7 @@ defmodule Examples.ALJAMCompiler do
       "$Stored" => {:"$var", "Stored"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Values"] == [8]
     assert actual["$Selected"] == 8
@@ -149,7 +149,7 @@ defmodule Examples.ALJAMCompiler do
     get Named value NamedValue.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source)
     symbols = bindings["$Symbols"]
     assert length(symbols) == 3
     assert length(Enum.uniq(symbols)) == 3
@@ -203,7 +203,7 @@ defmodule Examples.ALJAMCompiler do
       "$Before" => [:red, :blue]
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert Map.drop(actual, ["$Method"]) == Map.drop(expected, ["$Method"])
     assert actual["$Before"] == [:red, :blue]
     assert actual["$After"] == [:red, :blue, :green]
@@ -222,7 +222,7 @@ defmodule Examples.ALJAMCompiler do
     vm_oapply Method [jam_head_machine_probe, Constructed, #{item => c, rest => []}].
     """
 
-    {:atomic, {bindings, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source)
     assert bindings["$Result"] == %{item: :a, rest: [:b]}
     assert bindings["$Constructed"] == [:c]
   end
@@ -244,14 +244,14 @@ defmodule Examples.ALJAMCompiler do
     findall Value Results {vm_oapply Method [jam_choice_machine_instance, Value]}.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source)
     assert bindings["$Results"] == [:red, :blue]
   end
 
   example native_calls_preserve_answers_suspensions_cuts_and_next_provider() do
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate(~S"""
       @jam_native_runner #{super => object}.
       @jam_native_parent #{super => value}.
@@ -305,7 +305,7 @@ defmodule Examples.ALJAMCompiler do
         "$Description" => "%{class: :jam_native_child}"
       }
 
-      {:atomic, {actual, _, _}} = evaluate(query)
+      %AL{result: {:atomic, {actual, _, _}}} = evaluate(query)
       assert actual == expected
       assert actual["$All"] == [1, 2, 3, 6]
       assert actual["$Filtered"] == [1, 3, 6]
@@ -314,7 +314,10 @@ defmodule Examples.ALJAMCompiler do
       assert actual["$Description"] == inspect(%{class: :jam_native_child})
 
       AL.Native.Registry.delete(value)
-      {:aborted, failure} = evaluate("gcd jam_native_runner_instance Result.")
+
+      %AL{result: {:aborted, failure}} =
+        evaluate("gcd jam_native_runner_instance Result.")
+
       assert {:native_missing, ^value, {Integer, :gcd, 2}} = failure.reason
     after
       for method <- [raw, value, parent], do: AL.Native.retract(method, branch: branch)
@@ -349,7 +352,7 @@ defmodule Examples.ALJAMCompiler do
         "$Results" => [1, 2, 3, 6]
       }
 
-      {:atomic, {actual, _, _}} = evaluate(source)
+      %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
       assert Map.delete(actual, "$Method") == expected
       assert actual["$Method"] == method
       assert actual["$Results"] == [1, 2, 3, 6]
@@ -405,7 +408,7 @@ defmodule Examples.ALJAMCompiler do
       "$Counts" => ~c"\a"
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Color"] == :red
     assert actual["$Count"] == 7
@@ -463,7 +466,7 @@ defmodule Examples.ALJAMCompiler do
     }
 
     expected_constraints = %{}
-    {:atomic, {actual, actual_constraints, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, actual_constraints, _}}} = evaluate(source)
     assert actual == expected
     assert actual_constraints == expected_constraints
     assert actual["$Copied"] == [:a, :b, :c]
@@ -474,7 +477,7 @@ defmodule Examples.ALJAMCompiler do
   end
 
   example repeated_cache_invalidation_preserves_reclassification_and_rollback() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate(~S"""
       @jam_cache_first #{super => object}.
       @jam_cache_second #{super => object}.
@@ -489,7 +492,7 @@ defmodule Examples.ALJAMCompiler do
       cached_value jam_cache_instance first.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate(~S"""
       vm_retract_class jam_cache_instance jam_cache_first.
       vm_set_class jam_cache_instance jam_cache_second.
@@ -504,7 +507,7 @@ defmodule Examples.ALJAMCompiler do
 
     assert [bindings["$A"], bindings["$B"], bindings["$C"]] == [:second, :first, :second]
 
-    assert {:aborted, _} =
+    assert %AL{result: {:aborted, _}} =
              evaluate(~S"""
              vm_retract_class jam_cache_instance jam_cache_second.
              vm_set_class jam_cache_instance jam_cache_first.
@@ -512,7 +515,7 @@ defmodule Examples.ALJAMCompiler do
              fail.
              """)
 
-    assert {:atomic, _} = evaluate("cached_value jam_cache_instance second.")
+    assert %AL{result: {:atomic, _}} = evaluate("cached_value jam_cache_instance second.")
   end
 
   example mutation_instructions_preserve_search_effects_and_transaction_rollback() do
@@ -541,15 +544,17 @@ defmodule Examples.ALJAMCompiler do
     branch = AL.Branch.fork(:tip, %AL.Branch{id: Examples.Support.branch()})
 
     try do
-      {:atomic, _} = AL.run(source, branch)
+      %AL{result: {:atomic, _}} = AL.run(source, branch)
 
-      {:atomic, {bindings, _, state}} =
+      %AL{result: {:atomic, {bindings, _, state}}} =
         AL.run("exercise jam_mutation_target Values.", branch)
 
       assert bindings["$Values"] == [2, 3]
-      assert {:aborted, _} = AL.run("abort_write jam_mutation_target.", branch)
 
-      {:atomic, {afterwards, _, _}} =
+      assert %AL{result: {:aborted, _}} =
+               AL.run("abort_write jam_mutation_target.", branch)
+
+      %AL{result: {:atomic, {afterwards, _, _}}} =
         AL.run("get jam_mutation_target count Value.", branch)
 
       assert afterwards["$Value"] == 4
@@ -607,7 +612,7 @@ defmodule Examples.ALJAMCompiler do
     set_slot Obj count 2.
     """
 
-    {:atomic, {setup, _, state}} = evaluate(source)
+    %AL{result: {:atomic, {setup, _, state}}} = evaluate(source)
 
     program = [
       %AL.Goal.Send{
@@ -642,7 +647,7 @@ defmodule Examples.ALJAMCompiler do
   end
 
   example branch_read_instructions_preserve_branch_identity_and_open_queries() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate(~S"""
       @jam_branch_reader #{super => value}.
 
@@ -667,7 +672,7 @@ defmodule Examples.ALJAMCompiler do
       for branch <- [parent, child] do
         source = "inspect \#{class => jam_branch_reader} Result."
 
-        {:atomic, {actual, _, _}} = AL.run(source, branch)
+        %AL{result: {:atomic, {actual, _, _}}} = AL.run(source, branch)
         [id, keys, parents, children] = actual["$Result"]
         assert id == branch.id
         assert :system_time in keys
@@ -721,7 +726,7 @@ defmodule Examples.ALJAMCompiler do
       "$Finite" => {:"$var", "Finite"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert Enum.sort(actual["$Result"]) == [[1, 2], [2, 1]]
   end
@@ -765,7 +770,7 @@ defmodule Examples.ALJAMCompiler do
       "$Impossible" => {:"$var", "Impossible"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [3, 3, [[1, 2, 3], [2, 1, 3]], :blue]
   end
@@ -802,7 +807,7 @@ defmodule Examples.ALJAMCompiler do
     vm_set_class jam_label_runner_instance jam_label_runner.
     """
 
-    {:atomic, _} = evaluate(source)
+    %AL{result: {:atomic, _}} = evaluate(source)
 
     query = ~S"""
     findall X All {pick jam_label_runner_instance X}.
@@ -817,7 +822,7 @@ defmodule Examples.ALJAMCompiler do
       %{number: 2, class: :jam_label_value}
     ]
 
-    {:atomic, {actual, _, _}} = evaluate(query)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(query)
     assert Enum.sort(actual["$All"]) == Enum.sort(witnesses)
     assert length(actual["$All"]) == 4
     assert actual["$First"] == Enum.take(actual["$All"], 1)
@@ -865,7 +870,7 @@ defmodule Examples.ALJAMCompiler do
       "$Woken" => [1, 3]
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert Enum.sort(actual["$Pairs"]) == [[1, 2], [2, 1]]
     assert actual["$Numbers"] == [1, 2, 3]
@@ -912,7 +917,7 @@ defmodule Examples.ALJAMCompiler do
       "$Copy" => {:"$var", "Copy"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [:yes, :yes, :yes, :yes]
   end
@@ -967,7 +972,7 @@ defmodule Examples.ALJAMCompiler do
       "$Double" => {:"$var", "Double"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [[7, 7], 7, 7, [:yes, :yes, :yes, :yes]]
   end
@@ -999,7 +1004,7 @@ defmodule Examples.ALJAMCompiler do
       "$Before" => {:"$var", "Before"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [1, 2, 3]
   end
@@ -1059,7 +1064,7 @@ defmodule Examples.ALJAMCompiler do
       "$Conflict" => {:"$var", "Conflict"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert [7, 8, classes, [:number], [1, 2]] = actual["$Result"]
     assert :jam_isa_child in classes
@@ -1093,7 +1098,7 @@ defmodule Examples.ALJAMCompiler do
     exercise #{class => jam_incremental_match} Result.
     """
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual["$Result"] == [:blue, :ready, [:done], [:blue]]
   end
 
@@ -1136,7 +1141,7 @@ defmodule Examples.ALJAMCompiler do
       "$Original" => {:"$var", "Original"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [[%{item: :blue}, :done], :blue, [:done], [:blue]]
   end
@@ -1172,7 +1177,7 @@ defmodule Examples.ALJAMCompiler do
       "$Members" => [:red, :blue, :red]
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Results"] == [[:value, :blue], [:value, :green]]
     assert actual["$Members"] == [:red, :blue, :red]
@@ -1227,7 +1232,7 @@ defmodule Examples.ALJAMCompiler do
       "$Gate" => {:"$var", "Gate"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [:ready, "hi", [:blue], [1, 2], []]
   end
@@ -1261,7 +1266,7 @@ defmodule Examples.ALJAMCompiler do
       "$Trigger" => :go
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Handoff"] == :ready
     assert actual["$Returned"] == :ready
@@ -1320,7 +1325,7 @@ defmodule Examples.ALJAMCompiler do
       "$_Second" => {:"$var", "_Second"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
 
     assert actual["$Result"] == [
@@ -1372,7 +1377,7 @@ defmodule Examples.ALJAMCompiler do
       "$Color" => {:"$var", "Color"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [:jam_open_read_child, :jam_open_read_parent, :red]
   end
@@ -1426,7 +1431,7 @@ defmodule Examples.ALJAMCompiler do
       "$Bad" => {:"$var", "Bad"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
 
     assert actual["$Result"] == [
@@ -1465,7 +1470,7 @@ defmodule Examples.ALJAMCompiler do
       "$Never" => {:"$var", "Never"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [[:blue], []]
   end
@@ -1482,7 +1487,7 @@ defmodule Examples.ALJAMCompiler do
     rejected #{class => jam_failure_probe}.
     """
 
-    {:aborted, failure} = evaluate(source, trace: [])
+    %AL{result: {:aborted, failure}} = evaluate(source, trace: [])
     assert match?({:constraint_violated, {:dif, _, _}}, failure.reason)
   end
 
@@ -1534,13 +1539,15 @@ defmodule Examples.ALJAMCompiler do
       "$Intercepted" => :intercepted
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == :handled
     assert actual["$Installed"] == :direct
     assert actual["$Intercepted"] == :intercepted
 
-    {:aborted, failure} = evaluate(~S"attempt_absent #{class => jam_miss_child} _.")
+    %AL{result: {:aborted, failure}} =
+      evaluate(~S"attempt_absent #{class => jam_miss_child} _.")
+
     assert {:does_not_understand, %{class: :jam_miss_child}, :unknown, 1, _} = failure.reason
   end
 
@@ -1566,7 +1573,7 @@ defmodule Examples.ALJAMCompiler do
     exercise #{class => jam_map_head_probe} Result.
     """
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
 
     assert actual["$Result"] == [
              [%{value: :shared}, :end],
@@ -1618,7 +1625,7 @@ defmodule Examples.ALJAMCompiler do
       "$Noise" => {:"$var", "Noise"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
 
     assert actual["$Results"] == [
@@ -1666,7 +1673,7 @@ defmodule Examples.ALJAMCompiler do
       "$_Selector" => {:"$var", "_Selector"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Results"] == [:old, :new]
   end
@@ -1699,7 +1706,7 @@ defmodule Examples.ALJAMCompiler do
       "$Gate" => {:"$var", "Gate"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == :inherited
   end
@@ -1766,7 +1773,7 @@ defmodule Examples.ALJAMCompiler do
       "$Choices" => [:red]
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Colors"] == [:red, :blue]
     assert actual["$Values"] == [:inherited, :local]
@@ -1825,7 +1832,7 @@ defmodule Examples.ALJAMCompiler do
       "$Constrained" => {:"$var", "Constrained"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
 
     assert actual["$Result"] == [
@@ -1871,7 +1878,7 @@ defmodule Examples.ALJAMCompiler do
       "$Before" => :child
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Before"] == :child
     assert actual["$After"] == [:child, :replacement]
@@ -1904,7 +1911,7 @@ defmodule Examples.ALJAMCompiler do
       "$Before" => :plain
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Before"] == :plain
     assert actual["$After"] == :classed
@@ -1959,7 +1966,7 @@ defmodule Examples.ALJAMCompiler do
       "$Bad" => {:"$var", "Bad"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [:hé, [104, 233], "hello", :greet, [:world], [[111, 107]]]
   end
@@ -2019,7 +2026,7 @@ defmodule Examples.ALJAMCompiler do
     }
 
     expected_constraints = %{"$Forbidden" => %{dif: ~c"h"}}
-    {:atomic, {actual, actual_constraints, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, actual_constraints, _}}} = evaluate(source)
     assert actual == expected
     assert actual_constraints == expected_constraints
     assert actual["$Text"] == "hé"
@@ -2065,7 +2072,7 @@ defmodule Examples.ALJAMCompiler do
       "$Atom" => :ready
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Atom"] == :ready
     assert actual["$Text"] == "hi"
@@ -2139,7 +2146,7 @@ defmodule Examples.ALJAMCompiler do
       "$Dynamic" => {:"$var", "Dynamic"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
 
     assert actual["$Result"] == [
@@ -2191,7 +2198,7 @@ defmodule Examples.ALJAMCompiler do
       "$Open" => {:"$var", "Open"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [:blue]
   end
@@ -2207,7 +2214,7 @@ defmodule Examples.ALJAMCompiler do
       "$Splits" => [[[], [:a, :b]], [[:a], [:b]], [[:a, :b], []]]
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == [:a, :b, :c]
 
@@ -2256,7 +2263,7 @@ defmodule Examples.ALJAMCompiler do
       "$Made" => %{left: :blue, right: [:blue]}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Made"] == %{left: :blue, right: [:blue]}
     assert actual["$Empty"] == %{}
@@ -2264,7 +2271,7 @@ defmodule Examples.ALJAMCompiler do
   end
 
   example method_edits_invalidate_the_compiled_method_within_a_transaction() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate(~S"""
       @compiled_edit_probe #{super => object}.
 
@@ -2304,7 +2311,7 @@ defmodule Examples.ALJAMCompiler do
       "$Receiver" => {:"$var", "Receiver"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Result"] == 7
   end
@@ -2333,10 +2340,10 @@ defmodule Examples.ALJAMCompiler do
     """
 
     [definitions, query] = String.split(source, "findall X Values", parts: 2)
-    {:atomic, _} = evaluate(definitions)
+    %AL{result: {:atomic, _}} = evaluate(definitions)
     source = "findall X Values" <> query
 
-    {:atomic, {bindings, _constraints, _state}} = evaluate(source)
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} = evaluate(source)
     assert bindings["$Values"] == [:red, :blue]
     assert bindings["$Selected"] == :blue
   end
@@ -2377,7 +2384,7 @@ defmodule Examples.ALJAMCompiler do
       "$Built" => %{payload: [:shared, :shared, :end]}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Values"] == [:shared, :shared, :end]
     assert actual["$Results"] == [%{payload: [:first, :first]}, %{payload: [:second, :second]}]
@@ -2419,7 +2426,7 @@ defmodule Examples.ALJAMCompiler do
       "$Pair" => {:"$var", "Pair"}
     }
 
-    {:atomic, {actual, _, _}} = evaluate(source)
+    %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
     assert actual["$Results"] == [:shared, 5]
   end
@@ -2427,7 +2434,7 @@ defmodule Examples.ALJAMCompiler do
   example retained_tracing_preserves_results() do
     expected = %{"$Values" => [:a, :b, :a]}
 
-    {:atomic, {actual, _, state}} =
+    %AL{result: {:atomic, {actual, _, state}}} =
       evaluate("findall X Values {member [a, b, a] X}.", trace: [:domino, :vm])
 
     assert actual == expected

@@ -13,7 +13,7 @@ defmodule Examples.ALOutputBindings do
   # Regression: `next_solution` must fully substitute compound bindings (like
   # `eval`/`run` does), not just deref the top-level variable.
   example next_solution_substitutes_compound_bindings() do
-    {:atomic, {b1, _constraints, state}} =
+    %AL{result: {:atomic, {b1, _constraints, state}}} =
       run(
         ~S"""
         vm_set_super next_sol_test alpha.
@@ -24,7 +24,7 @@ defmodule Examples.ALOutputBindings do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {b2, _constraints, _}} = next_solution(state)
+    %AL{result: {:atomic, {b2, _constraints, _}}} = next_solution(state)
 
     pairs = [Map.get(b1, "$Pair"), Map.get(b2, "$Pair")]
 
@@ -36,7 +36,7 @@ defmodule Examples.ALOutputBindings do
   # {:"$var", "_"} never binds (unify/4's first clause), so standardize_apart must
   # never rename it either -- else two wildcards collapse onto one fresh var.
   example findall_wildcard_placeholders_stay_independent() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall [1, _, _] Result (== 1 1).
@@ -51,7 +51,7 @@ defmodule Examples.ALOutputBindings do
   # a query var unifying with an internal freshened clause var must never show
   # that internal name -- not directly, not nested in another output var.
   example output_vars_use_consistent_names_for_aliased_vars() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         concat [3, Y] [1, 2] X.

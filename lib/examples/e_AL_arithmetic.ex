@@ -9,7 +9,7 @@ defmodule Examples.ALArithmetic do
   import ExUnit.Assertions
 
   example arithmetic() do
-    {:atomic, {bindings, _constraints, result}} =
+    %AL{result: {:atomic, {bindings, _constraints, result}}} =
       run(
         ~S"""
         = A (- (+ 123 5) 3).
@@ -39,7 +39,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example eq_over_an_open_operand_posts_a_constraint() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = X (+ Y 1).
@@ -53,7 +53,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example eq_fails_on_division_by_zero() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         = X (/ 1 0).
@@ -65,7 +65,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example remainder() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = A (rem 7 2).
@@ -80,7 +80,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example rem_by_zero_fails_gracefully() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         = X (rem 1 0).
@@ -92,7 +92,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example comparison_succeeds_when_true() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = X 5.
@@ -109,7 +109,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example comparison_evaluates_expression_operands() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         > 10 (+ 2 3).
@@ -123,7 +123,7 @@ defmodule Examples.ALArithmetic do
   end
 
   example comparison_fails_when_false() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         > 3 5.
@@ -138,7 +138,7 @@ defmodule Examples.ALArithmetic do
   # leaves it open rather than crashing the transaction. A non-numeric ground
   # operand has no interval to narrow, so it's still a hard failure.
   example comparison_narrows_rather_than_failing_on_unbound() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         > Y 1.
@@ -148,7 +148,7 @@ defmodule Examples.ALArithmetic do
 
     assert AL.Var.var?(Map.get(bindings, "$Y"))
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         > Y not_a_number.

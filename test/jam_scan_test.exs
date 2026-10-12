@@ -22,7 +22,7 @@ defmodule AL.JAM.ScanTest do
 
   defp execute(plan, input), do: Bench.ScanRegion.run(plan, input)
 
-  defp source(text, branch), do: assert({:atomic, _} = AL.run(text, branch))
+  defp source(text, branch), do: assert(%AL{result: {:atomic, _}} = AL.run(text, branch))
 
   defp install(branch) do
     source(
@@ -277,7 +277,7 @@ defmodule AL.JAM.ScanTest do
   end
 
   test "open input keeps the generative relation", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                symbol #{class => al_grammar} Input [] point.

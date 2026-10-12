@@ -12,7 +12,7 @@ defmodule Examples.ALBlackjack do
   import ExUnit.Assertions
 
   example hand_total_computes_forward() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new card #{rank => king, suit => spades} King.
@@ -27,7 +27,7 @@ defmodule Examples.ALBlackjack do
   end
 
   example hand_finds_every_card_that_completes_21() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new card #{rank => king, suit => spades} King.
@@ -45,7 +45,7 @@ defmodule Examples.ALBlackjack do
 
   # Wildcard args -- both ivars stay open, domain-constrained but unbound.
   example new_with_wildcard_args_leaves_both_ivars_open() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new card _ C.
@@ -64,7 +64,7 @@ defmodule Examples.ALBlackjack do
   # constructs a fresh :card, rank_value's fallback unifies r with 7 (in
   # domain, isa :number), guard passes.
   example card_value_finds_a_card_for_a_valid_value() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         card_value C 7.
@@ -78,7 +78,7 @@ defmodule Examples.ALBlackjack do
   end
 
   example repeated_symbolic_slot_reads_share_their_value() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         findall [Card, Rank, Value] Triples {card_value Card Value, get Card rank Rank}.
@@ -109,7 +109,7 @@ defmodule Examples.ALBlackjack do
   end
 
   example symbolic_slot_relations_are_exposed_in_the_answer() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         card_value Card Value.
@@ -126,7 +126,7 @@ defmodule Examples.ALBlackjack do
   end
 
   example labeling_a_symbolic_slot_value_uses_the_value_witness_domain() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall [Rank, Value] Pairs {card_value Card Value, get Card rank Rank, label Rank}.
@@ -148,7 +148,7 @@ defmodule Examples.ALBlackjack do
 
   # No rank produces 29 -- domain rejects it before any clause's guard runs.
   example card_value_fails_for_an_impossible_value() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         card_value C 29.
@@ -162,7 +162,7 @@ defmodule Examples.ALBlackjack do
 
   # Out-of-domain rank rejected at construction time, not just query time.
   example new_with_out_of_domain_rank_aborts() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         new card #{rank => 29} _C.
@@ -176,7 +176,7 @@ defmodule Examples.ALBlackjack do
   # Rank is already bound to 7 -- unifying against 2 is an ordinary mismatch,
   # not a domain violation (the field's no longer open).
   example reading_a_bound_field_against_a_different_value_aborts() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         new card #{rank => 7} C.

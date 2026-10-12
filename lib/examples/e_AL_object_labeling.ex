@@ -6,7 +6,7 @@ defmodule Examples.ALObjectLabeling do
   import ExUnit.Assertions
 
   example labeling_model() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @labeling_animal
@@ -49,7 +49,7 @@ defmodule Examples.ALObjectLabeling do
   example class_labeling_enumerates_only_exact_durable_instances() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Object Objects {class Object labeling_animal, label Object}.
@@ -63,7 +63,7 @@ defmodule Examples.ALObjectLabeling do
   example isa_labeling_enumerates_transitive_durable_instances() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Object Objects {isa Object labeling_animal, label Object}.
@@ -83,7 +83,7 @@ defmodule Examples.ALObjectLabeling do
   example intersecting_isa_constraints_label_the_common_descendant() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         isa Object labeling_animal.
@@ -99,7 +99,7 @@ defmodule Examples.ALObjectLabeling do
   example dif_filters_durable_candidates_during_labeling() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         isa Object labeling_animal.
@@ -122,7 +122,7 @@ defmodule Examples.ALObjectLabeling do
   example value_labeling_constructs_a_concrete_witness() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         isa Shape labeling_shape.
@@ -137,7 +137,7 @@ defmodule Examples.ALObjectLabeling do
   example exact_value_class_labeling_initializes_that_class() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class Shape labeling_circle.
@@ -152,7 +152,7 @@ defmodule Examples.ALObjectLabeling do
   example incompatible_exact_and_inherited_classes_fail_before_forcing() do
     labeling_model()
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         class Object labeling_cat.
@@ -168,7 +168,7 @@ defmodule Examples.ALObjectLabeling do
   example durable_labeling_preserves_every_following_goal() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall [Object, Marker, ExactClass] Answers {
@@ -189,7 +189,7 @@ defmodule Examples.ALObjectLabeling do
   example labeling_without_a_compatible_witness_fails() do
     labeling_model()
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         isa Object labeling_missing_class.
@@ -204,7 +204,7 @@ defmodule Examples.ALObjectLabeling do
   example pending_class_labeling_preserves_following_goals() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Marker Markers {class Object ExactClass, label ExactClass, = Marker after_class_label}.
@@ -218,7 +218,7 @@ defmodule Examples.ALObjectLabeling do
   example pending_super_labeling_preserves_following_goals() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Marker Markers {super Subclass Superclass, label Subclass, = Marker after_super_label}.
@@ -232,7 +232,7 @@ defmodule Examples.ALObjectLabeling do
   example pending_slot_labeling_preserves_following_goals() do
     labeling_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall [Object, Marker] Answers {

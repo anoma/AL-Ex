@@ -7,7 +7,7 @@ defmodule Examples.ALGtBridge do
     branch = AL.Branch.fork()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           vm_set_class inspector_sample object.
@@ -38,7 +38,7 @@ defmodule Examples.ALGtBridge do
     branch = AL.Branch.fork()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           vm_set_class inheritance_dag_instance inheritance_dag_class.
@@ -71,7 +71,7 @@ defmodule Examples.ALGtBridge do
     branch = AL.Branch.fork()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           vm_set_super dag_base object.
@@ -110,7 +110,7 @@ defmodule Examples.ALGtBridge do
     branch = AL.Branch.fork()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           vm_set_super inspector_execution_class program_execution.
@@ -156,12 +156,12 @@ defmodule Examples.ALGtBridge do
     source = "fail.\n"
 
     try do
-      assert {:aborted, failure} = AL.run(source, branch)
+      assert %AL{result: {:aborted, failure}} = AL.run(source, branch)
       state = failure.state
       transaction = state.transaction_object
       tx = state.tx_id
 
-      assert transaction == AL.Transaction.id(tx)
+      assert is_atom(transaction)
 
       {:atomic, {classes, slots}} =
         :mnesia.transaction(fn ->
@@ -172,7 +172,7 @@ defmodule Examples.ALGtBridge do
         end)
 
       assert [{:class, ^transaction, _seq, :transaction}] = classes
-      assert [{:slots, ^transaction, %{status: :failed, reason: reason}}] = slots
+      assert [{:slots, ^transaction, %{tx: ^tx, status: :failed, reason: reason}}] = slots
       assert reason.message =~ "failed"
 
       {:atomic, {:source_text, ^tx, ^source, %{kind: :al_text}}} =
@@ -217,7 +217,7 @@ defmodule Examples.ALGtBridge do
     """
 
     try do
-      assert {:atomic, _} = AL.run(text, branch)
+      assert %AL{result: {:atomic, _}} = AL.run(text, branch)
       object = %AL.Object{id: :program_execution_coder_fixture, branch: branch.id}
       rows = AL.TransactionProgram.source_rows(object)
       assert length(rows) == 2
@@ -227,7 +227,7 @@ defmodule Examples.ALGtBridge do
 
       assert Enum.any?(rows, fn [_, _, source, _, _] -> source =~ "= Result original_b" end)
 
-      assert {:atomic, _} =
+      assert %AL{result: {:atomic, _}} =
                AL.run(
                  """
                  program_execution_receiver_a >> hello
@@ -257,7 +257,7 @@ defmodule Examples.ALGtBridge do
       AL.Command.command_log_rows([
         {:command, 1, 10, {:set_class, {:child, :parent}}},
         {:command, 2, 10, {:retract_class, {:child, :parent}}},
-        {:command, 3, 11, {:send_async, {:child, :ping, []}}}
+        {:command, 3, 11, {:await, :child}}
       ])
 
     assert set_row.marker == "##"
@@ -269,7 +269,7 @@ defmodule Examples.ALGtBridge do
     assert set_row.details == ":child → :parent"
     assert retract_row.marker == "##"
     assert send_row.marker == "##"
-    assert send_row.action == "Async Send"
+    assert send_row.action == "Await"
     :ok
   end
 

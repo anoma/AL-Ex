@@ -22,14 +22,14 @@ tcp_socket >> connect
 get_slots Self #{host => Host, packet => Packet, port => Port, status => disconnected},
 set_slot Self status connecting,
 new effect #{arguments => [Self, Host, Port, Packet], operation => connect, provider => tcp} Effect,
-await Effect [Outcome] (connect_completed Self Outcome).
+on_completion Effect Outcome (connect_completed Self Outcome).
 
 tcp_socket >> listen
 | Self Effect |
 get_slots Self #{host => Host, packet => Packet, port => Port, status => disconnected},
 set_slot Self status starting,
 new effect #{arguments => [Self, Host, Port, Packet], operation => listen, provider => tcp} Effect,
-await Effect [Outcome] (listen_completed Self Outcome).
+on_completion Effect Outcome (listen_completed Self Outcome).
 
 tcp_socket >> connect_completed
 | Self #{status => ok, value => connected} |
@@ -70,7 +70,7 @@ tcp_socket >> send_bytes
 | Self Data Effect |
 get Self status connected,
 new effect #{arguments => [Self, Data], operation => send, provider => tcp} Effect,
-await Effect [Outcome] (send_completed Self Outcome).
+on_completion Effect Outcome (send_completed Self Outcome).
 
 tcp_socket >> send_completed
 | _Self #{status => ok, value => _Bytes} |.
@@ -89,14 +89,14 @@ tcp_socket >> close
 get Self status connected,
 set_slot Self status closing,
 new effect #{arguments => [Self], operation => close, provider => tcp} Effect,
-await Effect [Outcome] (close_completed Self Outcome).
+on_completion Effect Outcome (close_completed Self Outcome).
 
 tcp_socket >> close
 | Self Effect |
 get Self status listening,
 set_slot Self status stopping,
 new effect #{arguments => [Self], operation => close_listener, provider => tcp} Effect,
-await Effect [Outcome] (close_listener_completed Self Outcome).
+on_completion Effect Outcome (close_listener_completed Self Outcome).
 
 tcp_socket >> close_completed
 | Self #{status => ok, value => closed} |

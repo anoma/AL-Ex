@@ -25,6 +25,7 @@ defmodule AL.ResolutionCache do
 
   @transaction_cache :al_resolution_transaction_cache
   @dispatch_cache :al_dispatch_cache
+  @new_receivers :al_new_receivers
   @fresh_tables :al_resolution_fresh_tables
   @resident_code :al_resident_code
 
@@ -93,7 +94,12 @@ defmodule AL.ResolutionCache do
   @spec fetch_providers(AL.Branch.t(), tuple(), (-> term())) :: term()
   def fetch_providers(branch, {receiver, selector}, compute) do
     table = table(:providers, branch)
-    group = fetch(table, :providers, receiver, fn -> %{} end)
+    local? = new_receiver?(branch, receiver)
+
+    group =
+      if local?,
+        do: fetch_local(Process.get(@transaction_cache), table, receiver, fn -> %{} end),
+        else: fetch(table, :providers, receiver, fn -> %{} end)
 
     case Map.fetch(group, selector) do
       {:ok, value} ->
@@ -102,14 +108,8 @@ defmodule AL.ResolutionCache do
       :error ->
         value = compute.()
         group = Map.put(group, selector, value)
-        :mnesia.write(table, {:providers, receiver, group}, :write)
-
-        if cache = Process.get(@transaction_cache) do
-          Process.put(
-            @transaction_cache,
-            Map.update(cache, table, %{receiver => group}, &Map.put(&1, receiver, group))
-          )
-        end
+        unless local?, do: :mnesia.write(table, {:providers, receiver, group}, :write)
+        store_local(table, receiver, group)
 
         value
     end
@@ -163,6 +163,29 @@ defmodule AL.ResolutionCache do
 
       plan ->
         if valid?.(plan), do: plan, else: store_code(branch, :compiled_plans, key, compute.())
+    end
+  end
+
+  def mark_new_receiver(branch, receiver) when is_atom(receiver) do
+    if cache = Process.get(@transaction_cache) do
+      key = {@new_receivers, branch.id}
+
+      Process.put(
+        @transaction_cache,
+        Map.update(cache, key, MapSet.new([receiver]), &MapSet.put(&1, receiver))
+      )
+    end
+
+    :ok
+  end
+
+  def new_receiver?(branch, receiver) do
+    case Process.get(@transaction_cache) do
+      nil ->
+        false
+
+      cache ->
+        cache |> Map.get({@new_receivers, branch.id}, MapSet.new()) |> MapSet.member?(receiver)
     end
   end
 
@@ -318,6 +341,17 @@ defmodule AL.ResolutionCache do
     end
   end
 
+  defp store_local(table, key, value) do
+    if cache = Process.get(@transaction_cache) do
+      Process.put(
+        @transaction_cache,
+        Map.update(cache, table, %{key => value}, &Map.put(&1, key, value))
+      )
+    end
+
+    value
+  end
+
   defp fetch_from_mnesia(table, relation, key, compute) do
     case :mnesia.read(table, key) do
       [{^relation, ^key, value}] ->
@@ -394,6 +428,7 @@ defmodule AL.ResolutionCache do
   @spec invalidate_ivar_specs(AL.Branch.t()) :: :ok
   def invalidate_ivar_specs(branch) do
     clear_local(:ivar_storage)
+    clear_local({@dispatch_cache, table(:providers, branch)})
     clear(table(:ivar_specs, branch))
   end
 

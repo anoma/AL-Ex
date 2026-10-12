@@ -5,7 +5,7 @@ defmodule AL.JAM.ValueMethodSummaryTest do
     branch = AL.Branch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @summary_point #{super => value}.
@@ -45,26 +45,29 @@ defmodule AL.JAM.ValueMethodSummaryTest do
     [clause] = elem(plan.compiled, 0)
     assert [{:unify_structural, _, _}] = Tuple.to_list(clause.code)
 
-    assert {:atomic, {%{"$Result" => 10}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$Result" => 10}, _, _}}} =
              AL.run(~S"project #{class => summary_point} 10 20 Result.", branch)
   end
 
   test "escaping objects preserve shared fields and reverse bindings", %{branch: branch} do
-    assert {:atomic, {%{"$Result" => %{class: :summary_point, x: 9, y: 9}, "$X" => 9}, _, _}} =
+    assert %AL{
+             result:
+               {:atomic, {%{"$Result" => %{class: :summary_point, x: 9, y: 9}, "$X" => 9}, _, _}}
+           } =
              AL.run(
                ~S"build #{class => summary_point} X X Result, get Result y 9.",
                branch
              )
 
-    assert {:atomic, {%{"$X" => 12}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$X" => 12}, _, _}}} =
              AL.run(~S"project #{class => summary_point} X 20 12.", branch)
   end
 
   test "edits and overrides invalidate the specialized chain", %{branch: branch} do
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(~S"project #{class => summary_point} 10 20 Result.", branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                summary_point >> x_value
@@ -78,10 +81,10 @@ defmodule AL.JAM.ValueMethodSummaryTest do
                branch
              )
 
-    assert {:atomic, {%{"$Result" => 20}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$Result" => 20}, _, _}}} =
              AL.run(~S"project #{class => summary_point} 10 20 Result.", branch)
 
-    assert {:atomic, {%{"$Result" => :overridden}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$Result" => :overridden}, _, _}}} =
              AL.run(~S"project #{class => summary_child} 10 20 Result.", branch)
   end
 end

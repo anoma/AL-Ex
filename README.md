@@ -49,38 +49,9 @@ Install from terminal using `iex -S mix` or as a mix dependency.
 `priv/programs` contains the transaction programs, such as `bootstrap.al`, that set up an image.
 `priv/packages` contains the packages that will be installed upon image setup.
 
-### Source and exports
-
-Packages are the authored source boundary. Runtime changes and retained
-transaction source remain in the durable store.
-
-Export through packages when needed:
-
-```elixir
-AL.Package.export(:users, to: "/tmp/users-package")
-AL.Package.export(:my_package, definitions: [:my_class], to: "/tmp/my-package")
-```
-
-Package loading and activation remain explicit. Definition documents, live
-snapshots, and change planning are shared through `AL.Definition`.
-
 ## Livebooks
 
 The fastest way to try AL is [`livebooks/intro.livemd`](livebooks/intro.livemd) and the notebooks it links to. `mix escript.install hex livebook` followed by `livebook server` gets you Livebook itself if you don't already have it.
-
-## Working with multiple sessions at once
-
-AL persists to a local, gitignored Mnesia store (`.mnesiastore/` by default) that every `iex -S mix`/`mix run`/`mix test` invocation in a checkout shares unless told otherwise.
-
-You can utilise forks to have multiple streams work on the same node without conflict. 
-
-```elixir
-fork = AL.Branch.fork() <- fork from HEAD
-AL.Branch.checkout(fork) <- change HEAD to fork
-AL.Branch.discard(fork) <- discard the fork
-```
-
-Further isolation should be accomplished by configuration of the Mnesiastore dir.
 
 ## Benchmarks
 

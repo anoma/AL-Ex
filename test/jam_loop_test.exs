@@ -6,7 +6,7 @@ defmodule AL.JAM.LoopTest do
     branch = AL.TestBranch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         @loop_probe #{super => value}.
@@ -112,7 +112,7 @@ defmodule AL.JAM.LoopTest do
   end
 
   test "overlapping alternatives cannot become a deterministic loop", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         loop_probe >> accept
@@ -129,7 +129,7 @@ defmodule AL.JAM.LoopTest do
            ]) ==
              nil
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Output Outputs {copy #{class => loop_probe} [15] [] Output}.
@@ -179,7 +179,7 @@ defmodule AL.JAM.LoopTest do
   test "inlined method edits replace guards in ordinary execution", %{branch: branch} do
     assert {:atomic, _} = copy(branch, [10, 20])
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         loop_probe >> accept
@@ -196,7 +196,7 @@ defmodule AL.JAM.LoopTest do
   end
 
   test "base-clause restrictions are not discarded", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         loop_probe >> copy
@@ -226,14 +226,13 @@ defmodule AL.JAM.LoopTest do
                AL.ResolutionCache.with_transaction_cache(fn ->
                  assert {:atomic, _} = copy(branch, [10])
 
-                 assert {:atomic, _} =
-                          AL.run(
-                            ~S"""
-                            loop_probe >> accept
-                            | _Self 99 |.
-                            """,
-                            branch
-                          )
+                 {:ok, parsed} =
+                   AL.Syntax.parse(~S"""
+                   loop_probe >> accept
+                   | _Self 99 |.
+                   """)
+
+                 assert {:atomic, _} = AL.eval(parsed.program, nil, branch)
 
                  assert {:aborted, _} = copy(branch, [10])
                  assert {:atomic, {%{"$Output" => [99]}, _, _}} = copy(branch, [99])
@@ -243,7 +242,7 @@ defmodule AL.JAM.LoopTest do
   end
 
   test "inherited overrides invalidate cached dispatch dependencies", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         @loop_child #{super => loop_probe}.
@@ -261,7 +260,7 @@ defmodule AL.JAM.LoopTest do
 
     assert {:atomic, _} = AL.eval(goals, nil, branch)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         loop_child >> accept
@@ -278,7 +277,7 @@ defmodule AL.JAM.LoopTest do
   } do
     assert {:atomic, {%{"$Output" => [11.0]}, _, _}} = copy(branch, [11.0])
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                copy #{class => loop_probe} [Value] [] [15].
@@ -288,7 +287,7 @@ defmodule AL.JAM.LoopTest do
 
     assert bindings["$Value"] == 15
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                dif Output [10],

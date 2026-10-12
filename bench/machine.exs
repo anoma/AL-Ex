@@ -1,3 +1,6 @@
+if List.keymember?(Application.started_applications(), :al, 0),
+  do: raise("run machine benchmarks with mix run --no-start")
+
 directory =
   Path.join(System.tmp_dir!(), "al-compiled-bench-#{System.unique_integer([:positive])}")
 
@@ -16,7 +19,7 @@ try do
     parse bnf_syntax (document Rules) "<list> ::= \"[\" <item> <more>* \"]\" | \"[\" \"]\"\n<item> ::= /./\n".
     """)
 
-  {:atomic, {definitions, _, _}} =
+  %AL{result: {:atomic, {definitions, _, _}}} =
     AL.run(~S"""
     @compiled_walk_probe #{super => object}.
 
@@ -76,7 +79,7 @@ try do
     %AL.Goal.Send{
       object: :compiled_walk_instance,
       method: :callable_walk,
-      args: [Enum.to_list(1..1000), definitions[{:"$var", "Mapper"}]]
+      args: [Enum.to_list(1..1000), definitions["$Mapper"]]
     }
   ]
 

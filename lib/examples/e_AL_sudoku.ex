@@ -46,7 +46,7 @@ defmodule Examples.ALSudoku do
       [3, 4, 5, 2, 8, 6, 1, 7, 0]
     ]
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new sudoku_puzzle #{givens => HostGivens} Puzzle.
@@ -78,7 +78,7 @@ defmodule Examples.ALSudoku do
       [6, 7, 8, 5, 2, 9, 4, 1, 3]
     ]
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new sudoku_puzzle #{givens => HostGivens} Puzzle.
@@ -120,7 +120,7 @@ defmodule Examples.ALSudoku do
       [0, 0, 0, 0, 4, 0, 0, 0, 9]
     ]
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new sudoku_puzzle #{givens => HostGivens} Puzzle.
@@ -162,7 +162,7 @@ defmodule Examples.ALSudoku do
       [0, 0, 0, 0, 0, 0, 0, 0, 0]
     ]
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         new sudoku_puzzle #{givens => HostGivens} _Puzzle.

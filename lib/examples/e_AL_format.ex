@@ -4,7 +4,7 @@ defmodule Examples.ALFormat do
   import ExUnit.Assertions
 
   example format_prints_a_string_with_no_quotes() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         format "~a~%" ["hello"] Text.
@@ -17,7 +17,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_prints_al_terms() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         format "~a~%" [object] Text.
@@ -30,7 +30,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_prints_a_bound_var_resolved_value() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         = X (+ 2 2).
@@ -44,7 +44,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_consumes_multiple_directives_left_to_right() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         format "~a plus ~a is ~a~%" [2, 2, 4] Text.
@@ -57,7 +57,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_tilde_tilde_is_a_literal_tilde_not_a_directive() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         format "100~~" [] Text.
@@ -70,7 +70,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_object_resolves_through_print_object_override() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         @format_object_print_object_class
@@ -91,7 +91,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_object_falls_through_to_default_print_object() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         @format_object_default_class
@@ -110,7 +110,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_object_handles_multiple_directives_in_one_call() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         @format_object_multi_class
@@ -132,7 +132,7 @@ defmodule Examples.ALFormat do
   end
 
   example format_object_fails_when_print_object_has_no_matching_clause() do
-    {:aborted, _reason} =
+    %AL{result: {:aborted, _reason}} =
       run(
         ~S"""
         @format_object_no_match_class

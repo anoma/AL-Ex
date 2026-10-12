@@ -14,14 +14,14 @@ defmodule AL.Choicepoint do
 
   @type continuation() ::
           {:resume, AL.JAM.Frame.t()}
-          | {:collect_next, AL.JAM.Frame.t(), non_neg_integer(), AL.t()}
+          | {:collect_next, AL.JAM.Frame.t(), non_neg_integer(), AL.JAM.State.t()}
   @type parked() :: {term(), tuple(), tuple()}
 
   typedstruct enforce: true do
     field(:continuations, [continuation()], enforce: true, default: [])
     field(:progress, non_neg_integer(), default: 0)
     field(:store, AL.Var.store() | nil, enforce: true, default: %{})
-    field(:scope_pointer, AL.scope(), enforce: true, default: 0)
+    field(:scope_pointer, AL.JAM.State.scope(), enforce: true, default: 0)
     field(:source_scopes, [AL.Source.Ref.capture_id()], default: [])
     field(:suspensions, %{optional(AL.Var.t()) => [parked()]}, default: %{})
     field(:clause, non_neg_integer() | nil, default: nil)

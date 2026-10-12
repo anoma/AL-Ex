@@ -11,8 +11,9 @@ defmodule AL.JAM.IR.Plan do
       dependencies: %{},
       inlined: 0,
       classes: %{},
+      ivar_specs: %{},
       providers: %{},
-      fuel: 48,
+      fuel: 64,
       stable: true,
       protected: MapSet.new()
     ]
@@ -25,6 +26,7 @@ defmodule AL.JAM.IR.Plan do
     :facts,
     dependencies: %{},
     classes: %{},
+    ivar_specs: %{},
     providers: %{}
   ]
 
@@ -33,9 +35,11 @@ defmodule AL.JAM.IR.Plan do
         receiver,
         selector,
         operands,
+        method,
         branch
       ) do
-    if literal?(receiver, 12) do
+    if literal?(receiver, 12) and
+         not default_new_receiver_method?(receiver, selector, method, branch) do
       AL.ResolutionCache.fetch_dispatch(
         branch,
         {:site_query_plan, receiver, selector, operands},
@@ -60,7 +64,12 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
-  def select(original, _, _, _, _), do: original
+  def select(original, _, _, _, _, _), do: original
+
+  defp default_new_receiver_method?(receiver, selector, method, branch) do
+    AL.ResolutionCache.new_receiver?(branch, receiver) and
+      match?({:ok, _, ^method}, AL.Dispatch.target(:object, selector, branch))
+  end
 
   def compile(receiver, selector, facts, branch) do
     plan =
@@ -139,6 +148,7 @@ defmodule AL.JAM.IR.Plan do
         inlined: state.inlined,
         dependencies: state.dependencies,
         classes: state.classes,
+        ivar_specs: state.ivar_specs,
         providers: state.providers
       }
 
@@ -164,6 +174,9 @@ defmodule AL.JAM.IR.Plan do
       end) and
       Enum.all?(plan.classes, fn {{object, class}, rows} ->
         AL.Object.scan_class(object, class, branch) === rows
+      end) and
+      Enum.all?(plan.ivar_specs, fn {{object, key}, spec} ->
+        AL.Dispatch.find_ivar_spec(object, key, branch) === spec
       end) and
       Enum.all?(plan.dependencies, fn {{receiver, selector}, {id, clauses}} ->
         case AL.Dispatch.target(receiver, selector, branch) do
@@ -288,43 +301,87 @@ defmodule AL.JAM.IR.Plan do
       %IR{kind: :relation, name: :class, args: [object, class]} ->
         expand_class(object, class, rest, body, state, stack)
 
+      %IR{kind: :relation, name: :isa, args: [object, class]} ->
+        expand_isa(object, class, rest, body, state, stack)
+
+      %IR{kind: :relation, name: :ivar_spec, args: [object, key, spec]} ->
+        expand_ivar_spec(object, key, spec, rest, body, state, stack)
+
+      %IR{kind: :send, name: :get, args: [receiver, [key, result]]} ->
+        expand_missing_map_get(receiver, key, result, goal, rest, state, stack)
+
+      %IR{kind: :scope, name: :negate, regions: %{condition: condition}} ->
+        expand_negate(condition, rest, body, state, stack)
+
+      %IR{kind: :scope, name: :forall, regions: %{condition: condition, body: action}} ->
+        expand_map_slot_writes(goal, condition, action, rest, state, stack)
+
       %IR{kind: :term, name: :functor, args: [term, name, args]} ->
         expand_functor(term, name, args, rest, body, state, stack)
 
       %IR{kind: :send, name: selector, args: [receiver, args]} ->
-        case inline(receiver, selector, args, state, stack) do
-          nil ->
-            boundary(goal, rest, state, stack)
-
-          {alternatives, state, id} ->
-            Enum.reduce(alternatives, {[], state}, fn {prefix, bindings}, {paths, state} ->
-              {next, state} =
-                expand(
-                  Program.concat(prefix, Program.subst(rest, bindings)),
-                  state,
-                  if(Program.first(prefix) == :return, do: stack, else: [id | stack])
-                )
-
-              if length(paths) + length(next) > 24, do: throw(:no_plan)
-              {paths ++ next, state}
-            end)
-        end
+        expand_send(receiver, selector, args, goal, rest, state, stack)
 
       %IR{kind: :direct, name: name}
       when name in [:eq, :unify_structural] and state.mode == :prefix ->
         {[body], state}
 
-      %IR{kind: :direct, name: name} when name in [:eq, :unify_structural] ->
-        case IR.Inference.operation(goal, state.protected).binding do
-          {variable, value} -> expand(Program.subst(rest, %{variable => value}), state, stack)
-          nil -> boundary(goal, rest, state, stack)
+      %IR{kind: :direct, name: :unify_structural, args: [left, right]} ->
+        if MapSet.size(Var.find_vars([left, right])) == 0 do
+          if AL.Var.unify_structural(left, right, %{}, state.branch) != nil,
+            do: expand(rest, state, stack),
+            else: {[], state}
+        else
+          expand_unification(goal, rest, body, state, stack)
         end
+
+      %IR{kind: :direct, name: :eq} ->
+        expand_unification(goal, rest, body, state, stack)
+
+      %IR{kind: :direct, name: :pass, method_identity: {:inline_return, id}} ->
+        next_stack =
+          case stack do
+            [^id | tail] -> tail
+            _ -> stack
+          end
+
+        expand(rest, state, next_stack)
 
       %IR{kind: :direct, name: :pass} ->
         expand(rest, state, stack)
 
       _ ->
         boundary(goal, rest, state, stack)
+    end
+  end
+
+  defp expand_unification(goal, rest, _body, state, stack) do
+    case IR.Inference.operation(goal, state.protected).binding do
+      {variable, value} -> expand(Program.subst(rest, %{variable => value}), state, stack)
+      nil -> boundary(goal, rest, state, stack)
+    end
+  end
+
+  defp expand_send(receiver, selector, args, goal, rest, state, stack) do
+    case inline(receiver, selector, args, state, stack) do
+      nil ->
+        boundary(goal, rest, state, stack)
+
+      {alternatives, state, id} ->
+        Enum.reduce(alternatives, {[], state}, fn {prefix, bindings}, {paths, state} ->
+          marker = %{IR.operation(:direct, :pass, []) | method_identity: {:inline_return, id}}
+          continuation = Program.prepend(marker, Program.subst(rest, bindings))
+
+          {next, state} =
+            expand(
+              Program.concat(prefix, continuation),
+              state,
+              [id | stack]
+            )
+
+          if length(paths) + length(next) > 24, do: throw(:no_plan)
+          {paths ++ next, state}
+        end)
     end
   end
 
@@ -342,13 +399,50 @@ defmodule AL.JAM.IR.Plan do
     state = %{
       state
       | protected: IR.Binding.escape(operation, state.protected),
-        stable: state.stable and MethodSummary.transparent?(inference)
+        stable:
+          state.stable and
+            (MethodSummary.transparent?(inference) or dispatch_stable?(operation, state))
     }
 
     {paths, state} = expand(rest, state, stack)
     paths = if paths == [], do: [Program.lower([IR.operation(:direct, :fail, [])])], else: paths
     {Enum.map(paths, &Program.prepend(operation, &1)), state}
   end
+
+  defp dispatch_stable?(%IR{kind: :relation, name: name}, _state)
+       when name in [:class, :ivar_spec],
+       do: true
+
+  defp dispatch_stable?(%IR{kind: :relation, name: :isa, args: [object, class]}, _state)
+       when is_atom(class),
+       do: MapSet.size(Var.find_vars(object)) == 0
+
+  defp dispatch_stable?(%IR{kind: :direct, name: :unify_structural}, _state), do: true
+
+  defp dispatch_stable?(
+         %IR{kind: :mutation, name: :set_slot, args: [object, key, _]},
+         state
+       )
+       when is_atom(object) and is_atom(key) and key not in [:ivars, :dispatch_strategy] do
+    Map.has_key?(state.ivar_specs, {object, key}) and
+      AL.Dispatch.ivar_storage(object, key, state.branch) == :aos
+  end
+
+  defp dispatch_stable?(
+         %IR{kind: :scope, name: :negate, regions: %{condition: condition}},
+         _state
+       ) do
+    Program.reduce(condition, true, fn operation, stable ->
+      stable and
+        case operation do
+          %IR{kind: :relation, name: :class} -> true
+          %IR{kind: :direct, name: :eq} -> true
+          _ -> false
+        end
+    end)
+  end
+
+  defp dispatch_stable?(_, _), do: false
 
   defp expand_atom(term, rest, body, state, stack) do
     if literal?(term, 12) do
@@ -380,6 +474,184 @@ defmodule AL.JAM.IR.Plan do
 
       true ->
         retain(body, state, stack)
+    end
+  end
+
+  defp expand_isa(object, class, rest, body, state, stack) do
+    if MapSet.size(Var.find_vars(object)) == 0 and
+         AL.Dispatch.structural_class(object) === class do
+      expand(rest, state, stack)
+    else
+      retain(body, state, stack)
+    end
+  end
+
+  defp expand_ivar_spec(object, key, result, rest, body, state, stack) do
+    if state.stable and literal?(object, 12) and literal?(key, 12) and
+         Var.var?(result) and result != {:"$var", "_"} and
+         not MapSet.member?(state.protected, result) do
+      spec = AL.Dispatch.find_ivar_spec(object, key, state.branch)
+
+      if literal?(spec, 12) do
+        state = %{
+          state
+          | ivar_specs: Map.put(state.ivar_specs, {object, key}, spec)
+        }
+
+        expand(Program.subst(rest, %{result => spec}), state, stack)
+      else
+        retain(body, state, stack)
+      end
+    else
+      retain(body, state, stack)
+    end
+  end
+
+  defp expand_missing_map_get(receiver, key, result, goal, rest, state, stack) do
+    if state.stable and is_map(receiver) and literal?(receiver, 12) and
+         literal?(key, 12) and not Map.has_key?(receiver, key) do
+      case plain_map_get(receiver, state.branch) do
+        {:ok, dependency} ->
+          state = %{
+            state
+            | dependencies: Map.put(state.dependencies, {receiver, :get}, dependency)
+          }
+
+          {[], state}
+
+        :error ->
+          expand_send(receiver, :get, [key, result], goal, rest, state, stack)
+      end
+    else
+      expand_send(receiver, :get, [key, result], goal, rest, state, stack)
+    end
+  end
+
+  defp expand_map_slot_writes(goal, condition, action, rest, state, stack) do
+    with true <- state.stable,
+         {:ok, slots, object} <- ground_map_slot_writes(condition, action),
+         {:ok, dependency} <- plain_map_get(slots, state.branch) do
+      writes =
+        Enum.map(slots, fn {slot, entry} ->
+          IR.operation(:send, :set_slot, [object, [slot, entry]])
+        end)
+
+      tentative = %{
+        state
+        | dependencies: Map.put(state.dependencies, {slots, :get}, dependency),
+          inlined: state.inlined + 1
+      }
+
+      {paths, tentative} = expand(Program.lower(writes), tentative, stack)
+
+      case paths do
+        [path] ->
+          if direct_slot_writes?(path, length(writes)) do
+            expand(Program.concat(path, rest), tentative, stack)
+          else
+            boundary(goal, rest, state, stack)
+          end
+
+        _ ->
+          boundary(goal, rest, state, stack)
+      end
+    else
+      _ -> boundary(goal, rest, state, stack)
+    end
+  end
+
+  defp ground_map_slot_writes(condition, action) do
+    with {:operation, %IR{kind: :send, name: :get, args: [slots, [key, value]]}, condition_tail} <-
+           Program.first(condition),
+         :return <- Program.first(condition_tail),
+         {:operation, %IR{kind: :send, name: :set_slot, args: [object, [^key, ^value]]},
+          action_tail} <-
+           Program.first(action),
+         :return <- Program.first(action_tail),
+         true <-
+           is_atom(object) and is_map(slots) and not is_struct(slots) and
+             map_size(slots) <= 8 and MapSet.size(Var.find_vars(slots)) == 0 do
+      {:ok, slots, object}
+    else
+      _ -> :error
+    end
+  end
+
+  defp direct_slot_writes?(program, 0), do: Program.first(program) == :return
+
+  defp direct_slot_writes?(program, count) do
+    case Program.first(program) do
+      {:operation, %IR{kind: :mutation, name: :set_slot}, rest} ->
+        direct_slot_writes?(rest, count - 1)
+
+      _ ->
+        false
+    end
+  end
+
+  defp expand_negate(condition, rest, body, state, stack) do
+    case Program.first(condition) do
+      {:operation, %IR{kind: :relation, name: :class, args: [object, class]}, tail}
+      when is_atom(object) and is_atom(class) ->
+        if state.stable and Program.first(tail) == :return do
+          rows = AL.Object.scan_class(object, class, state.branch)
+          state = %{state | classes: Map.put(state.classes, {object, class}, rows)}
+          if rows == [], do: expand(rest, state, stack), else: {[], state}
+        else
+          retain(body, state, stack)
+        end
+
+      {:operation, %IR{kind: :direct, name: :eq, args: [left, right]}, tail} ->
+        if Program.first(tail) == :return and
+             MapSet.size(Var.find_vars([left, right])) == 0 do
+          if AL.Var.unify(left, right, %{}, state.branch) != nil,
+            do: {[], state},
+            else: expand(rest, state, stack)
+        else
+          retain(body, state, stack)
+        end
+
+      {:operation, %IR{kind: :send, name: :get, args: [receiver, [key, _]]}, tail} ->
+        if state.stable and Program.first(tail) == :return and is_map(receiver) and
+             literal?(receiver, 12) and literal?(key, 12) and
+             not Map.has_key?(receiver, key) do
+          case plain_map_get(receiver, state.branch) do
+            {:ok, dependency} ->
+              state = %{
+                state
+                | dependencies: Map.put(state.dependencies, {receiver, :get}, dependency)
+              }
+
+              expand(rest, state, stack)
+
+            :error ->
+              retain(body, state, stack)
+          end
+        else
+          retain(body, state, stack)
+        end
+
+      _ ->
+        retain(body, state, stack)
+    end
+  end
+
+  defp plain_map_get(receiver, branch) do
+    with {:ok, _, id} <- AL.Dispatch.target(receiver, :get, branch),
+         clauses <- AL.JAM.Clauses.cached_scan_clauses(id, branch),
+         [{:oapply, ^id, _, [self, key, value], program}] <-
+           Enum.filter(Compiler.fetch_ir(id, branch), fn {:oapply, _, _, head, _} ->
+             proper?(head) and length(head) == 3
+           end),
+         true <- Enum.all?([self, key, value], &Var.var?/1),
+         true <- Enum.all?([self, key, value], &(&1 != {:"$var", "_"})),
+         true <- length(Enum.uniq([self, key, value])) == 3,
+         {:operation, %IR{kind: :direct, name: :map_get, args: [^self, ^key, ^value]}, tail} <-
+           Program.first(program),
+         :return <- Program.first(tail) do
+      {:ok, {id, clauses}}
+    else
+      _ -> :error
     end
   end
 
@@ -449,7 +721,8 @@ defmodule AL.JAM.IR.Plan do
 
                     body = summary.program
 
-                    if context_free?(body) do
+                    if context_free?(body) or
+                         (selector == :set_slots and ground_slot_write_scope?(body)) do
                       {body, bindings} =
                         if summary.determinism == :det and MethodSummary.transparent?(summary) do
                           {Program.lower([]), Map.merge(bindings, summary.bindings)}
@@ -574,6 +847,18 @@ defmodule AL.JAM.IR.Plan do
       end)
   end
 
+  defp ground_slot_write_scope?(program) do
+    with {:operation,
+          %IR{kind: :scope, name: :forall, regions: %{condition: condition, body: action}},
+          tail} <- Program.first(program),
+         :return <- Program.first(tail),
+         {:ok, _, _} <- ground_map_slot_writes(condition, action) do
+      true
+    else
+      _ -> false
+    end
+  end
+
   defp fetch(receiver, selector, branch) do
     case AL.Dispatch.target(receiver, selector, branch) do
       {:ok, _, id} ->
@@ -673,6 +958,13 @@ defmodule AL.JAM.IR.Plan do
 
   defp literal?(%{class: class} = value, _) when map_size(value) == 1,
     do: is_atom(class)
+
+  defp literal?(value, fuel) when is_map(value) and not is_struct(value) do
+    map_size(value) <= 4 and
+      Enum.all?(value, fn {key, entry} ->
+        literal?(key, fuel - 1) and literal?(entry, fuel - 1)
+      end)
+  end
 
   defp literal?(_, _), do: false
   defp proper?([]), do: true

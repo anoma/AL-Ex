@@ -1,7 +1,7 @@
 defmodule AL.Trace.Derivation do
   @moduledoc false
 
-  @spec build(AL.t()) :: [map()]
+  @spec build(AL.JAM.State.t()) :: [map()]
   def build(%{
         trace: %AL.Trace{events: events},
         active_choicepoint: %{store: store}

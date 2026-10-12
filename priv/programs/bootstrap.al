@@ -456,20 +456,46 @@ new class #{
   super => object
 } _.
 new class #{
-  ivars => [#{name => tx}, #{name => branch}, #{name => status}, #{name => reason}],
+  ivars => [
+    #{name => tx}, #{name => branch}, #{name => status}, #{name => reason},
+    #{name => run}, #{name => caused_by}, #{name => children}, #{name => futures},
+    #{name => effects}, #{name => waits}, #{name => completed_objects},
+    #{name => completion_of}
+  ],
   name => transaction,
   super => object
 } _.
+@completion #{super => object}.
+
+completion >> outcome
+| Self Outcome |
+get Self status completed,
+get Self outcome Outcome.
+
 new class #{
-  ivars => [#{name => effect}, #{name => head}, #{name => goals}, #{name => status}],
+  ivars => [#{name => effect}, #{name => head}, #{name => goals}, #{name => status},
+            #{name => wait_transaction}, #{name => outcome},
+            #{name => requested_by}, #{name => completed_by}],
   name => future_transaction,
-  super => object
+  super => completion
 } _.
 
 future_transaction >> init
 | Self Args Self |
-get_slots Args #{effect => Effect, goals => Goals, head => Head, status => Status},
-set_slots Self #{effect => Effect, goals => Goals, head => Head, status => Status}.
+get_slots Args #{effect => Effect, goals => Goals, head => Head, status => waiting},
+get Effect completion_transaction WaitTransaction,
+vm_transaction_object RequestedBy,
+set_slots Self #{effect => Effect, goals => Goals, head => Head,
+                 requested_by => RequestedBy, status => waiting,
+                 wait_transaction => WaitTransaction}.
+
+future_transaction >> init
+| Self Args Self |
+get_slots Args #{effect => Effect, goals => Goals, head => Head, status => ready},
+vm_transaction_object RequestedBy,
+set_slots Self #{effect => Effect, goals => Goals, head => Head,
+                 requested_by => RequestedBy, status => ready,
+                 wait_transaction => none}.
 
 future_transaction >> run
 | Self |
@@ -488,21 +514,34 @@ future_transaction >> run_goals
 | Self Arguments |
 get_slots Self #{goals => Goals, head => Head},
 set_slot Self status running,
-call Head Goals Arguments,
-set_slot Self status completed.
+call Head Goals Arguments.
+
+future_transaction >> complete
+| Self Outcome |
+get Self status Status,
+dif Status completed,
+vm_transaction_object Transaction,
+set_slots Self #{status => completed, outcome => Outcome, completed_by => Transaction}.
+
+future_transaction >> failed
+| Self Outcome |
+get Self status Status,
+in_domain Status [ready, waiting],
+complete Self Outcome.
 
 new class #{
   ivars => [
     #{name => provider},
     #{name => operation},
     #{name => arguments},
+    #{name => completion_transaction},
     #{name => status},
     #{name => outcome},
     #{name => requested_by},
     #{name => completed_by}
   ],
   name => effect,
-  super => object
+  super => completion
 } _.
 
 effect >> init
@@ -511,9 +550,11 @@ get Args provider Provider,
 get Args operation Operation,
 get Args arguments Arguments,
 vm_transaction_object RequestedBy,
+new transaction #{status => pending, completion_of => Self} CompletionTransaction,
 set_slots Self #{
   arguments => Arguments,
   completed_by => none,
+  completion_transaction => CompletionTransaction,
   operation => Operation,
   outcome => none,
   provider => Provider,
@@ -525,8 +566,30 @@ vm_emit_effect Self Provider Operation Arguments.
 effect >> complete
 | Self Outcome |
 get Self status pending,
+get Self completion_transaction CompletionTransaction,
 vm_transaction_object CompletedBy,
+= CompletedBy CompletionTransaction,
 set_slots Self #{completed_by => CompletedBy, outcome => Outcome, status => completed}.
+
+effect >> set_slot
+| Self status completed |
+get Self completion_transaction CompletionTransaction,
+vm_transaction_object CompletionTransaction,
+validate_slot Self status completed,
+vm_set_slot Self status completed.
+
+effect >> set_slot
+| Self completion_transaction CompletionTransaction |
+not (slot Self completion_transaction _),
+validate_slot Self completion_transaction CompletionTransaction,
+vm_set_slot Self completion_transaction CompletionTransaction.
+
+effect >> set_slot
+| Self Key Value |
+dif [Key, Value] [status, completed],
+dif Key completion_transaction,
+validate_slot Self Key Value,
+vm_set_slot Self Key Value.
 
 transaction >> listing
 | Self Text |
@@ -1568,7 +1631,8 @@ string >> print_object
 
 string >> print
 | Self |
-print Self _Effect.
+print Self Effect,
+await Effect.
 
 string >> print
 | Self Effect |

@@ -58,7 +58,7 @@ defmodule Examples.ALTrace do
   # (`AL.JAM.Trace.exit/2`) once the top-level fibonacci(3, x) call's own
   # clause exits, even though dispatch never had its own return address.
   example fibonacci_trace_shows_clause_level_ports() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -89,7 +89,7 @@ defmodule Examples.ALTrace do
   # against *that scope's own* store, not the run's final one. No need to
   # go hunt down the matching Call event to know which var to look up.
   example fibonacci_base_case_derives_a_bound_value_at_its_own_exit() do
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -112,7 +112,7 @@ defmodule Examples.ALTrace do
   end
 
   example dispatch_trace_closes_the_failed_method() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redo_probe_class
@@ -125,7 +125,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         redo_probe X Tag.
@@ -155,7 +155,7 @@ defmodule Examples.ALTrace do
   # AL.Trace.render/1 can print both together with correct nesting from a
   # single forward walk.
   example full_trace_interleaves_raw_goals_into_trace() do
-    {:atomic, {_bindings, _constraints, plain_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, plain_state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -170,7 +170,7 @@ defmodule Examples.ALTrace do
 
     assert plain_state.trace.flags == MapSet.new([:domino])
 
-    {:atomic, {_bindings, _constraints, traced_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, traced_state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -202,7 +202,7 @@ defmodule Examples.ALTrace do
   end
 
   example composable_trace_flags_select_independent_event_families() do
-    {:atomic, {_bindings, _constraints, domino_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, domino_state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -215,7 +215,7 @@ defmodule Examples.ALTrace do
     assert Enum.any?(domino_state.trace.events, &match?(%AL.Trace.Event{kind: :domino}, &1))
     assert Enum.all?(domino_state.trace.events, &match?(%AL.Trace.Event{kind: :domino}, &1))
 
-    {:atomic, {_bindings, _constraints, goals_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, goals_state}}} =
       run(
         ~S"""
         pass.
@@ -234,7 +234,7 @@ defmodule Examples.ALTrace do
   end
 
   example trace_flags_compose_without_duplicate_constraint_events() do
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         = X (+ Y 1).
@@ -260,7 +260,7 @@ defmodule Examples.ALTrace do
   end
 
   example findall_merges_its_nested_evaluation_trace() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         findall X Xs (member [1, 2] X).
@@ -284,7 +284,7 @@ defmodule Examples.ALTrace do
   end
 
   example findall_derivation_tree_keeps_each_successful_nested_proof() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         findall X Xs (member [1, 2] X).
@@ -307,7 +307,7 @@ defmodule Examples.ALTrace do
   end
 
   example findall_derivation_tree_keeps_constraint_transitions_separate_from_solutions() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         findall X Xs {> X 0, < X 3, label X}.
@@ -335,7 +335,7 @@ defmodule Examples.ALTrace do
   end
 
   example findall_derivation_tree_retains_min_by_proofs_and_answer_constraints() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         findall [M, X] Xs {> X 0, < X 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M, label X}.
@@ -366,7 +366,7 @@ defmodule Examples.ALTrace do
   end
 
   example derivation_tree_prunes_rejected_min_by_answers() do
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         findall [M, X] Xs {> X 0, < X 11, min_by [[3, 5], [4, 7], [5, 3], [X, 7]] hd M}.
@@ -433,7 +433,7 @@ defmodule Examples.ALTrace do
   end
 
   example no_trace_is_the_default_and_retains_no_execution_history() do
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -453,7 +453,7 @@ defmodule Examples.ALTrace do
     output =
       try do
         capture_io(fn ->
-          {:atomic, {_bindings, _constraints, state}} =
+          %AL{result: {:atomic, {_bindings, _constraints, state}}} =
             run(
               ~S"""
               fibonacci 3 X.
@@ -494,7 +494,7 @@ defmodule Examples.ALTrace do
   # so each method-box collapses cleanly into its clause-box -- one node
   # per `fibonacci` call, not two.
   example fibonacci_derivation_tree_collapses_and_nests() do
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -528,7 +528,7 @@ defmodule Examples.ALTrace do
   # its eventual clause match both nest correctly under the one send that
   # opened them, with the final bound answer on the root itself.
   example fibonacci_backward_search_derivation_tree_is_one_root() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         fibonacci X 8.
@@ -553,7 +553,7 @@ defmodule Examples.ALTrace do
   defp all_nodes_derived?(node), do: Enum.all?(node.children, &all_nodes_derived?/1)
 
   example fibonacci_deep_backward_search_survives_fail_after_exit() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         fibonacci X 21.
@@ -590,7 +590,7 @@ defmodule Examples.ALTrace do
   # backward-search tree (self open) both surface the identical intermediate
   # Fibonacci sequence up to their own target.
   example method_values_reads_intermediate_calls_either_direction() do
-    {:atomic, {_bindings, _constraints, forward_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, forward_state}}} =
       run(
         ~S"""
         fibonacci 3 X.
@@ -599,7 +599,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {_bindings, _constraints, backward_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, backward_state}}} =
       run(
         ~S"""
         fibonacci X 8.
@@ -626,7 +626,7 @@ defmodule Examples.ALTrace do
   # derived value, not the abandoned first one -- proof tree_step's redo
   # handling (reset children, keep the node) is correct, not just Call/Exit.
   example derivation_tree_keeps_only_the_winning_redo_attempt() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redo_demo
@@ -642,7 +642,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new redo_demo #{} Obj.
@@ -663,7 +663,7 @@ defmodule Examples.ALTrace do
   end
 
   example free_ask_keeps_every_call_under_the_frame_that_made_it() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @chain_box
@@ -688,7 +688,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new chain_box #{} Obj.
@@ -731,7 +731,7 @@ defmodule Examples.ALTrace do
   end
 
   example call_node_names_the_clause_that_fired() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @pick_box
@@ -750,7 +750,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new pick_box #{} Obj.
@@ -771,7 +771,7 @@ defmodule Examples.ALTrace do
   end
 
   example node_names_the_committed_clause_not_the_one_abandoned_mid_body() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @attempt_box
@@ -793,7 +793,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new attempt_box #{} Obj.
@@ -813,7 +813,7 @@ defmodule Examples.ALTrace do
   end
 
   example derivation_tree_keeps_the_committed_chain_after_a_failed_attempt() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @probe_box
@@ -845,7 +845,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new probe_box #{} Obj.
@@ -879,7 +879,7 @@ defmodule Examples.ALTrace do
   # any run. durable reports "deferred" not a count -- scanning to report one
   # would force the lazy scan it's meant to avoid.
   example trace_shows_dispatch_legs() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @trace_leg_class
@@ -912,7 +912,7 @@ defmodule Examples.ALTrace do
   end
 
   example constraint_goals_are_retained_in_derivation_mode() do
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         = X 5.
@@ -941,7 +941,7 @@ defmodule Examples.ALTrace do
   end
 
   example derivation_tree_includes_constraint_nodes_with_resolved_values() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         = Y 5.
@@ -962,7 +962,7 @@ defmodule Examples.ALTrace do
   end
 
   example derivation_tree_nests_constraint_goals_under_their_scope() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @triple_class
@@ -976,7 +976,7 @@ defmodule Examples.ALTrace do
         trace: [:domino]
       )
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new triple_class #{} Obj.

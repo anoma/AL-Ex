@@ -8,7 +8,7 @@ defmodule Examples.ALUsers do
   import ExUnit.Assertions
 
   example owner_is_a_slot() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         new user #{name => alice} Alice.
@@ -25,7 +25,7 @@ defmodule Examples.ALUsers do
   end
 
   example owned_subclasses_apply_their_declared_ivar_specs() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @owned_ivar_probe
@@ -34,7 +34,7 @@ defmodule Examples.ALUsers do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {creation_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {creation_bindings, _constraints, _}}} =
       run(
         ~S"""
         new owned_ivar_probe #{} Object.
@@ -44,7 +44,7 @@ defmodule Examples.ALUsers do
 
     object = Map.fetch!(creation_bindings, "$Object")
 
-    {:atomic, {slot_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {slot_bindings, _constraints, _}}} =
       run(
         ~S"""
         findall [Key, Value] Slots (slot HostObject Key Value).
@@ -55,7 +55,7 @@ defmodule Examples.ALUsers do
 
     assert Map.get(slot_bindings, "$Slots") == [[:items, []]]
 
-    {:atomic, {get_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {get_bindings, _constraints, _}}} =
       run(
         ~S"""
         get HostObject items Items.
@@ -69,7 +69,7 @@ defmodule Examples.ALUsers do
   end
 
   example owner_gated_update() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         new user #{name => bob} Bob.
@@ -83,7 +83,7 @@ defmodule Examples.ALUsers do
     bob = Map.get(b, "$Bob")
     obj = Map.get(b, "$Obj")
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         update HostObj HostCharlie [#{data => #{label => updated}}].
@@ -92,7 +92,7 @@ defmodule Examples.ALUsers do
         bindings: %{"HostCharlie" => charlie, "HostObj" => obj}
       )
 
-    {:atomic, {b2, _constraints, _}} =
+    %AL{result: {:atomic, {b2, _constraints, _}}} =
       run(
         ~S"""
         get HostObj data D.
@@ -103,7 +103,7 @@ defmodule Examples.ALUsers do
 
     assert Map.get(b2, "$D") == %{label: :updated}
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         update HostObj HostBob [#{data => #{label => hacked}}].
@@ -118,7 +118,7 @@ defmodule Examples.ALUsers do
   # An unspecified caller must be denied: ground is checked before the
   # relational slot lookup, so an unbound caller can't be bound to the owner.
   example owner_gate_rejects_unbound_caller() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         new user #{name => dana} Dana.
@@ -129,7 +129,7 @@ defmodule Examples.ALUsers do
 
     obj = Map.get(b, "$Obj")
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         update HostObj Caller [#{data => #{label => leaked}}].
@@ -138,7 +138,7 @@ defmodule Examples.ALUsers do
         bindings: %{"HostObj" => obj}
       )
 
-    {:atomic, {b2, _constraints, _}} =
+    %AL{result: {:atomic, {b2, _constraints, _}}} =
       run(
         ~S"""
         get HostObj data D.

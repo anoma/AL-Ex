@@ -10,7 +10,7 @@ defmodule AL.OutputTest do
 
   test "print and format use ordered session stdout", %{branch: branch} do
     assert capture_io(fn ->
-             {:atomic, {%{"$Done" => effect}, _, _}} =
+             %AL{result: {:atomic, {%{"$Done" => effect}, _, _}}} =
                AL.run(
                  ~S(format "Hello ~a~%" ["world"], print "ready", print "第二" Done.),
                  branch
@@ -27,7 +27,7 @@ defmodule AL.OutputTest do
 
   test "asynchronous calls retain the requesting stdout", %{branch: branch} do
     assert capture_io(fn ->
-             assert {:atomic, _} =
+             assert %AL{result: {:atomic, _}} =
                       AL.run(
                         ~S"""
                         @async_output #{super => object}.
@@ -49,14 +49,16 @@ defmodule AL.OutputTest do
 
   test "an aborted transaction emits no output", %{branch: branch} do
     assert capture_io(fn ->
-             assert {:aborted, _} = AL.run(~S(print "aborted", fail.), branch)
+             assert %AL{result: {:aborted, _}} =
+                      AL.run(~S(print "aborted", fail.), branch)
+
              effect = print("committed", branch)
              assert {:ok, 9} = AL.await_effect(effect, branch: branch)
            end) == "committed"
   end
 
   defp print(text, branch) do
-    {:atomic, {%{"$Effect" => effect}, _, _}} =
+    %AL{result: {:atomic, {%{"$Effect" => effect}, _, _}}} =
       AL.run("print Text Effect.", branch: branch, bindings: %{"Text" => text})
 
     effect

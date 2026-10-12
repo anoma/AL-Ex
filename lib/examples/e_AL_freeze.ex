@@ -10,7 +10,7 @@ defmodule Examples.ALFreeze do
   import ExUnit.Assertions
 
   example bound_runs_at_once() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = X 3.
@@ -24,7 +24,7 @@ defmodule Examples.ALFreeze do
   end
 
   example binding_wakes_in_place() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         freeze X (= Y (+ X 1)).
@@ -38,7 +38,7 @@ defmodule Examples.ALFreeze do
   end
 
   example a_binding_made_by_propagation_wakes_too() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         freeze C (= Y (+ C 1)).
@@ -53,7 +53,7 @@ defmodule Examples.ALFreeze do
   end
 
   example a_clause_head_wakes_too() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         vm_set_class frozen object.
@@ -72,7 +72,7 @@ defmodule Examples.ALFreeze do
   end
 
   example floundering_fails() do
-    {:aborted, _reason} =
+    %AL{result: {:aborted, _reason}} =
       run(
         ~S"""
         freeze X (= Y (+ X 1)).
@@ -88,7 +88,7 @@ defmodule Examples.ALFreeze do
   example either_direction_solves() do
     assert {21, 42} ==
              (fn ->
-                {:atomic, {b, _constraints, _}} =
+                %AL{result: {:atomic, {b, _constraints, _}}} =
                   run(
                     ~S"""
                     freeze A (= B (* A 2)).
@@ -103,7 +103,7 @@ defmodule Examples.ALFreeze do
 
     assert {21, 42} ==
              (fn ->
-                {:atomic, {b, _constraints, _}} =
+                %AL{result: {:atomic, {b, _constraints, _}}} =
                   run(
                     ~S"""
                     freeze A (= B (* A 2)).
@@ -121,7 +121,7 @@ defmodule Examples.ALFreeze do
 
   # Aliasing moves the wait to the chain's end; binding there fires it.
   example aliased_variable_still_wakes() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         freeze X (= Fired yes).

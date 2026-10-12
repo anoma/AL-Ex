@@ -16,7 +16,7 @@ defmodule Examples.ALGenerative do
   # `member(x, 1)` with `x` unbound: like Prolog's `member(1, L)`, backtracking
   # should generate open lists containing `1`, not just search existing objects.
   example member_is_bidirectional() do
-    {:atomic, {b1, _constraints, state}} =
+    %AL{result: {:atomic, {b1, _constraints, state}}} =
       run(
         ~S"""
         member X 1.
@@ -28,7 +28,7 @@ defmodule Examples.ALGenerative do
     assert h1 == 1
     assert AL.Var.var?(t1)
 
-    {:atomic, {b2, _constraints, _}} = next_solution(state)
+    %AL{result: {:atomic, {b2, _constraints, _}}} = next_solution(state)
 
     [h2, h3 | t2] = Map.get(b2, "$X")
     assert AL.Var.var?(h2)
@@ -41,7 +41,7 @@ defmodule Examples.ALGenerative do
   # [] candidate lets a recursive list method's base case terminate for an
   # unbound receiver -- else only ever growing cons cells.
   example reverse_grounds_empty_receiver() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         reverse X [].
@@ -56,7 +56,7 @@ defmodule Examples.ALGenerative do
   # concat runs backwards to find a missing prefix -- recursion terminates
   # because the nested receiver can ground to [].
   example concat_finds_missing_prefix() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         concat X [1, 2] [0, 1, 2].
@@ -71,7 +71,7 @@ defmodule Examples.ALGenerative do
   # reverse(x, y) fully unbound enumerates like Prolog: [] first, then every
   # one-element list, ...
   example reverse_enumerates_both_unbound() do
-    {:atomic, {b1, _constraints, state}} =
+    %AL{result: {:atomic, {b1, _constraints, state}}} =
       run(
         ~S"""
         reverse X Y.
@@ -82,7 +82,7 @@ defmodule Examples.ALGenerative do
     assert Map.get(b1, "$X") == []
     assert Map.get(b1, "$Y") == []
 
-    {:atomic, {b2, _constraints, _}} = next_solution(state)
+    %AL{result: {:atomic, {b2, _constraints, _}}} = next_solution(state)
 
     x2 = Map.get(b2, "$X")
     y2 = Map.get(b2, "$Y")
@@ -96,7 +96,7 @@ defmodule Examples.ALGenerative do
   # generic anonymous vars, not leak the clause's own param name (e.g. concat's
   # "second").
   example unbound_positions_show_as_anonymous_not_internal_names() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         send [] concat Z.
@@ -117,7 +117,7 @@ defmodule Examples.ALGenerative do
   # (see durably_classifying_a_value_classs_own_literal_member_fails below
   # for what does).
   example custom_class_opts_into_value_dispatch() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @letter_chain
@@ -132,7 +132,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         next X #{class => letter_chain, letter => b}.
@@ -144,7 +144,7 @@ defmodule Examples.ALGenerative do
   end
 
   example unbound_send_stays_open_with_a_dispatch_constraint() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @lazy_dispatch_value
@@ -156,7 +156,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         lazy_dispatch_probe Receiver Result.
@@ -176,7 +176,7 @@ defmodule Examples.ALGenerative do
   end
 
   example inherited_open_send_accepts_a_later_child_binding() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @lazy_dispatch_parent
@@ -200,7 +200,7 @@ defmodule Examples.ALGenerative do
   end
 
   example overridden_open_send_uses_the_later_receivers_selected_method() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @lazy_override_parent
@@ -227,7 +227,7 @@ defmodule Examples.ALGenerative do
   end
 
   example open_dispatch_partitions_by_the_effective_provider() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @dispatch_partition_parent
@@ -262,7 +262,7 @@ defmodule Examples.ALGenerative do
   end
 
   example labeling_intersecting_isa_constraints_selects_a_common_direct_class() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @label_left_parent
@@ -293,7 +293,7 @@ defmodule Examples.ALGenerative do
   # time (:defmethod's own body), before it could ever be durably classified
   # into the same class and become reachable both ways for the same fact.
   example bare_atom_self_on_a_value_class_fails_at_definition_time() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         @letter_chain_antipattern
@@ -312,7 +312,7 @@ defmodule Examples.ALGenerative do
   # letter_word's clause leaves self open; later bind to a non-letter_word
   # must fail, bind to a real one must succeed.
   example custom_value_class_pins_an_open_receiver_too() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @letter_word
@@ -326,7 +326,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         letter_word_stays_open X.
@@ -335,7 +335,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         letter_word_stays_open X.
@@ -353,7 +353,7 @@ defmodule Examples.ALGenerative do
   # undetermined and get a real answer, no durable-table scan. Map-wrapped
   # members again, same reasoning as custom_class_opts_into_value_dispatch.
   example value_clause_body_sees_its_own_isa_constraint() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @letter_chain_reflective
@@ -376,7 +376,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         chain_from X #{class => letter_chain_reflective, letter => b}.
@@ -386,7 +386,7 @@ defmodule Examples.ALGenerative do
 
     assert Map.get(bindings, "$X") == %{class: :letter_chain_reflective, letter: :a}
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         confirm_class Y C.
@@ -405,7 +405,7 @@ defmodule Examples.ALGenerative do
   # `GetClass`'s no-witness-needed isa fast path unioned in a second,
   # contradictory class with no check at all.
   example unrelated_value_classes_conflict_on_the_same_var() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @left_value_class
@@ -417,7 +417,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         isa X left_value_class.
@@ -437,7 +437,7 @@ defmodule Examples.ALGenerative do
   # :some_durable_class}` (nothing can be both a generative number-value and
   # a durable object). Found via `class(x, :program_execution)` on the AL.TransactionProgram.
   example exclusive_class_conflicts_with_unrelated_durable_class() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @ghost_value_class
@@ -449,7 +449,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         isa X ghost_value_class.
@@ -468,7 +468,7 @@ defmodule Examples.ALGenerative do
   # constructed), so `findall` reported the same fact once per candidate
   # instead of once. Bug found via :blackjack package's :card class.
   example class_dispatch_does_not_report_ghost_duplicates() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @ghost_left
@@ -480,7 +480,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall X Xs (isa X ghost_right).
@@ -492,7 +492,7 @@ defmodule Examples.ALGenerative do
   end
 
   example labeling_an_isa_constrained_var_constructs_a_real_witness() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         isa X card.
@@ -508,7 +508,7 @@ defmodule Examples.ALGenerative do
   end
 
   example labeling_a_list_selects_an_outer_constructor() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         isa X list.
@@ -519,14 +519,14 @@ defmodule Examples.ALGenerative do
 
     assert Map.get(bindings, "$X") == []
 
-    {:atomic, {next_bindings, _constraints, _}} = next_solution(state)
+    %AL{result: {:atomic, {next_bindings, _constraints, _}}} = next_solution(state)
     [_head | tail] = Map.get(next_bindings, "$X")
     assert AL.Var.var?(tail)
     :ok
   end
 
   example labeling_a_value_class_without_a_witness_fails() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @open_value_without_witness
@@ -535,7 +535,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         isa X open_value_without_witness.
@@ -548,7 +548,7 @@ defmodule Examples.ALGenerative do
   end
 
   example labeling_uses_transitive_value_inheritance() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @inherited_value_parent
@@ -560,7 +560,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class X inherited_value_child.
@@ -574,7 +574,7 @@ defmodule Examples.ALGenerative do
   end
 
   example labeling_a_number_uses_its_finite_constraint_domain() do
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         isa X number.
@@ -586,13 +586,13 @@ defmodule Examples.ALGenerative do
       )
 
     assert Map.get(bindings, "$X") == 2
-    {:atomic, {next_bindings, _constraints, _}} = next_solution(state)
+    %AL{result: {:atomic, {next_bindings, _constraints, _}}} = next_solution(state)
     assert Map.get(next_bindings, "$X") == 3
     :ok
   end
 
   example labeling_an_isa_with_only_a_durable_witness_finds_it() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @durable_witness_class
@@ -605,7 +605,7 @@ defmodule Examples.ALGenerative do
 
     obj = Map.get(bindings, "$Obj")
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         isa X durable_witness_class.
@@ -619,7 +619,7 @@ defmodule Examples.ALGenerative do
   end
 
   example dispatch_finds_a_durable_witness_classed_as_a_descendant_of_a_known_isa() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @isa_descendant_parent
@@ -638,7 +638,7 @@ defmodule Examples.ALGenerative do
 
     obj = Map.get(bindings, "$Obj")
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         isa X isa_descendant_parent.
@@ -656,7 +656,7 @@ defmodule Examples.ALGenerative do
   # No generative descendant and no durable object satisfy the isa -- fails
   # exactly like an unbounded numeric domain always has, not a crash.
   example labeling_an_isa_with_no_witness_fails() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @witnessless_durable_class
@@ -665,7 +665,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         isa X witnessless_durable_class.
@@ -685,7 +685,7 @@ defmodule Examples.ALGenerative do
   # (construct/allocate/init), not special-cased -- init discards the
   # scaffold, result stays as open as it started. No durable object created.
   example new_on_a_value_class_stays_open_not_durable() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @letter_symbol
@@ -694,7 +694,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new letter_symbol Obj.
@@ -710,7 +710,7 @@ defmodule Examples.ALGenerative do
   # with side open, area's own body narrows it via generate-and-test
   # (between), same idiom as number's backward factorial.
   example squares_compute_area_forward_and_backward() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @square
@@ -737,7 +737,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new square #{side => 4} Sq.
@@ -748,7 +748,7 @@ defmodule Examples.ALGenerative do
 
     assert Map.get(bindings, "$A") == 16
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         area X 16.
@@ -768,7 +768,7 @@ defmodule Examples.ALGenerative do
   # coin_change_oracle is the same algorithm in plain Elixir, cross-checked
   # against the AL search to prove every solution was found.
   example thirty_cents_change_via_backtracking() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         new class #{ivars => [], name => coins, super => object} _.
@@ -790,7 +790,7 @@ defmodule Examples.ALGenerative do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new coins Coins.
@@ -821,7 +821,7 @@ defmodule Examples.ALGenerative do
   end
 
   example unbound_but_constrained_vars_surface_in_constraints() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         isa O class.
@@ -835,7 +835,7 @@ defmodule Examples.ALGenerative do
   end
 
   example unconstrained_vars_have_no_constraints_entry() do
-    {:atomic, {_bindings, constraints, _}} =
+    %AL{result: {:atomic, {_bindings, constraints, _}}} =
       run(
         ~S"""
         = X 5.
@@ -848,7 +848,7 @@ defmodule Examples.ALGenerative do
   end
 
   example labeling_a_durable_object_preserves_following_goals() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @labeled_vehicle
@@ -868,7 +868,7 @@ defmodule Examples.ALGenerative do
   end
 
   example direct_class_constraints_narrow_unbound_receiver_dispatch() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @dispatch_vehicle
@@ -897,7 +897,7 @@ defmodule Examples.ALGenerative do
     branch_id = Examples.Support.branch()
     branch = %AL.Branch{id: branch_id}
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @explicit_branch_value

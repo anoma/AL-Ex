@@ -6,7 +6,7 @@ defmodule AL.Trace.Runtime do
 
   use TypedStruct
 
-  @type scope() :: AL.scope()
+  @type scope() :: AL.JAM.State.scope()
   @type scope_info() :: %{
           parent: scope() | nil,
           kind: :method | :clause,

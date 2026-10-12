@@ -26,7 +26,7 @@ defmodule Examples.ALSlotHistory do
     end
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           vm_set_slot current_slots_probe count 1.
@@ -50,14 +50,17 @@ defmodule Examples.ALSlotHistory do
         try do
           assert {:atomic, {^current, ^history}} = inspect_slots.(child)
 
-          assert {:aborted, _} =
+          assert %AL{result: {:aborted, _}} =
                    AL.run(
                      "vm_set_slot current_slots_probe count 999, fail.",
                      child
                    )
 
           assert {:atomic, {^current, ^history}} = inspect_slots.(child)
-          {:atomic, _} = AL.run("vm_set_slot current_slots_probe count 4.", child)
+
+          %AL{result: {:atomic, _}} =
+            AL.run("vm_set_slot current_slots_probe count 4.", child)
+
           {:atomic, {[{:slots, :current_slots_probe, %{count: 4}}], _}} = inspect_slots.(child)
           assert {:atomic, {^current, ^history}} = inspect_slots.(parent)
         after
@@ -70,7 +73,7 @@ defmodule Examples.ALSlotHistory do
   end
 
   example slot_history_finds_every_value_a_slot_has_held() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @history_probe
@@ -95,7 +98,7 @@ defmodule Examples.ALSlotHistory do
   # single value, not three repeats -- the collapsing (`dedupe`, bootstrap.ex)
   # is what makes that true, not an accident of how few writes happened.
   example slot_history_collapses_repeats_from_unrelated_key_changes() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @history_probe_unrelated
@@ -127,7 +130,7 @@ defmodule Examples.ALSlotHistory do
   # on -- see `slot_at_open_time_posts_a_real_upper_bound`, below, which
   # avoids it entirely instead).
   example slot_at_ground_time_finds_the_value_in_effect_at_the_boundary() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @clp_boundary_probe
@@ -176,7 +179,7 @@ defmodule Examples.ALSlotHistory do
         branch: Examples.Support.branch()
       )
 
-    assert {:aborted, _} = result
+    assert %AL{result: {:aborted, _}} = result
     :ok
   end
 end

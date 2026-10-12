@@ -5,7 +5,7 @@ defmodule AL.DefinitionSnapshotTest do
     branch = AL.TestBranch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @snapshot_probe #{super => value}.

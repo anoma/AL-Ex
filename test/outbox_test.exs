@@ -20,7 +20,7 @@ defmodule ALOutboxTest do
       observer = self()
       branch_id = branch.id
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           send_async 1 outbox_block [HostObserver, _].

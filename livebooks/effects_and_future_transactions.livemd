@@ -36,7 +36,7 @@ An effect is a durable object describing host work. AL dispatches it only after 
 request transaction -> host work -> completion transaction
 ```
 
-Application work caused by that outcome belongs in another transaction. `await` arranges that future transaction when the effect is created.
+Application work caused by that outcome belongs in another transaction. `on_completion` arranges that future transaction when the effect is created.
 
 ```text
 request transaction -> host work -> completion transaction -> future transaction
@@ -47,7 +47,7 @@ request transaction -> host work -> completion transaction -> future transaction
 Define an ordinary object method that emits a file effect and arranges what AL should do with its outcome.
 
 ```elixir
-{:atomic, _} =
+%AL{result: {:atomic, _}} =
   run(~S"""
     @file_reader
     #{
@@ -65,10 +65,10 @@ Define an ordinary object method that emits a file effect and arranges what AL s
     call_next_method Self Args Self.
 
     file_reader >> read
-    | Self Observer Effect |
+    | Self Observer Effect Future |
     get Self path Path,
     new effect #{arguments => [Path], operation => read, provider => file} Effect,
-    await Effect [Outcome] (read_finished Self Observer Outcome).
+    on_completion Effect Outcome Future (read_finished Self Observer Outcome).
 
     file_reader >> read_finished
     | Self Observer #{status => ok, value => Contents} |
@@ -98,14 +98,21 @@ path =
 File.write!(path, "hello from an effect")
 notebook = self()
 
-{:atomic, {bindings, _state}} =
+%AL{
+  handle: request_transaction,
+  result: {:atomic, {bindings, _constraints, _state}},
+  children: [continuation]
+} =
   run(~S"""
     new process #{name => notebook, pid => HostNotebook} _.
     new file_reader #{name => guide_reader, path => HostPath} Reader.
-    read Reader notebook Effect.
+    read Reader notebook Effect Future,
+    await Future.
     """, bindings: %{"HostNotebook" => notebook, "HostPath" => path})
 
 effect = bindings["$Effect"]
+%AL{result: {:atomic, _}} = continuation
+continuation.handle == bindings["$Future"]
 
 receive do
   message -> message
@@ -114,9 +121,43 @@ after
 end
 ```
 
-`new effect #{provider => P, operation => O, arguments => A} Effect` creates the effect object. `await Effect [Outcome] {Goals}` registers AL goals to run as a fresh transaction after completion and binds `Outcome` to either `#{status => ok, value => Value}` or `#{status => error, reason => Reason}`.
+`new effect #{provider => P, operation => O, arguments => A} Effect` creates the effect object. `on_completion Effect Outcome Future {Goals}` registers AL goals to run as a fresh transaction after completion, exposes its handle as `Future`, and binds `Outcome` to either `#{status => ok, value => Value}` or `#{status => error, reason => Reason}`. `await Future` waits after the requesting transaction commits; its outcome appears in the returned `%AL{children: [...]}`.
 
 It does not suspend the transaction containing it. If that transaction aborts, neither the effect nor its future transaction exists.
+
+## Inspect the modeled chain
+
+The requesting transaction, effect, future, and completion transactions remain as objects. This cell reads their current slots without creating another AL transaction:
+
+```elixir
+branch = AL.Branch.head()
+
+slots = fn object ->
+  {:atomic, [{:slots, ^object, values}]} =
+    :mnesia.transaction(fn -> AL.Object.read_slots(object, branch) end)
+
+  values
+end
+
+future = bindings["$Future"]
+effect_slots = slots.(effect)
+future_slots = slots.(future)
+{:atomic, execution_transaction} = continuation.result
+
+[
+  {"request transaction", request_transaction},
+  {"effect", effect},
+  {"effect completion transaction", effect_slots.completion_transaction},
+  {"future", future},
+  {"future execution transaction", execution_transaction},
+  {"future completion transaction", future_slots.completed_by}
+]
+|> Enum.map(fn {kind, object} ->
+  %{kind: kind, object: object, slots: slots.(object)}
+end)
+```
+
+The effect's `completion_transaction` is reserved when the effect is requested. The future's `wait_transaction` points to it. The future's `outcome.value` names the transaction that ran its goals; `completed_by` names the later transaction that stored that outcome on the future. Every transaction object has an opaque ID; its numeric transaction time is in the `tx` slot.
 
 ## Arrange work after commit
 
@@ -141,17 +182,17 @@ run(~S"""
   """, bindings: %{"HostEffect" => effect})
 ```
 
-If Elixir itself needs the result, `AL.await_effect/2` waits on a completion event without polling AL state. AL application code should normally use `await` instead.
+If Elixir itself needs the result, `AL.await_effect/2` waits on a completion event without polling AL state. AL application code can use `on_completion` to continue in another transaction, and `await Effect` to wait in the caller after commit.
 
 ## Long-lived resources
 
 File watches, TCP listeners, and TCP connections can produce many events. Effects start, stop, connect, listen, send, or close those resources. Later host events enter AL as fresh transactions that call ordinary methods such as `receive` or `accept` on the resource object.
 
-Define those methods on the class or the individual object. Incoming events do not require `await`, because they are not the one-time outcome of an effect.
+Define those methods on the class or the individual object. Incoming events do not require `on_completion`, because they are not the one-time outcome of an effect.
 
 ## Where to go next
 
-- [`e_AL_tasks.ex`](../lib/examples/e_AL_tasks.ex) proves that `spawn` and `await` run in separate transactions.
+- [`e_AL_tasks.ex`](../lib/examples/e_AL_tasks.ex) proves that `spawn` and `on_completion` run in separate transactions.
 - [`e_AL_effects.ex`](../lib/examples/e_AL_effects.ex) covers effect objects, aborted transactions, completion, replay, and branches.
 - [`e_AL_file_watch.ex`](../lib/examples/e_AL_file_watch.ex) shows a long-lived host resource delivering events to an AL object.
 - [`e_AL_peer.ex`](../lib/examples/e_AL_peer.ex) shows TCP effects and incoming messages composed through ordinary AL methods.

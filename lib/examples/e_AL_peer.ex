@@ -9,7 +9,7 @@ defmodule Examples.ALPeer do
     pid = self()
     message = %{kind: :greeting, text: "hello", values: [1, 2, {:three, true}]}
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @observed_peer
@@ -41,7 +41,7 @@ defmodule Examples.ALPeer do
     assert_receive %{event: :peer_message, peer: :peer_bob, socket: socket, message: ^message},
                    1_000
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         get peer_bob name "Bob".

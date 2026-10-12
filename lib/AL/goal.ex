@@ -29,6 +29,7 @@ defmodule AL.Goal do
           | AL.Goal.SendAsync.t()
           | AL.Goal.SendElixir.t()
           | AL.Goal.EmitEffect.t()
+          | AL.Goal.Await.t()
 
   @type instructions() ::
           AL.Goal.GetClass.t()
@@ -146,11 +147,16 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:method, AL.Var.t())
     field(:args, AL.Var.t())
+    field(:future, AL.Var.t(), default: {:"$var", "_"})
   end
 
   typedstruct enforce: true, module: SendElixir do
     field(:pid, pid())
     field(:message, term())
+  end
+
+  typedstruct enforce: true, module: Await do
+    field(:target, AL.Var.t())
   end
 
   typedstruct enforce: true, module: EmitEffect do
@@ -462,7 +468,8 @@ defmodule AL.Goal do
     {RetractMethod, :retract_method, [object: :term, name: :term, id: :term]},
     {RetractOapply, :retract_oapply, [object: :term, head: :term]},
     {RetractSlot, :retract_slot, [object: :term, key: :term]},
-    {SendAsync, :send_async, [object: :term, method: :term, args: :term]},
+    {SendAsync, :send_async, [object: :term, method: :term, args: :term, future: :term]},
+    {Await, :await, [target: :term]},
     {SendElixir, :send_elixir, [pid: :term, message: :term]},
     {EmitEffect, :emit_effect,
      [effect: :term, provider: :term, operation: :term, arguments: :term]},
@@ -526,8 +533,10 @@ defmodule AL.Goal do
     {:slot, GetSlots, [:object, :key, :value, :store], %{}},
     {:send, Send, [:object, :method], %{args: []}},
     {:send, Send, [:object, :method, :args], %{}},
-    {:send_async, SendAsync, [:object, :method], %{args: []}},
-    {:send_async, SendAsync, [:object, :method, :args], %{}},
+    {:send_async, SendAsync, [:object, :method], %{args: [], future: {:"$var", "_"}}},
+    {:send_async, SendAsync, [:object, :method, :args], %{future: {:"$var", "_"}}},
+    {:send_async, SendAsync, [:object, :method, :args, :future], %{}},
+    {:await, Await, [:target], %{}},
     {:send_elixir, SendElixir, [:pid, :message], %{}},
     {:gensym, Gensym, [:var], %{}},
     {:ground, Ground, [:term], %{}},
@@ -697,8 +706,11 @@ defmodule AL.Goal do
 
   def lower(:spawn, [body]), do: %OApply{method_id: :spawn_transaction, args: [goals(body)]}
 
-  def lower(:await, [effect, head, body]),
-    do: %OApply{method_id: :await_effect, args: [effect, head, goals(body)]}
+  def lower(:on_completion, [effect, outcome, body]),
+    do: %OApply{method_id: :on_completion, args: [effect, [outcome], goals(body)]}
+
+  def lower(:on_completion, [effect, outcome, future, body]),
+    do: %OApply{method_id: :on_completion, args: [effect, [outcome], goals(body), future]}
 
   def lower(:vm_source_scope, [capture_id, body]),
     do: %SourceScope{capture_id: capture_id, goals: goals(body)}

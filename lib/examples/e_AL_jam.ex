@@ -3,7 +3,7 @@ defmodule Examples.ALJAM do
   import ExUnit.Assertions
 
   example compiled_methods_call_and_return_in_the_machine() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_frame_probe #{super => object}.
 
@@ -39,7 +39,7 @@ defmodule Examples.ALJAM do
   end
 
   example machine_preserves_constraints_failure_and_alternatives() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_relation_probe #{super => object}.
 
@@ -64,14 +64,14 @@ defmodule Examples.ALJAM do
     not {relay machine_relation_instance green green}.
     """
 
-    {:atomic, {bindings, constraints, _state}} = evaluate_source(query)
+    %AL{result: {:atomic, {bindings, constraints, _state}}} = evaluate_source(query)
     result = {bindings, constraints}
 
     assert result == {%{"$Result" => :blue, "$All" => [:red, :blue], "$Chosen" => :blue}, %{}}
   end
 
   example machine_alternatives_restore_bindings_and_nested_return_frames_in_order() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_choices_probe #{super => object}.
 
@@ -117,7 +117,7 @@ defmodule Examples.ALJAM do
   end
 
   example mutations_preserve_alternatives_and_execute_effects_once_per_answer() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_handoff_probe #{super => object, ivars => [#{name => seen}]}.
 
@@ -142,7 +142,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_handoff_instance machine_handoff_probe.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       set_slot machine_handoff_instance seen [].
       findall Pair Pairs {pair machine_handoff_instance Pair}.
@@ -161,7 +161,7 @@ defmodule Examples.ALJAM do
   end
 
   example caller_cuts_prune_compiled_alternatives() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_cut_probe #{super => object}.
 
@@ -179,14 +179,14 @@ defmodule Examples.ALJAM do
       vm_set_class machine_cut_instance machine_cut_probe.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source("findall Color Colors {first machine_cut_instance Color}.")
 
     assert bindings["$Colors"] == [:red]
   end
 
   example running_calls_keep_their_clauses_while_later_calls_see_edits() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       @machine_edit_probe #{super => object}.
 
@@ -215,7 +215,7 @@ defmodule Examples.ALJAM do
   end
 
   example yielded_answers_pass_current_bindings_back_to_callers() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_return_probe #{super => object}.
 
@@ -240,7 +240,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_return_instance machine_return_probe.
       """)
 
-    {:atomic, {bindings, constraints, state}} =
+    %AL{result: {:atomic, {bindings, constraints, state}}} =
       evaluate_source(~S"""
       findall Pair Pairs {pair machine_return_instance Pair}.
       delayed machine_return_instance Result.
@@ -257,7 +257,7 @@ defmodule Examples.ALJAM do
   end
 
   example compiled_bodies_retain_primitives_and_propagated_constraints() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_primitive_probe #{super => object}.
 
@@ -288,7 +288,7 @@ defmodule Examples.ALJAM do
 
     assert AL.Var.subst({:"$var", "Value"}, store) == 1
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       findall Value Values {
         select machine_primitive_instance #{amount => Value} Value,
@@ -300,7 +300,7 @@ defmodule Examples.ALJAM do
   end
 
   example map_reads_keep_enumeration_and_ground_checks() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       @machine_map_probe #{super => object}.
 
@@ -332,7 +332,7 @@ defmodule Examples.ALJAM do
   end
 
   example compiled_conditionals_commit_only_their_condition_choices() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_control_probe #{super => object}.
 
@@ -363,7 +363,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_control_instance machine_control_probe.
       """)
 
-    {:atomic, {bindings, _, state}} =
+    %AL{result: {:atomic, {bindings, _, state}}} =
       evaluate_source(~S"""
       findall Result Results {outer machine_control_instance Result}.
       findall Result Failed {failed_then machine_control_instance Result}.
@@ -390,7 +390,7 @@ defmodule Examples.ALJAM do
   end
 
   example compiled_branches_keep_send_sites_and_callee_cuts_separate() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_branch_probe #{super => object}.
 
@@ -411,7 +411,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_branch_instance machine_branch_probe.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       findall Result Results {choose machine_branch_instance Result}.
       """)
@@ -446,7 +446,7 @@ defmodule Examples.ALJAM do
     not {read machine_value_instance #{a => 1} missing _}.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert Map.update!(expected, "$Entries", &Enum.sort/1) == %{
@@ -497,7 +497,7 @@ defmodule Examples.ALJAM do
     committed machine_collection_instance Committed.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -544,7 +544,7 @@ defmodule Examples.ALJAM do
     get machine_collection_effect_instance seen Seen.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -593,7 +593,7 @@ defmodule Examples.ALJAM do
     collect machine_register_instance Collected.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -636,7 +636,7 @@ defmodule Examples.ALJAM do
     findall Result Results {relay machine_projection_instance Result}.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -689,7 +689,7 @@ defmodule Examples.ALJAM do
     share machine_return_register_instance Input Shared.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -743,7 +743,7 @@ defmodule Examples.ALJAM do
     get machine_return_handoff_instance seen Seen.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -819,7 +819,7 @@ defmodule Examples.ALJAM do
     }.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -879,7 +879,7 @@ defmodule Examples.ALJAM do
     read jam_field_instance Read ViaSlot Bound Entries Collapsed Wild Open.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -967,7 +967,7 @@ defmodule Examples.ALJAM do
     findall Result Results {alternatives jam_forward_instance original Result}.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings
 
     assert expected == %{
@@ -1036,7 +1036,7 @@ defmodule Examples.ALJAM do
     }.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = bindings["$All"]
 
     assert expected == [[[:third], [:blue], :different, [:green, :green, :green]]]
@@ -1084,7 +1084,7 @@ defmodule Examples.ALJAM do
     not {calculate jam_arithmetic_instance 3 9}.
     """
 
-    {:atomic, {bindings, _, _}} = evaluate_source(source)
+    %AL{result: {:atomic, {bindings, _, _}}} = evaluate_source(source)
     expected = Map.take(bindings, ["$Ground", "$Delayed", "$Alias", "$Repeated", "$Results"])
 
     assert expected == %{
@@ -1105,7 +1105,7 @@ defmodule Examples.ALJAM do
   end
 
   example cut_boundaries_survive_mutations_collections_and_nested_callables() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_cut_boundary #{super => object}.
 
@@ -1134,7 +1134,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_cut_boundary_instance machine_cut_boundary.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       findall [Outer, Color] Pairs {
         member [one, two] Outer,
@@ -1176,7 +1176,7 @@ defmodule Examples.ALJAM do
   end
 
   example delayed_cuts_are_local_to_the_frozen_goal() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_wake_probe #{super => object}.
 
@@ -1196,7 +1196,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_wake_instance machine_wake_probe.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       findall [Outer, Color, Tail] Answers {
         member [one, two] Outer,
@@ -1228,7 +1228,7 @@ defmodule Examples.ALJAM do
   end
 
   example pending_continuations_survive_head_bindings_mutations_and_backtracking() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_pending_probe #{super => object}.
 
@@ -1245,7 +1245,7 @@ defmodule Examples.ALJAM do
       vm_set_class machine_pending_instance machine_pending_probe.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       freeze Guard {= Guard ready}.
       findall [Color, Side, First, Second] Answers {
@@ -1274,7 +1274,7 @@ defmodule Examples.ALJAM do
   end
 
   example suspended_relations_enter_jam_and_restore_each_alternative() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_parked_relation #{super => value}.
 
@@ -1288,7 +1288,7 @@ defmodule Examples.ALJAM do
       | _Self #{first => red, second => blue} |.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       findall [Word, Text, Codes] Words {
         atom_string Word Text,
@@ -1327,7 +1327,7 @@ defmodule Examples.ALJAM do
   end
 
   example delayed_mixed_bodies_run_only_when_woken() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       evaluate_source(~S"""
       @machine_mixed_wake #{super => value}.
 
@@ -1350,7 +1350,7 @@ defmodule Examples.ALJAM do
       = Trigger ready.
       """)
 
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       evaluate_source(~S"""
       findall [Color, Copy, Goals] Answers {
         choose #{class => machine_mixed_wake} Color Copy Goals

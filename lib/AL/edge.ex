@@ -66,19 +66,7 @@ defmodule AL.Edge do
 
   @spec await(effect_id(), keyword()) :: outcome() | {:error, term()}
   def await(effect, options \\ []) when is_atom(effect) and is_list(options) do
-    branch = options |> Keyword.get(:branch, AL.Branch.head()) |> branch!()
-    timeout = Keyword.get(options, :timeout, 5_000)
-
-    if is_integer(timeout) and timeout >= 0 do
-      case AL.Events.await({:effect, branch.id, effect}, timeout, fn ->
-             await_result(effect, branch)
-           end) do
-        {:ok, result} -> result
-        :timeout -> {:error, {:effect_timeout, effect}}
-      end
-    else
-      {:error, {:invalid_effect_timeout, timeout}}
-    end
+    AL.Runner.Completion.await(effect, options).result
   end
 
   @spec call(term(), atom(), list(), AL.Branch.t()) :: {:ok, term()} | {:error, term()}
@@ -87,7 +75,7 @@ defmodule AL.Edge do
     reply = AL.Var.var("edge_reply")
     goal = %Goal.Send{object: receiver, method: selector, args: arguments ++ [reply]}
 
-    case AL.eval([goal], nil, branch) do
+    case AL.eval([goal], nil, branch) |> AL.notify_outbox() do
       {:atomic, {bindings, _constraints, _state}} ->
         call_reply(bindings, reply)
 
@@ -97,12 +85,12 @@ defmodule AL.Edge do
   end
 
   @spec notify(term(), atom(), list(), AL.Branch.t()) :: :ok | {:error, term()}
-  def notify(receiver, selector, arguments, branch) do
+  def notify(receiver, selector, arguments, branch, opts \\ []) do
     ensure_outside_transaction!(:notify)
 
     goal = %Goal.Send{object: receiver, method: selector, args: arguments}
 
-    case AL.eval([goal], nil, branch) do
+    case AL.eval([goal], nil, branch, opts) |> AL.notify_outbox() do
       {:atomic, _result} ->
         :ok
 
@@ -180,13 +168,17 @@ defmodule AL.Edge do
             %Goal.Send{object: receiver, method: selector, args: arguments}
           end)
 
-      case AL.eval(goals, nil, branch) do
-        {:atomic, _result} ->
-          AL.Events.publish({:effect, branch.id, effect_id})
-          :ok
+      with {:ok, transaction_object} <- AL.Record.completion_transaction(effect_id, branch) do
+        lineage = AL.Record.lineage_from_completion(effect_id, branch)
+        opts = [transaction_object: transaction_object] ++ Map.to_list(lineage)
 
-        {:aborted, reason} ->
-          {:error, reason}
+        case AL.eval(goals, nil, branch, opts) |> AL.notify_outbox() do
+          {:atomic, _result} ->
+            :ok
+
+          {:aborted, reason} ->
+            {:error, reason}
+        end
       end
     end
   end
@@ -212,38 +204,8 @@ defmodule AL.Edge do
     end
   end
 
-  defp await_result(effect, branch) do
-    case :mnesia.transaction(fn -> AL.Object.read_slots(effect, branch) end) do
-      {:atomic, [{:slots, ^effect, %{status: :completed, outcome: outcome}}]} ->
-        {:ok, host_outcome(outcome)}
-
-      {:atomic, [{:slots, ^effect, %{status: :pending}}]} ->
-        :pending
-
-      {:atomic, []} ->
-        {:ok, {:error, {:effect_not_found, effect}}}
-
-      {:atomic, rows} ->
-        {:ok, {:error, {:invalid_effect_rows, effect, rows}}}
-
-      {:aborted, reason} ->
-        {:ok, {:error, {:effect_read_failed, effect, reason}}}
-    end
-  end
-
-  defp branch!(%AL.Branch{} = branch), do: branch
-  defp branch!(id) when is_atom(id), do: %AL.Branch{id: id}
-
-  defp branch!(value) do
-    raise ArgumentError, "effect branch must be an atom or AL.Branch, got: #{inspect(value)}"
-  end
-
   defp al_outcome({:ok, value}), do: %{status: :ok, value: value}
   defp al_outcome({:error, reason}), do: %{status: :error, reason: reason}
-
-  defp host_outcome(%{status: :ok, value: value}), do: {:ok, value}
-  defp host_outcome(%{status: :error, reason: reason}), do: {:error, reason}
-  defp host_outcome(outcome), do: {:error, {:invalid_effect_outcome, outcome}}
 
   defp normalize_result(:pending), do: :pending
 

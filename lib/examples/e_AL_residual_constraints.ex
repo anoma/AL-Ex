@@ -6,7 +6,7 @@ defmodule Examples.ALResidualConstraints do
   import ExUnit.Assertions
 
   example copy_term_returns_constraints_as_goals() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         copy_term [a, X] Plain PlainGoals.
@@ -35,7 +35,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example result_separates_bindings_from_constraints() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         in_domain Value [1, 2, 3].
@@ -52,7 +52,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example aliasing_merges_constraint_sets_before_projection() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         in_domain Left [1, 2, 3].
@@ -70,7 +70,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example isa_and_explicit_domains_narrow_independently_of_posting_order() do
-    {:atomic, {first_bindings, first_constraints, _}} =
+    %AL{result: {:atomic, {first_bindings, first_constraints, _}}} =
       run(
         ~S"""
         isa Value number.
@@ -79,7 +79,7 @@ defmodule Examples.ALResidualConstraints do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {second_bindings, second_constraints, _}} =
+    %AL{result: {:atomic, {second_bindings, second_constraints, _}}} =
       run(
         ~S"""
         in_domain Value [1, not_a_number, 2].
@@ -98,7 +98,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example grounding_removes_satisfied_residual_constraints() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         in_domain Value [1, 2].
@@ -113,7 +113,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example failed_alternatives_do_not_leak_constraints() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         {in_domain Value [1, 2], = Value 9} ; in_domain Value [3, 4].
@@ -126,7 +126,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example findall_copies_each_answers_constraint_graph() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         findall Value Values (in_domain Value [1, 2] ; in_domain Value [3, 4]).
@@ -146,7 +146,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example copied_arithmetic_relations_reference_the_collected_variables() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         findall [Left, Right] Answers {> Left 0, > Right 0, = (+ Left Right) 10}.
@@ -164,7 +164,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example residual_dispatch_and_slot_constraints_share_one_graph() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         @constraint_record
@@ -194,7 +194,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example open_class_relations_are_public_constraints() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         class Object ExactClass.
@@ -210,7 +210,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example open_isa_relations_are_public_constraints() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         isa Object Ancestor.
@@ -226,7 +226,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example open_super_relations_are_visible_from_both_sides() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         super Subclass Superclass.
@@ -242,7 +242,7 @@ defmodule Examples.ALResidualConstraints do
   end
 
   example open_slot_relations_include_the_value_in_the_constraint_graph() do
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         slot Object title Value.

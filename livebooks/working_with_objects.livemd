@@ -10,7 +10,7 @@ System.put_env(
 
 Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
-  config: [al: [transaction_programs: [:bootstrap], natives: []]]
+  config: [al: [transaction_programs: [:bootstrap, :package_system], natives: []]]
 )
 ```
 

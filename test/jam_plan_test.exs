@@ -5,7 +5,7 @@ defmodule AL.JAM.PlanTest do
     branch = AL.Branch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         @query_probe #{super => value}.
@@ -53,7 +53,7 @@ defmodule AL.JAM.PlanTest do
   test "inlined equalities evaluate arithmetic and retain unresolved constraints", %{
     branch: branch
   } do
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_probe >> calculated
@@ -80,7 +80,7 @@ defmodule AL.JAM.PlanTest do
   test "method edits invalidate an inlined dependency", %{branch: branch} do
     assert {:atomic, _} = run(:pipeline, [{:"$var", "Output"}], branch)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> dispatch
@@ -95,7 +95,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "known compound fields and local argument lists disappear from a plan", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> route
@@ -123,11 +123,13 @@ defmodule AL.JAM.PlanTest do
     assert plan.inlined >= 4
     [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
     assert tuple_size(code) == 1
-    assert {:atomic, {%{"$Output" => :answer}, _, _}} = run(:route, [{:"$var", "Output"}], branch)
+
+    assert {:atomic, {%{"$Output" => :answer}, _, _}} =
+             run(:route, [{:"$var", "Output"}], branch)
   end
 
   test "a call site guards receiver values sharing a dispatch class", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                string >> query_echo
@@ -145,7 +147,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "alternatives retain answer order and duplicate answers", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> choices
@@ -165,7 +167,7 @@ defmodule AL.JAM.PlanTest do
         branch
       )
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {choices #{class => query_probe} Value}.
@@ -177,7 +179,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "class metadata assumptions are guarded", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> typed
@@ -192,12 +194,187 @@ defmodule AL.JAM.PlanTest do
       )
 
     assert {:aborted, _} = run(:typed, [{:"$var", "Output"}], branch)
-    {:atomic, _} = AL.run("vm_set_class query_marker list.", branch)
-    assert {:atomic, {%{"$Output" => :yes}, _, _}} = run(:typed, [{:"$var", "Output"}], branch)
+    %AL{result: {:atomic, _}} = AL.run("vm_set_class query_marker list.", branch)
+
+    assert {:atomic, {%{"$Output" => :yes}, _, _}} =
+             run(:typed, [{:"$var", "Output"}], branch)
+  end
+
+  test "slot plans recheck ivar specifications and method overrides", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Obj" => object}, _, _}}} =
+             AL.run(
+               ~S"""
+               @slot_plan_probe #{
+                 super => object,
+                 ivars => [#{name => first}, #{name => second}]
+               }.
+               slot_plan_probe >> write_many
+               | Self |
+               set_slot Self first 1,
+               set_slot Self second 2.
+               new slot_plan_probe Obj.
+               """,
+               branch
+             )
+
+    args = [bindings: %{"Obj" => object}]
+
+    {:atomic, plan} =
+      :mnesia.transaction(fn ->
+        AL.JAM.IR.Plan.compile(object, :write_many, [{object, 0}], branch)
+      end)
+
+    assert Enum.any?(elem(plan.compiled, 0), fn clause ->
+             Enum.any?(Tuple.to_list(clause.code), fn
+               {:mutation, :slot_batch, _} -> true
+               _ -> false
+             end)
+           end)
+
+    assert %AL{result: {:atomic, _}} = AL.run("write_many Obj.", branch, args)
+
+    assert %AL{result: {:aborted, _}} =
+             AL.run(
+               ~S"""
+               write_many Obj,
+               set_slot slot_plan_probe ivars [#{name => first}],
+               write_many Obj.
+               """,
+               branch,
+               args
+             )
+
+    assert %AL{result: {:atomic, _}} = AL.run("write_many Obj.", branch, args)
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(~S"set_slot slot_plan_probe ivars [#{name => first}].", branch)
+
+    assert %AL{result: {:aborted, _}} = AL.run("write_many Obj.", branch, args)
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"set_slot slot_plan_probe ivars [#{name => first}, #{name => second}].",
+               branch
+             )
+
+    assert %AL{result: {:atomic, _}} = AL.run("write_many Obj.", branch, args)
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               slot_plan_probe >> validate_slot
+               | _Self _Key _Value |
+               fail.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:aborted, _}} = AL.run("write_many Obj.", branch, args)
+  end
+
+  test "slot plan preserves declared domains and mixed storage", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Obj" => object}, _, _}}} =
+             AL.run(
+               ~S"""
+               @slot_constraint_probe #{
+                 super => object,
+                 ivars => [#{name => first, domain => [1]}, #{name => second, storage => soa}]
+               }.
+               slot_constraint_probe >> write_many
+               | Self First |
+               set_slot Self first First,
+               set_slot Self second 2.
+               new slot_constraint_probe Obj.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:aborted, _}} =
+             AL.run("write_many Obj 3.", branch, bindings: %{"Obj" => object})
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run("write_many Obj 1.", branch, bindings: %{"Obj" => object})
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run("get Obj first 1, get Obj second 2.", branch, bindings: %{"Obj" => object})
+  end
+
+  test "ground set_slots expands to public writes with separate commands", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Obj" => object}, _, _}}} =
+             AL.run(
+               ~S"""
+               @slot_map_probe #{
+                 super => object,
+                 ivars => [#{name => first}, #{name => second}]
+               }.
+               slot_map_probe >> write_map
+               | Self |
+               set_slots Self #{first => 1, second => 2}.
+               new slot_map_probe Obj.
+               """,
+               branch
+             )
+
+    {:atomic, plan} =
+      :mnesia.transaction(fn ->
+        AL.JAM.IR.Plan.compile(object, :write_map, [{object, 0}], branch)
+      end)
+
+    assert Enum.any?(elem(plan.compiled, 0), fn clause ->
+             Enum.any?(Tuple.to_list(clause.code), fn
+               {:mutation, :slot_batch, _} -> true
+               _ -> false
+             end)
+           end)
+
+    assert %AL{result: {:atomic, {_, _, state}}} =
+             AL.run("write_map Obj.", branch, bindings: %{"Obj" => object})
+
+    {:atomic, commands} =
+      :mnesia.transaction(fn -> AL.Command.commands_for_transaction(state.tx_id, branch) end)
+
+    writes =
+      Enum.filter(commands, fn
+        {:command, _, _, {:set_slot, {^object, _, _, :aos}}} -> true
+        _ -> false
+      end)
+
+    assert length(writes) == 2
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run("get Obj first 1, get Obj second 2.", branch, bindings: %{"Obj" => object})
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               slot_map_probe >> set_slots
+               | Self _Slots |
+               set_slot Self first 9.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run("write_map Obj, get Obj first 9, get Obj second 2.", branch,
+               bindings: %{"Obj" => object}
+             )
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               slot_map_probe >> validate_slot
+               | _Self _Key _Value |
+               fail.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:aborted, _}} =
+             AL.run("write_map Obj.", branch, bindings: %{"Obj" => object})
   end
 
   test "effects stop planning before a later class read", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> changing
@@ -215,11 +392,12 @@ defmodule AL.JAM.PlanTest do
         branch
       )
 
-    assert {:atomic, {%{"$Output" => :yes}, _, _}} = run(:changing, [{:"$var", "Output"}], branch)
+    assert {:atomic, {%{"$Output" => :yes}, _, _}} =
+             run(:changing, [{:"$var", "Output"}], branch)
   end
 
   test "cuts retain their method boundary", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> bounded
@@ -239,7 +417,7 @@ defmodule AL.JAM.PlanTest do
         branch
       )
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {bounded #{class => query_probe} Value}.
@@ -251,7 +429,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "uncertain head matching retains the callee's missing-method behavior", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> outer
@@ -269,7 +447,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "a region propagates a local selector across equality and calls", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> region_route
@@ -296,7 +474,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "a region resumes local propagation after an opaque operation", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> region_boundary
@@ -330,7 +508,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "escaped variables keep unification and suspension behavior", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> region_suspended
@@ -349,7 +527,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "failure after a boundary retains the preceding operation", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> region_failure
@@ -376,7 +554,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   test "region equality preserves aliases visible to the caller", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> region_alias
@@ -396,11 +574,13 @@ defmodule AL.JAM.PlanTest do
 
     assert Map.fetch!(bindings, "$Input") == :token
     assert Map.fetch!(bindings, "$Output") == :token
-    assert {:aborted, _} = run(:region_alias, [:wrong, {:"$var", "Output"}], branch)
+
+    assert {:aborted, _} =
+             run(:region_alias, [:wrong, {:"$var", "Output"}], branch)
   end
 
   test "rejected region expansion retains the profitable prefix", %{branch: branch} do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> region_fallback
@@ -430,7 +610,7 @@ defmodule AL.JAM.PlanTest do
     assert plan.inlined == 1
     assert length(elem(plan.compiled, 0)) == 1
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {region_fallback #{class => query_probe} Value}.
@@ -444,7 +624,7 @@ defmodule AL.JAM.PlanTest do
   test "a selector established by both alternatives eliminates the send after their join", %{
     branch: branch
   } do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         ~S"""
         query_probe >> joined
@@ -474,7 +654,7 @@ defmodule AL.JAM.PlanTest do
              _ -> false
            end)
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {joined #{class => query_probe} Value}.
@@ -497,7 +677,7 @@ defmodule AL.JAM.PlanTest do
   end
 
   defp providers(branch) do
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @query_base #{super => value}.
@@ -524,7 +704,7 @@ defmodule AL.JAM.PlanTest do
   } do
     providers(branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_probe >> inherited_wrapper
@@ -551,15 +731,19 @@ defmodule AL.JAM.PlanTest do
              run(:inherited_wrapper, [{:"$var", "Input"}, :ok], branch)
 
     assert [:ok | _] = bindings["$Input"]
-    assert {:aborted, _} = run(:inherited_wrapper, [[:excluded], {:"$var", "Output"}], branch)
-    assert {:aborted, _} = run(:inherited_wrapper, [[:forbidden], {:"$var", "Output"}], branch)
+
+    assert {:aborted, _} =
+             run(:inherited_wrapper, [[:excluded], {:"$var", "Output"}], branch)
+
+    assert {:aborted, _} =
+             run(:inherited_wrapper, [[:forbidden], {:"$var", "Output"}], branch)
 
     assert {:atomic, {_, constraints, _}} =
              run(:inherited_wrapper, [{:"$var", "Input"}, {:"$var", "Output"}], branch)
 
     assert constraints != %{}
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_base >> inherited
@@ -571,7 +755,7 @@ defmodule AL.JAM.PlanTest do
 
     assert {:atomic, false} = :mnesia.transaction(fn -> AL.JAM.IR.Plan.valid?(plan, branch) end)
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {inherited_wrapper #{class => query_probe} ignored Value}.
@@ -592,10 +776,16 @@ defmodule AL.JAM.PlanTest do
     assert {:atomic, {%{"$Output" => :ok}, _, _}} =
              run(:inherited, [[:ok], {:"$var", "Output"}], branch)
 
-    assert {:atomic, {bindings, _, _}} = run(:inherited, [{:"$var", "Input"}, :ok], branch)
+    assert {:atomic, {bindings, _, _}} =
+             run(:inherited, [{:"$var", "Input"}, :ok], branch)
+
     assert [:ok | _] = bindings["$Input"]
-    assert {:aborted, _} = run(:inherited, [[:excluded], {:"$var", "Output"}], branch)
-    assert {:aborted, _} = run(:inherited, [[:forbidden], {:"$var", "Output"}], branch)
+
+    assert {:aborted, _} =
+             run(:inherited, [[:excluded], {:"$var", "Output"}], branch)
+
+    assert {:aborted, _} =
+             run(:inherited, [[:forbidden], {:"$var", "Output"}], branch)
 
     assert {:atomic, {_, constraints, _}} =
              run(:inherited, [{:"$var", "Input"}, {:"$var", "Output"}], branch)
@@ -608,9 +798,11 @@ defmodule AL.JAM.PlanTest do
   } do
     providers(branch)
     plan = provider_plan(branch)
-    assert {:atomic, _} = run(:inherited, [[:old], {:"$var", "Output"}], branch)
 
     assert {:atomic, _} =
+             run(:inherited, [[:old], {:"$var", "Output"}], branch)
+
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_base >> inherited
@@ -627,7 +819,7 @@ defmodule AL.JAM.PlanTest do
 
     plan = provider_plan(branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @query_other #{super => value}.
@@ -648,7 +840,7 @@ defmodule AL.JAM.PlanTest do
   test "provider fusion retains alternatives inside a single provider body", %{branch: branch} do
     providers(branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_base >> inherited
@@ -660,7 +852,7 @@ defmodule AL.JAM.PlanTest do
 
     assert provider_plan(branch).compiled != nil
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {inherited #{class => query_probe} ignored Value}.
@@ -674,7 +866,7 @@ defmodule AL.JAM.PlanTest do
   test "multiple provider clauses retain dispatch alternatives", %{branch: branch} do
     providers(branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_base >> inherited
@@ -687,7 +879,7 @@ defmodule AL.JAM.PlanTest do
 
     assert provider_plan(branch).compiled == nil
 
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                findall Value Values {inherited #{class => query_probe} ignored Value}.
@@ -703,7 +895,7 @@ defmodule AL.JAM.PlanTest do
   } do
     providers(branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_middle >> inherited
@@ -715,9 +907,11 @@ defmodule AL.JAM.PlanTest do
              )
 
     assert provider_plan(branch).compiled == nil
-    assert {:atomic, _} = run(:inherited, [[:ok], {:"$var", "Output"}], branch)
 
     assert {:atomic, _} =
+             run(:inherited, [[:ok], {:"$var", "Output"}], branch)
+
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_middle >> inherited
@@ -729,13 +923,15 @@ defmodule AL.JAM.PlanTest do
              )
 
     assert provider_plan(branch).compiled == nil
-    assert {:atomic, _} = run(:inherited, [[:ok], {:"$var", "Output"}], branch)
+
+    assert {:atomic, _} =
+             run(:inherited, [[:ok], {:"$var", "Output"}], branch)
   end
 
   test "provider plans stay branch local and next forwards a changed receiver", %{branch: branch} do
     providers(branch)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_base >> inherited
@@ -756,7 +952,7 @@ defmodule AL.JAM.PlanTest do
     child = AL.Branch.fork(:tip, branch)
     on_exit(fn -> AL.Branch.discard(child) end)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                query_base >> inherited

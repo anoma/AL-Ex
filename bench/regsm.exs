@@ -31,7 +31,7 @@ defmodule Bench.Regsm do
   use AL
 
   def install(branch, p) do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         number >> regsm_entry

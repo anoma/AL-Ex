@@ -70,7 +70,7 @@ defmodule Examples.ALGenserver do
 
     assert Enum.any?(results, fn {:class, _, _seq, c} -> c == :process end)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         send_async my_counter increment [5].

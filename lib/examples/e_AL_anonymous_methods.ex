@@ -8,7 +8,7 @@ defmodule Examples.ALAnonymousMethods do
   import ExUnit.Assertions
 
   example accumulates_arguments_before_running() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new anonymous_method #{args => [], body => [(= Result [First, Second])], head => [First, Second, Result]} Method.
@@ -23,7 +23,7 @@ defmodule Examples.ALAnonymousMethods do
   end
 
   example a_do_block_is_a_goals_argument_to_any_send() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         list >> lambda
@@ -41,7 +41,7 @@ defmodule Examples.ALAnonymousMethods do
   end
 
   example runs_an_existing_method_object() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         method number factorial Factorial.
@@ -55,7 +55,7 @@ defmodule Examples.ALAnonymousMethods do
   end
 
   example stores_a_lambda_in_a_durable_slot() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @lambda_holder
@@ -67,7 +67,7 @@ defmodule Examples.ALAnonymousMethods do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         get stored_lambda condition Condition.
@@ -81,7 +81,7 @@ defmodule Examples.ALAnonymousMethods do
   end
 
   example reusable_bodies_keep_captured_values_and_fresh_locals() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         = Prefix captured.
@@ -110,7 +110,7 @@ defmodule Examples.ALAnonymousMethods do
   end
 
   example callable_arguments_share_constraints_and_repeated_variables() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         lambda [Input, Input] Same {> Input 0, dif Input 2}.
@@ -128,7 +128,7 @@ defmodule Examples.ALAnonymousMethods do
   end
 
   example callable_cuts_leave_caller_choices_available() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         lambda [Color] First {member [red, blue] Color, cut}.

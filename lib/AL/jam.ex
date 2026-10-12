@@ -1937,7 +1937,7 @@ defmodule AL.JAM do
           :error ->
             target =
               cond do
-                AL.Syntax.primitive?(method) or method in [:spawn_transaction, :await_effect] ->
+                AL.Syntax.primitive?(method) or method in [:spawn_transaction, :on_completion] ->
                   :primitive
 
                 AL.ResolutionCache.fetch_native(branch, method, fn ->

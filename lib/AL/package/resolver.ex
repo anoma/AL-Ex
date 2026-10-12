@@ -59,10 +59,10 @@ defmodule AL.Package.Resolver do
       )
 
     case result do
-      {:atomic, {%{"$Solution" => solution}, _constraints, _state}} ->
+      %AL{result: {:atomic, {%{"$Solution" => solution}, _constraints, _state}}} ->
         validate_resolution(solution, catalog, requested)
 
-      {:aborted, _reason} ->
+      %AL{result: {:aborted, _reason}} ->
         {:error, {:package_resolution_failed, requested}}
 
       {:error, reason} ->

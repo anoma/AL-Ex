@@ -94,7 +94,7 @@ defmodule ALMCPProtocolTest do
                   "structuredContent" => %{
                     "status" => "committed",
                     "branch" => branch_id,
-                    "transactionId" => "tx_" <> _,
+                    "transactionId" => transaction_id,
                     "commandTransaction" => command_tx
                   }
                 }
@@ -105,6 +105,7 @@ defmodule ALMCPProtocolTest do
                })
 
       assert branch_id == to_string(branch.id)
+      assert is_binary(transaction_id) and transaction_id != ""
       assert is_integer(command_tx)
 
       assert {:atomic, [{:source_text, ^command_tx, "= Result ok.", _origin}]} =
@@ -113,6 +114,41 @@ defmodule ALMCPProtocolTest do
                end)
     after
       AL.Branch.discard(branch)
+    end
+  end
+
+  test "source tools preserve a committed root and its failed child", %{baseline: baseline} do
+    branch = AL.Branch.fork(:tip, baseline)
+    on_exit(fn -> AL.Branch.discard(branch) end)
+
+    source = ~S"""
+    @mcp_outcome_probe #{super => object}.
+    mcp_outcome_probe >> perform
+    | _Self |
+    fail.
+    new mcp_outcome_probe Worker.
+    send_async Worker perform [] Future.
+    await Future.
+    """
+
+    for tool <- ["evaluateSource", "queryAL"] do
+      assert {:reply,
+              %{
+                "result" => %{
+                  "isError" => false,
+                  "structuredContent" => %{
+                    "status" => "committed",
+                    "children" => [
+                      %{
+                        "kind" => "transaction",
+                        "status" => "aborted",
+                        "children" => [],
+                        "value" => %{"type" => "binary"}
+                      }
+                    ]
+                  }
+                }
+              }} = call(tool, %{"source" => source, "branch" => to_string(branch.id)})
     end
   end
 
@@ -139,7 +175,7 @@ defmodule ALMCPProtocolTest do
                     %{
                       "status" => "committed",
                       "branch" => branch_id,
-                      "transactionId" => "tx_" <> _,
+                      "transactionId" => transaction_id,
                       "commandTransaction" => command_tx,
                       "bindings" => bindings,
                       "constraints" => constraints
@@ -148,6 +184,7 @@ defmodule ALMCPProtocolTest do
               }} = call("queryAL", %{"source" => source, "branch" => to_string(branch.id)})
 
       assert branch_id == to_string(branch.id)
+      assert is_binary(transaction_id) and transaction_id != ""
       assert is_integer(command_tx)
       assert Jason.encode!(result)
 
@@ -222,13 +259,14 @@ defmodule ALMCPProtocolTest do
                   "isError" => true,
                   "structuredContent" => %{
                     "status" => "failed",
-                    "transactionId" => "tx_" <> _,
+                    "transactionId" => transaction_id,
                     "commandTransaction" => command_tx
                   }
                 }
               }} =
                call("evaluateSource", %{"source" => "fail.", "branch" => to_string(branch.id)})
 
+      assert is_binary(transaction_id) and transaction_id != ""
       assert is_integer(command_tx)
 
       command_position = AL.Command.system_time(branch)
@@ -245,7 +283,7 @@ defmodule ALMCPProtocolTest do
                     "source" => "fail.",
                     "observation" => %{
                       "transaction" => observation_tx,
-                      "object" => "tx_" <> _
+                      "object" => observation_object
                     }
                   }
                 }
@@ -256,6 +294,7 @@ defmodule ALMCPProtocolTest do
                })
 
       assert message =~ "Goal failed"
+      assert is_binary(observation_object) and observation_object != ""
       assert observation_tx > command_tx
       assert AL.Command.system_time(branch) > command_position
     after
@@ -445,7 +484,7 @@ defmodule ALMCPProtocolTest do
                     "target" => "answer",
                     "observation" => %{
                       "transaction" => observation_tx,
-                      "object" => "tx_" <> _
+                      "object" => observation_object
                     },
                     "references" => references
                   }
@@ -455,6 +494,8 @@ defmodule ALMCPProtocolTest do
                  "target" => "answer",
                  "branch" => to_string(branch.id)
                })
+
+      assert is_binary(observation_object) and observation_object != ""
 
       assert Enum.any?(references, fn reference ->
                reference["kind"] == "selector" and reference["owner"] == "mcp_inspected"

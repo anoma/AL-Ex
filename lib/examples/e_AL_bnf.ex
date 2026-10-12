@@ -4,7 +4,7 @@ defmodule Examples.ALBnf do
   import ExUnit.Assertions
 
   example a_grammar_writes_its_rules_as_bnf() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @dashed
@@ -62,7 +62,7 @@ defmodule Examples.ALBnf do
     <item> ::= /./
     """
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse bnf_syntax (document Read) HostSource.
@@ -113,7 +113,7 @@ defmodule Examples.ALBnf do
           else: leaf
       end)
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         parse al_grammar (program Items) HostSource.

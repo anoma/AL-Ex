@@ -11,7 +11,7 @@ defmodule Examples.ALBounds do
   import ExUnit.Assertions
 
   example ground_compare_still_works() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         < 5 10.
@@ -22,7 +22,7 @@ defmodule Examples.ALBounds do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         < 10 5.
@@ -34,7 +34,7 @@ defmodule Examples.ALBounds do
   end
 
   example open_var_upper_bound_narrows_from_ground() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         < X 10.
@@ -45,7 +45,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$X") == 5
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         < X 10.
@@ -62,7 +62,7 @@ defmodule Examples.ALBounds do
   # both-ground fast path — otherwise the raw unevaluated term looks like
   # neither a number nor a var and the comparison wrongly backtracks.
   example open_var_narrows_against_a_ground_expression() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         < X (+ 5 1).
@@ -73,7 +73,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$X") == 5
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         < X (+ 5 1).
@@ -91,7 +91,7 @@ defmodule Examples.ALBounds do
   # re-evaluated by hand. That re-firing is the fixpoint loop, not a single
   # narrow-and-done check.
   example chain_narrows_transitively() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         < X Y.
@@ -103,7 +103,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$X") == 2
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         < X Y.
@@ -117,7 +117,7 @@ defmodule Examples.ALBounds do
   end
 
   example contradiction_detected_without_further_unify() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         < X 3.
@@ -132,7 +132,7 @@ defmodule Examples.ALBounds do
   # Both bounds collapsing to the same value grounds the var outright, no
   # separate `unify` needed.
   example singleton_bounds_auto_bind() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         <= X 5.
@@ -151,7 +151,7 @@ defmodule Examples.ALBounds do
   # becomes concrete — inequalities alone only ever narrow an interval, they
   # never enumerate it. Already-ground is a no-op: no extra choicepoint.
   example label_is_a_noop_on_an_already_ground_term() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         label 5.
@@ -172,7 +172,7 @@ defmodule Examples.ALBounds do
   # logic) unconditionally labels a value that might already be
   # caller-supplied.
   example label_is_a_noop_on_an_already_ground_non_numeric_term() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = X already_ground_atom.
@@ -188,7 +188,7 @@ defmodule Examples.ALBounds do
   # A bounded-but-open var enumerates every value in its domain as ordinary
   # backtracking alternatives, cheapest first.
   example label_enumerates_a_bounded_domain() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         >= X 3.
@@ -200,7 +200,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$X") == 3
 
-    {:atomic, {bindings2, _constraints, _state2}} =
+    %AL{result: {:atomic, {bindings2, _constraints, _state2}}} =
       run(
         ~S"""
         >= X 3.
@@ -217,7 +217,7 @@ defmodule Examples.ALBounds do
   # A domain that's still open on at least one side has nothing finite to
   # enumerate — labeling it fails rather than looping forever.
   example label_fails_on_an_unbounded_domain() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         >= X 3.
@@ -237,7 +237,7 @@ defmodule Examples.ALBounds do
   # exactly the shape `fibonacci`'s backward search needs (`n <= x + 1`
   # posted while `x` may still be open) without a separate mode-probe.
   example open_var_narrows_through_a_compound_expression() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         <= (+ X 1) 5.
@@ -248,7 +248,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$X") == 4
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         <= (+ X 1) 5.
@@ -264,7 +264,7 @@ defmodule Examples.ALBounds do
   # mechanism as `+`/`-` — this isn't special-cased to the fibonacci `+ 1`
   # shape, it's a real affine expression engine.
   example open_var_narrows_through_multiplication_by_a_ground_scalar() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         <= (* 2 X) 7.
@@ -275,7 +275,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$X") == 3
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         <= (* 2 X) 7.
@@ -292,7 +292,7 @@ defmodule Examples.ALBounds do
   # touching one still just hard-fails, same as before compound expressions
   # were supported at all.
   example unsupported_compound_shapes_still_hard_fail() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         <= (/ X 2) 5.
@@ -300,7 +300,7 @@ defmodule Examples.ALBounds do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _trace2} =
+    %AL{result: {:aborted, _trace2}} =
       run(
         ~S"""
         <= (* X Y) 10.
@@ -312,7 +312,7 @@ defmodule Examples.ALBounds do
   end
 
   example equality_is_value_equality_at_any_depth() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = Y 4.
@@ -331,7 +331,7 @@ defmodule Examples.ALBounds do
   # `=` (CLP(FD) `#=`): arithmetic equality as a constraint. Ground -> open
   # binds the open side directly.
   example eq_binds_an_open_var_from_a_ground_side() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = N 5.
@@ -347,7 +347,7 @@ defmodule Examples.ALBounds do
   # Same mechanism, other direction: the var is on the compound side, the
   # ground value is what pins it, no separate mode needed.
   example eq_inverts_through_a_compound_expression() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = X 10.
@@ -361,7 +361,7 @@ defmodule Examples.ALBounds do
   end
 
   example eq_fails_between_two_unequal_grounds() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         = P 4.
@@ -378,7 +378,7 @@ defmodule Examples.ALBounds do
   # `< > <= >=` already use means later constraints on either side keep
   # narrowing until one collapses the other to a singleton and auto-binds it.
   example eq_narrows_transitively_like_a_compare_chain() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = X Y.
@@ -398,7 +398,7 @@ defmodule Examples.ALBounds do
   # (interval add/subtract), converging as `a`/`b` ground later. This is
   # exactly fibonacci's `x #= x1 + x2` shape with all three still open.
   example eq_narrows_an_n_ary_sum_of_simultaneously_open_vars() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = Z (+ A B).
@@ -413,7 +413,7 @@ defmodule Examples.ALBounds do
   end
 
   example unresolved_linear_equations_surface_as_residual_relations() do
-    {:atomic, {_bindings, constraints, _state}} =
+    %AL{result: {:atomic, {_bindings, constraints, _state}}} =
       run(
         ~S"""
         > X 0.
@@ -437,7 +437,7 @@ defmodule Examples.ALBounds do
   # grounded via ordinary `unify`, not another `=` — the fixpoint still has
   # to fire from `AL.Var.bind` itself, or `z` would be left stale.
   example eq_narrows_transitively_through_plain_unify_not_just_eq() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = Z (+ (+ A B) C).
@@ -453,7 +453,7 @@ defmodule Examples.ALBounds do
   end
 
   example eq_posted_before_two_sibling_recursive_calls_converges() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         vm_set_class eq_first object.
@@ -484,7 +484,7 @@ defmodule Examples.ALBounds do
 
   @doc "Both sides of every frame's equation stay open until the base case, so waking them on narrowing costs O(7883) narrowings a frame: over a minute at 3000 frames, under a second when they only wake on ground."
   example a_chain_of_eqs_posted_before_the_calls_that_ground_them() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         vm_set_class regsm object.
@@ -514,7 +514,7 @@ defmodule Examples.ALBounds do
 
   @doc "Ground-woken narrows nothing, but still refutes: raising `z`'s floor past the sum's ceiling fails on the spot instead of suspending until a side grounds."
   example a_ground_woken_eq_still_refutes_the_moment_the_intervals_cross() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         = Z (+ A C).
@@ -529,7 +529,7 @@ defmodule Examples.ALBounds do
   end
 
   example entailed_propagator_holds_again_in_a_backtracked_alternative() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class entailed object.
@@ -543,7 +543,7 @@ defmodule Examples.ALBounds do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         < X Y.
@@ -556,7 +556,7 @@ defmodule Examples.ALBounds do
 
     assert Map.get(bindings, "$Y") == 100
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         < X Y.
@@ -575,7 +575,7 @@ defmodule Examples.ALBounds do
   # here the left side is refuted outright (4 != 5), so the right side gets
   # applied for real.
   example either_commits_to_the_surviving_side_when_the_other_is_refuted() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         = A 4.
@@ -589,7 +589,7 @@ defmodule Examples.ALBounds do
   end
 
   example either_fails_when_both_sides_are_refuted() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         = A 4.
@@ -606,7 +606,7 @@ defmodule Examples.ALBounds do
   # guessing (same posture `dif`/`isa` take toward a still-open
   # counterpart). Succeeds because nothing has refuted either side.
   example either_stays_undetermined_when_neither_side_is_decidable_yet() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         or (= A 5) (= B 6).
@@ -623,7 +623,7 @@ defmodule Examples.ALBounds do
   # ordering `=`/`< > <= >=` already allow -- refuting the left side
   # happens later, once `a` narrows, not at post time.
   example either_resolves_reactively_once_a_side_is_refuted_later() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         or (= A 5) (= B 7).
@@ -647,7 +647,7 @@ defmodule Examples.ALBounds do
   # the case that would show up twice under an eager `alternative`-based
   # OR (one success per divisor branch) -- it doesn't here.
   example either_finds_multiples_of_3_or_5_with_no_duplicates() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall Candidate Candidates {

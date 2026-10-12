@@ -17,7 +17,7 @@ defmodule Examples.ALClauses do
 
   @doc "A clause body read via `clause/n` must be executable structs: reflect reverse's recursive clause and run its body through `call`."
   example reflected_clause_body_executes() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         method list reverse M.
@@ -35,7 +35,7 @@ defmodule Examples.ALClauses do
   example clauses_are_tried_in_definition_order() do
     c = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -50,7 +50,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         findall T Ts (tag HostC T).
@@ -76,7 +76,7 @@ defmodule Examples.ALClauses do
     base = AL.Branch.fork()
     c = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -93,7 +93,7 @@ defmodule Examples.ALClauses do
 
     tip = AL.Branch.fork(:tip, base)
 
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         findall T Ts (tag HostC T).
@@ -114,7 +114,7 @@ defmodule Examples.ALClauses do
   example clause_reinsertion_controls_order() do
     c = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -129,7 +129,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         method HostC tag Id.
@@ -139,7 +139,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         method HostC tag Id.
@@ -150,7 +150,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         findall T Ts (tag HostC T).
@@ -173,7 +173,7 @@ defmodule Examples.ALClauses do
   example a_retracted_clause_closes_rather_than_deletes_its_row() do
     c = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -185,7 +185,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         method HostC tag Id.
@@ -207,7 +207,7 @@ defmodule Examples.ALClauses do
   example clause_exposes_seq() do
     c = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -222,7 +222,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         method HostC tag Id.
@@ -242,7 +242,7 @@ defmodule Examples.ALClauses do
   example explicit_seq_controls_clause_order() do
     c = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -257,7 +257,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         method HostC tag Id.
@@ -267,7 +267,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         method HostC tag Id.
@@ -278,7 +278,7 @@ defmodule Examples.ALClauses do
         bindings: %{"HostC" => c}
       )
 
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         findall T Ts (tag HostC T).
@@ -297,7 +297,7 @@ defmodule Examples.ALClauses do
   # and fail the occurs-check — yielding nothing. Scanned clauses are now
   # standardized apart, so the query matches regardless of the names it uses.
   example clause_read_does_not_capture_query_vars() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         findall Head Heads (clause defmethod Head Body).
@@ -310,7 +310,7 @@ defmodule Examples.ALClauses do
   end
 
   example clause_heads_refuse_cyclic_bindings() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         @cycle_probe
@@ -337,7 +337,7 @@ defmodule Examples.ALClauses do
   end
 
   example unused_head_variables_preserve_open_calls_and_live_variables() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @unused_head_probe
@@ -367,7 +367,7 @@ defmodule Examples.ALClauses do
   end
 
   example prepared_clause_cache_tracks_clause_replacement() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @prepared_clause_probe
@@ -392,7 +392,7 @@ defmodule Examples.ALClauses do
     c = fresh_class()
     probe = fresh_class()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostC object.
@@ -437,7 +437,7 @@ defmodule Examples.ALClauses do
   # to assume `Enum.map`-able (nil-terminated) lists, which crashed on the
   # improper list `[h | t]` produces before `h`/`t` are bound by a call.
   example defmethod_stores_clause_with_improper_list_arg() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class cons_arg_test object.
@@ -449,7 +449,7 @@ defmodule Examples.ALClauses do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         wrap cons_arg_test 1 [2, 3] Out.
@@ -462,7 +462,7 @@ defmodule Examples.ALClauses do
   end
 
   defp at_clause_arities() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         method list at Id.
@@ -475,7 +475,7 @@ defmodule Examples.ALClauses do
   end
 
   defp swap_first_two_at_clauses() do
-    {:atomic, {b, _constraints, _}} =
+    %AL{result: {:atomic, {b, _constraints, _}}} =
       run(
         ~S"""
         method list at Id.
@@ -487,7 +487,7 @@ defmodule Examples.ALClauses do
     [x, y, z] = Map.get(b, "$Clauses")
     reordered = [y, x, z]
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         reorder_clauses list at _ HostReordered.

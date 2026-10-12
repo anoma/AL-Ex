@@ -10,8 +10,16 @@ defmodule AL.JAM.Goals do
     |> Tuple.to_list()
     |> Enum.drop(pc)
     |> Enum.flat_map(fn
-      {:numeric_tests, _, _, fallback} -> instructions(fallback, 0, slots)
-      operation -> [instruction(operation, slots)]
+      {:numeric_tests, _, _, fallback} ->
+        instructions(fallback, 0, slots)
+
+      {:mutation, :slot_batch, [writes]} ->
+        Enum.map(Operand.read(writes, slots), fn {object, key, value} ->
+          %Goal.SetSlot{object: object, key: key, value: value}
+        end)
+
+      operation ->
+        [instruction(operation, slots)]
     end)
   end
 

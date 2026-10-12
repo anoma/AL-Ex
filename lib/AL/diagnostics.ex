@@ -1,5 +1,5 @@
 defmodule AL.Diagnostics do
-  def format_failure(%AL{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state) do
+  def format_failure(%AL.JAM.State{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state) do
     raw_tail =
       if AL.Trace.retained?(state.trace),
         do: last_raw_steps(state.trace.events, 20),
@@ -15,7 +15,7 @@ defmodule AL.Diagnostics do
       reason: {:resource_limit_exceeded, limit},
       failed_on: failed_on,
       trace: steps,
-      state: %AL{
+      state: %AL.JAM.State{
         state
         | trace: %AL.Trace{state.trace | events: raw_tail},
           choicepoint_stack: []

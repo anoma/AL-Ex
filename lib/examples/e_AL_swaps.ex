@@ -6,7 +6,7 @@ defmodule Examples.ALSwaps do
   import ExUnit.Assertions
 
   example a_trader_and_liquidity_provider_constrain_one_quote() do
-    {:atomic, {_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _}}} =
       run(
         ~S"""
         new eth #{amount => 10} EthReserve.
@@ -17,7 +17,7 @@ defmodule Examples.ALSwaps do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new eth #{amount => 1} Input.
@@ -36,7 +36,7 @@ defmodule Examples.ALSwaps do
   example the_same_transaction_constraints_solve_for_input() do
     a_trader_and_liquidity_provider_constrain_one_quote()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new usd Output.
@@ -58,7 +58,7 @@ defmodule Examples.ALSwaps do
   end
 
   example find_all_pools_offering_at_least_two_dollars_per_eth() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         new eth #{amount => 100} LowPriceEth.
@@ -77,7 +77,7 @@ defmodule Examples.ALSwaps do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new eth #{amount => 25} Input.
@@ -101,7 +101,7 @@ defmodule Examples.ALSwaps do
   example streamed_reserves_make_a_limit_order_ready() do
     observer = self()
 
-    {:atomic, {before_stream, _constraints, _}} =
+    %AL{result: {:atomic, {before_stream, _constraints, _}}} =
       run(
         ~S"""
         new process #{name => swap_observer, pid => HostObserver} _.
@@ -138,7 +138,7 @@ defmodule Examples.ALSwaps do
     assert before_stream["$ReadyBefore"] == []
     assert before_stream["$OpenOrders"] == [:limit_order]
 
-    {:atomic, {_bindings, _constraints, streamed}} =
+    %AL{result: {:atomic, {_bindings, _constraints, streamed}}} =
       run(
         ~S"""
         new eth #{amount => 100} Eth.
@@ -156,7 +156,7 @@ defmodule Examples.ALSwaps do
                    },
                    1_000
 
-    {:atomic, {filled, _constraints, _}} =
+    %AL{result: {:atomic, {filled, _constraints, _}}} =
       run(
         ~S"""
         get limit_order status filled.
@@ -175,7 +175,7 @@ defmodule Examples.ALSwaps do
   example a_changed_constraint_can_be_tested_against_past_reserves() do
     %{streamed_at: yesterday} = streamed_reserves_make_a_limit_order_ready()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         lambda [Trade] Condition {
@@ -190,7 +190,7 @@ defmodule Examples.ALSwaps do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {past, _constraints, _}} =
+    %AL{result: {:atomic, {past, _constraints, _}}} =
       run(
         ~S"""
         findall Trade OldAnswers (would_have_filled_at historical_order HostYesterday Trade).
@@ -201,7 +201,7 @@ defmodule Examples.ALSwaps do
 
     assert past["$OldAnswers"] == []
 
-    {:atomic, {changed, _constraints, _}} =
+    %AL{result: {:atomic, {changed, _constraints, _}}} =
       run(
         ~S"""
         lambda [Trade] NewCondition {
@@ -224,7 +224,7 @@ defmodule Examples.ALSwaps do
     :ok
   end
 
-  defp transaction_end(%AL{tx_id: tx_id, branch: branch}) do
+  defp transaction_end(%AL.JAM.State{tx_id: tx_id, branch: branch}) do
     {:atomic, commands} =
       :mnesia.transaction(fn -> AL.Command.commands_for_transaction(tx_id, branch) end)
 

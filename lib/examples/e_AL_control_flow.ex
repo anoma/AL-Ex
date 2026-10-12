@@ -16,7 +16,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example cut() do
-    {:atomic, {_bindings, _constraints, result}} =
+    %AL{result: {:atomic, {_bindings, _constraints, result}}} =
       run(
         ~S"""
         class Object Class.
@@ -39,7 +39,7 @@ defmodule Examples.ALControlFlow do
     chooser_plain = fresh_id()
     plain_impl = fresh_id()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_method HostChooserCut pick HostCutImpl.
@@ -60,7 +60,7 @@ defmodule Examples.ALControlFlow do
         }
       )
 
-    {:atomic, {cut_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {cut_bindings, _constraints, _}}} =
       run(
         ~S"""
         findall X Xs (pick HostChooserCut X).
@@ -69,7 +69,7 @@ defmodule Examples.ALControlFlow do
         bindings: %{"HostChooserCut" => chooser_cut}
       )
 
-    {:atomic, {plain_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {plain_bindings, _constraints, _}}} =
       run(
         ~S"""
         findall X Xs (pick HostChooserPlain X).
@@ -85,7 +85,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example implies_block_runs_then() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class object C -> = Out then_ran ; = Out else_ran.
@@ -98,7 +98,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example implies_block_runs_else() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class nonexistent_xyz C -> = Out then_ran ; = Out else_ran.
@@ -111,7 +111,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example implies_block_multiway() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         vm_set_class branch_pick widget.
@@ -127,7 +127,7 @@ defmodule Examples.ALControlFlow do
   # if-then-else commits to the condition's first solution (soft cut): even with
   # a multi-solution condition, `then` runs once and the else branch is discarded.
   example if_then_else_commits_to_first_condition_solution() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         vm_set_super ite_test s1.
@@ -142,7 +142,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example call_lambda() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         call [X, Result] (= Result X) [hello, Out].
@@ -157,7 +157,7 @@ defmodule Examples.ALControlFlow do
   # `pass` is the always-succeeds no-op goal -- a branch that has nothing left
   # to do (its condition already did the work) shouldn't need a self-unify.
   example pass_succeeds_without_changing_bindings() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = Out hello.
@@ -171,7 +171,7 @@ defmodule Examples.ALControlFlow do
   end
 
   example pass_as_an_implies_branch() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class object C -> pass ; = Out else_ran.

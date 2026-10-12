@@ -37,7 +37,7 @@ defmodule Examples.ALEffects do
     File.write!(path, "alpha\nbeta\n")
 
     try do
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         run(
           ~S"""
           new effect #{arguments => [HostPath], operation => read, provider => file} Effect.
@@ -60,7 +60,7 @@ defmodule Examples.ALEffects do
     directory = Path.dirname(path)
 
     try do
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         run(
           ~S"""
           new effect #{arguments => [HostPath, "bundle source"], operation => write, provider => file} Write.
@@ -75,7 +75,7 @@ defmodule Examples.ALEffects do
                  timeout: 1000
                )
 
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         run(
           ~S"""
           new effect #{arguments => [HostDirectory], operation => list, provider => file} List.
@@ -100,7 +100,7 @@ defmodule Examples.ALEffects do
   example effect_runs_after_commit_and_records_its_outcome_in_a_new_transaction() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new effect #{arguments => [], operation => transaction_context, provider => example_effect} Effect.
@@ -131,7 +131,7 @@ defmodule Examples.ALEffects do
   example aborted_transaction_does_not_run_effect() do
     observe_effects()
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         new effect #{arguments => [], operation => notify, provider => example_effect} _.
@@ -146,7 +146,7 @@ defmodule Examples.ALEffects do
   example al_method_can_expose_the_effect_object() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         vm_set_class effect_emitter object.
@@ -167,7 +167,7 @@ defmodule Examples.ALEffects do
   end
 
   example effect_request_must_be_ground_and_durable() do
-    {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}} =
+    %AL{result: {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}}} =
       run(
         ~S"""
         new effect #{arguments => [Unbound], operation => echo, provider => example_effect} _.
@@ -189,7 +189,7 @@ defmodule Examples.ALEffects do
   example pending_effect_can_complete_later() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new effect #{arguments => [later], operation => wait, provider => example_effect} Effect.
@@ -210,7 +210,7 @@ defmodule Examples.ALEffects do
   example effect_object_initialization_emits_its_host_request() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, state}} =
+    %AL{result: {:atomic, {bindings, _constraints, state}}} =
       run(
         ~S"""
         new effect #{arguments => [initialized], operation => echo, provider => example_effect} Effect.
@@ -241,7 +241,7 @@ defmodule Examples.ALEffects do
   example effects_are_objects_completed_by_al_transactions() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new effect #{arguments => [object_effect], operation => wait, provider => example_effect} Effect.
@@ -252,7 +252,7 @@ defmodule Examples.ALEffects do
     effect = bindings["$Effect"]
     assert_receive {:effect_pending, context, :object_effect}, 1000
 
-    {:atomic, {pending, _constraints, _state}} =
+    %AL{result: {:atomic, {pending, _constraints, _state}}} =
       run(
         ~S"""
         class HostEffect effect.
@@ -276,7 +276,7 @@ defmodule Examples.ALEffects do
     assert pending["$CompletedBy"] == :none
     assert :ok = AL.Edge.complete(context, {:ok, :changed})
 
-    {:atomic, {completed, _constraints, _state}} =
+    %AL{result: {:atomic, {completed, _constraints, _state}}} =
       run(
         ~S"""
         get_slots HostEffect #{completed_by => CompletedBy, outcome => Outcome, status => Status}.
@@ -293,7 +293,7 @@ defmodule Examples.ALEffects do
   example provider_exception_is_recorded_as_the_effect_outcome() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new effect #{arguments => [], operation => raise, provider => example_effect} Effect.
@@ -310,7 +310,7 @@ defmodule Examples.ALEffects do
   example multiple_effects_in_one_transaction_have_distinct_objects() do
     observe_effects()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new effect #{arguments => [first], operation => echo, provider => example_effect} First.
@@ -336,7 +336,7 @@ defmodule Examples.ALEffects do
     :ok = AL.Outbox.stop(branch)
 
     try do
-      {:atomic, {_bindings, _constraints, state}} =
+      %AL{result: {:atomic, {_bindings, _constraints, state}}} =
         run(
           ~S"""
           new effect #{arguments => [], operation => notify, provider => example_effect} _.
@@ -369,7 +369,7 @@ defmodule Examples.ALEffects do
     :ok = AL.Outbox.stop(parent)
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           new effect #{arguments => [], operation => notify, provider => example_effect} _.
@@ -382,7 +382,7 @@ defmodule Examples.ALEffects do
       try do
         refute_receive :effect_ran, 100
 
-        {:atomic, {bindings, _constraints, _state}} =
+        %AL{result: {:atomic, {bindings, _constraints, _state}}} =
           run(
             ~S"""
             new effect #{arguments => [], operation => branch, provider => example_effect} Effect.
@@ -407,7 +407,7 @@ defmodule Examples.ALEffects do
   end
 
   defp effect_status(effect) do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         get HostEffect status Status.

@@ -14,7 +14,7 @@ defmodule Examples.ALConstraints do
   example constant() do
     pid = self()
 
-    {:atomic, {_bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _state}}} =
       run(
         ~S"""
         new process #{name => constant_subscriber, pid => HostPid} _.
@@ -56,10 +56,10 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _constraints, _state}} ->
+        %AL{result: {:atomic, {bindings, _constraints, _state}}} ->
           Map.get(bindings, "$Domain")
 
-        {:aborted, _} ->
+        %AL{result: {:aborted, _}} ->
           receive do
             %{event: :cell_updated, cell: :x, domain: d} -> d
           after
@@ -69,7 +69,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         slot x domain Domain.
@@ -87,7 +87,7 @@ defmodule Examples.ALConstraints do
 
     pid = self()
 
-    {:atomic, {_bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _state}}} =
       run(
         ~S"""
         new process #{name => inc_subscriber, pid => HostPid} _.
@@ -124,10 +124,10 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _constraints, _state}} ->
+        %AL{result: {:atomic, {bindings, _constraints, _state}}} ->
           Map.get(bindings, "$Domain")
 
-        {:aborted, _} ->
+        %AL{result: {:aborted, _}} ->
           receive do
             %{event: :cell_updated, cell: :y, domain: d} -> d
           after
@@ -137,7 +137,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :mapset_value, elems: %{3 => true}}
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         slot y domain Domain.
@@ -153,7 +153,7 @@ defmodule Examples.ALConstraints do
   example network_dependents() do
     inc()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dependents x Dependents.
@@ -171,7 +171,7 @@ defmodule Examples.ALConstraints do
   example bidirectional_adder() do
     pid = self()
 
-    {:atomic, {_bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _state}}} =
       run(
         ~S"""
         new process #{name => bidirectional_adder_subscriber, pid => HostPid} _.
@@ -225,10 +225,10 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _constraints, _state}} ->
+        %AL{result: {:atomic, {bindings, _constraints, _state}}} ->
           Map.get(bindings, "$Domain")
 
-        {:aborted, _} ->
+        %AL{result: {:aborted, _}} ->
           receive do
             %{event: :cell_updated, cell: :a, domain: d} -> d
           after
@@ -238,7 +238,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :mapset_value, elems: %{2 => true}}
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         slot a domain Domain.
@@ -254,7 +254,7 @@ defmodule Examples.ALConstraints do
   example network_dependents_do_not_infinitely_recur() do
     bidirectional_adder()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dependents a Dependents.
@@ -272,7 +272,7 @@ defmodule Examples.ALConstraints do
   example interval_propagation_skips_enumeration() do
     pid = self()
 
-    {:atomic, {_bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _state}}} =
       run(
         ~S"""
         new process #{name => interval_subscriber, pid => HostPid} _.
@@ -322,10 +322,10 @@ defmodule Examples.ALConstraints do
 
     domain =
       case slot_result do
-        {:atomic, {bindings, _constraints, _state}} ->
+        %AL{result: {:atomic, {bindings, _constraints, _state}}} ->
           Map.get(bindings, "$Domain")
 
-        {:aborted, _} ->
+        %AL{result: {:aborted, _}} ->
           receive do
             %{event: :cell_updated, cell: :ic, domain: d} -> d
           after
@@ -335,7 +335,7 @@ defmodule Examples.ALConstraints do
 
     assert domain == %{class: :interval_value, lo: 4, hi: 13}
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         slot ic domain Domain.

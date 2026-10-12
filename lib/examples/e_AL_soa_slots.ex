@@ -46,11 +46,11 @@ defmodule Examples.ALSoaSlots do
         branch: Examples.Support.branch()
       )
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
   end
 
   example vm_get_slot_soa_finds_a_value_written_via_set_slot() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @soa_slot_probe
@@ -59,7 +59,7 @@ defmodule Examples.ALSoaSlots do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new soa_slot_probe Obj.
@@ -75,7 +75,7 @@ defmodule Examples.ALSoaSlots do
 
   # soa closes the prior open row before writing (AL.Object.set_soa_slot/5)
   example a_second_set_slot_supersedes_the_first_for_the_same_key() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @soa_slot_probe_resets
@@ -84,7 +84,7 @@ defmodule Examples.ALSoaSlots do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new soa_slot_probe_resets Obj.
@@ -104,7 +104,7 @@ defmodule Examples.ALSoaSlots do
   # is a shared branch, an unbound-object scan for a common key would
   # also pick up unrelated objects' soa rows from other examples.
   example vm_get_slot_soa_finds_the_value_across_many_objects() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @soa_slot_probe_many
@@ -113,7 +113,7 @@ defmodule Examples.ALSoaSlots do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new soa_slot_probe_many Obj1.

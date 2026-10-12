@@ -21,6 +21,7 @@ defmodule AL.Command do
           | :set_method
           | :set_oapply
           | :set_slot
+          | :set_slots
           | :set_native
           | :retract_class
           | :retract_super
@@ -28,7 +29,7 @@ defmodule AL.Command do
           | :retract_oapply
           | :retract_slot
           | :retract_native
-          | :send_async
+          | :await
           | :send_elixir
           | :effect
 
@@ -38,6 +39,7 @@ defmodule AL.Command do
           | {:set_method, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
           | {:set_oapply, {AL.Var.t(), non_neg_integer(), AL.Var.t(), [AL.Goal.stored()]}}
           | {:set_slot, {AL.Var.t(), AL.Var.t(), AL.Var.t(), :aos | :soa}}
+          | {:set_slots, {AL.Var.t(), [{AL.Var.t(), AL.Var.t()}], :aos}}
           | {:set_native, {AL.Var.t(), native_mfa()}}
           | {:retract_class, {AL.Var.t(), AL.Var.t()}}
           | {:retract_super, {AL.Var.t(), AL.Var.t()}}
@@ -45,7 +47,7 @@ defmodule AL.Command do
           | {:retract_oapply, {AL.Var.t(), AL.Var.t()}}
           | {:retract_slot, {AL.Var.t(), AL.Var.t(), :aos | :soa}}
           | {:retract_native, {AL.Var.t(), native_mfa()}}
-          | {:send_async, {AL.Var.t(), AL.Var.t(), AL.Var.t()}}
+          | {:await, AL.Var.t()}
           | {:send_elixir, {pid(), term()}}
           | {:effect, {:object, term(), atom(), atom(), list()}}
 
@@ -405,6 +407,10 @@ defmodule AL.Command do
      "#{inspect(key)} = #{inspect(value)} · #{store}"}
   end
 
+  defp describe_command({:set_slots, {object, slots, store}}) do
+    {mutation_marker(:set_slots), "Slots", inspect(object), "#{inspect(slots)} · #{store}"}
+  end
+
   defp describe_command({:retract_slot, {object, key, store}}) do
     {mutation_marker(:retract_slot), "Slot", inspect(object), "#{inspect(key)} · #{store}"}
   end
@@ -413,9 +419,8 @@ defmodule AL.Command do
     {mutation_marker(action), "Native", inspect(object), inspect(mfa)}
   end
 
-  defp describe_command({:send_async, {object, method, args}}) do
-    {"[>]", "Async Send", inspect(object), "#{inspect(method)} #{inspect(args)}"}
-  end
+  defp describe_command({:await, target}),
+    do: {"[>]", "Await", inspect(target), ""}
 
   defp describe_command({:send_elixir, {pid, message}}) do
     {"[>]", "Elixir Send", inspect(pid), inspect(message)}
@@ -431,7 +436,15 @@ defmodule AL.Command do
   end
 
   defp mutation_marker(action)
-       when action in [:set_class, :set_super, :set_method, :set_oapply, :set_slot, :set_native],
+       when action in [
+              :set_class,
+              :set_super,
+              :set_method,
+              :set_oapply,
+              :set_slot,
+              :set_slots,
+              :set_native
+            ],
        do: "[+]"
 
   defp mutation_marker(_action), do: "[-]"
@@ -449,14 +462,14 @@ defmodule AL.Command do
        do: "#059669"
 
   defp command_color({operation, _})
-       when operation in [:set_slot, :retract_slot],
+       when operation in [:set_slot, :set_slots, :retract_slot],
        do: "#D97706"
 
   defp command_color({operation, _})
        when operation in [:set_native, :retract_native],
        do: "#DB2777"
 
-  defp command_color({operation, _}) when operation in [:send_async, :send_elixir, :effect],
+  defp command_color({operation, _}) when operation in [:await, :send_elixir, :effect],
     do: "#0891B2"
 
   defp command_color(_operation), do: "#64748B"
@@ -533,6 +546,12 @@ defmodule AL.Command do
     write_command(tx_id, {:set_slot, {object, key, value, store}}, branch)
   end
 
+  @spec set_slots(non_neg_integer(), AL.Var.t(), [{AL.Var.t(), AL.Var.t()}], AL.Branch.t()) ::
+          non_neg_integer()
+  def set_slots(tx_id, object, slots, branch) do
+    write_command(tx_id, {:set_slots, {object, slots, :aos}}, branch)
+  end
+
   @spec retract_class(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
           non_neg_integer()
   def retract_class(tx_id, object, class, branch \\ AL.Branch.head()) do
@@ -570,10 +589,9 @@ defmodule AL.Command do
     write_command(tx_id, {:retract_slot, {object, key, store}}, branch)
   end
 
-  @spec send_async(non_neg_integer(), AL.Var.t(), AL.Var.t(), AL.Var.t(), AL.Branch.t()) ::
-          non_neg_integer()
-  def send_async(tx_id, object, method, args, branch \\ AL.Branch.head()) do
-    write_command(tx_id, {:send_async, {object, method, args}}, branch)
+  @spec await(non_neg_integer(), AL.Var.t(), AL.Branch.t()) :: non_neg_integer()
+  def await(tx_id, target, branch) do
+    write_command(tx_id, {:await, target}, branch)
   end
 
   @spec send_elixir(non_neg_integer(), pid(), term(), AL.Branch.t()) :: non_neg_integer()

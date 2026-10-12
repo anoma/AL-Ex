@@ -99,7 +99,7 @@ defmodule ALSourceProjectionTest do
     """
 
     try do
-      assert {:atomic, _} = AL.run(source, branch)
+      assert %AL{result: {:atomic, _}} = AL.run(source, branch)
 
       {_owner, _selector, _clause, _head, body} =
         branch |> clauses() |> Enum.find(&(elem(&1, 1) == :commented_example))
@@ -120,7 +120,7 @@ defmodule ALSourceProjectionTest do
       assert rendered =~ "# leading note"
       assert rendered =~ "# trailing note"
 
-      assert {:atomic, {bindings, _constraints, _state}} =
+      assert %AL{result: {:atomic, {bindings, _constraints, _state}}} =
                AL.run("commented_example object Answer.\n", branch)
 
       assert Map.get(bindings, "$Answer") == 1

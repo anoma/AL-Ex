@@ -10,7 +10,7 @@ defmodule Examples.ALFunctor do
   import ExUnit.Assertions
 
   example decomposes_a_send() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         functor (get Self size Size) Name Args.
@@ -23,7 +23,7 @@ defmodule Examples.ALFunctor do
   end
 
   example decomposes_built_in_goals() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         functor (dif X 3) DifName DifArgs.
@@ -44,7 +44,7 @@ defmodule Examples.ALFunctor do
   end
 
   example builds_the_goal_it_is_written_as() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         functor Dif dif [X, 3],
@@ -61,7 +61,7 @@ defmodule Examples.ALFunctor do
   end
 
   example decomposes_a_stored_clause_body() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         functor_example >> describe
@@ -81,7 +81,7 @@ defmodule Examples.ALFunctor do
   end
 
   example builds_then_decomposes_back_to_the_same_parts() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         functor Goal isa [Value, number],
@@ -95,7 +95,7 @@ defmodule Examples.ALFunctor do
   end
 
   example arithmetic_terms_pass_through_heads_as_data() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         @shapes
@@ -116,7 +116,7 @@ defmodule Examples.ALFunctor do
   end
 
   example compound_terms_are_values_of_class_compound() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         compound >> label
@@ -141,7 +141,7 @@ defmodule Examples.ALFunctor do
   end
 
   example an_open_term_carries_a_functor_constraint() do
-    {:atomic, {bindings, constraints, _state}} =
+    %AL{result: {:atomic, {bindings, constraints, _state}}} =
       run(
         ~S"""
         functor Built Name Args, = Name greet, = Args [world].

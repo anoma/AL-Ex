@@ -1229,9 +1229,29 @@ defmodule AL.Var do
   @spec find_vars(t(), MapSet.t(variable())) :: MapSet.t(variable())
   def find_vars(term), do: find_vars(term, MapSet.new())
 
-  def find_vars(term, acc) do
-    AL.Term.reduce(term, acc, fn leaf, s -> if var?(leaf), do: MapSet.put(s, leaf), else: s end)
-  end
+  def find_vars({:"$fresh", _base, _scope} = var, acc), do: MapSet.put(acc, var)
+
+  def find_vars({:"$var", name} = var, acc) when is_binary(name),
+    do: MapSet.put(acc, var)
+
+  def find_vars({:"$var", _name}, acc), do: acc
+  def find_vars([], acc), do: acc
+  def find_vars([head | tail], acc), do: find_vars(tail, find_vars(head, acc))
+
+  def find_vars(term, acc) when is_struct(term),
+    do:
+      Enum.reduce(Map.from_struct(term), acc, fn {_key, value}, found ->
+        find_vars(value, found)
+      end)
+
+  def find_vars(term, acc) when is_map(term),
+    do:
+      Enum.reduce(term, acc, fn {key, value}, found -> find_vars(value, find_vars(key, found)) end)
+
+  def find_vars(term, acc) when is_tuple(term),
+    do: term |> Tuple.to_list() |> find_vars(acc)
+
+  def find_vars(_term, acc), do: acc
 
   # Wrapping rather than minting keeps the atom table flat; a
   # re-freshened var nests, so distinct scopes stay distinct.

@@ -9,8 +9,11 @@ defmodule AL.JAM.VMTraceTest do
   end
 
   test "VM tracing retains optimized instructions and register snapshots", %{branch: branch} do
-    assert {:atomic, {plain, _, _}} = AL.run("count_to 0 3.", branch)
-    assert {:atomic, {^plain, _, state}} = AL.run("count_to 0 3.", branch, trace: [:vm])
+    assert %AL{result: {:atomic, {plain, _, _}}} = AL.run("count_to 0 3.", branch)
+
+    assert %AL{result: {:atomic, {^plain, _, state}}} =
+             AL.run("count_to 0 3.", branch, trace: [:vm])
+
     events = Enum.reverse(state.trace.events)
     assert Enum.all?(events, &match?(%AL.Trace.Event{kind: :vm}, &1))
     instructions = for %{payload: {:instruction, context}} <- events, do: context
@@ -38,7 +41,8 @@ defmodule AL.JAM.VMTraceTest do
   end
 
   test "goals and instruction flags retain distinct event families", %{branch: branch} do
-    assert {:atomic, {_, _, goals}} = AL.run("pass.", branch, trace: [:goals])
+    assert %AL{result: {:atomic, {_, _, goals}}} =
+             AL.run("pass.", branch, trace: [:goals])
 
     assert Enum.any?(
              goals.trace.events,
@@ -47,7 +51,9 @@ defmodule AL.JAM.VMTraceTest do
 
     assert Enum.all?(goals.trace.events, &(&1.kind == :goals))
 
-    assert {:atomic, {_, _, both}} = AL.run("pass.", branch, trace: [:goals, :vm])
+    assert %AL{result: {:atomic, {_, _, both}}} =
+             AL.run("pass.", branch, trace: [:goals, :vm])
+
     assert Enum.any?(both.trace.events, &(&1.kind == :goals))
 
     assert Enum.any?(
@@ -62,7 +68,7 @@ defmodule AL.JAM.VMTraceTest do
   test "instruction tracing includes collection branches and failed transactions", %{
     branch: branch
   } do
-    assert {:atomic, {%{"$Answers" => [:a, :b]}, _, state}} =
+    assert %AL{result: {:atomic, {%{"$Answers" => [:a, :b]}, _, state}}} =
              AL.run("findall X Answers {= X a ; = X b}.", branch, trace: [:vm])
 
     assert Enum.any?(
@@ -70,12 +76,12 @@ defmodule AL.JAM.VMTraceTest do
              &match?(%{payload: {:instruction, %{instruction: {:branch, _, _}}}}, &1)
            )
 
-    assert {:aborted, reason} = AL.run("fail.", branch, trace: [:vm])
+    assert %AL{result: {:aborted, reason}} = AL.run("fail.", branch, trace: [:vm])
     assert Enum.any?(reason.trace, &match?(%{payload: {:instruction, %{instruction: :fail}}}, &1))
   end
 
   test "integer guard fallback is visible without disabling the instruction", %{branch: branch} do
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @vm_trace_probe #{super => value}.
@@ -88,7 +94,7 @@ defmodule AL.JAM.VMTraceTest do
                branch
              )
 
-    assert {:atomic, {%{"$X" => 4, "$Y" => 5}, _, state}} =
+    assert %AL{result: {:atomic, {%{"$X" => 4, "$Y" => 5}, _, state}}} =
              AL.run(~S"increment #{class => vm_trace_probe} X Y.", branch, trace: [:vm])
 
     assert Enum.any?(

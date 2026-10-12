@@ -20,7 +20,7 @@ defmodule AL.JAMProgressTest do
   end
 
   test "a nested method failure retains completed top-level progress" do
-    assert {:aborted, %{state: %AL{failure_candidate: {{1, _, _}, _}}}} =
+    assert %AL{result: {:aborted, %{state: %AL.JAM.State{failure_candidate: {{1, _, _}, _}}}}} =
              AL.run("(pass). member [] X.")
   end
 end

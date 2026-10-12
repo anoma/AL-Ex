@@ -281,7 +281,7 @@ defmodule AL.Trace do
   I build the successful derivation tree from a completed AL evaluation state.
   I obtain its retained journal and final variable store directly.
   """
-  @spec derivation_tree(AL.t()) :: [map()]
+  @spec derivation_tree(AL.JAM.State.t()) :: [map()]
   def derivation_tree(state), do: AL.Trace.Derivation.build(state)
 
   @doc """

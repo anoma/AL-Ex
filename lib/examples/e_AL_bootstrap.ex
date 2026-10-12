@@ -60,7 +60,7 @@ defmodule Examples.ALBootstrap do
     branch = AL.Branch.fork()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           @projection_read_probe #{super => object}.
@@ -131,7 +131,7 @@ defmodule Examples.ALBootstrap do
           id
         end)
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         AL.run(
           ~S"""
           projection_read_probe >> value

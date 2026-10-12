@@ -19,7 +19,7 @@ defmodule Examples.ALStorage do
         branch: Examples.Support.branch()
       )
 
-    assert {:aborted, reason} = result
+    assert %AL{result: {:aborted, reason}} = result
     assert inspect(reason) =~ "requires an atom durable identity"
   end
 
@@ -27,7 +27,7 @@ defmodule Examples.ALStorage do
   # `storage: :soa` on `concentration`'s spec is invisible at every call
   # site, only observable via the explicit `slot/4` checks below.
   example set_slot_and_get_route_by_declared_storage() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @storage_probe
@@ -39,7 +39,7 @@ defmodule Examples.ALStorage do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new storage_probe Obj.
@@ -65,7 +65,7 @@ defmodule Examples.ALStorage do
   # map lands in `soa` from the very first write, not `aos` followed by
   # a later migration.
   example construction_routes_a_storage_soa_ivar_to_soa() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @storage_probe_construction
@@ -77,7 +77,7 @@ defmodule Examples.ALStorage do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new storage_probe_construction #{concentration => 5, regulators => [geneA]} Obj.
@@ -104,7 +104,7 @@ defmodule Examples.ALStorage do
   # so writing one silently re-versioned the other. With `concentration` on
   # its own `soa` row, writing `regulators` again doesn't touch it at all.
   example an_unrelated_slot_write_never_disturbs_a_storage_soa_slot() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @storage_probe_independence
@@ -116,7 +116,7 @@ defmodule Examples.ALStorage do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new storage_probe_independence Obj.

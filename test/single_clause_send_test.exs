@@ -2,7 +2,7 @@ defmodule AL.SingleClauseSendTest do
   use ExUnit.Case, async: false
 
   test "a clause added after a send is visible in the same transaction" do
-    {:atomic, _result} =
+    %AL{result: {:atomic, _result}} =
       AL.run(~S"""
       @send_plan_probe #{super => object}.
 
@@ -17,7 +17,7 @@ defmodule AL.SingleClauseSendTest do
   end
 
   test "a single clause keeps body alternatives and next-method dispatch" do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       AL.run(~S"""
       @send_plan_parent #{super => object}.
 
@@ -44,7 +44,7 @@ defmodule AL.SingleClauseSendTest do
   end
 
   test "open arguments retain multiple matching clauses in source order" do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       AL.run(~S"""
       @send_mode_probe #{super => object}.
 
@@ -63,7 +63,7 @@ defmodule AL.SingleClauseSendTest do
   end
 
   test "next-method dispatch works inside a nested goal" do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       AL.run(~S"""
       @nested_next_parent #{super => object}.
 

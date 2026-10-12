@@ -151,10 +151,11 @@ defmodule AL.TransactionProgram do
           :mnesia.abort(reason)
       end
     end)
+    |> AL.notify_outbox()
   end
 
   defp retain_transaction_source(
-         {_bindings, %AL{transaction_object: object}},
+         {_bindings, %AL.JAM.State{transaction_object: object}},
          text,
          origin,
          branch
@@ -251,6 +252,7 @@ defmodule AL.TransactionProgram do
         |> Enum.reverse()
         |> Enum.flat_map(&inverse/1)
         |> AL.eval(nil, branch)
+        |> AL.notify_outbox()
 
       other ->
         other
@@ -280,12 +282,26 @@ defmodule AL.TransactionProgram do
 
   defp inverse({:command, _t, _tx, command}) do
     case command do
-      {:set_class, {o, c}} -> [%AL.Goal.RetractClass{object: o, class: c}]
-      {:set_super, {o, s}} -> [%AL.Goal.RetractSuper{object: o, super: s}]
-      {:set_method, {o, n, id}} -> [%AL.Goal.RetractMethod{object: o, name: n, id: id}]
-      {:set_oapply, {o, _seq, h, _b}} -> [%AL.Goal.RetractOapply{object: o, head: h}]
-      {:set_slot, {o, k, _v, _store}} -> [%AL.Goal.RetractSlot{object: o, key: k}]
-      _ -> []
+      {:set_class, {o, c}} ->
+        [%AL.Goal.RetractClass{object: o, class: c}]
+
+      {:set_super, {o, s}} ->
+        [%AL.Goal.RetractSuper{object: o, super: s}]
+
+      {:set_method, {o, n, id}} ->
+        [%AL.Goal.RetractMethod{object: o, name: n, id: id}]
+
+      {:set_oapply, {o, _seq, h, _b}} ->
+        [%AL.Goal.RetractOapply{object: o, head: h}]
+
+      {:set_slot, {o, k, _v, _store}} ->
+        [%AL.Goal.RetractSlot{object: o, key: k}]
+
+      {:set_slots, {o, slots, :aos}} ->
+        Enum.map(slots, fn {key, _value} -> %AL.Goal.RetractSlot{object: o, key: key} end)
+
+      _ ->
+        []
     end
   end
 

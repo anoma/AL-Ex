@@ -1,10 +1,10 @@
 defmodule AL.JAM.Optimization do
   alias AL.JAM.{Execution, Frame, IR, Scan}
-  alias AL.JAM.IR.{Inline, Region, Rejection, Search, Selection}
+  alias AL.JAM.IR.{Inline, Region, Rejection, Search, Selection, SlotBatch}
 
   def rewrite_method(body, observable, inline?) do
     body = if inline?, do: Inline.callables(body, observable), else: body
-    body |> Region.compile(observable) |> Selection.select()
+    body |> Region.compile(observable) |> Selection.select() |> SlotBatch.compile()
   end
 
   def reject_clauses(candidates, index, call, store),

@@ -12,7 +12,7 @@ defmodule Examples.ALFreshening do
   example resolutions_mint_no_atoms() do
     branch = AL.Branch.fork()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class depth object.
@@ -31,7 +31,7 @@ defmodule Examples.ALFreshening do
 
     before = :erlang.system_info(:atom_count)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         down depth 5000.

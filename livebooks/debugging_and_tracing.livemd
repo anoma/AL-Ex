@@ -10,7 +10,7 @@ System.put_env(
 
 Mix.install(
   [{:al, github: "anoma/AL-Ex"}],
-  config: [al: [transaction_programs: [:bootstrap], natives: []]]
+  config: [al: [transaction_programs: [:bootstrap, :package_system], natives: []]]
 )
 ```
 
@@ -48,7 +48,7 @@ result =
     greett G world.
     """)
 
-{:aborted, reason} = result
+%AL{result: {:aborted, reason}} = result
 {reason.reason, reason.message}
 ```
 
@@ -90,7 +90,7 @@ AL's call-tree trace family is called "Domino" and is built on the classic Prolo
 Retained traces are opt-in and composable. Use `trace: [:domino]` when you need the structured evidence stream; ordinary runs retain no trace.
 
 ```elixir
-{:atomic, {bindings, state}} =
+%AL{result: {:atomic, {_bindings, _constraints, state}}} =
   run(~S"""
     fibonacci 3 X.
     """, trace: [:domino])
@@ -159,7 +159,7 @@ AL.notrace()
 
 `AL.Trace.derivation_tree/1` turns a completed run state into an operational derivation tree. Call nodes have successful answer children; answers carry the selected clause and what that call derived, and their children are the ordered nested calls and constraint evidence that produced the answer. Open variables nested inside a receiver or argument are included in a call's derivation. Unsuccessful attempts are pruned.
 ```elixir
-{:atomic, {bindings, state}} =
+%AL{result: {:atomic, {_bindings, _constraints, state}}} =
   run(~S"""
     fibonacci 3 X.
     """, trace: [:domino])
@@ -186,7 +186,7 @@ run(~S"""
 ```
 
 ```elixir
-{:atomic, {bindings, state}} =
+%AL{result: {:atomic, {_bindings, _constraints, state}}} =
   run(~S"""
     new redo_demo #{} Obj.
     pick Obj Result.
@@ -232,7 +232,7 @@ run(~S"""
 ```
 
 ```elixir
-{:atomic, {bindings, state}} =
+%AL{result: {:atomic, {_bindings, _constraints, state}}} =
   run(~S"""
     new probe_box #{} Obj.
     probe_answer Obj R.
@@ -242,11 +242,11 @@ roots = AL.Trace.derivation_tree(state)
 answer = Enum.find(roots, &match?(%{label: {_, :probe_answer, _}}, &1))
 
 [answer_result] = answer.children
-[top] = answer_result.children
+top = Enum.find(answer_result.children, &(&1.kind == :method))
 [top_result] = top.children
-[mid] = top_result.children
+mid = Enum.find(top_result.children, &(&1.kind == :method))
 [mid_result] = mid.children
-[leaf] = mid_result.children
+leaf = Enum.find(mid_result.children, &(&1.kind == :method))
 
 {top.label, mid.label, leaf.label, Enum.any?(roots, &match?(%{label: {_, :probe_reject, _}}, &1))}
 ```
@@ -267,7 +267,7 @@ run(~S"""
 ```
 
 ```elixir
-{:atomic, {bindings, state}} =
+%AL{result: {:atomic, {_bindings, _constraints, state}}} =
   run(~S"""
     new triple_class #{} Obj.
     triple Obj 4 R.

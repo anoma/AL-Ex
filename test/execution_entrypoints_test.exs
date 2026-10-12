@@ -20,7 +20,7 @@ defmodule AL.ExecutionEntrypointsTest do
         branch: branch.id
       )
 
-    assert {:atomic, _} = definition
+    assert %AL{result: {:atomic, _}} = definition
 
     query =
       run(
@@ -30,7 +30,7 @@ defmodule AL.ExecutionEntrypointsTest do
         branch: branch.id
       )
 
-    assert {:atomic, {bindings, _, _}} = query
+    assert %AL{result: {:atomic, {bindings, _, _}}} = query
 
     assert bindings["$X"] == 7
     assert AL.Source.method_sources(:execution_probe, branch) != []
@@ -44,7 +44,7 @@ defmodule AL.ExecutionEntrypointsTest do
         branch: branch.id
       )
 
-    assert {:atomic, _} = replacement
+    assert %AL{result: {:atomic, _}} = replacement
 
     query =
       run(
@@ -54,19 +54,19 @@ defmodule AL.ExecutionEntrypointsTest do
         branch: branch.id
       )
 
-    assert {:atomic, {%{"$X" => 8}, _, _}} = query
+    assert %AL{result: {:atomic, {%{"$X" => 8}, _, _}}} = query
   end
 
   test "runtime text preserves backtracking", %{branch: branch} do
-    assert {:atomic, {%{"$X" => 2}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$X" => 2}, _, _}}} =
              AL.run("(= X 1 ; = X 2), = X 2.", branch)
   end
 
   test "run binds AL variables from explicit inputs", %{branch: branch} do
-    assert {:atomic, {%{"$Result" => 7}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$Result" => 7}, _, _}}} =
              AL.run("= Result Input.", branch, bindings: %{"Input" => 7})
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                """
                @binding_probe \#{super => object}.
@@ -78,7 +78,7 @@ defmodule AL.ExecutionEntrypointsTest do
                bindings: %{"Input" => 7}
              )
 
-    assert {:atomic, {%{"$Result" => 7}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$Result" => 7}, _, _}}} =
              AL.run("new binding_probe Probe, answer Probe Result.", branch, [])
   end
 

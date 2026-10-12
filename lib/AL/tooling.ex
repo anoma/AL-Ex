@@ -328,10 +328,12 @@ defmodule AL.Tooling do
     |> al_run_result()
   end
 
-  defp al_run_result({:atomic, {bindings, _constraints, %AL{} = state}}),
+  defp al_run_result(%AL{result: {:atomic, {bindings, _constraints, %AL.JAM.State{} = state}}}),
     do: {:ok, bindings, state}
 
-  defp al_run_result({:aborted, reason}), do: {:error, {:al_run_failed, reason}}
+  defp al_run_result(%AL{result: {:aborted, reason}}),
+    do: {:error, {:al_run_failed, reason}}
+
   defp al_run_result({:error, reason}), do: {:error, {:al_run_failed, reason}}
 
   defp references(bindings, target) do
@@ -537,7 +539,7 @@ defmodule AL.Tooling do
     end)
   end
 
-  defp failure_state(%{state: %AL{} = state}) do
+  defp failure_state(%{state: %AL.JAM.State{} = state}) do
     %{
       "branch" => branch_name(state.branch),
       "reductions" => state.reductions,
@@ -582,7 +584,7 @@ defmodule AL.Tooling do
 
   defp binding(bindings, :lookup_scopes), do: Map.get(bindings, "$LookupScopes", [])
 
-  defp observation(%AL{} = state) do
+  defp observation(%AL.JAM.State{} = state) do
     %{
       "transaction" => state.tx_id,
       "object" => identity(state.transaction_object)

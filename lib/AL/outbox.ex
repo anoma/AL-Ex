@@ -1,8 +1,8 @@
 defmodule AL.Outbox do
   @moduledoc """
   I dispatch the asynchronous commands committed to one branch's outbox.
-  `send_async`, `send_elixir`, effects, and live edge resources are best-effort
-  and are not recovered after a node failure.
+  Scheduled future transactions are recovered from modeled state at startup.
+  `send_elixir`, effects, and live edge resources are best-effort.
   """
 
   use GenServer
@@ -49,12 +49,24 @@ defmodule AL.Outbox do
     end
   end
 
-  @doc "Notify the branch outbox after a transaction commits."
-  @spec committed(AL.Branch.t(), non_neg_integer()) :: :ok
-  def committed(branch, tx_id) do
+  def dispatch(branch, work) do
     case Process.whereis(name(branch)) do
       nil -> :ok
-      pid -> GenServer.cast(pid, {:committed, tx_id, Process.group_leader()})
+      pid -> GenServer.cast(pid, {:dispatch, work, Process.group_leader()})
+    end
+  end
+
+  def await(branch, target, timeout) do
+    request = make_ref()
+    server = name(branch)
+
+    try do
+      GenServer.call(server, {:await, target, request}, timeout)
+    catch
+      :exit, {:timeout, _} -> {:error, {:completion_timeout, target}}
+      :exit, {reason, _} -> {:error, {:completion_unavailable, target, reason}}
+    after
+      GenServer.cast(server, {:cancel_wait, request})
     end
   end
 
@@ -67,37 +79,96 @@ defmodule AL.Outbox do
   @impl true
   def init(branch) do
     Process.flag(:trap_exit, true)
-    {:ok, %{branch: branch, tasks: %{}}, {:continue, :recover}}
+
+    {:ok, %{branch: branch, tasks: %{}, waiters: %{}, pending: %{}, running: MapSet.new()},
+     {:continue, :recover}}
   end
 
   @impl true
   def handle_continue(:recover, state) do
-    tasks =
-      state.branch
-      |> recoverable_future_transactions()
-      |> dispatch_future_transactions(state.branch)
-
-    {:noreply, monitor_tasks(state, tasks)}
+    {:noreply,
+     dispatch_deliveries(
+       state,
+       recoverable_future_transactions(state.branch),
+       Process.group_leader()
+     )}
   end
 
   @impl true
-  def handle_cast({:committed, tx_id, device}, state) do
-    commands = commands_for_transaction(tx_id, state.branch)
+  def handle_cast({:dispatch, work, device}, state) do
+    state = dispatch_deliveries(state, work.deliveries, device)
 
-    tasks =
-      dispatch_commands(commands, state.branch, device) ++
-        dispatch_triggered_future_transactions(commands, state.branch, device)
+    state =
+      Enum.reduce([work.transaction | work.completed_objects], state, fn target, state ->
+        notify_completion(state, target)
+      end)
 
-    {:noreply, monitor_tasks(state, tasks)}
+    {:noreply, state}
+  end
+
+  def handle_cast({:cancel_wait, request}, state) do
+    {cancelled, pending} =
+      Enum.split_with(state.waiters, fn {_, {_, ref, _}} -> ref == request end)
+
+    Enum.each(cancelled, fn {monitor, _} -> Process.demonitor(monitor, [:flush]) end)
+    {:noreply, %{state | waiters: Map.new(pending)}}
+  end
+
+  defp notify_completion(state, target) do
+    {completed, pending} = Enum.split_with(state.waiters, fn {_, {id, _, _}} -> id == target end)
+
+    Enum.each(completed, fn {monitor, {_, _, from}} ->
+      Process.demonitor(monitor, [:flush])
+      GenServer.reply(from, :ready)
+    end)
+
+    state = %{state | waiters: Map.new(pending)}
+    activate_pending(state, target)
   end
 
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state),
-    do: {:noreply, %{state | tasks: Map.delete(state.tasks, ref)}}
+  def handle_call({:await, target, request}, from, state) do
+    case completion_pending?(target, state.branch) do
+      true ->
+        monitor = Process.monitor(elem(from, 0))
+        {:noreply, %{state | waiters: Map.put(state.waiters, monitor, {target, request, from})}}
+
+      false ->
+        {:reply, :ready, state}
+    end
+  end
+
+  defp completion_pending?(target, branch) do
+    case :mnesia.transaction(fn -> AL.Object.read_slots(target, branch) end) do
+      {:atomic, [{:slots, ^target, %{status: status}}]}
+      when status in [:pending, :ready, :waiting, :running] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
+    running =
+      case Map.get(state.tasks, ref) do
+        {_pid, future} when not is_nil(future) -> MapSet.delete(state.running, future)
+        _ -> state.running
+      end
+
+    {:noreply,
+     %{
+       state
+       | tasks: Map.delete(state.tasks, ref),
+         waiters: Map.delete(state.waiters, ref),
+         running: running
+     }}
+  end
 
   @impl true
   def terminate(_reason, state) do
-    Enum.each(state.tasks, fn {ref, pid} ->
+    Enum.each(state.tasks, fn {ref, {pid, _future}} ->
       Process.exit(pid, :kill)
 
       receive do
@@ -106,145 +177,90 @@ defmodule AL.Outbox do
     end)
   end
 
-  defp monitor_tasks(state, pids) do
+  defp monitor_tasks(state, tasks_to_monitor) do
     tasks =
-      Enum.reduce(pids, state.tasks, fn pid, tasks ->
-        Map.put(tasks, Process.monitor(pid), pid)
+      Enum.reduce(tasks_to_monitor, state.tasks, fn {pid, future}, tasks ->
+        Map.put(tasks, Process.monitor(pid), {pid, future})
       end)
 
     %{state | tasks: tasks}
   end
 
-  defp commands_for_transaction(tx_id, branch) do
-    case :mnesia.transaction(fn -> AL.Command.commands_for_transaction(tx_id, branch) end) do
-      {:atomic, commands} ->
-        Enum.sort_by(commands, fn {:command, time, _tx_id, _command} -> time end)
+  defp dispatch_deliveries(state, deliveries, device) do
+    Enum.reduce(deliveries, state, fn
+      {:send, pid, message}, state ->
+        send(pid, message)
+        state
 
-      {:aborted, {:no_exists, _table}} ->
-        []
+      {:effect, effect, provider, operation, arguments}, state ->
+        tasks = AL.Edge.enqueue(effect, provider, operation, arguments, state.branch, device)
+        monitor_tasks(state, Enum.map(tasks, &{&1, nil}))
+
+      {:start_future, future}, state ->
+        start_future(state, future, device)
+
+      {:wait_for_transaction, future, transaction}, state ->
+        if transaction_finished?(transaction, state.branch) do
+          start_future(state, future, device)
+        else
+          pending =
+            Map.update(
+              state.pending,
+              transaction,
+              %{future => device},
+              &Map.put(&1, future, device)
+            )
+
+          %{state | pending: pending}
+        end
+    end)
+  end
+
+  defp activate_pending(state, target) do
+    case Map.get(state.pending, target) do
+      nil ->
+        state
+
+      futures ->
+        if transaction_finished?(target, state.branch) do
+          state = %{state | pending: Map.delete(state.pending, target)}
+
+          Enum.reduce(futures, state, fn {future, device}, state ->
+            start_future(state, future, device)
+          end)
+        else
+          state
+        end
     end
   end
 
-  defp dispatch_commands(commands, branch, device) do
-    Enum.flat_map(commands, fn
-      {:command, _time, _tx_id, {:send_async, {object, method, args}}} ->
-        {:ok, pid} =
-          Task.start(fn ->
-            Process.group_leader(self(), device)
-
-            result =
-              AL.eval([%AL.Goal.Send{object: object, method: method, args: args}], nil, branch)
-
-            handle_async_result(result, object, method, branch)
-          end)
-
-        [pid]
-
-      {:command, _time, _tx_id, {:send_elixir, {pid, message}}} ->
-        send(pid, message)
-        []
-
-      {:command, _time, _tx_id, {:effect, {:object, effect_id, provider, operation, arguments}}} ->
-        AL.Edge.enqueue(effect_id, provider, operation, arguments, branch, device)
-
-      _ ->
-        []
-    end)
-  end
-
-  defp dispatch_triggered_future_transactions(commands, branch, device) do
-    changed = changed_objects(commands)
-    created = created_future_transactions(commands)
-
-    futures =
-      case :mnesia.transaction(fn ->
-             triggered_future_transactions(changed, created, branch)
-           end) do
-        {:atomic, futures} -> futures
-        {:aborted, _reason} -> []
-      end
-
-    dispatch_future_transactions(futures, branch, device)
-  end
-
-  defp dispatch_future_transactions(futures, branch, device \\ Process.group_leader()) do
-    Enum.map(futures, fn future ->
+  defp start_future(state, future, device) do
+    if MapSet.member?(state.running, future) do
+      state
+    else
       {:ok, pid} =
         Task.start(fn ->
           Process.group_leader(self(), device)
-          result = AL.eval([%AL.Goal.Send{object: future, method: :run, args: []}], nil, branch)
-          handle_async_result(result, future, :run, branch)
+          AL.Runner.FutureTransaction.execute(future, state.branch)
         end)
 
-      pid
-    end)
-  end
-
-  defp changed_objects(commands) do
-    commands
-    |> Enum.flat_map(fn
-      {:command, _time, _tx_id, {operation, arguments}}
-      when operation in [
-             :set_class,
-             :set_super,
-             :set_method,
-             :set_oapply,
-             :set_slot,
-             :set_native,
-             :retract_class,
-             :retract_super,
-             :retract_method,
-             :retract_oapply,
-             :retract_slot,
-             :retract_native
-           ] and is_tuple(arguments) ->
-        [elem(arguments, 0)]
-
-      _command ->
-        []
-    end)
-    |> MapSet.new()
-  end
-
-  defp created_future_transactions(commands) do
-    commands
-    |> Enum.flat_map(fn
-      {:command, _time, _tx_id, {:set_class, {future, :future_transaction}}} -> [future]
-      _command -> []
-    end)
-    |> MapSet.new()
-  end
-
-  defp triggered_future_transactions(changed, created, branch) do
-    future_transactions(branch)
-    |> Enum.flat_map(fn {future, slots} ->
-      cond do
-        slots[:status] == :ready and MapSet.member?(created, future) ->
-          [future]
-
-        slots[:status] == :waiting and
-          (MapSet.member?(created, future) or MapSet.member?(changed, slots[:effect])) and
-            effect_completed?(slots[:effect], branch) ->
-          [future]
-
-        true ->
-          []
-      end
-    end)
+      state = monitor_tasks(state, [{pid, future}])
+      %{state | running: MapSet.put(state.running, future)}
+    end
   end
 
   defp recoverable_future_transactions(branch) do
     case :mnesia.transaction(fn ->
            future_transactions(branch)
            |> Enum.flat_map(fn {future, slots} ->
-             cond do
-               slots[:status] == :ready ->
-                 [future]
+             case slots do
+               %{status: :ready} ->
+                 [{:start_future, future}]
 
-               slots[:status] == :waiting and effect_completed?(slots[:effect], branch) ->
-                 [future]
+               %{status: :waiting, wait_transaction: transaction} ->
+                 [{:wait_for_transaction, future, transaction}]
 
-               true ->
+               _ ->
                  []
              end
            end)
@@ -264,32 +280,16 @@ defmodule AL.Outbox do
     end)
   end
 
-  defp effect_completed?(effect, branch) when is_atom(effect) do
-    case AL.Object.read_slots(effect, branch) do
-      [{:slots, ^effect, %{status: :completed}}] -> true
-      _rows -> false
+  defp transaction_finished?(transaction, branch) when is_atom(transaction) do
+    case :mnesia.transaction(fn -> AL.Object.read_slots(transaction, branch) end) do
+      {:atomic, [{:slots, ^transaction, %{status: status}}]}
+      when status in [:committed, :failed] ->
+        true
+
+      _ ->
+        false
     end
   end
 
-  defp effect_completed?(_effect, _branch), do: false
-
-  defp handle_async_result({:atomic, _result}, _object, _method, _branch), do: :ok
-
-  defp handle_async_result(
-         failure,
-         object,
-         :deliver,
-         branch
-       ) do
-    case AL.eval(
-           [%AL.Goal.Send{object: object, method: :delivery_failed, args: []}],
-           nil,
-           branch
-         ) do
-      {:atomic, _result} -> :ok
-      {:aborted, reason} -> {:error, {failure, reason}}
-    end
-  end
-
-  defp handle_async_result(_failure, _object, _method, _branch), do: :ok
+  defp transaction_finished?(_transaction, _branch), do: false
 end

@@ -99,13 +99,23 @@ defmodule AL.Object do
   # sorted {seq, tx_from}: seq alone ties across objects, tx_from breaks it
   @spec scan_class(AL.Var.t(), AL.Var.t(), AL.Branch.t()) :: [class_record()]
   def scan_class(self_pattern, class_pattern, branch \\ AL.Branch.head()) do
-    seq_var = fresh_wildcard("seq")
-    tx_from_var = fresh_wildcard("tx_from")
+    rows =
+      if is_atom(self_pattern) and not AL.Var.var?(self_pattern) and
+           AL.Var.var?(class_pattern) do
+        for {:soa, ^self_pattern, :class, _seq, _tx_from, :open, _class} = row <-
+              :mnesia.read(table(:soa, branch), self_pattern),
+            do: row
+      else
+        seq_var = fresh_wildcard("seq")
+        tx_from_var = fresh_wildcard("tx_from")
 
-    select(
-      table(:soa, branch),
-      {:soa, self_pattern, :class, seq_var, tx_from_var, :open, class_pattern}
-    )
+        select(
+          table(:soa, branch),
+          {:soa, self_pattern, :class, seq_var, tx_from_var, :open, class_pattern}
+        )
+      end
+
+    rows
     |> Enum.sort_by(fn {:soa, _o, :class, seq, tx_from, :open, _c} -> {seq, tx_from} end)
     |> Enum.map(fn {:soa, o, :class, seq, _tx_from, :open, c} -> {:class, o, seq, c} end)
     |> Kernel.++(branch_classes(self_pattern, class_pattern))
@@ -635,6 +645,64 @@ defmodule AL.Object do
     invalidate_class_metadata_caches(branch, [key])
   end
 
+  @spec set_aos_slots(
+          AL.Var.t(),
+          [{AL.Var.t(), AL.Var.t()}],
+          non_neg_integer(),
+          AL.Branch.t()
+        ) :: :ok
+  def set_aos_slots(object, changes, tx, branch) do
+    rows = open_aos_rows(object, branch)
+
+    existing =
+      case rows do
+        [{:aos, ^object, _tx_from, :open, slots}] when is_map(slots) -> slots
+        _ -> %{}
+      end
+
+    close_rows(:aos, rows, tx, branch)
+    slots = Enum.reduce(changes, existing, fn {key, value}, acc -> Map.put(acc, key, value) end)
+    write_aos_version(object, tx, :open, slots, branch)
+    :mnesia.write(table(:aos_current, branch), {:aos_current, object, tx, slots}, :write)
+
+    keys = Enum.map(changes, &elem(&1, 0))
+    Enum.each(keys, &invalidate_slot_providers(object, &1, branch))
+    invalidate_class_metadata_caches(branch, keys)
+    :ok
+  end
+
+  @spec set_aos_slot_batch(
+          AL.Var.t(),
+          [{AL.Var.t(), AL.Var.t(), non_neg_integer()}],
+          AL.Branch.t()
+        ) :: :ok
+  def set_aos_slot_batch(object, [{first_key, first_value, first_tx} | rest] = changes, branch) do
+    rows = open_aos_rows(object, branch)
+
+    existing =
+      case rows do
+        [{:aos, ^object, _tx_from, :open, slots}] when is_map(slots) -> slots
+        _ -> %{}
+      end
+
+    close_rows(:aos, rows, first_tx, branch)
+
+    {last_tx, slots} =
+      Enum.reduce(rest, {first_tx, Map.put(existing, first_key, first_value)}, fn
+        {key, value, tx}, {previous_tx, previous_slots} ->
+          write_aos_version(object, previous_tx, tx, previous_slots, branch)
+          {tx, Map.put(previous_slots, key, value)}
+      end)
+
+    write_aos_version(object, last_tx, :open, slots, branch)
+    :mnesia.write(table(:aos_current, branch), {:aos_current, object, last_tx, slots}, :write)
+
+    keys = Enum.map(changes, &elem(&1, 0))
+    Enum.each(keys, &invalidate_slot_providers(object, &1, branch))
+    invalidate_class_metadata_caches(branch, keys)
+    :ok
+  end
+
   @spec set_soa_slot(AL.Var.t(), AL.Var.t(), AL.Var.t(), non_neg_integer(), AL.Branch.t()) :: :ok
   def set_soa_slot(object, key, value, tx, branch \\ AL.Branch.head()) do
     close_current_soa_slot(object, key, tx, branch)
@@ -718,6 +786,7 @@ defmodule AL.Object do
       :set_method -> with {o, n, id} <- event, do: set_method(o, n, id, t, branch)
       :set_oapply -> with {o, s, h, b} <- event, do: set_oapply(o, s, h, b, t, branch)
       :set_slot -> with {o, k, v, store} <- event, do: set_slot(o, k, v, store, t, branch)
+      :set_slots -> with {o, slots, :aos} <- event, do: set_aos_slots(o, slots, t, branch)
       :set_native -> with {o, mfa} <- event, do: set_native(o, mfa, t, branch)
       :retract_class -> with {o, c} <- event, do: retract_class(o, c, t, branch)
       :retract_super -> with {o, s} <- event, do: retract_super(o, s, t, branch)
@@ -725,7 +794,7 @@ defmodule AL.Object do
       :retract_oapply -> with {o, h} <- event, do: retract_oapply(o, h, t, branch)
       :retract_slot -> with {o, k, store} <- event, do: retract_slot(o, k, store, t, branch)
       :retract_native -> with {o, mfa} <- event, do: retract_native(o, mfa, t, branch)
-      :send_async -> :ok
+      :await -> :ok
       :send_elixir -> :ok
       :effect -> :ok
     end

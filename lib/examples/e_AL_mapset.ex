@@ -13,7 +13,7 @@ defmodule Examples.ALMapset do
   import ExUnit.Assertions
 
   example new_mapset_canonicalizes_elems() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [3, 1, 2, 1]} S.
@@ -30,7 +30,7 @@ defmodule Examples.ALMapset do
   end
 
   example mapset_elem_checks_membership() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4, 7]} S.
@@ -47,7 +47,7 @@ defmodule Examples.ALMapset do
   end
 
   example empty_mapset_has_no_elements() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => []} Empty.
@@ -62,7 +62,7 @@ defmodule Examples.ALMapset do
   end
 
   example insert_into_empty_mapset_makes_a_singleton() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => []} Empty.
@@ -76,7 +76,7 @@ defmodule Examples.ALMapset do
   end
 
   example insert_existing_element_is_idempotent() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4]} S.
@@ -90,7 +90,7 @@ defmodule Examples.ALMapset do
   end
 
   example insert_new_element_grows_the_mapset() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4]} S.
@@ -104,7 +104,7 @@ defmodule Examples.ALMapset do
   end
 
   example union_deduplicates_overlapping_elements() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4]} S1.
@@ -119,7 +119,7 @@ defmodule Examples.ALMapset do
   end
 
   example union_of_disjoint_mapsets_combines_elements() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4]} S1.
@@ -146,12 +146,12 @@ defmodule Examples.ALMapset do
         branch: Examples.Support.branch()
       )
 
-    assert {:aborted, _} = result
+    assert %AL{result: {:aborted, _}} = result
     :ok
   end
 
   example elem_generates_a_singleton_mapset_for_unbound_receiver() do
-    {:atomic, {b1, _constraints, _}} =
+    %AL{result: {:atomic, {b1, _constraints, _}}} =
       run(
         ~S"""
         elem X 7.
@@ -173,12 +173,12 @@ defmodule Examples.ALMapset do
         branch: Examples.Support.branch()
       )
 
-    assert {:aborted, _} = result
+    assert %AL{result: {:aborted, _}} = result
     :ok
   end
 
   example members_of_empty_mapset_is_empty_list() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => []} Empty.
@@ -192,7 +192,7 @@ defmodule Examples.ALMapset do
   end
 
   example members_of_mapset_is_its_elems() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4, 7]} S.
@@ -206,7 +206,7 @@ defmodule Examples.ALMapset do
   end
 
   example members_constructs_a_canonical_mapset_from_a_member_list() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         members S [3, 1, 2, 1].
@@ -223,7 +223,7 @@ defmodule Examples.ALMapset do
   end
 
   example intersection_of_overlapping_mapsets_produces_a_mapset() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [3, 4]} S1.
@@ -238,7 +238,7 @@ defmodule Examples.ALMapset do
   end
 
   example intersection_of_disjoint_mapsets_is_empty() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new mapset_value #{elems => [4]} S1.

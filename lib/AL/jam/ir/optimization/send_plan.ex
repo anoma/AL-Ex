@@ -21,7 +21,7 @@ defmodule AL.JAM.IR.SendPlan do
 
             compiled =
               if planning?,
-                do: Plan.select(original, receiver, selector, operands, branch),
+                do: Plan.select(original, receiver, selector, operands, method, branch),
                 else: original
 
             guard = if compiled === original, do: :any, else: {:exact, receiver}

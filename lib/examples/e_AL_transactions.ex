@@ -35,7 +35,7 @@ defmodule Examples.ALTransactions do
     a = fresh_id()
     b = fresh_id()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostA object.
@@ -44,7 +44,7 @@ defmodule Examples.ALTransactions do
         bindings: %{"HostA" => a}
       )
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class HostB object.
@@ -73,7 +73,7 @@ defmodule Examples.ALTransactions do
   example commands_are_available_as_a_relation() do
     object = fresh_id()
 
-    {:atomic, {_bindings, _constraints, written}} =
+    %AL{result: {:atomic, {_bindings, _constraints, written}}} =
       run(
         ~S"""
         vm_set_class HostObject object.
@@ -84,7 +84,7 @@ defmodule Examples.ALTransactions do
 
     tx_id = written.tx_id
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall [Time, Operation] Commands (vm_command HostTxId Time Operation).

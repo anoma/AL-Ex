@@ -11,7 +11,7 @@ defmodule Examples.ALFileWatch do
     File.write!(path, "initial")
 
     try do
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         run(
           ~S"""
           @observed_file_watch
@@ -44,7 +44,7 @@ defmodule Examples.ALFileWatch do
       start_effect = bindings["$StartEffect"]
       assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :watching}, 2_000
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           class HostWatcher observed_file_watch.
@@ -69,7 +69,7 @@ defmodule Examples.ALFileWatch do
       File.write!(path, "second")
       assert_receive %{event: :file_changed, watcher: ^watcher, contents: "second"}, 2_000
 
-      {:atomic, {stop_bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {stop_bindings, _constraints, _state}}} =
         run(
           ~S"""
           stop_watching HostWatcher StopEffect.
@@ -81,7 +81,7 @@ defmodule Examples.ALFileWatch do
       stop_effect = stop_bindings["$StopEffect"]
       assert_receive %{event: :file_watch_status, watcher: ^watcher, status: :stopped}, 2_000
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           class HostStopEffect effect.
@@ -94,7 +94,7 @@ defmodule Examples.ALFileWatch do
       File.write!(path, "third")
       refute_receive %{event: :file_changed, watcher: ^watcher, contents: "third"}, 150
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           get HostWatcher contents "second".

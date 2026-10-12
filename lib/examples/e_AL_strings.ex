@@ -9,7 +9,7 @@ defmodule Examples.ALStrings do
   import ExUnit.Assertions
 
   example a_string_is_a_string_value() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         class "hello" C.
@@ -23,7 +23,7 @@ defmodule Examples.ALStrings do
   end
 
   example a_string_receives_string_methods() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         string >> paired_example
@@ -38,7 +38,7 @@ defmodule Examples.ALStrings do
   end
 
   example string_codes_relates_a_string_to_its_codepoints() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         string_codes "héllo" Codes.
@@ -52,7 +52,7 @@ defmodule Examples.ALStrings do
   end
 
   example atom_string_relates_atoms_and_strings() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         atom_string Atom "hello".
@@ -67,7 +67,7 @@ defmodule Examples.ALStrings do
   end
 
   example atom_string_waits_for_a_known_side() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         atom_string Atom Text.
@@ -80,7 +80,7 @@ defmodule Examples.ALStrings do
   end
 
   example atom_recognizes_atoms_without_binding_variables() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         atom hello.
@@ -95,7 +95,7 @@ defmodule Examples.ALStrings do
   end
 
   example string_codes_binds_open_codes_from_a_string() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         string_codes "hi" [104, Second].
@@ -107,7 +107,7 @@ defmodule Examples.ALStrings do
   end
 
   example string_codes_rejects_what_is_not_text() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         string_codes 42 _Codes.
@@ -115,7 +115,7 @@ defmodule Examples.ALStrings do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         string_codes _String [55296].
@@ -123,7 +123,7 @@ defmodule Examples.ALStrings do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         string_codes "hi" [104].
@@ -135,7 +135,7 @@ defmodule Examples.ALStrings do
   end
 
   example string_codes_waits_until_either_side_is_known() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         string_codes FromCodes [104 . Rest].
@@ -151,7 +151,7 @@ defmodule Examples.ALStrings do
   end
 
   example string_codes_follows_constraints_on_its_codes() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall String Strings {
@@ -168,7 +168,7 @@ defmodule Examples.ALStrings do
   end
 
   example concat_joins_strings() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         concat "rela" "tion" Whole.
@@ -182,7 +182,7 @@ defmodule Examples.ALStrings do
   end
 
   example concat_enumerates_every_split_of_a_pinned_string() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall [Front, Back] Splits {isa Front string, concat Front Back "abc"}.
@@ -199,7 +199,7 @@ defmodule Examples.ALStrings do
   end
 
   example an_unpinned_receiver_also_reads_concat_as_a_list() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall [Front, Back] Splits (concat Front Back "ab").
@@ -212,7 +212,7 @@ defmodule Examples.ALStrings do
   end
 
   example split_separates_a_string_at_each_separator() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall Parts Answers (split "a,b,,c" "," Parts).
@@ -228,7 +228,7 @@ defmodule Examples.ALStrings do
   end
 
   example split_joins_parts_with_a_separator() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         split Joined ", " ["one", "two", "three"].
@@ -240,7 +240,7 @@ defmodule Examples.ALStrings do
   end
 
   example split_cuts_at_the_leftmost_separator() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall Parts Answers (split "a:::b" "::" Parts).
@@ -252,7 +252,7 @@ defmodule Examples.ALStrings do
   end
 
   example split_rejects_parts_that_contain_the_separator() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         split _Joined "," ["a,b", "c"].
@@ -260,7 +260,7 @@ defmodule Examples.ALStrings do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         split "abc" "" _Parts.
@@ -272,7 +272,7 @@ defmodule Examples.ALStrings do
   end
 
   example split_works_on_any_list() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         split [1, 0, 2, 3, 0, 4] [0] Parts.
@@ -284,7 +284,7 @@ defmodule Examples.ALStrings do
   end
 
   example length_counts_codepoints() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         length "héllo" N.

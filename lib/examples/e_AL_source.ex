@@ -52,7 +52,7 @@ defmodule Examples.ALSource do
   example branch_scoped_method_sources() do
     branch = AL.Branch.fork()
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_class scoped object.
@@ -108,11 +108,11 @@ defmodule Examples.ALSource do
       | Self hi |.
       """
 
-      {:atomic, _} = AL.run(source, branch)
+      %AL{result: {:atomic, _}} = AL.run(source, branch)
 
       output =
         capture_io(fn ->
-          {:atomic, {bindings, _, _}} =
+          %AL{result: {:atomic, {bindings, _, _}}} =
             run(
               ~S"""
               listing HostClass greet, print "" Done.
@@ -245,8 +245,8 @@ defmodule Examples.ALSource do
       {:all_dif, [{:"$var", "A"}, {:"$var", "B"}]},
       {:send, {:"$var", "O"}, :sel, [{:"$var", "A"}]},
       {:send, {:"$var", "O"}, {:"$var", "Selector"}, []},
-      {:send_async, {:"$var", "O"}, :sel, [{:"$var", "A"}]},
-      {:send_async, {:"$var", "O"}, {:"$var", "Selector"}, []},
+      {:send_async, {:"$var", "O"}, :sel, [{:"$var", "A"}], {:"$var", "_"}},
+      {:send_async, {:"$var", "O"}, {:"$var", "Selector"}, [], {:"$var", "_"}},
       {:emit_effect, {:"$var", "Effect"}, {:"$var", "Provider"}, {:"$var", "Operation"},
        {:"$var", "Arguments"}},
       {:compare, :>, {:"$var", "X"}, 1},

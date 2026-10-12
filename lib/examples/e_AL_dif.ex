@@ -10,7 +10,7 @@ defmodule Examples.ALDif do
   import ExUnit.Assertions
 
   example dif_resolves_immediately_when_ground() do
-    {:atomic, {_bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _state}}} =
       run(
         ~S"""
         dif 1 2.
@@ -18,7 +18,7 @@ defmodule Examples.ALDif do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         dif 1 1.
@@ -30,7 +30,7 @@ defmodule Examples.ALDif do
   end
 
   example dif_survives_a_non_conflicting_binding() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dif X 1.
@@ -43,7 +43,7 @@ defmodule Examples.ALDif do
   end
 
   example dif_fails_a_conflicting_binding() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         dif X 1.
@@ -60,7 +60,7 @@ defmodule Examples.ALDif do
   # and fails, so backtracking falls through to the recursive clause and tries
   # `x = 2` — never surfacing 1 as a candidate at all.
   example dif_prunes_a_generate_and_test_search() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dif X 1.
@@ -76,7 +76,7 @@ defmodule Examples.ALDif do
   # two full rounds of `member`'s own backtracking (rejecting 1, then 2)
   # before landing on the one value that satisfies both.
   example dif_two_direct_constraints_both_enforced() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         dif X 1.
@@ -86,7 +86,7 @@ defmodule Examples.ALDif do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         dif X 1.
@@ -96,7 +96,7 @@ defmodule Examples.ALDif do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dif X 1.
@@ -115,7 +115,7 @@ defmodule Examples.ALDif do
   # just when it's eventually tried — this pins the observable half of that:
   # the excluded object never surfaces as a solution, everything else still does.
   example dif_excludes_a_durable_candidate_from_generative_dispatch() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @dif_dispatch_pingable
@@ -130,7 +130,7 @@ defmodule Examples.ALDif do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dif O dif_dispatch_ping_a.
@@ -149,7 +149,7 @@ defmodule Examples.ALDif do
   # rules the `[]` structural candidate out before it's pushed, so the very
   # first solution should already be a one-element list.
   example dif_excludes_the_empty_list_structural_candidate() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         dif X [].

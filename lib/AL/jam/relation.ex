@@ -7,9 +7,17 @@ defmodule AL.JAM.Relation do
     {:ok, AL.Var.unify(result, symbol, store, branch)}
   end
 
-  def execute(:schedule_transaction, [status, effect, head, goals], store, _branch) do
+  def execute(:schedule_transaction, [status, effect, head, goals], store, branch) do
     future = AL.Var.fresh({:"$var", "future_transaction"}, Integer.to_string(AL.fresh_scope()))
+    execute(:schedule_transaction, [status, effect, head, goals, future], store, branch)
+  end
 
+  def execute(:send_async, [object, method, args, future], store, branch) do
+    goals = [%Goal.Send{object: object, method: method, args: args}]
+    execute(:schedule_transaction, [:ready, :none, [], goals, future], store, branch)
+  end
+
+  def execute(:schedule_transaction, [status, effect, head, goals, future], store, _branch) do
     {:goals, store,
      [
        %Goal.Send{
@@ -352,11 +360,17 @@ defmodule AL.JAM.Relation do
   def goal(:command, [transaction, time, operation]),
     do: %Goal.GetCommand{transaction: transaction, time: time, operation: operation}
 
+  def goal(:send_async, [object, method, args, future]),
+    do: %Goal.SendAsync{object: object, method: method, args: args, future: future}
+
+  def goal(:schedule_transaction, [:waiting, effect, head, goals, future]),
+    do: %Goal.OApply{method_id: :on_completion, args: [effect, head, goals, future]}
+
   def goal(:schedule_transaction, [:ready, _effect, _head, goals]),
     do: %Goal.OApply{method_id: :spawn_transaction, args: [goals]}
 
   def goal(:schedule_transaction, [:waiting, effect, head, goals]),
-    do: %Goal.OApply{method_id: :await_effect, args: [effect, head, goals]}
+    do: %Goal.OApply{method_id: :on_completion, args: [effect, head, goals]}
 
   def goal(:slot, [object, key, value, storage]),
     do: %Goal.GetSlots{object: object, key: key, value: value, store: storage}

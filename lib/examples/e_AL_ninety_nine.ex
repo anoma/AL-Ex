@@ -11,7 +11,7 @@ defmodule Examples.ALNinetyNine do
   import ExUnit.Assertions
 
   example butlast_composes_reverse_tl_hd() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         list >> butlast

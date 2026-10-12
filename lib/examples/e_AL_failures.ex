@@ -12,7 +12,7 @@ defmodule Examples.ALFailures do
   # does_not_understand, aborts with a structured `:does_not_understand` reason
   # naming the receiver, selector, arity, and a ranked suggestion.
   example unknown_selector_reports_does_not_understand() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         @failgreeter
@@ -45,7 +45,7 @@ defmodule Examples.ALFailures do
   # A plain goal failure (no unhandled message) still aborts, and its trace is
   # free of internal `:backtrack` noise.
   example plain_failure_trace_omits_backtracks() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         class no_such_object_al_failures C.
@@ -58,7 +58,7 @@ defmodule Examples.ALFailures do
   end
 
   example unmatched_clause_body_names_the_actual_call() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         @failbody
@@ -84,7 +84,7 @@ defmodule Examples.ALFailures do
   end
 
   example no_trace_preserves_plain_clause_failure_context() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @no_trace_failbody
@@ -100,7 +100,7 @@ defmodule Examples.ALFailures do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         new no_trace_failbody Obj.
@@ -123,7 +123,7 @@ defmodule Examples.ALFailures do
   # by walking the trace's own "last child tried under each parent" chain
   # rather than trusting time order or reconstructed-but-pruned scope state.
   example set_slot_domain_violation_survives_backtracking_search() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @failure_domain_probe
@@ -134,7 +134,7 @@ defmodule Examples.ALFailures do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         set_slot failure_domain_instance state sideways.
@@ -152,7 +152,7 @@ defmodule Examples.ALFailures do
   end
 
   example label_of_an_unconstrained_var_is_blamed_over_the_search_that_ran_out() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         member [1, 2, 3] M.
@@ -166,7 +166,7 @@ defmodule Examples.ALFailures do
     assert reason.message =~ "nothing to enumerate"
     refute reason.message =~ "member"
 
-    {:aborted, traced} =
+    %AL{result: {:aborted, traced}} =
       run(
         ~S"""
         member [1, 2, 3] M.
@@ -177,7 +177,7 @@ defmodule Examples.ALFailures do
 
     assert traced.reason == {:label_unconstrained, {:"$var", "X"}}
 
-    {:aborted, aliased} =
+    %AL{result: {:aborted, aliased}} =
       run(
         ~S"""
         hd [X, 7] V.
@@ -192,7 +192,7 @@ defmodule Examples.ALFailures do
   end
 
   example no_trace_preserves_does_not_understand_errors() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         greett 1 world.
@@ -210,10 +210,10 @@ defmodule Examples.ALFailures do
     :ok
   end
 
-  # reason.state carries the actual final %AL{} (bindings/constraints live at
+  # reason.state carries the actual final %AL.JAM.State{} (bindings/constraints live at
   # the last attempt), not just a curated summary.
   example failed_run_exposes_the_final_state() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         dif X 1.
@@ -222,7 +222,7 @@ defmodule Examples.ALFailures do
         branch: Examples.Support.branch()
       )
 
-    assert %AL{} = reason.state
+    assert %AL.JAM.State{} = reason.state
     assert reason.state.active_choicepoint.store == nil
     assert reason.state.branch.id == Examples.Support.branch()
   end
@@ -230,7 +230,7 @@ defmodule Examples.ALFailures do
   # constraint-rejected unify looks identical to a plain mismatch in the trace
   # alone -- reason names which constraint fired.
   example unify_failure_names_the_violated_constraint() do
-    {:aborted, dif_reason} =
+    %AL{result: {:aborted, dif_reason}} =
       run(
         ~S"""
         dif X 1.
@@ -242,7 +242,7 @@ defmodule Examples.ALFailures do
     assert match?({:constraint_violated, {:dif, _, _}}, dif_reason.reason)
     assert dif_reason.message =~ "dif"
 
-    {:aborted, isa_reason} =
+    %AL{result: {:aborted, isa_reason}} =
       run(
         ~S"""
         isa Y number.
@@ -256,7 +256,7 @@ defmodule Examples.ALFailures do
 
     # a plain mismatch, no constraint involved, still gets the ordinary
     # generic message — this isn't claiming a constraint caused it
-    {:aborted, plain_reason} =
+    %AL{result: {:aborted, plain_reason}} =
       run(
         ~S"""
         = 1 2.
@@ -270,7 +270,7 @@ defmodule Examples.ALFailures do
   # A receiver with its own does_not_understand handles the miss, so the run does
   # not abort with a does_not_understand reason.
   example custom_dnu_is_not_reported_as_failure() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @failquiet
@@ -292,7 +292,7 @@ defmodule Examples.ALFailures do
   end
 
   example dnu_resolution_tracks_handler_and_inheritance_changes() do
-    {:atomic, {bindings, _, _}} =
+    %AL{result: {:atomic, {bindings, _, _}}} =
       run(
         ~S"""
         @dnu_cache_parent #{super => value}.

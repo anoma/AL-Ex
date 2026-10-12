@@ -37,15 +37,15 @@ defmodule Examples.ALSyntax do
     class = fresh_id("syntax_counter")
 
     try do
-      {:atomic, _} = AL.run(counter_source(class), branch)
+      %AL{result: {:atomic, _}} = AL.run(counter_source(class), branch)
 
-      {:atomic, {bindings, _constraints, _}} =
+      %AL{result: {:atomic, {bindings, _constraints, _}}} =
         AL.run(
           "new #{al(class)} \#{} Counter.\nbump Counter 5.\nget Counter count Count.",
           branch
         )
 
-      {:aborted, _} =
+      %AL{result: {:aborted, _}} =
         AL.run(
           "new #{al(class)} \#{} Counter.\nbump Counter 5.\nbump Counter -2.",
           branch
@@ -58,7 +58,7 @@ defmodule Examples.ALSyntax do
   end
 
   example a_conditional_without_else_fails_when_its_condition_fails() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         = X 1.
@@ -67,7 +67,7 @@ defmodule Examples.ALSyntax do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = X 1.
@@ -81,7 +81,7 @@ defmodule Examples.ALSyntax do
   end
 
   example alternatives_backtrack_into_their_second_branch() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = X 1 ; = X 2.
@@ -99,11 +99,11 @@ defmodule Examples.ALSyntax do
     class = fresh_id("syntax_counter")
 
     try do
-      {:atomic, _} = AL.run(counter_source(class), branch)
+      %AL{result: {:atomic, _}} = AL.run(counter_source(class), branch)
 
       output =
         capture_io(fn ->
-          {:atomic, {bindings, _, _}} =
+          %AL{result: {:atomic, {bindings, _, _}}} =
             run(
               ~S"""
               listing HostClass bump, print "" Done.
@@ -148,10 +148,10 @@ defmodule Examples.ALSyntax do
     end
 
     try do
-      {:atomic, _} = define.()
-      {:atomic, _} = define.()
+      %AL{result: {:atomic, _}} = define.()
+      %AL{result: {:atomic, _}} = define.()
 
-      {:atomic, {bindings, _constraints, _}} =
+      %AL{result: {:atomic, {bindings, _constraints, _}}} =
         run(
           ~S"""
           findall P Picks (pick syntax_redefined_instance P).
@@ -161,7 +161,7 @@ defmodule Examples.ALSyntax do
 
       assert Map.get(bindings, "$Picks") == [:first, :second]
 
-      {:atomic, {bindings, _constraints, _}} =
+      %AL{result: {:atomic, {bindings, _constraints, _}}} =
         run(
           ~S"""
           defmethod syntax_redefined pick [_, third] {}.
@@ -180,7 +180,7 @@ defmodule Examples.ALSyntax do
   example run_takes_pinned_elixir_values() do
     amount = 7
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = Total (+ HostAmount 3).
@@ -200,7 +200,7 @@ defmodule Examples.ALSyntax do
     branch = Examples.Support.isolated_branch()
 
     try do
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           @syntax_run_counter
@@ -214,7 +214,7 @@ defmodule Examples.ALSyntax do
 
       output =
         capture_io(fn ->
-          {:atomic, {bindings, _, _}} =
+          %AL{result: {:atomic, {bindings, _, _}}} =
             run(
               ~S"""
               listing syntax_run_counter greet, print "" Done.

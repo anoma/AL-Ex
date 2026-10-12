@@ -18,13 +18,16 @@ defmodule AL.Events do
     :ok
   end
 
-  @spec await(topic(), non_neg_integer(), (-> {:ok, term()} | :pending)) ::
+  @spec await(topic(), non_neg_integer() | :infinity, (-> {:ok, term()} | :pending)) ::
           {:ok, term()} | :timeout
   def await(topic, timeout, check)
-      when is_integer(timeout) and timeout >= 0 and is_function(check, 0) do
+      when (timeout == :infinity or (is_integer(timeout) and timeout >= 0)) and
+             is_function(check, 0) do
     token = make_ref()
     {:ok, _owner} = Registry.register(__MODULE__, topic, token)
-    deadline = System.monotonic_time(:millisecond) + timeout
+
+    deadline =
+      if timeout == :infinity, do: :infinity, else: System.monotonic_time(:millisecond) + timeout
 
     try do
       await_event(topic, token, deadline, check)
@@ -39,7 +42,10 @@ defmodule AL.Events do
         {:ok, value}
 
       :pending ->
-        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+        remaining =
+          if deadline == :infinity,
+            do: :infinity,
+            else: max(deadline - System.monotonic_time(:millisecond), 0)
 
         receive do
           {__MODULE__, ^topic, ^token} -> await_event(topic, token, deadline, check)

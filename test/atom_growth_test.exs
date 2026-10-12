@@ -26,7 +26,10 @@ defmodule AL.AtomGrowthTest do
   } do
     name = "GrammarVariable#{System.unique_integer([:positive])}"
     source = "findall Parsed Results {parse variable_syntax (expr Parsed) \"#{name}\"}."
-    assert {:atomic, {%{"$Results" => results}, _, _}} = AL.run(source, branch)
+
+    assert %AL{result: {:atomic, {%{"$Results" => results}, _, _}}} =
+             AL.run(source, branch)
+
     assert results == [%AL.Goal.Compound{name: :var, args: [name]}]
     assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
     assert_raise ArgumentError, fn -> String.to_existing_atom("$" <> name) end
@@ -38,7 +41,7 @@ defmodule AL.AtomGrowthTest do
     source =
       "@binary_variable_probe \#{super => value}.\nbinary_variable_probe >> echo\n| _Self #{name} #{name} |."
 
-    assert {:atomic, _} = AL.run(source, branch)
+    assert %AL{result: {:atomic, _}} = AL.run(source, branch)
 
     assert {:atomic, variables} =
              :mnesia.transaction(fn ->
@@ -65,7 +68,7 @@ defmodule AL.AtomGrowthTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
     assert_raise ArgumentError, fn -> String.to_existing_atom("$" <> name) end
 
-    assert {:atomic, {%{"$Value" => "$Value"}, _, _}} =
+    assert %AL{result: {:atomic, {%{"$Value" => "$Value"}, _, _}}} =
              AL.run(
                ~S"""
                = Value "$Value".
@@ -113,7 +116,7 @@ defmodule AL.AtomGrowthTest do
     branch: branch
   } do
     create = fn ->
-      {:atomic, {bindings, _, _}} = AL.run("new object X.", branch)
+      %AL{result: {:atomic, {bindings, _, _}}} = AL.run("new object X.", branch)
       Map.fetch!(bindings, "$X")
     end
 

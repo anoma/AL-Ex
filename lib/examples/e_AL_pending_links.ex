@@ -6,7 +6,7 @@ defmodule Examples.ALPendingLinks do
   import ExUnit.Assertions
 
   example pending_link_model() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @pending_value
@@ -43,7 +43,7 @@ defmodule Examples.ALPendingLinks do
   example binding_a_pending_exact_class_then_labeling_constructs_that_value() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class Object ExactClass.
@@ -60,7 +60,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_the_class_side_does_not_force_the_object_side() do
     pending_link_model()
 
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         class Object ExactClass.
@@ -79,7 +79,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_both_sides_of_a_class_relation_is_consistent() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class Object ExactClass.
@@ -96,7 +96,7 @@ defmodule Examples.ALPendingLinks do
   example a_known_subclass_determines_its_direct_superclass() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         super Subclass Superclass.
@@ -111,7 +111,7 @@ defmodule Examples.ALPendingLinks do
   example a_superclass_with_one_child_determines_that_child() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         super Subclass Superclass.
@@ -126,7 +126,7 @@ defmodule Examples.ALPendingLinks do
   example an_ambiguous_superclass_leaves_its_child_symbolic() do
     pending_link_model()
 
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         super Subclass Superclass.
@@ -144,7 +144,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_an_ambiguous_child_enumerates_every_real_edge() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Subclass Subclasses {
@@ -163,7 +163,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_one_side_of_an_open_super_relation_deduplicates_values() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Superclass Superclasses {super Subclass Superclass, label Superclass}.
@@ -177,7 +177,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_an_impossible_super_relation_fails() do
     pending_link_model()
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         super Subclass Superclass.
@@ -193,7 +193,7 @@ defmodule Examples.ALPendingLinks do
   example a_known_object_determines_its_slot_value() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         slot Object pending_tag Value.
@@ -208,7 +208,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_a_unique_slot_value_finds_its_object() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         slot Object pending_tag Value.
@@ -224,7 +224,7 @@ defmodule Examples.ALPendingLinks do
   example an_ambiguous_slot_value_leaves_its_object_symbolic() do
     pending_link_model()
 
-    {:atomic, {bindings, constraints, _}} =
+    %AL{result: {:atomic, {bindings, constraints, _}}} =
       run(
         ~S"""
         slot Object pending_tag Value.
@@ -242,7 +242,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_an_ambiguous_slot_object_enumerates_every_real_row() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Object Objects {slot Object pending_tag Value, = Value shared_value, label Object}.
@@ -257,7 +257,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_one_side_of_an_open_slot_relation_deduplicates_values() do
     pending_link_model()
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         findall Value Values {slot Object pending_tag Value, label Value}.
@@ -271,7 +271,7 @@ defmodule Examples.ALPendingLinks do
   example labeling_an_impossible_slot_relation_fails() do
     pending_link_model()
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         slot Object missing_pending_tag Value.

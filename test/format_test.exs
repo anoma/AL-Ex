@@ -8,7 +8,7 @@ defmodule AL.FormatTest do
   end
 
   test "the formatting DCG renders strings and literal directives", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                format "Hello ~a — ~~ ~%~a!" ["world", "done"] Text.
@@ -22,7 +22,7 @@ defmodule AL.FormatTest do
   end
 
   test "formatting an object uses its print_object method", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                @formatted_value #{super => object}.
@@ -38,7 +38,7 @@ defmodule AL.FormatTest do
   end
 
   test "print_object returns text for default objects and values", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                new object Object,
@@ -58,7 +58,7 @@ defmodule AL.FormatTest do
   end
 
   test "format requires a string from print_object", %{branch: branch} do
-    assert {:aborted, _} =
+    assert %AL{result: {:aborted, _}} =
              AL.run(
                ~S"""
                @invalid_printer #{super => object}.
@@ -72,7 +72,7 @@ defmodule AL.FormatTest do
   end
 
   test "the DCG renders structured AL terms", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                new object #{name => on} Value.
@@ -93,12 +93,12 @@ defmodule AL.FormatTest do
           ~S(format "~a" [] Text.),
           ~S(format "plain" [unused] Text.)
         ] do
-      assert {:aborted, _} = AL.run(source, branch)
+      assert %AL{result: {:aborted, _}} = AL.run(source, branch)
     end
   end
 
   test "the formatting grammar can override directives", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                @custom_format #{super => format_syntax, metaclass => grammar}.

@@ -11,7 +11,7 @@ defmodule Examples.ALPackages do
     branch = Examples.Support.isolated_branch()
 
     try do
-      {:atomic, {%{"$Build" => build}, _constraints, _state}} =
+      %AL{result: {:atomic, {%{"$Build" => build}, _constraints, _state}}} =
         run(
           ~S"""
           new package #{name => managed_package, open_build => true} managed_package.
@@ -21,7 +21,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           deactivate managed_package.
@@ -31,7 +31,7 @@ defmodule Examples.ALPackages do
 
       refute AL.Package.active?(:managed_package, branch)
 
-      {:atomic, _} =
+      %AL{result: {:atomic, _}} =
         run(
           ~S"""
           activate_build managed_package HostBuild.
@@ -84,7 +84,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, _} = result
+      assert %AL{result: {:atomic, _}} = result
 
       assert {:ok, empty_plan} = AL.Package.resolve(catalog, [], branch: branch)
       assert {:ok, empty} = AL.Package.realise(empty_plan, branch: branch)
@@ -129,7 +129,7 @@ defmodule Examples.ALPackages do
       member Packages interval.
       """)
 
-    assert {:atomic, _} = result
+    assert %AL{result: {:atomic, _}} = result
     :ok
   end
 
@@ -143,7 +143,7 @@ defmodule Examples.ALPackages do
       findall Owner Extensions (extends_class Build Owner).
       """)
 
-    assert {:atomic, {bindings, _constraints, _state}} = result
+    assert %AL{result: {:atomic, {bindings, _constraints, _state}}} = result
     assert Enum.sort(bindings["$Classes"]) == [:owned, :user]
 
     assert Enum.sort(bindings["$Methods"]) ==
@@ -204,7 +204,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, {creation_bindings, _constraints, _}} = creation
+      assert %AL{result: {:atomic, {creation_bindings, _constraints, _}}} = creation
       build = creation_bindings["$Build"]
 
       assert {:ok,
@@ -240,7 +240,7 @@ defmodule Examples.ALPackages do
           bindings: %{"HostBuild" => build, "HostProvider" => provider}
         )
 
-      assert {:atomic, _} = sealed
+      assert %AL{result: {:atomic, _}} = sealed
 
       assert {:ok, %{build: ^build, provider: ^provider, changed?: false}} =
                AL.Package.diff(:handmade_package, branch: branch)
@@ -270,7 +270,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, _} = creation
+      assert %AL{result: {:atomic, _}} = creation
       assert :ok = AL.Application.bootstrap()
 
       retained =
@@ -284,7 +284,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, _} = retained
+      assert %AL{result: {:atomic, _}} = retained
       :ok
     after
       AL.Branch.checkout(previous)
@@ -332,7 +332,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, {bindings, _constraints, _}} = result
+      assert %AL{result: {:atomic, {bindings, _constraints, _}}} = result
       assert bindings["$Extensions"] == [:composable_widget]
 
       assert {:ok, %{changed?: false}} = AL.Package.diff(:widget_core, branch: branch)
@@ -380,7 +380,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, _} = after_removal
+      assert %AL{result: {:atomic, _}} = after_removal
       :ok
     after
       AL.Branch.checkout(previous)
@@ -413,7 +413,7 @@ defmodule Examples.ALPackages do
           branch: branch.id
         )
 
-      assert {:atomic, _} = change
+      assert %AL{result: {:atomic, _}} = change
 
       assert {:ok,
               %{
@@ -481,7 +481,7 @@ defmodule Examples.ALPackages do
           bindings: %{"HostBuild" => build, "HostProvider" => provider}
         )
 
-      assert {:atomic, _} = result
+      assert %AL{result: {:atomic, _}} = result
       refute AL.TransactionProgram.installed?(:interval, branch)
       :ok
     after
@@ -520,7 +520,7 @@ defmodule Examples.ALPackages do
           branch: author.id
         )
 
-      assert {:atomic, _} = definition
+      assert %AL{result: {:atomic, _}} = definition
 
       assert {:ok,
               %{
@@ -559,7 +559,7 @@ defmodule Examples.ALPackages do
           branch: consumer.id
         )
 
-      assert {:atomic, _} = result
+      assert %AL{result: {:atomic, _}} = result
 
       :ok
     after
@@ -652,7 +652,7 @@ defmodule Examples.ALPackages do
       current_provider = Enum.find(current_catalog.providers, &(&1.document.name == :greeting)).id
       refute old_provider == current_provider
 
-      {:atomic, {bindings, _constraints, _state}} =
+      %AL{result: {:atomic, {bindings, _constraints, _state}}} =
         AL.run(
           ~S"""
           registered_channel package_manager Channel.
@@ -796,7 +796,7 @@ defmodule Examples.ALPackages do
           bindings: %{"HostOpaque" => opaque}
         )
 
-      assert {:atomic, _} = extension
+      assert %AL{result: {:atomic, _}} = extension
 
       assert {:ok, extended_plan} =
                AL.Package.resolve(catalog, [{:opaque_application, :any}], branch: branch)
@@ -875,7 +875,7 @@ defmodule Examples.ALPackages do
         branch: branch.id
       )
 
-    assert {:atomic, {bindings, _constraints, _}} = result
+    assert %AL{result: {:atomic, {bindings, _constraints, _}}} = result
     bindings["$Parts"]
   end
 

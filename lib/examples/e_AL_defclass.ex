@@ -12,7 +12,7 @@ defmodule Examples.ALDefclass do
   import ExUnit.Assertions
 
   example defclass_declares_class_imports_and_methods() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new category #{name => widget_behaviour} _.
@@ -46,7 +46,7 @@ defmodule Examples.ALDefclass do
 
   # metaclass defaults to :class — same as new(:class, %{...}, _) by hand.
   example defclass_defaults_metaclass_to_class() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @durable_thing
@@ -66,7 +66,7 @@ defmodule Examples.ALDefclass do
   # metaclass: :object -- the class itself is a plain durable object, no
   # per-instance construction.
   example defclass_supports_metaclass_override() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @singleton_thing
@@ -85,7 +85,7 @@ defmodule Examples.ALDefclass do
   end
 
   example custom_metaclass_keeps_instance_side_methods_off_the_class() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @side_meta
@@ -118,7 +118,7 @@ defmodule Examples.ALDefclass do
   # whole class (couldn't even reach :object for :allocate). `set_supers`
   # now branches on `class(super, :list)` and writes one fact per element.
   example defclass_supports_multiple_supers() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @multi_super_a
@@ -155,7 +155,7 @@ defmodule Examples.ALDefclass do
   # defclass now retracts every entry's prior clauses in one pass before
   # defining any of them, so both survive.
   example defclass_supports_multiple_clauses_on_one_selector() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @multi_clause_thing
@@ -180,7 +180,7 @@ defmodule Examples.ALDefclass do
   end
 
   example defclass_supports_bodyless_methods() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @bodyless_thing
@@ -200,7 +200,7 @@ defmodule Examples.ALDefclass do
   end
 
   example defclass_rejects_bare_ivar_names() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         @bare_ivar_probe
@@ -209,7 +209,7 @@ defmodule Examples.ALDefclass do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @named_ivar_probe
@@ -222,7 +222,7 @@ defmodule Examples.ALDefclass do
   end
 
   example redeclaring_a_class_replaces_its_declaration() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redef_probe_b
@@ -234,7 +234,7 @@ defmodule Examples.ALDefclass do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @redef_probe_b
@@ -256,7 +256,7 @@ defmodule Examples.ALDefclass do
   end
 
   example renewing_a_named_instance_resets_its_slots() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redef_probe_c
@@ -265,7 +265,7 @@ defmodule Examples.ALDefclass do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings1, _constraints, _}} =
+    %AL{result: {:atomic, {bindings1, _constraints, _}}} =
       run(
         ~S"""
         new redef_probe_c #{name => redef_probe_c_instance} Obj.
@@ -277,7 +277,7 @@ defmodule Examples.ALDefclass do
 
     assert Map.get(bindings1, "$Count") == 99
 
-    {:atomic, {bindings2, _constraints, _}} =
+    %AL{result: {:atomic, {bindings2, _constraints, _}}} =
       run(
         ~S"""
         new redef_probe_c #{name => redef_probe_c_instance} Obj.
@@ -291,7 +291,7 @@ defmodule Examples.ALDefclass do
   end
 
   example renewing_a_named_instance_resets_its_soa_slots() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redef_probe_soa
@@ -303,7 +303,7 @@ defmodule Examples.ALDefclass do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings1, _constraints, _}} =
+    %AL{result: {:atomic, {bindings1, _constraints, _}}} =
       run(
         ~S"""
         new redef_probe_soa #{name => redef_probe_soa_instance} Obj.
@@ -315,7 +315,7 @@ defmodule Examples.ALDefclass do
 
     assert Map.get(bindings1, "$Count") == 99
 
-    {:atomic, {bindings2, _constraints, _}} =
+    %AL{result: {:atomic, {bindings2, _constraints, _}}} =
       run(
         ~S"""
         new redef_probe_soa #{name => redef_probe_soa_instance} Obj.
@@ -329,7 +329,7 @@ defmodule Examples.ALDefclass do
   end
 
   example redeclaring_a_class_keeps_methods_it_does_not_define() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redeclared_probe
@@ -343,7 +343,7 @@ defmodule Examples.ALDefclass do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @redeclared_probe
@@ -374,7 +374,7 @@ defmodule Examples.ALDefclass do
   # tradeoff it always is); every class built with `metaclass:
   # :logging_metaclass` picks up the override on every redef.
   example custom_metaclass_overrides_class_redefined() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @logging_metaclass
@@ -392,7 +392,7 @@ defmodule Examples.ALDefclass do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @logged_thing
@@ -413,7 +413,7 @@ defmodule Examples.ALDefclass do
   # `shared-initialize` on `added-slots`) -- no metaclass override needed,
   # this is `:class`'s own `class_redefined` body.
   example redef_backfills_new_ivars_with_their_default_on_existing_instances() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         @redef_backfill_probe
@@ -437,7 +437,7 @@ defmodule Examples.ALDefclass do
   # CLOS's own default too (`shared-initialize` leaves an unsupplied,
   # initform-less slot unbound rather than inventing a value).
   example redef_leaves_new_ivars_without_a_default_unset() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redef_backfill_probe2
@@ -463,7 +463,7 @@ defmodule Examples.ALDefclass do
   # the default policy chooses to strip it anyway rather than leave stale
   # data an ivar-less class no longer claims to own.
   example redef_invalidates_removed_ivars_on_existing_instances() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         @redef_shrink_probe

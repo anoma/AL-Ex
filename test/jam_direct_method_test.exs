@@ -5,7 +5,7 @@ defmodule AL.JAM.DirectMethodTest do
     branch = AL.Branch.fork()
     on_exit(fn -> AL.Branch.discard(branch) end)
 
-    assert {:atomic, _} =
+    assert %AL{result: {:atomic, _}} =
              AL.run(
                ~S"""
                @direct_method_probe #{super => value}.
@@ -23,7 +23,7 @@ defmodule AL.JAM.DirectMethodTest do
   test "direct calls accept unrelated receivers and preserve ordered alternatives", %{
     branch: branch
   } do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                method direct_method_probe pick Id,
@@ -37,7 +37,7 @@ defmodule AL.JAM.DirectMethodTest do
   end
 
   test "open argument lists and aliased structured heads keep relational modes", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                direct_method_probe >> relate
@@ -58,7 +58,7 @@ defmodule AL.JAM.DirectMethodTest do
   test "direct target caches refresh after method edits in the same transaction", %{
     branch: branch
   } do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                method direct_method_probe pick Id,
@@ -74,7 +74,7 @@ defmodule AL.JAM.DirectMethodTest do
   end
 
   test "direct calls preserve method cut scopes", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                direct_method_probe >> limited
@@ -95,7 +95,7 @@ defmodule AL.JAM.DirectMethodTest do
   test "method identity reuse keeps public arguments and a different supplied target", %{
     branch: branch
   } do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                direct_method_probe >> walk
@@ -143,7 +143,7 @@ defmodule AL.JAM.DirectMethodTest do
   end
 
   test "a compiled recursive call sees edited method clauses", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                direct_method_probe >> replace_self
@@ -163,7 +163,7 @@ defmodule AL.JAM.DirectMethodTest do
   end
 
   test "reused identity preserves alternatives and observable argument uses", %{branch: branch} do
-    assert {:atomic, {bindings, _, _}} =
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
                ~S"""
                direct_method_probe >> walk

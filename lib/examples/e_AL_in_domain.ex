@@ -14,7 +14,7 @@ defmodule Examples.ALInDomain do
   import ExUnit.Assertions
 
   example in_domain_labels_every_candidate_exactly_once() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         in_domain X [a, b, c].
@@ -28,7 +28,7 @@ defmodule Examples.ALInDomain do
   end
 
   example two_in_domain_calls_narrow_via_intersection() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         in_domain Y [a, b, c, d].
@@ -43,7 +43,7 @@ defmodule Examples.ALInDomain do
   end
 
   example an_empty_intersection_fails_immediately() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         in_domain Y [a, b].
@@ -56,7 +56,7 @@ defmodule Examples.ALInDomain do
   end
 
   example a_domain_narrowed_to_one_value_auto_binds() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         in_domain Z [only_one].
@@ -71,7 +71,7 @@ defmodule Examples.ALInDomain do
   # dif rules out a candidate the same way it would for any other bind --
   # no special interaction code needed, the ordinary bind-time check does it.
   example dif_excludes_a_candidate_at_label_time() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         dif V a.
@@ -86,7 +86,7 @@ defmodule Examples.ALInDomain do
   end
 
   example unify_against_a_value_outside_the_domain_fails() do
-    {:aborted, reason} =
+    %AL{result: {:aborted, reason}} =
       run(
         ~S"""
         in_domain W [a, b].
@@ -101,7 +101,7 @@ defmodule Examples.ALInDomain do
   end
 
   example ground_membership_check_needs_no_constraint_at_all() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         in_domain a [a, b, c].
@@ -109,7 +109,7 @@ defmodule Examples.ALInDomain do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         in_domain z [a, b, c].

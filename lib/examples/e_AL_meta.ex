@@ -9,7 +9,7 @@ defmodule Examples.ALMeta do
   import ExUnit.Assertions
 
   example ground_succeeds_on_atom() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         ground point.
@@ -21,7 +21,7 @@ defmodule Examples.ALMeta do
   end
 
   example ground_succeeds_on_compound() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         ground [1, 2, #{a => b}].
@@ -33,7 +33,7 @@ defmodule Examples.ALMeta do
   end
 
   example ground_fails_on_unbound() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         ground X.
@@ -45,7 +45,7 @@ defmodule Examples.ALMeta do
   end
 
   example ground_fails_on_partial_compound() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         ground [1, X, 3].
@@ -57,7 +57,7 @@ defmodule Examples.ALMeta do
   end
 
   example findall_supers() do
-    {:atomic, {bindings, _constraints, _result}} =
+    %AL{result: {:atomic, {bindings, _constraints, _result}}} =
       run(
         ~S"""
         vm_set_super findall_test a.
@@ -73,7 +73,7 @@ defmodule Examples.ALMeta do
   end
 
   example forall_over_supers() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         vm_set_super forall_test class.
@@ -99,7 +99,7 @@ defmodule Examples.ALMeta do
   end
 
   example not_succeeds_when_goal_fails() do
-    {:atomic, {_bindings, _constraints, _}} =
+    %AL{result: {:atomic, {_bindings, _constraints, _}}} =
       run(
         ~S"""
         not (class nonexistent_xyz C).
@@ -111,7 +111,7 @@ defmodule Examples.ALMeta do
   end
 
   example not_fails_when_goal_succeeds() do
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         not (class object C).

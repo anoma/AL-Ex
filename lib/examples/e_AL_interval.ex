@@ -15,7 +15,7 @@ defmodule Examples.ALInterval do
   import ExUnit.Assertions
 
   example new_interval_holds_lo_and_hi() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 4, lo => 1} I.
@@ -28,7 +28,7 @@ defmodule Examples.ALInterval do
   end
 
   example new_interval_is_empty_when_lo_is_greater_than_hi() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 4, lo => 5} I.
@@ -41,7 +41,7 @@ defmodule Examples.ALInterval do
   end
 
   example interval_elem_checks_containment() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 4, lo => 1} I.
@@ -60,7 +60,7 @@ defmodule Examples.ALInterval do
   end
 
   example elem_never_holds_for_the_empty_interval() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 4, lo => 5} Empty.
@@ -76,7 +76,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_of_overlapping_intervals_narrows_to_the_overlap() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 5, lo => 1} A.
@@ -91,7 +91,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_is_commutative() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 5, lo => 1} A.
@@ -107,7 +107,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_of_disjoint_intervals_is_empty() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 2, lo => 1} A.
@@ -122,7 +122,7 @@ defmodule Examples.ALInterval do
   end
 
   example intersection_with_an_empty_interval_stays_empty() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         new interval_value #{hi => 4, lo => 5} Empty.

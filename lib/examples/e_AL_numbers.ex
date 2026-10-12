@@ -11,7 +11,7 @@ defmodule Examples.ALNumbers do
   import ExUnit.Assertions
 
   example class_of_number_is_structural() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         class 3 IntegerClass.
@@ -26,7 +26,7 @@ defmodule Examples.ALNumbers do
   end
 
   example send_dispatches_through_number_class() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         number >> double
@@ -43,7 +43,7 @@ defmodule Examples.ALNumbers do
   end
 
   example negative_literals_are_numbers() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         number >> unit_sign
@@ -70,7 +70,7 @@ defmodule Examples.ALNumbers do
   end
 
   example number_falls_back_to_object() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         examine 3 Info.
@@ -85,7 +85,7 @@ defmodule Examples.ALNumbers do
   end
 
   example factorial_forward_mode() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         factorial 5 Out.
@@ -98,7 +98,7 @@ defmodule Examples.ALNumbers do
   end
 
   example unbound_receiver_grounds_through_value_leg() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         factorial X 1.
@@ -111,7 +111,7 @@ defmodule Examples.ALNumbers do
   end
 
   example factorial_backward_search() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         factorial N 120.
@@ -126,7 +126,7 @@ defmodule Examples.ALNumbers do
   # 7 isn't any n!, so exhausting `label(n)`'s [2, 7] domain (via `between`)
   # has to fail cleanly rather than loop or crash.
   example factorial_backward_search_fails_for_non_factorial_target() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         factorial N 7.
@@ -143,7 +143,7 @@ defmodule Examples.ALNumbers do
   # each candidate is only computed if backtracking actually reaches it, so
   # only 10 candidates ever run even though the domain is ~3.6M wide.
   example factorial_backward_search_stays_fast_on_a_wide_domain() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         factorial N 3628800.
@@ -156,7 +156,7 @@ defmodule Examples.ALNumbers do
   end
 
   example fibonacci_forward_mode() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         fibonacci 8 Out.
@@ -169,7 +169,7 @@ defmodule Examples.ALNumbers do
   end
 
   example fibonacci_backward_search() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         fibonacci N 21.
@@ -184,7 +184,7 @@ defmodule Examples.ALNumbers do
   # 4 never appears in 1, 1, 2, 3, 5, 8, ... — same exhausted-domain failure
   # shape as factorial's non-target case, exercised on the sibling search.
   example fibonacci_backward_search_fails_for_non_fibonacci_target() do
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         fibonacci N 4.
@@ -202,7 +202,7 @@ defmodule Examples.ALNumbers do
   # non-number must fail, the same way `dif` pins an inequality across an open
   # var's future binds rather than only checking whatever's ground right now.
   example value_dispatch_pins_an_open_receiver_to_its_class() do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         number >> stays_open
@@ -211,7 +211,7 @@ defmodule Examples.ALNumbers do
         branch: Examples.Support.branch()
       )
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         stays_open X.
@@ -228,7 +228,7 @@ defmodule Examples.ALNumbers do
   # and leaves `x` open, rather than scanning the (always-empty, for
   # `:number`) durable object table for one.
   example between_enumerates() do
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         findall [V] Values (between object 2 5 V).
@@ -241,7 +241,7 @@ defmodule Examples.ALNumbers do
   end
 
   example class_of_an_open_var_registers_direct_class_without_scanning() do
-    {:atomic, {bindings, _constraints, _}} =
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         class X number.
@@ -251,7 +251,7 @@ defmodule Examples.ALNumbers do
 
     assert AL.Var.var?(Map.get(bindings, "$X"))
 
-    {:aborted, _trace} =
+    %AL{result: {:aborted, _trace}} =
       run(
         ~S"""
         class X number.
@@ -260,7 +260,7 @@ defmodule Examples.ALNumbers do
         branch: Examples.Support.branch()
       )
 
-    {:atomic, {bindings2, _constraints, _}} =
+    %AL{result: {:atomic, {bindings2, _constraints, _}}} =
       run(
         ~S"""
         class X number.

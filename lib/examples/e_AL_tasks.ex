@@ -1,18 +1,23 @@
+defmodule Examples.ALTasks.HeldEffect do
+  use AL.Edge, provider: :task_await_example
+
+  def observe(observer), do: :persistent_term.put({__MODULE__, :observer}, observer)
+
+  def execute(:hold, [], context) do
+    send(:persistent_term.get({__MODULE__, :observer}), {:await_effect_requested, context})
+    :pending
+  end
+end
+
 defmodule Examples.ALTasks do
-  @moduledoc """
-  I exercise AL's asynchronous send behaviour: `send_async` appends one compact
-  command that the per-branch outbox turns into a live `send` in its own
-  transaction. The receiving object is built from bootstrap primitives
-  (`defmethod`), so these examples cover the async machinery itself rather
-  than any bundled program.
-  """
+  @moduledoc "I exercise asynchronous calls represented by future transactions."
 
   use ExExample
   use AL
   import ExUnit.Assertions
 
   defp register_worker(name, subscriber, pid) do
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       AL.run(
         """
         new process \#{name => Subscriber, pid => Pid} _.
@@ -53,7 +58,7 @@ defmodule Examples.ALTasks do
     pid = self()
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    {:atomic, {_, _, state}} =
+    %AL{result: {:atomic, {_, _, state}}} =
       run(
         ~S"""
         not {call [Same, Same] {send_elixir HostPid mismatched} [one, two]}.
@@ -78,7 +83,7 @@ defmodule Examples.ALTasks do
              _ -> false
            end) == 1
 
-    {:aborted, _} =
+    %AL{result: {:aborted, _}} =
       run(
         ~S"""
         call [Receiver] {send_elixir Receiver aborted_callable} [HostPid].
@@ -94,7 +99,7 @@ defmodule Examples.ALTasks do
   example async_send_runs_handler() do
     register_worker(:async_worker_1, :async_subscriber_1, self())
 
-    {:atomic, {_bindings, _constraints, state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, state}}} =
       run(
         ~S"""
         send_async async_worker_1 handle [async_obj].
@@ -111,7 +116,7 @@ defmodule Examples.ALTasks do
       end)
 
     assert Enum.count(commands, fn
-             {:command, _time, _tx_id, {:send_async, {:async_worker_1, :handle, [:async_obj]}}} ->
+             {:command, _time, _tx_id, {:set_class, {_future, :future_transaction}}} ->
                true
 
              _ ->
@@ -122,7 +127,7 @@ defmodule Examples.ALTasks do
   example async_send_resolves_receiver_var() do
     register_worker(:async_worker_2, :async_subscriber_2, self())
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         = W async_worker_2.
@@ -138,7 +143,7 @@ defmodule Examples.ALTasks do
   example zero_argument_sends_omit_the_empty_argument_list() do
     observer = self()
 
-    {:atomic, {bindings, _constraints, _state}} =
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
         new process #{name => zero_argument_observer, pid => HostObserver} _.
@@ -170,7 +175,7 @@ defmodule Examples.ALTasks do
   example spawn_arranges_a_fresh_transaction_after_commit() do
     pid = self()
 
-    {:atomic, {_bindings, _constraints, spawning_state}} =
+    %AL{result: {:atomic, {_bindings, _constraints, spawning_state}}} =
       run(
         ~S"""
         new process #{name => spawn_observer, pid => HostPid} _.
@@ -204,7 +209,7 @@ defmodule Examples.ALTasks do
                false
            end)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         get spawn_target value done.
@@ -215,15 +220,22 @@ defmodule Examples.ALTasks do
 
   example await_arranges_a_transaction_after_effect_completion() do
     pid = self()
+    branch = %AL.Branch{id: Examples.Support.branch()}
+    Examples.ALTasks.HeldEffect.observe(self())
+    AL.Edge.register(Examples.ALTasks.HeldEffect)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         new process #{name => await_observer, pid => HostPid} _.
         vm_set_class await_target object.
-        vm_set_class await_effect effect.
-        set_slot await_effect status pending.
-        await await_effect [Outcome] {
+        new effect #{
+          name => await_effect,
+          provider => task_await_example,
+          operation => hold,
+          arguments => []
+        } _.
+        on_completion await_effect Outcome {
           set_slot await_target outcome Outcome,
           get await_observer pid Observer,
           = Message #{event => continued, outcome => Outcome},
@@ -234,23 +246,24 @@ defmodule Examples.ALTasks do
         bindings: %{"HostPid" => pid}
       )
 
+    assert_receive {:await_effect_requested, context}, 1_000
     refute_receive %{event: :continued}, 25
 
-    {:atomic, {_bindings, _constraints, completion_state}} =
-      run(
-        ~S"""
-        complete await_effect #{status => ok, value => connected}.
-        """,
-        branch: Examples.Support.branch()
-      )
+    assert :ok = AL.Edge.complete(context, {:ok, :connected})
 
     assert_receive %{event: :continued, outcome: %{status: :ok, value: :connected}}, 1_000
+
+    %AL{result: {:atomic, {%{"$Tx" => completion_tx}, _, _}}} =
+      run(
+        "get await_effect completed_by Transaction, get Transaction tx Tx.",
+        branch: Examples.Support.branch()
+      )
 
     {:atomic, completion_commands} =
       :mnesia.transaction(fn ->
         AL.Command.commands_for_transaction(
-          completion_state.tx_id,
-          %AL.Branch{id: Examples.Support.branch()}
+          completion_tx,
+          branch
         )
       end)
 
@@ -262,7 +275,7 @@ defmodule Examples.ALTasks do
                false
            end)
 
-    {:atomic, _} =
+    %AL{result: {:atomic, _}} =
       run(
         ~S"""
         get await_effect status completed.
@@ -271,5 +284,7 @@ defmodule Examples.ALTasks do
         """,
         branch: Examples.Support.branch()
       )
+
+    AL.Edge.unregister(:task_await_example)
   end
 end

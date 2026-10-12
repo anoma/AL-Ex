@@ -31,11 +31,14 @@ defmodule AL.JAM.IR.Kernel do
   def specialize(%IR{kind: :invoke, name: :spawn_transaction, args: [goals]}),
     do: IR.operation(:relation, :schedule_transaction, [:ready, :none, [], goals])
 
-  def specialize(%IR{kind: :invoke, name: :await_effect, args: [effect, head, goals]}),
+  def specialize(%IR{kind: :invoke, name: :on_completion, args: [effect, head, goals]}),
     do: IR.operation(:relation, :schedule_transaction, [:waiting, effect, head, goals])
 
+  def specialize(%IR{kind: :invoke, name: :on_completion, args: [effect, head, goals, future]}),
+    do: IR.operation(:relation, :schedule_transaction, [:waiting, effect, head, goals, future])
+
   def specialize(%IR{kind: :invoke, name: method, args: args} = operation) do
-    if (AL.Syntax.primitive?(method) or method in [:spawn_transaction, :await_effect]) and
+    if (AL.Syntax.primitive?(method) or method in [:spawn_transaction, :on_completion]) and
          proper_list?(args),
        do: IR.operation(:fail, nil, []),
        else: operation

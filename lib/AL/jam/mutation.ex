@@ -8,19 +8,23 @@ defmodule AL.JAM.Mutation do
   def execute(:source_scope_exit, [capture_id], state),
     do: AL.Source.exit_scope(state, capture_id)
 
-  def execute(:send_async, [object, method, args], state) do
-    AL.Command.send_async(state.tx_id, object, method, args, state.branch)
-    state
+  def execute(:await, [target], state) do
+    unless is_atom(target) and AL.Dispatch.instance_of?(target, :completion, state.branch) do
+      raise ArgumentError, "await requires a completion object, got: #{inspect(target)}"
+    end
+
+    AL.Command.await(state.tx_id, target, state.branch)
+    track_work(state, :waits, target)
   end
 
   def execute(:send_elixir, [pid, message], state) do
     AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
-    state
+    track_work(state, :deliveries, {:send, pid, message})
   end
 
   def execute(:emit_effect, [effect, provider, operation, arguments], state) do
     AL.Edge.request(state.tx_id, effect, provider, operation, arguments, state.branch)
-    state
+    track_work(state, :deliveries, {:effect, effect, provider, operation, arguments})
   end
 
   def execute(:set_class, [object, _], state) when is_map(object), do: state
@@ -41,7 +45,19 @@ defmodule AL.JAM.Mutation do
                 "you mean to reclassify -- a durable object has exactly one direct class."
 
       true ->
-        write(state, :set_class, [o, c])
+        state = write(state, :set_class, [o, c])
+        if existing == [], do: AL.ResolutionCache.mark_new_receiver(state.branch, o)
+
+        case c do
+          :future_transaction ->
+            state |> track_work(:futures, o) |> track_work(:deliveries, {:future, o})
+
+          :effect ->
+            track_work(state, :effects, o)
+
+          _ ->
+            state
+        end
     end
   end
 
@@ -88,7 +104,28 @@ defmodule AL.JAM.Mutation do
 
   def execute(:set_slot, [o, k, v], state) do
     store = AL.Dispatch.ivar_storage(o, k, state.branch)
-    write(state, :set_slot, [o, k, v, store])
+    state = write(state, :set_slot, [o, k, v, store])
+
+    after_set_slot(state, o, k, v)
+  end
+
+  def execute(:slot_batch, [writes], state) do
+    {state, pending} =
+      Enum.reduce(writes, {state, []}, fn {object, key, value}, {state, pending} ->
+        if batchable_aos_write?(object, key, value, state.branch) and
+             (pending == [] or elem(hd(pending), 0) == object) do
+          time = AL.Command.set_slot(state.tx_id, object, key, value, :aos, state.branch)
+          state = AL.Source.anchor(state, :set_slot, [object, key, value, :aos], time)
+          state = after_set_slot(state, object, key, value)
+          {state, [{object, key, value, time} | pending]}
+        else
+          flush_aos_writes(pending, state.branch)
+          {execute(:set_slot, [object, key, value], state), []}
+        end
+      end)
+
+    flush_aos_writes(pending, state.branch)
+    state
   end
 
   def execute(:retract_class, [object, _], state) when is_map(object), do: state
@@ -115,11 +152,55 @@ defmodule AL.JAM.Mutation do
 
   def execute(:retract_slot, [o, k], state) do
     store = AL.Dispatch.ivar_storage(o, k, state.branch)
-    write(state, :retract_slot, [o, k, store])
+    state = write(state, :retract_slot, [o, k, store])
+
+    if k in [:status, :wait_transaction],
+      do: track_action_slot(state, o, k, {:retracted}),
+      else: state
   end
 
-  def goal(:send_async, [object, method, args]),
-    do: %Goal.SendAsync{object: object, method: method, args: args}
+  defp after_set_slot(state, o, k, v) do
+    state =
+      if k in [:status, :wait_transaction],
+        do: track_action_slot(state, o, k, v),
+        else: state
+
+    if k == :status and v == :completed do
+      state = track_work(state, :completed_objects, o)
+
+      if AL.Dispatch.instance_of?(o, :effect, state.branch),
+        do: track_work(state, :completed_effects, o),
+        else: state
+    else
+      state
+    end
+  end
+
+  defp batchable_aos_write?(object, key, value, branch)
+       when is_atom(object) and is_atom(key) and key not in [:ivars, :dispatch_strategy],
+       do: storable?(object, key, value) and AL.Dispatch.ivar_storage(object, key, branch) == :aos
+
+  defp batchable_aos_write?(_object, _key, _value, _branch), do: false
+
+  defp flush_aos_writes([], _branch), do: :ok
+
+  defp flush_aos_writes([{object, _, _, _} | _] = pending, branch) do
+    changes =
+      pending
+      |> Enum.reverse()
+      |> Enum.map(fn {^object, key, value, time} -> {key, value, time} end)
+
+    AL.Object.set_aos_slot_batch(object, changes, branch)
+  end
+
+  defp storable?(object, key, value) do
+    AL.Goal.validate_storable!([object, key, value, :aos])
+    true
+  rescue
+    AL.Goal.StorableError -> false
+  end
+
+  def goal(:await, [target]), do: %Goal.Await{target: target}
 
   def goal(:source_scope_exit, [_capture_id]), do: %Goal.Pass{}
 
@@ -144,6 +225,9 @@ defmodule AL.JAM.Mutation do
     do: %Goal.SetOapply{object: object, seq: seq, head: head, body: body}
 
   def goal(:set_slot, [object, key, value]),
+    do: %Goal.SetSlot{object: object, key: key, value: value}
+
+  def goal(:slot_batch, [[{object, key, value} | _]]),
     do: %Goal.SetSlot{object: object, key: key, value: value}
 
   def goal(:retract_class, [object, class]), do: %Goal.RetractClass{object: object, class: class}
@@ -200,6 +284,24 @@ defmodule AL.JAM.Mutation do
     apply(AL.Command, fun, [state.tx_id | args] ++ [state.branch])
     apply(AL.Object, fun, args ++ [state.branch])
     state
+  end
+
+  defp track_work(state, key, value) do
+    work = AL.JAM.TransactionWork.add(state.transaction_work, key, value)
+    %{state | transaction_work: work}
+  end
+
+  defp track_action_slot(state, object, key, value) do
+    %{
+      state
+      | transaction_work:
+          AL.JAM.TransactionWork.track_action_slot(
+            state.transaction_work,
+            object,
+            key,
+            value
+          )
+    }
   end
 
   defp validate_durable_identities!(operation, arguments) do
