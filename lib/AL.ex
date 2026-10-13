@@ -318,6 +318,11 @@ defmodule AL do
     end)
   end
 
+  @spec has_potential_solution?(t()) :: boolean()
+  def has_potential_solution?(%AL{choicepoint_stack: stack}) do
+    Enum.any?(stack, &match?(%AL.Choicepoint{}, &1))
+  end
+
   def next_solution(state) do
     input_vars = observable_vars(state.program)
 
