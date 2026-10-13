@@ -212,6 +212,40 @@ defmodule ALMCPProtocolTest do
     end
   end
 
+  test "queries AL with pending linear relations in the constraint store", %{baseline: baseline} do
+    branch = AL.Branch.fork(:tip, baseline)
+
+    source = """
+    y = 3
+    x = z * y - 3
+    z > 0
+    """
+
+    try do
+      assert {:reply,
+              %{
+                "result" => %{
+                  "isError" => false,
+                  "structuredContent" => %{
+                    "status" => "committed",
+                    "constraints" => constraints,
+                    "store" => store
+                  }
+                }
+              }} = call("queryAL", %{"source" => source, "branch" => to_string(branch.id)})
+
+      assert constraints |> binding_value("z") |> map_value("bounds")
+
+      assert %{
+               "key" => %{"type" => "atom", "name" => "relations"},
+               "value" => %{"type" => "list"}
+             } =
+               Enum.find(store, &match?(%{"key" => %{"name" => "relations"}}, &1))
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
   test "returns the failed transaction object for failed AL source", %{baseline: baseline} do
     branch = AL.Branch.fork(:tip, baseline)
 
