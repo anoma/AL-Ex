@@ -435,6 +435,10 @@ defmodule AL.Lowering do
     }
   end
 
+  def ast_to_pattern({:-, _, [number]}) when is_number(number), do: -number
+
+  def ast_to_pattern({:+, _, [number]}) when is_number(number), do: number
+
   def ast_to_pattern({op, _, args}) when op in @arithmetic_ops and is_list(args),
     do: %Goal.OApply{method_id: op, args: Enum.map(args, &ast_to_pattern/1)}
 
