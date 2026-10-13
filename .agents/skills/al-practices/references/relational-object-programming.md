@@ -87,9 +87,11 @@ Use `not` as negation as failure, not as a general inequality operator. Prefer
 
 ## Selector values and executable values
 
-A selector is data naming behavior on another receiver:
+A selector is data naming behavior on another receiver. Omit the argument list
+when it is empty:
 
 ```elixir
+send(receiver, selector)
 send(receiver, selector, args)
 ```
 

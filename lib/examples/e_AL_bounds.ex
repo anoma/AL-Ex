@@ -314,6 +314,72 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  example eq_narrows_its_other_side_when_one_side_narrows() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        x = y + 3
+        y < 8
+        y > 0
+
+        findall(x, all) do
+          label(x)
+        end
+      end
+
+    assert Map.get(bindings, :"$all") == [4, 5, 6, 7, 8, 9, 10]
+    :ok
+  end
+
+  example eq_narrows_through_a_chain_of_equations() do
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        z = x + 1
+        x = y + 3
+        y < 8
+        y > 0
+
+        findall(z, all) do
+          label(z)
+        end
+      end
+
+    assert Map.get(bindings, :"$all") == [5, 6, 7, 8, 9, 10, 11]
+    :ok
+  end
+
+  example a_cycle_over_finite_domains_is_refuted() do
+    {:aborted, _reason} =
+      run branch: Examples.Support.branch() do
+        x >= 0
+        x <= 1000
+        y >= 0
+        y <= 1000
+        x < y
+        y < x
+      end
+
+    :ok
+  end
+
+  example a_cycle_against_an_unbounded_domain_stops_and_stays_parked() do
+    {:atomic, {_bindings, constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        x > y
+        y > x
+        x >= 0
+      end
+
+    assert constraints != %{}
+
+    {:atomic, _result} =
+      run branch: Examples.Support.branch() do
+        x > y
+        y > x
+      end
+
+    :ok
+  end
+
   # Real N-ary bounds consistency, not a single-variable-affine special case:
   # `z`, `a`, and `b` are all simultaneously open when `=` posts the
   # propagator — each one narrows from the *other two's* current domain
@@ -331,8 +397,8 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  example unresolved_linear_equations_surface_as_residual_relations() do
-    {:atomic, {_bindings, constraints, _state}} =
+  example a_determined_linear_system_is_solved_by_narrowing() do
+    {:atomic, {bindings, constraints, _state}} =
       run branch: Examples.Support.branch() do
         x > 0
         y > 0
@@ -341,12 +407,19 @@ defmodule Examples.ALBounds do
         4 * y = 5 * h
       end
 
-    assert MapSet.new(constraints.relations) ==
-             MapSet.new([
-               %{op: :=, terms: %{"$x": 1, "$y": 1}, value: 22},
-               %{op: :=, terms: %{"$h": 3, "$x": -2}, value: 0},
-               %{op: :=, terms: %{"$h": 5, "$y": -4}, value: 0}
-             ])
+    assert Map.take(bindings, [:"$x", :"$y", :"$h"]) == %{"$x": 12, "$y": 10, "$h": 8}
+    assert constraints == %{}
+  end
+
+  example unresolved_linear_equations_surface_as_residual_relations() do
+    {:atomic, {_bindings, constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        x > 0
+        y > 0
+        x + y = 22
+      end
+
+    assert constraints.relations == [%{op: :=, terms: %{"$x": 1, "$y": 1}, value: 22}]
   end
 
   # Reactive binds, not just reactive `=`/compare calls: `a`/`b` above get

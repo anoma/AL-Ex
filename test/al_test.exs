@@ -126,6 +126,14 @@ defmodule ALDifTest do
   use ExExample.ExUnit, for: Examples.ALDif
 end
 
+defmodule ALVariantTest do
+  use ExExample.ExUnit, for: Examples.ALVariant
+end
+
+defmodule ALStringsTest do
+  use ExExample.ExUnit, for: Examples.ALStrings
+end
+
 defmodule ALNinetyNineTest do
   use ExExample.ExUnit, for: Examples.ALNinetyNine
 end
@@ -172,6 +180,10 @@ end
 
 defmodule ALBlackjackTest do
   use ExExample.ExUnit, for: Examples.ALBlackjack
+end
+
+defmodule ALSwapsTest do
+  use ExExample.ExUnit, for: Examples.ALSwaps
 end
 
 defmodule ALMapsTest do

@@ -26,7 +26,10 @@ config :al,
     :constraints,
     :sudoku,
     :blackjack,
-    :euler
+    :euler,
+    :swaps,
+    :views,
+    :window_manager
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.

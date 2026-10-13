@@ -53,6 +53,7 @@ defmodule AL.MCP.Term do
   def encode(term) when is_map(term) do
     entries =
       term
+      |> Map.to_list()
       |> Enum.sort_by(fn {key, _value} -> inspect(key) end)
       |> Enum.map(fn {key, value} -> %{"key" => encode(key), "value" => encode(value)} end)
 
@@ -68,14 +69,26 @@ defmodule AL.MCP.Term do
         %{"variable" => encode(variable), "value" => encode(value)}
       end)
 
+    {variable_constraints, store_constraints} =
+      Enum.split_with(constraints, fn {key, _value} -> AL.Var.var?(key) end)
+
     encoded_constraints =
-      constraints
+      variable_constraints
       |> Enum.sort_by(fn {variable, _value} -> AL.Var.name(variable) end)
       |> Enum.map(fn {variable, value} ->
         %{"variable" => encode(variable), "value" => encode(value)}
       end)
 
-    %{"bindings" => encoded_bindings, "constraints" => encoded_constraints}
+    encoded_store =
+      store_constraints
+      |> Enum.sort_by(fn {key, _value} -> inspect(key) end)
+      |> Enum.map(fn {key, value} -> %{"key" => encode(key), "value" => encode(value)} end)
+
+    %{
+      "bindings" => encoded_bindings,
+      "constraints" => encoded_constraints,
+      "store" => encoded_store
+    }
   end
 
   defp list_parts([], items), do: {Enum.reverse(items), []}

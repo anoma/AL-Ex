@@ -21,21 +21,21 @@ defmodule AL.Var.Bounds do
   re-running on every later touch of them. Backtracking restores a
   choicepoint's own store, which still carries it.
 
-  Wake classes. A propagator with a still-open var on *both* sides is
-  *ground-woken*: a mere bound narrowing of one of its vars re-queues it
-  only as `{:check, prop}`, which tests the two sides' intervals for a
-  refutation and narrows nothing, so it queues nothing. Once one side is
-  wholly ground it is *narrow-woken* and propagates for real — the open
-  side is then solved against a constant, which reaches its own fixpoint
-  in one pass instead of creeping toward the other side. Grounding a var
-  wakes every propagator parked on it for real, whichever class it is in
-  (`AL.Var.bind/4` runs the fixpoint over them), as does posting a fresh
-  propagator. Chasing two moving sides converges one unit per round, so
-  the narrow wake made a chain of linear equations posted before the
-  calls that ground them cost O(domain width) rounds per frame rather
-  than O(1); refuting without narrowing keeps the refutation and drops
-  the ratchet. The cost is completeness, not soundness: a ground-woken
-  propagator's narrowing waits until one of its sides grounds.
+  Wake classes. Narrowing a var to a domain finite at both ends re-queues
+  every propagator parked on it, so propagation runs to a full fixpoint;
+  that terminates because each round removes at least one value from a
+  finite domain, though a cycle such as `x < y, y < x` over a wide domain
+  takes as many rounds as the domain is wide. Narrowing a var whose domain
+  stays unbounded at either end re-queues a propagator with a still-open
+  var on *both* sides only as `{:check, prop}`, which narrows its sides
+  once and re-queues nothing it wakes: a cycle against an infinite bound
+  would otherwise ratchet forever, so it stops after one step and stays
+  parked, the same trade SWI-Prolog's clpfd makes. A propagator with one
+  side wholly ground propagates for real either way, since solving the
+  open side against a constant reaches its fixpoint in one pass. Grounding
+  a var wakes every propagator parked on it for real (`AL.Var.bind/4` runs
+  the fixpoint over them), as does posting a fresh propagator. The cost is
+  completeness only where a domain is unbounded, never soundness.
   """
 
   alias AL.Var.ConstraintSet
@@ -140,6 +140,12 @@ defmodule AL.Var.Bounds do
   defp variables_in_propagator({:all_dif, variables}),
     do: Enum.flat_map(variables, &AL.Var.find_vars/1)
 
+  defp variables_in_propagator({:floor_divide, dividend, divisor, quotient}),
+    do: Enum.flat_map([dividend, divisor, quotient], &AL.Var.find_vars/1)
+
+  defp variables_in_propagator({:product, left, right, product}),
+    do: Enum.flat_map([left, right, product], &AL.Var.find_vars/1)
+
   defp variables_in_propagator(_prop), do: []
 
   defp affine_propagator?({{:sum, left, _}, {:sum, right, _}, strict}),
@@ -182,6 +188,32 @@ defmodule AL.Var.Bounds do
       end)
 
     [%{op: :all_dif, variables: variables}]
+  end
+
+  defp summarize_non_affine_propagator(
+         store,
+         {:floor_divide, dividend, divisor, quotient},
+         display
+       ) do
+    [
+      %{
+        op: :floor_divide,
+        dividend: AL.Var.subst(dividend, store, display),
+        divisor: AL.Var.subst(divisor, store, display),
+        quotient: AL.Var.subst(quotient, store, display)
+      }
+    ]
+  end
+
+  defp summarize_non_affine_propagator(store, {:product, left, right, product}, display) do
+    [
+      %{
+        op: :product,
+        left: AL.Var.subst(left, store, display),
+        right: AL.Var.subst(right, store, display),
+        product: AL.Var.subst(product, store, display)
+      }
+    ]
   end
 
   defp summarize_non_affine_propagator(_store, _prop, _display), do: []
@@ -270,9 +302,30 @@ defmodule AL.Var.Bounds do
         bind_or_post(store, a, y, a, b, branch)
 
       _ ->
-        add_compare(store, :=, a, b, branch)
+        case {affine(store, a), affine(store, b)} do
+          {{:ok, _}, {:ok, _}} -> add_compare(store, :=, a, b, branch)
+          _ -> add_product_equality(store, a, b, branch)
+        end
     end
   end
+
+  defp add_product_equality(
+         store,
+         %AL.Goal.OApply{method_id: :*, args: [left, right]},
+         product,
+         branch
+       ),
+       do: add_product(store, left, right, product, branch)
+
+  defp add_product_equality(
+         store,
+         product,
+         %AL.Goal.OApply{method_id: :*, args: [left, right]},
+         branch
+       ),
+       do: add_product(store, left, right, product, branch)
+
+  defp add_product_equality(_store, _a, _b, _branch), do: nil
 
   defp bind_or_post(store, side, value, a, b, branch) do
     resolved = AL.Var.deref(store, side)
@@ -332,6 +385,13 @@ defmodule AL.Var.Bounds do
     end
   end
 
+  def eval({:"$fresh", _base, _scope} = variable, store) do
+    case AL.Var.deref(store, variable) do
+      x when is_number(x) -> x
+      _ -> :error
+    end
+  end
+
   def eval(_a, _store), do: :error
 
   defp binop(:+, x, y), do: x + y
@@ -374,6 +434,45 @@ defmodule AL.Var.Bounds do
       store
       |> register_propagator(lo_aff, hi_aff, strict)
       |> run_fixpoint(MapSet.new([{lo_aff, hi_aff, strict}]), branch)
+    else
+      :error -> nil
+    end
+  end
+
+  @spec floor_divide(AL.Var.store(), term(), term(), term(), AL.Branch.t()) ::
+          AL.Var.store() | nil
+  def floor_divide(store, dividend, divisor, quotient, branch) do
+    prop = {:floor_divide, dividend, divisor, quotient}
+
+    with positive_divisor when not is_nil(positive_divisor) <-
+           add_compare(store, :>, divisor, 0, branch) do
+      positive_divisor
+      |> register_non_affine_propagator(prop)
+      |> run_fixpoint(MapSet.new([prop]), branch)
+    else
+      nil -> nil
+    end
+  end
+
+  defp add_product(store, left, right, product, branch) do
+    prop = {:product, left, right, product}
+
+    store
+    |> register_non_affine_propagator(prop)
+    |> run_fixpoint(MapSet.new([prop]), branch)
+  end
+
+  defp add_canonical_compare(store, op, a, b, branch) do
+    {left_term, right_term, strict} = normalize(op, a, b)
+
+    with {:ok, left} <- affine(store, left_term),
+         {:ok, right} <- affine(store, right_term),
+         {:ok, difference} <- combine(:-, left, right) do
+      zero = {:sum, %{}, 0}
+
+      store
+      |> register_propagator(difference, zero, strict)
+      |> run_fixpoint(MapSet.new([{difference, zero, strict}]), branch)
     else
       :error -> nil
     end
@@ -451,6 +550,24 @@ defmodule AL.Var.Bounds do
     end)
   end
 
+  defp register_non_affine_propagator(store, prop) do
+    prop
+    |> variables_in_propagator()
+    |> Enum.uniq()
+    |> Enum.reduce(store, fn variable, acc ->
+      resolved = AL.Var.deref(acc, variable)
+
+      if AL.Var.var?(resolved) do
+        Map.update(acc, resolved, %ConstraintSet{props: [prop]}, fn
+          %ConstraintSet{} = set -> %{set | props: Enum.uniq([prop | set.props])}
+          other -> other
+        end)
+      else
+        acc
+      end
+    end)
+  end
+
   # `def`, not `defp` — `AL.Var.bind/4` also runs the fixpoint directly, over
   # whatever propagators are already parked on a var at the moment an
   # *ordinary* unify grounds it (not just when a fresh `=`/compare call
@@ -467,57 +584,53 @@ defmodule AL.Var.Bounds do
           ),
           AL.Branch.t()
         ) :: AL.Var.store() | nil
-  def run_fixpoint(store, worklist, branch) do
-    case Enum.at(worklist, 0) do
-      nil ->
+  def run_fixpoint(store, worklist, branch),
+    do: drain(store, :queue.from_list(Enum.to_list(worklist)), MapSet.new(worklist), branch)
+
+  defp drain(store, queue, waiting, branch) do
+    case :queue.out(queue) do
+      {:empty, _queue} ->
         store
 
-      {:check, prop} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case check_only(store, prop) do
-          nil -> nil
-          new_store -> run_fixpoint(new_store, rest, branch)
-        end
-
-      {:either, left, right} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case resolve_either(store, left, right, branch) do
-          nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
-        end
-
-      {:all_dif, vars} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case AL.Var.AllDif.resolve(store, vars, branch) do
-          nil -> nil
-          {new_store, more} -> run_fixpoint(new_store, MapSet.union(rest, more), branch)
-        end
-
-      {lo_aff, hi_aff, strict} = t ->
-        rest = MapSet.delete(worklist, t)
-
-        case narrow_pair(store, lo_aff, hi_aff, strict, branch) do
+      {{:value, item}, queue} ->
+        case propagate(store, item, branch) do
           nil ->
             nil
 
-          {new_store, more} ->
-            run_fixpoint(retire(new_store, t), MapSet.union(rest, more), branch)
+          {new_store, woken} ->
+            {queue, waiting} = enqueue(woken, queue, MapSet.delete(waiting, item))
+            drain(new_store, queue, waiting, branch)
         end
     end
   end
 
-  defp check_only(store, {lo_aff, hi_aff, strict} = prop) do
-    {lo_lo, lo_hi} = domain_of(store, lo_aff)
-    {hi_lo, hi_hi} = domain_of(store, hi_aff)
+  defp enqueue(woken, queue, waiting) do
+    Enum.reduce(woken, {queue, waiting}, fn item, {queue, waiting} ->
+      if MapSet.member?(waiting, item),
+        do: {queue, waiting},
+        else: {:queue.in(item, queue), MapSet.put(waiting, item)}
+    end)
+  end
 
-    cond do
-      refuted?(bump_up(lo_lo, strict), hi_hi) -> nil
-      entailed?(lo_hi, hi_lo, strict) -> unpark(store, prop, prop_vars(prop))
-      true -> store
-    end
+  defp propagate(store, {:check, {lo_aff, hi_aff, strict} = prop}, branch) do
+    with {new_store, _woken} <- narrow_pair(store, lo_aff, hi_aff, strict, branch),
+         do: {retire(new_store, prop), []}
+  end
+
+  defp propagate(store, {:either, left, right}, branch),
+    do: resolve_either(store, left, right, branch)
+
+  defp propagate(store, {:all_dif, vars}, branch), do: AL.Var.AllDif.resolve(store, vars, branch)
+
+  defp propagate(store, {:floor_divide, dividend, divisor, quotient}, branch),
+    do: resolve_floor_divide(store, dividend, divisor, quotient, branch)
+
+  defp propagate(store, {:product, left, right, product}, branch),
+    do: resolve_product(store, left, right, product, branch)
+
+  defp propagate(store, {lo_aff, hi_aff, strict} = prop, branch) do
+    with {new_store, woken} <- narrow_pair(store, lo_aff, hi_aff, strict, branch),
+         do: {retire(new_store, prop), woken}
   end
 
   defp retire(store, {lo_aff, hi_aff, strict} = prop) do
@@ -531,9 +644,84 @@ defmodule AL.Var.Bounds do
 
   defp prop_vars({lo_aff, hi_aff, _strict}), do: affine_vars(lo_aff) ++ affine_vars(hi_aff)
 
-  defp refuted?(nil, _hi_hi), do: false
-  defp refuted?(_floor, nil), do: false
-  defp refuted?(floor, hi_hi), do: floor > hi_hi
+  defp resolve_floor_divide(store, dividend, divisor, quotient, branch) do
+    if is_number(eval(divisor, store)) or is_number(eval(quotient, store)) do
+      prop = {:floor_divide, dividend, divisor, quotient}
+
+      store = unpark(store, prop, variables_in_propagator(prop))
+      product = %AL.Goal.OApply{method_id: :*, args: [quotient, divisor]}
+      next_quotient = %AL.Goal.OApply{method_id: :+, args: [quotient, 1]}
+      next_product = %AL.Goal.OApply{method_id: :*, args: [next_quotient, divisor]}
+
+      with lower_bound when not is_nil(lower_bound) <-
+             add_canonical_compare(store, :<=, product, dividend, branch),
+           upper_bound when not is_nil(upper_bound) <-
+             add_canonical_compare(lower_bound, :<, dividend, next_product, branch) do
+        {upper_bound, MapSet.new()}
+      else
+        nil -> nil
+      end
+    else
+      narrow_floor_quotient(store, dividend, divisor, quotient, branch)
+    end
+  end
+
+  defp narrow_floor_quotient(store, dividend, divisor, quotient, branch) do
+    with {:ok, dividend_affine} <- affine(store, dividend),
+         {:ok, divisor_affine} <- affine(store, divisor),
+         {:ok, quotient_affine} <- affine(store, quotient) do
+      {dividend_lo, dividend_hi} = domain_of(store, dividend_affine)
+      {divisor_lo, divisor_hi} = domain_of(store, divisor_affine)
+
+      quotient_lo =
+        if is_integer(dividend_lo) and is_integer(divisor_hi) and divisor_hi > 0,
+          do: Integer.floor_div(dividend_lo, divisor_hi),
+          else: nil
+
+      quotient_hi =
+        if is_integer(dividend_hi) and is_integer(divisor_lo) and divisor_lo > 0,
+          do: Integer.floor_div(dividend_hi, divisor_lo),
+          else: nil
+
+      case apply_domain(store, quotient_affine, {quotient_lo, quotient_hi}, branch) do
+        :fail -> nil
+        {:ok, new_store, more} -> {new_store, MapSet.new(more)}
+      end
+    else
+      :error -> {store, MapSet.new()}
+    end
+  end
+
+  defp resolve_product(store, left, right, product, branch) do
+    prop = {:product, left, right, product}
+    left_value = eval(left, store)
+    right_value = eval(right, store)
+    product_value = eval(product, store)
+
+    result =
+      cond do
+        is_number(left_value) and is_number(right_value) ->
+          bind_product(store, prop, product, left_value * right_value, branch)
+
+        is_integer(left_value) and left_value != 0 and is_integer(product_value) and
+            rem(product_value, left_value) == 0 ->
+          bind_product(store, prop, right, div(product_value, left_value), branch)
+
+        is_integer(right_value) and right_value != 0 and is_integer(product_value) and
+            rem(product_value, right_value) == 0 ->
+          bind_product(store, prop, left, div(product_value, right_value), branch)
+
+        true ->
+          store
+      end
+
+    if is_nil(result), do: nil, else: {result, MapSet.new()}
+  end
+
+  defp bind_product(store, prop, term, value, branch) do
+    store = unpark(store, prop, variables_in_propagator(prop))
+    AL.Var.unify(term, value, store, branch)
+  end
 
   defp entailed?(nil, _hi_lo, _strict), do: false
   defp entailed?(_lo_hi, nil, _strict), do: false
@@ -817,12 +1005,14 @@ defmodule AL.Var.Bounds do
             end
 
           true ->
-            {:ok, set_bounds(store, dv, {v_lo, v_hi}), wake_on_narrow(store, dv)}
+            {:ok, set_bounds(store, dv, {v_lo, v_hi}), wake_on_narrow(store, dv, {v_lo, v_hi})}
         end
     end
   end
 
-  defp wake_on_narrow(store, v) do
+  defp wake_on_narrow(store, v, {lo, hi}) when lo != nil and hi != nil, do: props_of(store, v)
+
+  defp wake_on_narrow(store, v, _unbounded) do
     Enum.map(props_of(store, v), fn prop ->
       if ground_woken?(store, prop), do: {:check, prop}, else: prop
     end)

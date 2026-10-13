@@ -53,9 +53,12 @@ defmodule AL.Goal do
           | AL.Goal.Not.t()
           | AL.Goal.Eq.t()
           | AL.Goal.Equal.t()
+          | AL.Goal.Variant.t()
+          | AL.Goal.StringCodes.t()
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
+          | AL.Goal.FloorDivide.t()
           | AL.Goal.Either.t()
           | AL.Goal.AllDif.t()
           | AL.Goal.InDomain.t()
@@ -294,6 +297,16 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: Variant do
+    field(:a, AL.Var.t())
+    field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: StringCodes do
+    field(:string, AL.Var.t())
+    field(:codes, AL.Var.t())
+  end
+
   typedstruct enforce: true, module: Dif do
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
@@ -308,6 +321,12 @@ defmodule AL.Goal do
     field(:op, atom())
     field(:a, AL.Var.t())
     field(:b, AL.Var.t())
+  end
+
+  typedstruct enforce: true, module: FloorDivide do
+    field(:dividend, AL.Var.t())
+    field(:divisor, AL.Var.t())
+    field(:quotient, AL.Var.t())
   end
 
   # `left or right` (CLP(FD) `#\/`) — the constraint that *at least one*
@@ -481,7 +500,10 @@ defmodule AL.Goal do
     {Not, :not, [condition: :goals]},
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
+    {Variant, :variant, [a: :term, b: :term]},
+    {StringCodes, :string_codes, [string: :term, codes: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
+    {FloorDivide, :floor_divide, [dividend: :term, divisor: :term, quotient: :term]},
     {Either, :either, [left: :term, right: :term]},
     {AllDif, :all_dif, [vars: :term]},
     {Ground, :ground, [term: :term]},

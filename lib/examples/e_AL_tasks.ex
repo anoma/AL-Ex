@@ -84,6 +84,34 @@ defmodule Examples.ALTasks do
     assert processed?(:async_obj_2)
   end
 
+  example zero_argument_sends_omit_the_empty_argument_list() do
+    observer = self()
+
+    {:atomic, {bindings, _constraints, _state}} =
+      run branch: Examples.Support.branch() do
+        new(:process, %{name: :zero_argument_observer, pid: ^observer}, _)
+        vm_set_class(:zero_argument_receiver, :object)
+
+        defmethod(:zero_argument_receiver, :mark, [self]) do
+          set_slot(self, :marked, true)
+        end
+
+        defmethod(:zero_argument_receiver, :notify, [_self]) do
+          get(:zero_argument_observer, :pid, process)
+          send_elixir(process, :zero_argument_async_send)
+        end
+
+        sync_selector = :mark
+        async_selector = :notify
+        send(:zero_argument_receiver, sync_selector)
+        send_async(:zero_argument_receiver, async_selector)
+        get(:zero_argument_receiver, :marked, marked)
+      end
+
+    assert bindings[:"$marked"]
+    assert_receive :zero_argument_async_send, 1_000
+  end
+
   example spawn_arranges_a_fresh_transaction_after_commit() do
     pid = self()
 

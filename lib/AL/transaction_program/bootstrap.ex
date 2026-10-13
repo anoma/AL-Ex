@@ -1,7 +1,7 @@
 defmodule AL.TransactionProgram.Bootstrap do
   use AL.TransactionProgram
 
-  defprogram :bootstrap, version: 19, deps: [] do
+  defprogram :bootstrap, version: 22, deps: [] do
     vm_set_class(:class, :class)
     vm_set_class(:object, :class)
     vm_set_class(:behaviour, :class)
@@ -461,8 +461,22 @@ defmodule AL.TransactionProgram.Bootstrap do
       vm_map_put(partial, name, value, output)
     end
 
+    defmethod(:object, :include_durable_slot, [partial, name, value, output]) do
+      not [ground(value)]
+      class(value, :anonymous_method)
+      get(value, :args, args)
+      ground(args)
+      vm_map_put(partial, name, value, output)
+    end
+
     defmethod(:object, :include_durable_slot, [partial, _name, value, partial]) do
       not [ground(value)]
+
+      not [
+        class(value, :anonymous_method),
+        get(value, :args, args),
+        ground(args)
+      ]
     end
 
     # A *class* object being created (`new(:class, ...)`, what every
@@ -532,6 +546,13 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:value, :put, [self, key, value, updated]) do
       vm_map_put(self, key, value, updated)
+    end
+
+    defmethod(:value, :put_slots, [self, [], self])
+
+    defmethod(:value, :put_slots, [self, [[key, value] | rest], updated]) do
+      put(self, key, value, partial)
+      put_slots(partial, rest, updated)
     end
 
     defmethod(:value, :init, [self, args, output]) do
@@ -803,6 +824,36 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     new(:class, %{name: :number, super: :value, ivars: []}, _)
 
+    new(:class, %{name: :string, super: :value, ivars: []}, _)
+
+    defmethod(:string, :concat, [self, other, whole]) do
+      string_codes(whole, whole_codes)
+      string_codes(self, self_codes)
+      string_codes(other, other_codes)
+      concat(self_codes, other_codes, whole_codes)
+    end
+
+    defmethod(:string, :length, [self, n]) do
+      string_codes(self, codes)
+      length(codes, n)
+    end
+
+    defmethod(:string, :split, [self, separator, parts]) do
+      string_codes(separator, separator_codes)
+      ground(self)
+      string_codes(self, codes)
+      split(codes, separator_codes, part_codes)
+      strings_codes(parts, part_codes)
+    end
+
+    defmethod(:string, :split, [self, separator, parts]) do
+      string_codes(separator, separator_codes)
+      not [ground(self)]
+      strings_codes(parts, part_codes)
+      split(codes, separator_codes, part_codes)
+      string_codes(self, codes)
+    end
+
     defmethod(:number, :factorial, [1, 1])
 
     # TODO: Propagating multiplicative intervals
@@ -919,6 +970,31 @@ defmodule AL.TransactionProgram.Bootstrap do
       concat(ft, second, inner)
     end
 
+    defmethod(:list, :contains, [self, sublist]) do
+      concat(_prefix, suffix, self)
+      concat(sublist, _rest, suffix)
+    end
+
+    defmethod(:list, :split, [self, [separator | separators], [self]]) do
+      not [contains(self, [separator | separators])]
+    end
+
+    defmethod(:list, :split, [self, [separator | separators], [part | parts]]) do
+      concat(part, separated, self)
+      concat([separator | separators], rest, separated)
+      concat(part, [separator | separators], through_separator)
+      concat(before_last, [_last], through_separator)
+      not [contains(before_last, [separator | separators])]
+      split(rest, [separator | separators], parts)
+    end
+
+    defmethod(:list, :strings_codes, [[], []])
+
+    defmethod(:list, :strings_codes, [[string | strings], [codes | rest]]) do
+      string_codes(string, codes)
+      strings_codes(strings, rest)
+    end
+
     # member keeps a stable behaviour id (`:list_member`) so the trace example can
     # trace it: its receiver is a raw list, so it can only be traced by id.
     vm_set_method(:list, :member, :list_member)
@@ -958,30 +1034,28 @@ defmodule AL.TransactionProgram.Bootstrap do
 
     defmethod(:list, :fold_left, [[], _func, acc, acc])
 
-    defmethod(:list, :fold_left, [[], _head, _body, acc, acc])
-
     defmethod(:list, :fold_left, [[h | t], func, acc, result]) do
       send(acc, func, [h, next_acc])
       fold_left(t, func, next_acc, result)
     end
 
-    defmethod(:list, :fold_left, [[h | t], head, body, acc, result]) do
-      call(head, body, [acc, h, next_acc])
-      fold_left(t, head, body, next_acc, result)
+    defmethod(:list, :fold_left, [[h | t], func, acc, result]) do
+      isa(func, :anonymous_method)
+      run(func, [acc, h, next_acc])
+      fold_left(t, func, next_acc, result)
     end
 
     defmethod(:list, :fold_right, [[], _func, acc, acc])
-
-    defmethod(:list, :fold_right, [[], _head, _body, acc, acc])
 
     defmethod(:list, :fold_right, [[h | t], func, acc, result]) do
       fold_right(t, func, acc, next_acc)
       send(next_acc, func, [h, result])
     end
 
-    defmethod(:list, :fold_right, [[h | t], head, body, acc, result]) do
-      fold_right(t, head, body, acc, next_acc)
-      call(head, body, [next_acc, h, result])
+    defmethod(:list, :fold_right, [[h | t], func, acc, result]) do
+      isa(func, :anonymous_method)
+      fold_right(t, func, acc, next_acc)
+      run(func, [next_acc, h, result])
     end
 
     defmethod(:list, :flatten, [lists, result]) do
@@ -1022,24 +1096,64 @@ defmodule AL.TransactionProgram.Bootstrap do
       dedupe([y | rest], result)
     end
 
-    defmethod(:list, :min_by, [xs, func, min]) do
-      member(xs, min)
-      send(min, func, [v])
-
-      forall(member(xs, other)) do
-        send(other, func, [w])
-        v <= w
-      end
+    defmethod(:list, :lambda, [head, method, body]) do
+      new(:anonymous_method, %{args: [], head: head, body: body}, method)
     end
 
-    defmethod(:list, :max_by, [xs, func, max]) do
-      member(xs, max)
-      send(max, func, [v])
-
-      forall(member(xs, other)) do
-        send(other, func, [w])
-        v >= w
+    defmethod(:list, :min_by, [[h | t], func, min]) do
+      lambda([acc, x, least], step) do
+        send(acc, func, [v])
+        send(x, func, [w])
+        alternative([w >= v, least = acc], [w <= v, least = x])
       end
+
+      fold_left(t, step, h, min)
+    end
+
+    defmethod(:list, :min, [[], _])
+
+    defmethod(:list, :min, [[x | xs], min]) do
+      min(xs, x, min)
+    end
+
+    defmethod(:list, :min, [[], acc, acc])
+
+    defmethod(:list, :min, [[x | xs], acc, min]) do
+      x <= acc
+      min(xs, x, min)
+    end
+
+    defmethod(:list, :min, [[x | xs], acc, min]) do
+      x > acc
+      min(xs, acc, min)
+    end
+
+    defmethod(:list, :max, [[], _])
+
+    defmethod(:list, :max, [[x | xs], max]) do
+      max(xs, x, max)
+    end
+
+    defmethod(:list, :max, [[], acc, acc])
+
+    defmethod(:list, :max, [[x | xs], acc, max]) do
+      x <= acc
+      max(xs, acc, max)
+    end
+
+    defmethod(:list, :max, [[x | xs], acc, max]) do
+      x > acc
+      max(xs, x, max)
+    end
+
+    defmethod(:list, :max_by, [[h | t], func, max]) do
+      lambda([acc, x, greatest], step) do
+        send(acc, func, [v])
+        send(x, func, [w])
+        alternative([w <= v, greatest = acc], [w >= v, greatest = x])
+      end
+
+      fold_left(t, step, h, max)
     end
 
     defmethod(:list, :sum, [[], 0])

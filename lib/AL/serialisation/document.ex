@@ -217,44 +217,44 @@ defmodule AL.Serialisation.Document do
   defp take_method_metadata(text), do: {:ok, text}
 
   defp take_method(owner, text) do
-    with {:ok, line, rest} <- take_line(text),
-         {:ok, declaration} <- declaration(owner, line),
-         {:ok, selector} <- selector(declaration),
-         {:ok, body, rest} <- AL.Serialisation.Document.Scanner.scan(rest) do
-      {:ok, %Method{selector: selector, declaration: declaration, body: body}, rest}
-    end
-  end
-
-  defp take_line(text) do
-    case String.split(text, "\n", parts: 2) do
-      [line, rest] -> {:ok, line, rest}
-      [_line] -> invalid("method declaration must be followed by a body")
-    end
-  end
-
-  defp declaration(owner, line) do
     prefix = "#{literal(owner)} >> "
 
-    cond do
-      not String.starts_with?(line, prefix) ->
-        invalid("method declaration must start with #{String.trim_trailing(prefix)}")
+    if String.starts_with?(text, prefix) do
+      with {:ok, declaration, selector, rest} <-
+             take_declaration(
+               binary_part(text, byte_size(prefix), byte_size(text) - byte_size(prefix)),
+               ""
+             ),
+           {:ok, body, rest} <- AL.Serialisation.Document.Scanner.scan(rest) do
+        {:ok, %Method{selector: selector, declaration: declaration, body: body}, rest}
+      end
+    else
+      invalid("method declaration must start with #{String.trim_trailing(prefix)}")
+    end
+  end
 
-      not String.ends_with?(line, " [") ->
-        invalid("method declaration must end with an opening bracket")
+  defp take_declaration(text, taken) do
+    case String.split(text, "\n", parts: 2) do
+      [line, rest] ->
+        candidate = taken <> line
 
-      true ->
-        {:ok,
-         line
-         |> binary_part(byte_size(prefix), byte_size(line) - byte_size(prefix))
-         |> binary_part(0, byte_size(line) - byte_size(prefix) - 2)}
+        with true <- String.ends_with?(candidate, " ["),
+             declaration = binary_part(candidate, 0, byte_size(candidate) - 2),
+             {:ok, selector} <- selector(declaration) do
+          {:ok, declaration, selector, rest}
+        else
+          _ -> take_declaration(rest, candidate <> "\n")
+        end
+
+      [_line] ->
+        invalid("method declaration must be a selector and a head followed by a body")
     end
   end
 
   defp selector(declaration) do
     case Code.string_to_quoted("{" <> declaration <> "}") do
       {:ok, {selector, _head}} -> {:ok, selector}
-      {:ok, {:{}, _meta, [selector | _rest]}} -> {:ok, selector}
-      _ -> invalid("method declaration must be a selector and a head")
+      _ -> :error
     end
   end
 

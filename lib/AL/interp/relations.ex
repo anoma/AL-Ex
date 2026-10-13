@@ -25,6 +25,10 @@ defmodule AL.Interp.Relations do
       when is_number(object),
       do: AL.put_bindings(state, AL.unify(state, :number, class_pattern), [class_pattern])
 
+  def interp(%Goal.GetClass{object: object, class: class_pattern}, state)
+      when is_binary(object),
+      do: AL.put_bindings(state, AL.unify(state, :string, class_pattern), [class_pattern])
+
   def interp(%Goal.GetClass{object: object, class: class_pattern}, state) do
     known_direct = AL.Var.direct_classes_of(store(state), object)
 
