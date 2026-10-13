@@ -392,6 +392,81 @@ defmodule Examples.ALBounds do
     :ok
   end
 
+  example eq_narrows_its_other_side_when_one_side_narrows() do
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
+      run(
+        ~S"""
+        = X (+ Y 3).
+        < Y 8.
+        > Y 0.
+        findall X All {label X}.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$All") == [4, 5, 6, 7, 8, 9, 10]
+    :ok
+  end
+
+  example eq_narrows_through_a_chain_of_equations() do
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
+      run(
+        ~S"""
+        = Z (+ X 1).
+        = X (+ Y 3).
+        < Y 8.
+        > Y 0.
+        findall Z All {label Z}.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$All") == [5, 6, 7, 8, 9, 10, 11]
+    :ok
+  end
+
+  example a_cycle_over_finite_domains_is_refuted() do
+    %AL{result: {:aborted, _reason}} =
+      run(
+        ~S"""
+        >= X 0.
+        <= X 1000.
+        >= Y 0.
+        <= Y 1000.
+        < X Y.
+        < Y X.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    :ok
+  end
+
+  example a_cycle_against_an_unbounded_domain_stops_and_stays_parked() do
+    %AL{result: {:atomic, {_bindings, constraints, _state}}} =
+      run(
+        ~S"""
+        > X Y.
+        > Y X.
+        >= X 0.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert constraints != %{}
+
+    %AL{result: {:atomic, _result}} =
+      run(
+        ~S"""
+        > X Y.
+        > Y X.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    :ok
+  end
+
   # Real N-ary bounds consistency, not a single-variable-affine special case:
   # `z`, `a`, and `b` are all simultaneously open when `=` posts the
   # propagator — each one narrows from the *other two's* current domain
@@ -412,8 +487,8 @@ defmodule Examples.ALBounds do
     :ok
   end
 
-  example unresolved_linear_equations_surface_as_residual_relations() do
-    %AL{result: {:atomic, {_bindings, constraints, _state}}} =
+  example determined_linear_equations_converge() do
+    %AL{result: {:atomic, {bindings, constraints, _state}}} =
       run(
         ~S"""
         > X 0.
@@ -425,12 +500,13 @@ defmodule Examples.ALBounds do
         branch: Examples.Support.branch()
       )
 
-    assert MapSet.new(constraints.relations) ==
-             MapSet.new([
-               %{op: :=, terms: %{{:"$var", "X"} => 1, {:"$var", "Y"} => 1}, value: 22},
-               %{op: :=, terms: %{{:"$var", "H"} => 3, {:"$var", "X"} => -2}, value: 0},
-               %{op: :=, terms: %{{:"$var", "H"} => 5, {:"$var", "Y"} => -4}, value: 0}
-             ])
+    assert Map.take(bindings, ["$X", "$Y", "$H"]) == %{
+             "$X" => 12,
+             "$Y" => 10,
+             "$H" => 8
+           }
+
+    assert constraints == %{}
   end
 
   # Reactive binds, not just reactive `=`/compare calls: `a`/`b` above get

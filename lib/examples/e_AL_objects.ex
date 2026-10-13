@@ -313,7 +313,7 @@ defmodule Examples.ALObjects do
     %AL{result: {:atomic, {bindings, _constraints, result}}} =
       run(
         ~S"""
-        new class #{name => point, super => value} NewPointClass.
+        new class #{name => example_point, super => value} NewPointClass.
 
         NewPointClass >> init
         | Self _ Self |.
@@ -324,8 +324,8 @@ defmodule Examples.ALObjects do
         branch: Examples.Support.branch()
       )
 
-    assert Map.get(bindings, "$NewPointClass") == :point
-    assert Map.get(bindings, "$NewPointObject") == %{class: :point}
+    assert Map.get(bindings, "$NewPointClass") == :example_point
+    assert Map.get(bindings, "$NewPointObject") == %{class: :example_point}
 
     result
   end
