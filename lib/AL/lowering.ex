@@ -251,6 +251,12 @@ defmodule AL.Lowering do
   def ast_to_pattern({:==, _, [a, b]}),
     do: %Goal.Equal{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 
+  def ast_to_pattern({:variant, _, [a, b]}),
+    do: %Goal.Variant{a: ast_to_pattern(a), b: ast_to_pattern(b)}
+
+  def ast_to_pattern({:string_codes, _, [string, codes]}),
+    do: %Goal.StringCodes{string: ast_to_pattern(string), codes: ast_to_pattern(codes)}
+
   def ast_to_pattern({:dif, _, [a, b]}),
     do: %Goal.Dif{a: ast_to_pattern(a), b: ast_to_pattern(b)}
 

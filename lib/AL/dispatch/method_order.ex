@@ -8,8 +8,8 @@ defmodule AL.Dispatch.MethodOrder do
 
   # Ordered lookup scopes: the receiver (if an atom), then its classes and their
   # supers, depth-first (or breadth-first, if the receiver's class opts in via a
-  # `dispatch_strategy: :bfs` slot) and deduped. Map/list/number receivers start
-  # from `:map`/`:list`/`:number` and always walk depth-first.
+  # `dispatch_strategy: :bfs` slot) and deduped. Map/list/number/string receivers
+  # start from `:map`/`:list`/`:number`/`:string` and always walk depth-first.
   def method_scopes(self, branch) when is_map(self),
     do: cached_super_chain([Map.get(self, :class, :map)], branch, :dfs)
 
@@ -18,6 +18,9 @@ defmodule AL.Dispatch.MethodOrder do
 
   def method_scopes(self, branch) when is_number(self),
     do: cached_super_chain([:number], branch, :dfs)
+
+  def method_scopes(self, branch) when is_binary(self),
+    do: cached_super_chain([:string], branch, :dfs)
 
   def method_scopes(self, branch) do
     classes = for({:class, _o, _seq, c} <- AL.Object.scan_class(self, :"$class", branch), do: c)

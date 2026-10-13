@@ -25,6 +25,9 @@ Before writing a method, identify:
 5. Whether behavior belongs in dispatch on a class instead of a conditional.
 6. Whether the result is durable state or a new immutable value.
 
+If a program seems to need a new VM goal, `vm_*` operation, or native, stop
+and ask the user first; do not add one without explicit permission.
+
 Prefer the smallest set of goals that states those facts. Treat clause order,
 cut, `implies`, labeling, and side effects as semantic commitments, not routine
 control-flow tools.
