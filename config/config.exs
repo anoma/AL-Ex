@@ -24,7 +24,9 @@ config :al,
     :blackjack,
     :euler,
     :swaps,
-    :bnf
+    :bnf,
+    :views,
+    :window_manager
   ]
 
 # Native (Elixir-backed) methods registered at every boot -- see AL.Native.
