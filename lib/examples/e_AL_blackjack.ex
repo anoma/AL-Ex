@@ -23,11 +23,6 @@ defmodule Examples.ALBlackjack do
     :ok
   end
 
-  # r3's rank is never supplied -- ivar specs leave it open but
-  # domain-constrained, so label enumerates it directly. Ace backtracks
-  # over both its legal values too; king(10) + ace(11) already hits 21, so
-  # ace = 11 never leaves room for a third card -- only ace = 1 survives,
-  # same reasoning the original durable-instance version relied on.
   example hand_finds_every_card_that_completes_21() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do

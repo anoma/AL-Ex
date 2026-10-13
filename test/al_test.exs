@@ -174,6 +174,10 @@ defmodule ALBlackjackTest do
   use ExExample.ExUnit, for: Examples.ALBlackjack
 end
 
+defmodule ALSwapsTest do
+  use ExExample.ExUnit, for: Examples.ALSwaps
+end
+
 defmodule ALMapsTest do
   use ExExample.ExUnit, for: Examples.ALMaps
 end

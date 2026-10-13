@@ -91,6 +91,28 @@ defmodule Examples.ALLists do
     :ok
   end
 
+  example max_by_picks_the_element_with_the_greatest_value() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        max_by([[3, 5], [4, 5], [6, 3], [4, 7]], :hd, max)
+      end
+
+    assert Map.get(bindings, :"$max") == [6, 3]
+    :ok
+  end
+
+  example max_by_yields_every_tied_maximum() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        findall(m, maxes) do
+          max_by([[1, :a], [2, :b], [2, :c]], :hd, m)
+        end
+      end
+
+    assert Map.get(bindings, :"$maxes") == [[2, :b], [2, :c]]
+    :ok
+  end
+
   example min_by_constrains_an_open_element() do
     {:atomic, {bindings, _constraints, _}} =
       run branch: Examples.Support.branch() do
@@ -195,6 +217,38 @@ defmodule Examples.ALLists do
       end
 
     assert Map.get(bindings, :"$out") == [%{id: :a}, %{id: :b}, %{id: :c}]
+    :ok
+  end
+
+  example fold_left_with_anonymous_method_threads_the_accumulator() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        new(
+          :anonymous_method,
+          %{args: [], head: [acc, x, next], body: [next = [x | acc]]},
+          prepend
+        )
+
+        fold_left([:a, :b, :c], prepend, [], out)
+      end
+
+    assert Map.get(bindings, :"$out") == [:c, :b, :a]
+    :ok
+  end
+
+  example fold_right_with_anonymous_method_threads_the_accumulator() do
+    {:atomic, {bindings, _constraints, _}} =
+      run branch: Examples.Support.branch() do
+        new(
+          :anonymous_method,
+          %{args: [], head: [acc, x, next], body: [next = [x | acc]]},
+          prepend
+        )
+
+        fold_right([:a, :b, :c], prepend, [], out)
+      end
+
+    assert Map.get(bindings, :"$out") == [:a, :b, :c]
     :ok
   end
 

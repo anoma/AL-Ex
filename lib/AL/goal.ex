@@ -56,6 +56,7 @@ defmodule AL.Goal do
           | AL.Goal.Dif.t()
           | AL.Goal.Isa.t()
           | AL.Goal.Compare.t()
+          | AL.Goal.FloorDivide.t()
           | AL.Goal.Either.t()
           | AL.Goal.AllDif.t()
           | AL.Goal.InDomain.t()
@@ -310,6 +311,12 @@ defmodule AL.Goal do
     field(:b, AL.Var.t())
   end
 
+  typedstruct enforce: true, module: FloorDivide do
+    field(:dividend, AL.Var.t())
+    field(:divisor, AL.Var.t())
+    field(:quotient, AL.Var.t())
+  end
+
   # `left or right` (CLP(FD) `#\/`) — the constraint that *at least one*
   # side holds, held and propagated directly (`AL.Var.Bounds.either/4`): no
   # boolean anywhere, surface or internal, just the two sides themselves.
@@ -482,6 +489,7 @@ defmodule AL.Goal do
     {Eq, :=, [a: :term, b: :term]},
     {Equal, :equal, [a: :term, b: :term]},
     {Compare, :compare, [op: :term, a: :term, b: :term]},
+    {FloorDivide, :floor_divide, [dividend: :term, divisor: :term, quotient: :term]},
     {Either, :either, [left: :term, right: :term]},
     {AllDif, :all_dif, [vars: :term]},
     {Ground, :ground, [term: :term]},
