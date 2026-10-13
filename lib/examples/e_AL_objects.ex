@@ -264,7 +264,7 @@ defmodule Examples.ALObjects do
   example make_point_object() do
     {:atomic, {bindings, _constraints, result}} =
       run branch: Examples.Support.branch() do
-        new(:class, %{name: :point, super: :value}, new_point_class)
+        new(:class, %{name: :example_point, super: :value}, new_point_class)
 
         defmethod(new_point_class, :init, [self, _, self])
 
@@ -272,8 +272,8 @@ defmodule Examples.ALObjects do
         cut
       end
 
-    assert Map.get(bindings, :"$new_point_class") == :point
-    assert Map.get(bindings, :"$new_point_object") == %{class: :point}
+    assert Map.get(bindings, :"$new_point_class") == :example_point
+    assert Map.get(bindings, :"$new_point_object") == %{class: :example_point}
 
     result
   end

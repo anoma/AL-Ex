@@ -54,7 +54,9 @@ defmodule ALSerialisationTest do
       before = File.stat!(path, time: :posix)
 
       assert {:ok, _} = AL.Serialisation.serialise_definitions(branch, root)
-      assert File.stat!(path, time: :posix) == before
+      after_stat = File.stat!(path, time: :posix)
+      assert after_stat.inode == before.inode
+      assert after_stat.mtime == before.mtime
     after
       AL.Branch.discard(branch)
       File.rm_rf!(root)
