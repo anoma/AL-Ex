@@ -53,6 +53,7 @@ defmodule AL.MCP.Term do
   def encode(term) when is_map(term) do
     entries =
       term
+      |> Map.to_list()
       |> Enum.sort_by(fn {key, _value} -> inspect(key) end)
       |> Enum.map(fn {key, value} -> %{"key" => encode(key), "value" => encode(value)} end)
 

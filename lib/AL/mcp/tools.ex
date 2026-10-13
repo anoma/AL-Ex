@@ -75,7 +75,7 @@ defmodule AL.MCP.Tools do
       "name" => "evaluate",
       "title" => "Evaluate Elixir",
       "description" =>
-        "Expert escape hatch that evaluates Elixir inside the live AL owner node. It can mutate runtime state; prefer semantic read tools and use evaluateSource for AL mutations.",
+        "Evaluates Elixir inside the live AL owner node. Resolve returned context IDs with AL.MCP.Contexts.resolve(id), for example AL.MCP.Contexts.resolve(id) |> AL.next_solution(). AL results return bindings, constraints, and another context ID. Release unused IDs with AL.MCP.Contexts.release(id). It can mutate runtime state; prefer semantic tools for ordinary inspection and evaluateSource for AL definitions.",
       "inputSchema" =>
         object_schema(
           %{
@@ -96,7 +96,7 @@ defmodule AL.MCP.Tools do
       "name" => "evaluateSource",
       "title" => "Evaluate AL source",
       "description" =>
-        "Parses, retains, and evaluates one complete AL source input as a normal transaction on the selected branch. Returns the committed, failed, or rejected result.",
+        "Parses, retains, and evaluates one complete AL source input as a normal transaction on the selected branch. Returns the committed, failed, or rejected result, with a context ID usable by evaluate when AL returns a state.",
       "inputSchema" =>
         object_schema(
           %{
@@ -115,7 +115,7 @@ defmodule AL.MCP.Tools do
       "name" => "queryAL",
       "title" => "Query AL",
       "description" =>
-        "Parses, retains, and executes AL source as an ordinary transaction, returning losslessly tagged AL bindings and public constraint summaries. The source may contain writes.",
+        "Parses, retains, and executes AL source as an ordinary transaction, returning losslessly tagged AL bindings, public constraint summaries, and a context ID usable by evaluate. The source may contain writes.",
       "inputSchema" =>
         object_schema(
           %{
@@ -133,7 +133,8 @@ defmodule AL.MCP.Tools do
           "transactionId",
           "commandTransaction",
           "bindings",
-          "constraints"
+          "constraints",
+          "context"
         ],
         "additionalProperties" => true
       },
@@ -419,7 +420,7 @@ defmodule AL.MCP.Tools do
          {:ok, max_length} <- max_length(arguments) do
       try do
         {result, _binding} = Code.eval_string(@evaluation_prelude <> expression, [], file: "mcp")
-        success(inspect_term(result, max_length))
+        evaluation_result(result, max_length)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
       catch
@@ -429,6 +430,25 @@ defmodule AL.MCP.Tools do
       {:error, message} -> failure(message)
     end
   end
+
+  defp evaluation_result({:atomic, {_, _, %AL{branch: branch}}} = result, max_length),
+    do: query_source_result(result, branch, max_length)
+
+  defp evaluation_result({:aborted, %{state: %AL{branch: branch}}} = result, max_length),
+    do: query_source_result(result, branch, max_length)
+
+  defp evaluation_result(%AL{} = context, max_length) do
+    tooling_result(
+      {:ok,
+       %{
+         "context" => AL.MCP.Contexts.retain(context),
+         "branch" => to_string(context.branch.id)
+       }},
+      max_length
+    )
+  end
+
+  defp evaluation_result(result, max_length), do: success(inspect_term(result, max_length))
 
   defp evaluate_source(arguments) do
     with {:ok, source} <- required_string(arguments, "source"),
@@ -655,7 +675,8 @@ defmodule AL.MCP.Tools do
         "status" => "committed",
         "branch" => to_string(branch.id),
         "transactionId" => nil,
-        "commandTransaction" => nil
+        "commandTransaction" => nil,
+        "context" => nil
       }
       |> Map.merge(AL.MCP.Term.encode_bindings(bindings, constraints))
 
@@ -692,7 +713,8 @@ defmodule AL.MCP.Tools do
       "transactionId" => nil,
       "commandTransaction" => nil,
       "bindings" => [],
-      "constraints" => []
+      "constraints" => [],
+      "context" => nil
     })
   end
 
@@ -703,7 +725,8 @@ defmodule AL.MCP.Tools do
       "transactionId" => nil,
       "commandTransaction" => nil,
       "bindings" => [],
-      "constraints" => []
+      "constraints" => [],
+      "context" => nil
     })
   end
 
@@ -714,7 +737,7 @@ defmodule AL.MCP.Tools do
     summary = transaction_summary("committed", branch, state)
 
     text =
-      "Committed #{summary["transactionId"]}\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}"
+      "Committed #{summary["transactionId"]}\nContext: #{summary["context"]}\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}"
 
     result =
       summary
@@ -730,6 +753,7 @@ defmodule AL.MCP.Tools do
       %{
         "status" => "committed",
         "branch" => to_string(branch.id),
+        "context" => nil,
         "bindings" => inspect_term(bindings, max_length),
         "constraints" => inspect_term(constraints, max_length)
       }
@@ -742,7 +766,7 @@ defmodule AL.MCP.Tools do
     reason = if is_map(reason), do: Map.delete(reason, :state), else: reason
 
     text =
-      "Failed #{summary["transactionId"] || "transaction"}\n#{inspect_term(reason, max_length)}"
+      "Failed #{summary["transactionId"] || "transaction"}\nContext: #{summary["context"]}\n#{inspect_term(reason, max_length)}"
 
     failure(text, max_length, Map.put(summary, "reason", inspect_term(reason, max_length)))
   end
@@ -757,14 +781,16 @@ defmodule AL.MCP.Tools do
       "status" => "rejected",
       "branch" => to_string(branch.id),
       "transactionId" => nil,
-      "commandTransaction" => nil
+      "commandTransaction" => nil,
+      "context" => nil
     })
   end
 
   defp source_result(other, branch, max_length) do
     failure("Unexpected AL result: #{inspect_term(other, max_length)}", max_length, %{
       "status" => "error",
-      "branch" => to_string(branch.id)
+      "branch" => to_string(branch.id),
+      "context" => nil
     })
   end
 
@@ -773,7 +799,8 @@ defmodule AL.MCP.Tools do
       "status" => status,
       "branch" => to_string(branch.id),
       "transactionId" => format_id(state.transaction_object),
-      "commandTransaction" => state.tx_id
+      "commandTransaction" => state.tx_id,
+      "context" => AL.MCP.Contexts.retain(state)
     }
   end
 
@@ -782,7 +809,8 @@ defmodule AL.MCP.Tools do
       "status" => status,
       "branch" => to_string(branch.id),
       "transactionId" => nil,
-      "commandTransaction" => nil
+      "commandTransaction" => nil,
+      "context" => nil
     }
   end
 
