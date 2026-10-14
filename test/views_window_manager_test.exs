@@ -44,4 +44,23 @@ defmodule ALViewsWindowManagerTest do
              grammar: "al"
            }
   end
+
+  test "an empty window manager accepts viewport changes", %{branch: branch} do
+    result =
+      AL.run(
+        ~S"""
+        new point #{x => 800, y => 600} Visible.
+        new point #{} Total.
+        new single_layout #{windows => []} Layout.
+        new wm #{layout => Layout, visible_extent => Visible, total_extent => Total} Wm.
+        new point #{x => 1200, y => 900} Updated.
+        viewport_changed Wm Updated Changed Removed.
+        """,
+        branch: branch
+      )
+
+    assert %AL{result: {:atomic, {bindings, _, _}}} = result
+    assert bindings["$Changed"] == []
+    assert bindings["$Removed"] == []
+  end
 end
