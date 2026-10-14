@@ -39,6 +39,7 @@ defmodule ALMCPProtocolTest do
              "evaluateSource",
              "queryAL",
              "hasPotentialSolution",
+             "releaseContext",
              "nextSolution",
              "listBranches",
              "searchDefinitions",
@@ -175,6 +176,64 @@ defmodule ALMCPProtocolTest do
     after
       AL.Branch.discard(branch)
     end
+  end
+
+  test "queryAL accepts tagged bindings and retains a source tag", %{baseline: baseline} do
+    branch = AL.Branch.fork(:tip, baseline)
+    on_exit(fn -> AL.Branch.discard(branch) end)
+
+    tagged = %{
+      "type" => "tuple",
+      "items" => [
+        %{"type" => "atom", "name" => "point"},
+        %{"type" => "binary", "encoding" => "base64", "value" => "AP8="}
+      ]
+    }
+
+    result =
+      tool_result("queryAL", %{
+        "source" => "= Echo Input.",
+        "branch" => to_string(branch.id),
+        "bindings" => %{"Input" => tagged},
+        "sourceTag" => "aguil/repl"
+      })
+
+    refute result["isError"]
+    assert binding_value(result["structuredContent"]["bindings"], "Echo") == tagged
+    tx = result["structuredContent"]["commandTransaction"]
+
+    assert {:atomic, {:source_text, ^tx, "= Echo Input.", %{kind: :al_text, tag: "aguil/repl"}}} =
+             :mnesia.transaction(fn -> AL.SourceStore.text(tx, branch) end)
+  end
+
+  test "queryAL rejects invalid tagged bindings", %{baseline: baseline} do
+    branch = AL.Branch.fork(:tip, baseline)
+    on_exit(fn -> AL.Branch.discard(branch) end)
+
+    result =
+      tool_result("queryAL", %{
+        "source" => "= Echo Input.",
+        "branch" => to_string(branch.id),
+        "bindings" => %{"Input" => %{"type" => "unknown"}}
+      })
+
+    assert result["isError"]
+    assert hd(result["content"])["text"] =~ "Invalid binding Input"
+  end
+
+  test "a retained context can be released", %{baseline: baseline} do
+    branch = AL.Branch.fork(:tip, baseline)
+    on_exit(fn -> AL.Branch.discard(branch) end)
+
+    result =
+      tool_result("queryAL", %{"source" => "= Answer 42.", "branch" => to_string(branch.id)})
+
+    context = result["structuredContent"]["context"]
+
+    assert %{"released" => true} =
+             tool_result("releaseContext", %{"context" => context})["structuredContent"]
+
+    assert tool_result("hasPotentialSolution", %{"context" => context})["isError"]
   end
 
   test "potential solutions do not advance execution or promise a successful alternative", %{

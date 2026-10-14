@@ -49,14 +49,16 @@ defmodule AL do
   def run(text, branch, opts) when is_binary(text) do
     {wait_timeout, opts} = Keyword.pop(opts, :wait_timeout, 5_000)
     {bindings, transaction_opts} = Keyword.pop(opts, :bindings, %{})
+    {source_tag, transaction_opts} = Keyword.pop(transaction_opts, :source_tag)
     initial_store = Map.new(bindings, fn {name, value} -> {AL.Var.var(name), value} end)
     branch = if match?(%AL.Branch{}, branch), do: branch, else: %AL.Branch{id: branch}
+    origin = if source_tag == nil, do: %{kind: :al_text}, else: %{kind: :al_text, tag: source_tag}
 
     with {:ok, result} <- AL.Syntax.parse(text) do
       eval_with_retained_source(
         result,
         text,
-        %{kind: :al_text},
+        origin,
         initial_store,
         branch,
         transaction_opts

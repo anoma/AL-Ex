@@ -37,6 +37,7 @@ defmodule AL.MCP.Tools do
       evaluate_source_tool(),
       query_al_tool(),
       has_potential_solution_tool(),
+      release_context_tool(),
       next_solution_tool(),
       list_branches_tool(),
       search_definitions_tool(),
@@ -57,6 +58,7 @@ defmodule AL.MCP.Tools do
   def call("evaluateSource", arguments), do: evaluate_source(arguments)
   def call("queryAL", arguments), do: query_al(arguments)
   def call("hasPotentialSolution", arguments), do: has_potential_solution(arguments)
+  def call("releaseContext", arguments), do: release_context(arguments)
   def call("nextSolution", arguments), do: next_solution(arguments)
   def call("listBranches", arguments), do: list_branches(arguments)
   def call("searchDefinitions", arguments), do: search_definitions(arguments)
@@ -79,7 +81,7 @@ defmodule AL.MCP.Tools do
       "name" => "evaluate",
       "title" => "Evaluate Elixir",
       "description" =>
-        "Evaluates Elixir inside the live AL owner node. Resolve returned context IDs with AL.MCP.Contexts.resolve(id), for example AL.MCP.Contexts.resolve(id) |> AL.next_solution(). AL results return bindings, constraints, and another context ID. Release unused IDs with AL.MCP.Contexts.release(id). It can mutate runtime state; prefer semantic tools for ordinary inspection and evaluateSource for AL definitions.",
+        "Evaluates Elixir inside the live AL owner node. Resolve returned context IDs with AL.MCP.Contexts.resolve(id), for example AL.MCP.Contexts.resolve(id) |> AL.next_solution(). AL results return bindings, constraints, and another context ID. Release unused IDs with releaseContext. It can mutate runtime state; prefer semantic tools for ordinary inspection and evaluateSource for AL definitions.",
       "inputSchema" =>
         object_schema(
           %{
@@ -132,6 +134,14 @@ defmodule AL.MCP.Tools do
               "description" =>
                 "Complete AL source input, each top-level goal ending in a full stop, e.g. new point \#{x => 1} P."
             },
+            "bindings" => %{
+              "type" => "object",
+              "description" => "Initial AL variable values as tagged MCP terms"
+            },
+            "sourceTag" => %{
+              "type" => "string",
+              "description" => "Optional tag retained with this source input"
+            },
             "branch" => branch_schema(),
             "maxLength" => max_length_schema()
           },
@@ -160,6 +170,21 @@ defmodule AL.MCP.Tools do
         "additionalProperties" => false
       },
       "annotations" => @read_only_annotations
+    }
+  end
+
+  defp release_context_tool do
+    %{
+      "name" => "releaseContext",
+      "title" => "Release an AL context",
+      "description" =>
+        "Releases a retained AL context when its solution search is no longer needed.",
+      "inputSchema" =>
+        object_schema(
+          %{"context" => %{"type" => "string", "description" => "Retained AL context ID"}},
+          ["context"]
+        ),
+      "annotations" => @mutation_annotations
     }
   end
 
@@ -541,10 +566,12 @@ defmodule AL.MCP.Tools do
   defp query_al(arguments) do
     with {:ok, source} <- required_string(arguments, "source"),
          {:ok, branch} <- resolve_branch(Map.get(arguments, "branch")),
+         {:ok, bindings} <- query_bindings(Map.get(arguments, "bindings", %{})),
+         {:ok, source_tag} <- source_tag(Map.get(arguments, "sourceTag")),
          {:ok, max_length} <- max_length(arguments) do
       try do
         source
-        |> AL.run(branch)
+        |> AL.run(branch, bindings: bindings, source_tag: source_tag)
         |> query_source_result(branch, max_length)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
@@ -556,12 +583,40 @@ defmodule AL.MCP.Tools do
     end
   end
 
+  defp query_bindings(bindings) when is_map(bindings) do
+    Enum.reduce_while(bindings, {:ok, %{}}, fn
+      {name, tagged}, {:ok, decoded} when is_binary(name) ->
+        case AL.MCP.Term.decode(tagged) do
+          {:ok, value} -> {:cont, {:ok, Map.put(decoded, name, value)}}
+          {:error, reason} -> {:halt, {:error, "Invalid binding #{name}: #{reason}"}}
+        end
+
+      _, _ ->
+        {:halt, {:error, "Binding names must be strings"}}
+    end)
+  end
+
+  defp query_bindings(_), do: {:error, "bindings must be an object"}
+
+  defp source_tag(nil), do: {:ok, nil}
+  defp source_tag(tag) when is_binary(tag) and byte_size(tag) <= 64, do: {:ok, tag}
+  defp source_tag(_), do: {:error, "sourceTag must be a string of at most 64 bytes"}
+
   defp has_potential_solution(arguments) do
     with {:ok, context} <- resolve_context(arguments) do
       tooling_result(
         {:ok, %{"hasPotentialSolution" => AL.has_potential_solution?(context)}},
         @default_max_length
       )
+    else
+      {:error, message} -> failure(message)
+    end
+  end
+
+  defp release_context(arguments) do
+    with {:ok, id} <- required_string(arguments, "context") do
+      :ok = AL.MCP.Contexts.release(id)
+      tooling_result({:ok, %{"released" => true}}, @default_max_length)
     else
       {:error, message} -> failure(message)
     end

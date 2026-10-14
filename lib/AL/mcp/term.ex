@@ -1,6 +1,83 @@
 defmodule AL.MCP.Term do
   @moduledoc false
 
+  def decode(%{"type" => "atom", "name" => name}) when is_binary(name) do
+    {:ok, String.to_atom(name)}
+  end
+
+  def decode(%{"type" => "variable", "name" => name}) when is_binary(name),
+    do: {:ok, AL.Var.var(name)}
+
+  def decode(%{"type" => "integer", "value" => value}) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> {:ok, integer}
+      _ -> {:error, "Invalid AL integer"}
+    end
+  end
+
+  def decode(%{"type" => "float", "value" => value}) when is_binary(value) do
+    case Float.parse(value) do
+      {float, ""} -> {:ok, float}
+      _ -> {:error, "Invalid AL float"}
+    end
+  end
+
+  def decode(%{"type" => "binary", "encoding" => "utf8", "value" => value})
+      when is_binary(value),
+      do: {:ok, value}
+
+  def decode(%{"type" => "binary", "encoding" => "base64", "value" => value})
+      when is_binary(value) do
+    case Base.decode64(value) do
+      {:ok, binary} -> {:ok, binary}
+      :error -> {:error, "Invalid AL binary"}
+    end
+  end
+
+  def decode(%{"type" => "list", "items" => items} = term) when is_list(items) do
+    with {:ok, decoded} <- decode_items(items),
+         {:ok, tail} <- decode_tail(term) do
+      {:ok, Enum.reduce(Enum.reverse(decoded), tail, fn item, rest -> [item | rest] end)}
+    end
+  end
+
+  def decode(%{"type" => "tuple", "items" => items}) when is_list(items) do
+    with {:ok, decoded} <- decode_items(items), do: {:ok, List.to_tuple(decoded)}
+  end
+
+  def decode(%{"type" => "map", "entries" => entries}) when is_list(entries) do
+    Enum.reduce_while(entries, {:ok, %{}}, fn
+      %{"key" => key, "value" => value}, {:ok, map} ->
+        with {:ok, decoded_key} <- decode(key),
+             {:ok, decoded_value} <- decode(value) do
+          {:cont, {:ok, Map.put(map, decoded_key, decoded_value)}}
+        else
+          error -> {:halt, error}
+        end
+
+      _, _ ->
+        {:halt, {:error, "Invalid AL map entry"}}
+    end)
+  end
+
+  def decode(_), do: {:error, "Invalid AL term"}
+
+  defp decode_items(items) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, decoded} ->
+      case decode(item) do
+        {:ok, value} -> {:cont, {:ok, [value | decoded]}}
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, decoded} -> {:ok, Enum.reverse(decoded)}
+      error -> error
+    end
+  end
+
+  defp decode_tail(%{"tail" => tail}), do: decode(tail)
+  defp decode_tail(_), do: {:ok, []}
+
   @spec encode(AL.Var.t()) :: map()
   def encode(term) when is_atom(term) do
     %{"type" => "atom", "name" => Atom.to_string(term)}
