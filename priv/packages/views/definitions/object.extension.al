@@ -12,7 +12,7 @@ new ListBuilder #{
   title => "meta",
   priority => 50,
   items => Rows,
-  columns => [#{title => "Body", element => "editor"}]
+  columns => [#{title => "Body", element => "editor", grammar => "al"}]
 } View.
 
 object >> view
