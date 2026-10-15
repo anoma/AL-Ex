@@ -204,12 +204,13 @@ defmodule AL.Syntax do
   @spec method_text(String.t(), String.t(), String.t()) :: String.t()
   def method_text(owner, declaration, body) do
     header = owner <> " >> " <> declaration
+    text = if body == "", do: header, else: header <> "\n" <> body
+    terminate_clause(text)
+  end
 
-    cond do
-      body == "" -> header <> "."
-      ends_in_comment?(body) -> header <> "\n" <> body <> "\n."
-      true -> header <> "\n" <> body <> "."
-    end
+  @spec terminate_clause(String.t()) :: String.t()
+  def terminate_clause(text) when is_binary(text) do
+    if ends_in_comment?(text), do: text <> "\n.", else: text <> "."
   end
 
   defp ends_in_comment?(text) do

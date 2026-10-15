@@ -106,7 +106,9 @@ defmodule AL.Source do
             branch
           ) do
       result = retained_method_source(class, name, head, body, command_t, branch)
-      {:method_source, method_id, clause_seq, result.text, result.provenance}
+
+      {:method_source, method_id, clause_seq, AL.Syntax.terminate_clause(result.text),
+       result.provenance}
     end
   end
 

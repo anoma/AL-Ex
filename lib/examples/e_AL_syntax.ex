@@ -225,7 +225,7 @@ defmodule Examples.ALSyntax do
           {:ok, 0} = AL.await_effect(bindings["$Done"], branch: branch)
         end)
 
-      assert output == "syntax_run_counter >> greet\n| Self hi |\n\n"
+      assert output == "syntax_run_counter >> greet\n| Self hi |.\n\n"
       output
     after
       AL.Branch.discard(branch)

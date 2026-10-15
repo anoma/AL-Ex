@@ -630,7 +630,7 @@ defmodule Examples.ALJAMCompiler do
                [
                  [
                    0,
-                   "jam_history_reader >> inspect\n| Self Tx Result |\nvm_transaction_source Tx Text Origin,\nfindall Found Matches {vm_transaction_source Found Text Origin},\nmember Matches Tx,\nmethod jam_history_reader inspect Method,\nfindall [Seq, Clause, Provenance] Clauses {vm_method_source Method Seq Clause Provenance},\nvm_slot_at Self count 1 First,\nlabel First,\n= Boundary (+ First 1),\nvm_slot_at Self count AtBoundary Boundary,\nnot {vm_slot_at Self count 1 Late, >= Late Boundary},\nnot {vm_slot_at Self missing _ _},\nnot {vm_transaction_source -1 _ _},\nfindall Value Values {vm_slot_at Self count Value _},\n= Result [Text, Clauses, AtBoundary, Values]",
+                   "jam_history_reader >> inspect\n| Self Tx Result |\nvm_transaction_source Tx Text Origin,\nfindall Found Matches {vm_transaction_source Found Text Origin},\nmember Matches Tx,\nmethod jam_history_reader inspect Method,\nfindall [Seq, Clause, Provenance] Clauses {vm_method_source Method Seq Clause Provenance},\nvm_slot_at Self count 1 First,\nlabel First,\n= Boundary (+ First 1),\nvm_slot_at Self count AtBoundary Boundary,\nnot {vm_slot_at Self count 1 Late, >= Late Boundary},\nnot {vm_slot_at Self missing _ _},\nnot {vm_transaction_source -1 _ _},\nfindall Value Values {vm_slot_at Self count Value _},\n= Result [Text, Clauses, AtBoundary, Values].",
                    :retained
                  ]
                ],

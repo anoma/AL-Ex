@@ -129,6 +129,42 @@ defmodule ALSourceProjectionTest do
     end
   end
 
+  test "method source is parseable with a full stop" do
+    branch = AL.TestBranch.fork()
+
+    source = """
+    object >> source_stop_probe
+    | Self |
+    pass.
+    """
+
+    try do
+      assert %AL{result: {:atomic, _}} = AL.run(source, branch)
+
+      assert %AL{result: {:atomic, {bindings, _, _}}} =
+               AL.run(
+                 "method object source_stop_probe Method, vm_method_source Method _Seq Text _Provenance.",
+                 branch
+               )
+
+      text = bindings["$Text"]
+      assert String.ends_with?(text, "pass.")
+
+      assert {:ok, %{program: [_clear, %AL.Goal.Compound{name: :defmethod}]}} =
+               AL.Syntax.parse(text)
+
+      commented =
+        AL.Syntax.terminate_clause("object >> source_stop_probe\n| Self |\npass\n# trailing note")
+
+      assert String.ends_with?(commented, "# trailing note\n.")
+
+      assert {:ok, %{program: [_clear, %AL.Goal.Compound{name: :defmethod}]}} =
+               AL.Syntax.parse(commented)
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
   defp reparse(owner, selector, text) do
     with {:ok,
           %{program: [_clear, %AL.Goal.Compound{name: :defmethod, args: [_, _, head, body]}]}} <-

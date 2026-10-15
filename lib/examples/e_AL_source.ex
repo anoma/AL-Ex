@@ -124,7 +124,7 @@ defmodule Examples.ALSource do
           {:ok, 0} = AL.await_effect(bindings["$Done"], branch: branch)
         end)
 
-      assert output == "#{AL.Syntax.Printer.term(class)} >> greet\n| Self hi |\n\n"
+      assert output == "#{AL.Syntax.Printer.term(class)} >> greet\n| Self hi |.\n\n"
     after
       AL.Branch.discard(branch)
     end
