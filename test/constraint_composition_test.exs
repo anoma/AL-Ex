@@ -83,6 +83,19 @@ defmodule AL.ConstraintCompositionTest do
              )
   end
 
+  test "examine lists direct instances rather than descendant instances", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Instances" => instances}, _, _}}} =
+             AL.run("examine audit_record Info, get Info instances Instances.", branch)
+
+    assert Enum.sort(instances) == [:audit_one, :audit_two]
+
+    assert %AL{result: {:atomic, {%{"$Instances" => object_instances}, _, _}}} =
+             AL.run("examine object Info, get Info instances Instances.", branch)
+
+    refute :audit_one in object_instances
+    refute :audit_two in object_instances
+  end
+
   test "product constraints preserve solutions across posting modes", %{branch: branch} do
     for opts <- [[], [trace: [:vm]]],
         equation <- [

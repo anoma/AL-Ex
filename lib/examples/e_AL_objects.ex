@@ -439,24 +439,28 @@ defmodule Examples.ALObjects do
     program_state
   end
 
-  example examine_objects_lists_real_instances_only() do
+  example examine_lists_direct_instances_only() do
     %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
-        @examine_objects_class
+        @examine_instances_class
         #{super => object}.
+        @examine_instances_child
+        #{super => examine_instances_class}.
 
-        examine examine_objects_class InfoBefore.
-        get InfoBefore objects ObjectsBefore.
-        new examine_objects_class Obj.
-        examine examine_objects_class InfoAfter.
-        get InfoAfter objects ObjectsAfter.
+        examine examine_instances_class InfoBefore.
+        get InfoBefore instances InstancesBefore.
+        new examine_instances_class Obj.
+        new examine_instances_child ChildObj.
+        examine examine_instances_class InfoAfter.
+        get InfoAfter instances InstancesAfter.
         """,
         branch: Examples.Support.branch()
       )
 
-    assert Map.get(bindings, "$ObjectsBefore") == []
-    assert Map.get(bindings, "$ObjectsAfter") == [Map.get(bindings, "$Obj")]
+    assert Map.get(bindings, "$InstancesBefore") == []
+    assert Map.get(bindings, "$InstancesAfter") == [Map.get(bindings, "$Obj")]
+    assert Map.get(bindings, "$ChildObj") != Map.get(bindings, "$Obj")
     :ok
   end
 

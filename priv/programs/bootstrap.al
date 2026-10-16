@@ -436,15 +436,15 @@ object >> examine
   clauses => Clauses,
   direct_slots => DirectSlots,
   id => Self,
+  instances => Instances,
   methods => Methods,
-  objects => Objects,
   providers => Providers,
   subs => Subs,
   supers => Supers
 } |
 findall C Classes (class Self C),
 findall [C, S] ClassSupers {class Self C, super C S},
-findall C Objects {isa C Self, label C},
+findall C Instances {class C Self, label C},
 findall S Supers (super Self S),
 findall Sub Subs (super Sub Self),
 findall [N, Id] Methods (method Self N Id),
