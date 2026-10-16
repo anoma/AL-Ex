@@ -45,6 +45,43 @@ defmodule ALViewsWindowManagerTest do
            }
   end
 
+  test "columned views retain row spacing in their descriptions", %{branch: branch} do
+    result =
+      AL.run(
+        ~S"""
+        new phlow_builder #{} Builder.
+        list Builder ListClass.
+        new ListClass #{
+          title => "Methods",
+          items => [],
+          columns => [],
+          row_spacing => 8
+        } View.
+        to_map View Fields.
+        """,
+        branch: branch
+      )
+
+    assert %AL{result: {:atomic, {bindings, _, _}}} = result
+
+    assert bindings["$Fields"] == %{
+             priority: 100,
+             title: "Methods",
+             view: "columned_list",
+             items: [],
+             columns: [],
+             row_spacing: 8
+           }
+
+    assert %AL{result: {:atomic, {%{"$Views" => views}, _, _}}} =
+             AL.run(
+               "new phlow_builder #{} Builder, findall Map Views {view object Builder View, to_map View Map}.",
+               branch
+             )
+
+    assert Enum.find(views, &(&1[:title] == "meta"))[:row_spacing] == 8
+  end
+
   test "an empty window manager accepts viewport changes", %{branch: branch} do
     result =
       AL.run(

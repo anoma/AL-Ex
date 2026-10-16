@@ -11,6 +11,7 @@ findall Text Rows {method Class _Name Id, vm_method_source Id _Seq Text _Prov},
 new ListBuilder #{
   title => "meta",
   priority => 50,
+  row_spacing => 8,
   items => Rows,
   columns => [#{title => "Body", element => "editor", grammar => "al"}]
 } View.
