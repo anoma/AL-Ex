@@ -39,10 +39,10 @@ defmodule AL.Diagnostics do
           failure_cause([diagnostic], MapSet.new(), failed_on, state)
 
         {_score, {:call, call}} ->
-          failure_from_call(call, failed_on)
+          failure_from_call(call, failed_on, state)
 
         nil ->
-          failure_from_call(nil, failed_on)
+          failure_from_call(nil, failed_on, state)
       end
 
     %{
@@ -175,20 +175,25 @@ defmodule AL.Diagnostics do
   defp failure_cause([], ancestry, failed_on, state) do
     state.trace.events
     |> root_cause_call(ancestry)
-    |> failure_from_call(failed_on)
+    |> failure_from_call(failed_on, state)
   end
 
-  defp failure_from_call({:method_call, _scope, self, method, args, _}, _failed_on) do
+  defp failure_from_call({:method_call, _scope, self, method, args, _}, _failed_on, _state) do
     {"Goal failed: #{format_call(self, method, args)} had no matching clause.",
      {:goal_failed, {:method_call, AL.Trace.pretty(self), method, AL.Trace.pretty(args)}}}
   end
 
-  defp failure_from_call({:clause_call, _scope, method_id, call_args, _}, _failed_on) do
-    {"Goal failed: #{inspect(method_id)}#{inspect(AL.Trace.pretty(call_args))} didn't match.",
+  defp failure_from_call({:clause_call, _scope, method_id, call_args, _}, _failed_on, state) do
+    call_args = AL.Trace.pretty(call_args)
+    call = format_clause_call(method_id, call_args, state.branch)
+
+    {"Goal failed: #{call}.",
      {:goal_failed, {:clause_call, method_id, AL.Trace.pretty(call_args)}}}
   end
 
-  defp failure_from_call(nil, failed_on),
+  defp failure_from_call(nil, nil, _state), do: {"Goal failed.", {:goal_failed, nil}}
+
+  defp failure_from_call(nil, failed_on, _state),
     do: {"Goal failed: #{inspect(failed_on)}", {:goal_failed, failed_on}}
 
   defp current_failure(state) do
@@ -202,8 +207,26 @@ defmodule AL.Diagnostics do
   end
 
   defp format_call(self, method, args) do
-    args_str = args |> AL.Trace.pretty() |> Enum.map(&inspect/1) |> Enum.join(", ")
-    "#{inspect(AL.Trace.pretty(self))}.#{method}(#{args_str})"
+    AL.Syntax.Printer.goal(%AL.Goal.Send{
+      object: AL.Trace.pretty(self),
+      method: method,
+      args: AL.Trace.pretty(args)
+    })
+  end
+
+  defp format_clause_call(method_id, [self | args], branch) do
+    case AL.Object.scan_method(
+           {:"$var", "failure_owner"},
+           {:"$var", "failure_selector"},
+           method_id,
+           branch
+         ) do
+      [{:method, _owner, selector, ^method_id} | _] ->
+        AL.Syntax.Printer.goal(%AL.Goal.Send{object: self, method: selector, args: args})
+
+      [] ->
+        AL.Syntax.Printer.goal(%AL.Goal.OApply{method_id: method_id, args: [self | args]})
+    end
   end
 
   # Reverse-looks-up a method_id's own {class, selector} for a readable

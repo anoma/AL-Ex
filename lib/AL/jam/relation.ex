@@ -32,17 +32,29 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:command, [transaction, time, operation], store, branch) do
-    resolved = AL.Var.deref(store, transaction)
+    resolved_transaction = AL.Var.deref(store, transaction)
+    resolved_time = AL.Var.deref(store, time)
 
     rows =
-      if AL.Var.var?(resolved),
-        do: AL.Command.commands_since(0, branch),
-        else: AL.Command.commands_for_transaction(resolved, branch)
+      cond do
+        is_integer(resolved_time) ->
+          case AL.Command.command_row(resolved_time, branch) do
+            :absent -> []
+            row -> [row]
+          end
+
+        AL.Var.var?(resolved_transaction) ->
+          AL.Command.commands_since(0, branch)
+
+        true ->
+          AL.Command.commands_for_transaction(resolved_transaction, branch)
+          |> Enum.sort_by(&elem(&1, 1))
+      end
 
     {:stores,
      Enum.map(rows, fn {:command, command_time, command_transaction, command_operation} ->
        AL.Var.unify(
-         [command_transaction, command_time, command_operation],
+         [command_transaction, command_time, AL.Command.operation_value(command_operation)],
          [transaction, time, operation],
          store,
          branch

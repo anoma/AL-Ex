@@ -93,9 +93,9 @@ defmodule Examples.ALTransactions do
         bindings: %{"HostTxId" => tx_id}
       )
 
-    assert [[time, {:set_class, {^object, :object}}]] =
+    assert [[time, %{action: :set_class, arguments: [^object, :object]}]] =
              Enum.filter(Map.get(bindings, "$Commands"), fn
-               [_time, {:set_class, {^object, :object}}] -> true
+               [_time, %{action: :set_class, arguments: [^object, :object]}] -> true
                _command -> false
              end)
 
