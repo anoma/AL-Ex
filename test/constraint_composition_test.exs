@@ -190,6 +190,33 @@ defmodule AL.ConstraintCompositionTest do
              AL.run(~S"new cache_value_child #{first => one, second => two} Value.", branch)
   end
 
+  test "value witnesses traverse ancestry and honor metaclass overrides", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               @audit_witness_meta #{super => class}.
+               @audit_witness_parent #{super => value, ivars => []}.
+               @audit_witness_child #{super => audit_witness_parent, metaclass => audit_witness_meta, ivars => []}.
+               @audit_witness_deep #{super => audit_witness_parent, ivars => [#{name => mark, domain => [ok]}]}.
+               audit_witness_meta >> witness
+               | _Self #{class => audit_witness_child, mark => custom} |.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:atomic, {%{"$Out" => answers}, _, _}}} =
+             AL.run("findall C Out {isa C audit_witness_parent, label C}.", branch)
+
+    assert Enum.sort(answers) ==
+             Enum.sort([
+               %{class: :audit_witness_child, mark: :custom},
+               %{class: :audit_witness_deep, mark: :ok}
+             ])
+
+    assert %AL{result: {:atomic, {%{"$W" => %{class: :audit_witness_parent}}, _, _}}} =
+             AL.run("witness C W, = C audit_witness_parent.", branch)
+  end
+
   test "export staging rejects symlinked directories without modifying their targets" do
     root = Path.join(System.tmp_dir!(), "al-export-links-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)

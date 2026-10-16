@@ -763,6 +763,15 @@ new class #{ivars => [], name => list, super => value} _.
 
 new class #{ivars => [], name => compound, super => value} _.
 
+class >> value_ancestor
+| value _Seen |.
+
+class >> value_ancestor
+| Self Seen |
+not (member Seen Self),
+super Self Parent,
+value_ancestor Parent [Self . Seen].
+
 class >> witness
 | list [] |.
 
@@ -773,8 +782,10 @@ class >> witness
 | Self Output |
 dif Self list,
 dif Self number,
-reachable_classes [Self] [] Chain,
-not (not (member Chain value)),
+ground Self -> not (not (value_ancestor Self [])) ; {
+  reachable_classes [Self] [] Chain,
+  not (not (member Chain value))
+},
 construct Self Scaffold,
 init Scaffold #{} Output.
 
