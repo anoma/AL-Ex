@@ -32,7 +32,8 @@ defmodule AL.Dispatch do
   @spec instance_of?(term(), atom(), AL.Branch.t()) :: boolean()
   def instance_of?(term, class, branch) do
     Enum.any?(structural_classes(term), &class_in_chain?(&1, class, branch)) or
-      Enum.any?(discovered_classes(term, branch), &class_in_chain?(&1, class, branch))
+      Enum.any?(durable_classes_for(term, branch), &class_in_chain?(&1, class, branch)) or
+      Enum.any?(generative_classes_for(term, branch), &class_in_chain?(&1, class, branch))
   end
 
   @spec direct_classes(term(), AL.Branch.t()) :: [atom()]
@@ -62,21 +63,21 @@ defmodule AL.Dispatch do
   end
 
   defp discovered_classes(term, branch) do
-    durable =
-      if is_atom(term) do
-        for {:class, ^term, _seq, class} <-
-              AL.Object.scan_class(term, {:"$var", "direct_class"}, branch),
-            do: class
-      else
-        []
-      end
+    durable_classes_for(term, branch) ++ generative_classes_for(term, branch)
+  end
 
-    values =
-      branch
-      |> generative_descendants()
-      |> Enum.filter(&value_member?(term, &1, branch))
+  defp durable_classes_for(term, branch) when is_atom(term) do
+    for {:class, ^term, _seq, class} <-
+          AL.Object.scan_class(term, {:"$var", "direct_class"}, branch),
+        do: class
+  end
 
-    durable ++ values
+  defp durable_classes_for(_term, _branch), do: []
+
+  defp generative_classes_for(term, branch) do
+    branch
+    |> generative_descendants()
+    |> Enum.filter(&value_member?(term, &1, branch))
   end
 
   defp class_in_chain?(direct_class, class, branch),

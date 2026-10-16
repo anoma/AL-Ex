@@ -63,6 +63,26 @@ defmodule AL.ConstraintCompositionTest do
     end
   end
 
+  test "grounded isa labeling preserves durable answers and other constraints", %{branch: branch} do
+    for opts <- [[], [trace: [:vm]]],
+        source <- [
+          "findall C Answers {isa C audit_record, label C}.",
+          "findall C Answers {isa C Class, = Class audit_record, label C}.",
+          "findall C Answers {isa C object, isa C audit_record, label C}."
+        ] do
+      assert %AL{result: {:atomic, {%{"$Answers" => answers}, _, _}}} =
+               AL.run(source, branch, opts)
+
+      assert Enum.sort(answers) == [:audit_one, :audit_two]
+    end
+
+    assert %AL{result: {:atomic, {%{"$Answers" => [:audit_two]}, _, _}}} =
+             AL.run(
+               "findall C Answers {isa C audit_record, dif C audit_one, label C}.",
+               branch
+             )
+  end
+
   test "product constraints preserve solutions across posting modes", %{branch: branch} do
     for opts <- [[], [trace: [:vm]]],
         equation <- [

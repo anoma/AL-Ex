@@ -29,7 +29,7 @@ defmodule AL.JAM.Label.Witness do
       classes
       |> Enum.filter(&eligible_class?(candidate_classes, &1))
       |> Enum.map(fn class ->
-        with next when not is_nil(next) <- AL.Var.unify(object, identity, store, branch),
+        with next when not is_nil(next) <- unify_durable(object, identity, class, store, branch),
              next when not is_nil(next) <-
                bind_pending_classes(next, pending_classes, class, branch) do
           {next, []}
@@ -37,6 +37,39 @@ defmodule AL.JAM.Label.Witness do
       end)
     end)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp unify_durable(object, identity, class, store, branch) do
+    resolved = AL.Var.deref(store, object)
+
+    case AL.Var.constraint_set(store, resolved) do
+      %AL.Var.ConstraintSet{isa: isa} = constraints ->
+        if MapSet.size(isa) == 0 do
+          AL.Var.unify(object, identity, store, branch)
+        else
+          proven_classes =
+            [class]
+            |> AL.Dispatch.MethodOrder.cached_super_chain(branch, :dfs)
+            |> MapSet.new()
+
+          remaining_isa =
+            Enum.reject(isa, fn pending ->
+              known = AL.Var.deref(store, pending)
+              is_atom(known) and MapSet.member?(proven_classes, known)
+            end)
+            |> MapSet.new()
+
+          AL.Var.unify(
+            object,
+            identity,
+            Map.put(store, resolved, %{constraints | isa: remaining_isa}),
+            branch
+          )
+        end
+
+      _ ->
+        AL.Var.unify(object, identity, store, branch)
+    end
   end
 
   defp values(object, candidate_classes, pending_classes, store, branch) do
