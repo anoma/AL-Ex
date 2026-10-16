@@ -997,7 +997,9 @@ defmodule AL.Syntax do
   defp goal({:paren, inner, _, _}), do: goal(inner)
   defp goal({:atom, name, _, _}), do: compound(name, [])
   defp goal({:call, name, arguments, start, _}), do: call(name, arguments, start)
-  defp goal({:var, _, _, _} = variable), do: term(variable)
+
+  defp goal({:var, name, start, _}),
+    do: raise(ArgumentError, "expected a goal at #{describe(start)} but found variable #{name}")
 
   defp goal({:block, _, start, _}),
     do: raise(ArgumentError, "a block at #{describe(start)} is not a goal on its own")

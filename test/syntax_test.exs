@@ -243,6 +243,18 @@ defmodule ALSyntaxReaderTest do
     assert {:error, %Error{phase: :compile}} = Syntax.parse("{pass}.")
   end
 
+  test "a variable after a comma is not a goal" do
+    source = "new dog \#{name => fido}, Doggy."
+
+    assert {:error, %Error{phase: :compile, message: message}} = Syntax.parse(source)
+    assert message == "expected a goal at 1:26 but found variable Doggy"
+    assert {:error, %Error{phase: :compile, message: ^message}} = AL.run(source)
+    assert {:error, %Error{phase: :compile}} = Syntax.parse("pass, X.")
+
+    assert {:error, %Error{phase: :compile}} =
+             Syntax.parse("object >> broken | Self | pass, X.")
+  end
+
   test "run returns source syntax errors" do
     assert {:error, %Error{phase: :parse, message: message}} =
              AL.run("pass.\n= X (f Y.")
