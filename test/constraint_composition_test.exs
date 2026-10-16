@@ -168,6 +168,28 @@ defmodule AL.ConstraintCompositionTest do
     assert answers == [[3, 1, 3], [3, 3, 1], [4, 1, 2], [4, 2, 1]]
   end
 
+  test "value initialization sees inherited ivar edits after cache invalidation", %{
+    branch: branch
+  } do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"@cache_value_parent #{super => value, ivars => [#{name => first}]}. @cache_value_child #{super => cache_value_parent}.",
+               branch
+             )
+
+    assert %AL{result: {:atomic, {%{"$Value" => %{first: :one}}, _, _}}} =
+             AL.run(~S"new cache_value_child #{first => one} Value.", branch)
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"@cache_value_parent #{super => value, ivars => [#{name => first}, #{name => second}]}.",
+               branch
+             )
+
+    assert %AL{result: {:atomic, {%{"$Value" => %{first: :one, second: :two}}, _, _}}} =
+             AL.run(~S"new cache_value_child #{first => one, second => two} Value.", branch)
+  end
+
   test "export staging rejects symlinked directories without modifying their targets" do
     root = Path.join(System.tmp_dir!(), "al-export-links-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(root) end)

@@ -391,8 +391,10 @@ put_slots Partial Rest Updated.
 value >> init
 | Self Args Output |
 map_get Self class Class,
-reachable_classes [Class] [] Chain,
-collect_ivar_specs Chain IvarSpecs,
+ground Class -> vm_cached_ivar_specs Self IvarSpecs ; {
+  reachable_classes [Class] [] Chain,
+  collect_ivar_specs Chain IvarSpecs
+},
 init_value Self Class Args IvarSpecs Output.
 
 object >> init_value

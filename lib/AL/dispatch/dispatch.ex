@@ -84,7 +84,11 @@ defmodule AL.Dispatch do
     do: class in AL.Dispatch.MethodOrder.cached_super_chain([direct_class], branch, :dfs)
 
   @spec direct_class?(term(), atom(), AL.Branch.t()) :: boolean()
-  def direct_class?(term, class, branch), do: class in direct_classes(term, branch)
+  def direct_class?(term, class, branch) do
+    class in structural_classes(term) or
+      class in durable_classes_for(term, branch) or
+      class in generative_classes_for(term, branch)
+  end
 
   defp resolved_isa_class?(existing), do: is_atom(existing)
 
@@ -237,7 +241,16 @@ defmodule AL.Dispatch do
   @spec resolved_ivar_specs(AL.Var.t(), AL.Branch.t()) :: [term()]
   def resolved_ivar_specs(self, branch) do
     classes =
-      for({:class, _o, _seq, c} <- AL.Object.scan_class(self, {:"$var", "class"}, branch), do: c)
+      case self do
+        %{class: class} when is_atom(class) ->
+          [class]
+
+        _ ->
+          for(
+            {:class, _o, _seq, c} <- AL.Object.scan_class(self, {:"$var", "class"}, branch),
+            do: c
+          )
+      end
 
     ivar_specs_for_classes(classes, branch)
   end
