@@ -1,5 +1,5 @@
 @single_layout
-#{super => layout, ivars => []}.
+#{super => layout}.
 
 single_layout >> place_window
 | Self Wm Request NewLayout |
