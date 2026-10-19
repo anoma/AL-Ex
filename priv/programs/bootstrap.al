@@ -918,6 +918,7 @@ list >> fold_right
 
 list >> fold_right
 | [H . T] Func Acc Result |
+atom Func,
 fold_right T Func Acc NextAcc,
 send NextAcc Func [H, Result].
 
@@ -928,8 +929,18 @@ fold_right T Func Acc NextAcc,
 run Func [NextAcc, H, Result].
 
 list >> flatten
-| Lists Result |
-fold_left Lists concat [] Result.
+| [] [] |.
+
+list >> flatten
+| [List . Lists] Result |
+concat List Rest Result,
+flatten Lists Rest.
+
+list >> join
+| Strings Text |
+strings_codes Strings Lists,
+flatten Lists Codes,
+string_codes Text Codes.
 
 list >> same_length
 | [] [] |.
