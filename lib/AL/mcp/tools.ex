@@ -40,6 +40,8 @@ defmodule AL.MCP.Tools do
       release_context_tool(),
       next_solution_tool(),
       list_branches_tool(),
+      read_object_tool(),
+      observe_commands_tool(),
       search_definitions_tool(),
       find_references_tool(),
       inspect_object_tool(),
@@ -61,6 +63,8 @@ defmodule AL.MCP.Tools do
   def call("releaseContext", arguments), do: release_context(arguments)
   def call("nextSolution", arguments), do: next_solution(arguments)
   def call("listBranches", arguments), do: list_branches(arguments)
+  def call("readObject", arguments), do: read_object(arguments)
+  def call("observeCommands", arguments), do: observe_commands(arguments)
   def call("searchDefinitions", arguments), do: search_definitions(arguments)
   def call("findReferences", arguments), do: find_references(arguments)
   def call("inspectObject", arguments), do: inspect_object(arguments)
@@ -240,6 +244,72 @@ defmodule AL.MCP.Tools do
       ["branches"]
     )
   end
+
+  defp read_object_tool do
+    read_tool(
+      "readObject",
+      "Read AL object",
+      "Reads a consistent object snapshot with a command cursor, without subscribing.",
+      %{
+        "object" => name_schema("Existing durable object"),
+        "branch" => branch_schema()
+      },
+      ["object", "branch"],
+      ["cursor", "classes", "value"]
+    )
+  end
+
+  defp read_object(arguments) do
+    with {:ok, object} <- required_atom(arguments, "object"),
+         {:ok, branch} <- resolve_branch(Map.get(arguments, "branch")) do
+      snapshot = AL.Observation.read(object, branch)
+
+      success("Object snapshot @ #{snapshot.cursor}", %{
+        "cursor" => snapshot.cursor,
+        "classes" => Enum.map(snapshot.classes, &Atom.to_string/1),
+        "value" => AL.MCP.Term.encode(snapshot.value)
+      })
+    else
+      {:error, reason} -> failure(reason)
+    end
+  end
+
+  defp observe_commands_tool do
+    read_tool(
+      "observeCommands",
+      "Observe committed AL commands",
+      "Waits up to 25 seconds. Returns tagged batches of branch, cursor and ordered raw command-log entries; no object filtering or snapshots.",
+      %{
+        "cursors" => %{
+          "type" => "object",
+          "minProperties" => 1,
+          "additionalProperties" => %{"type" => "integer", "minimum" => 0}
+        }
+      },
+      ["cursors"],
+      ["batches"]
+    )
+  end
+
+  defp observe_commands(%{"cursors" => cursors}) when is_map(cursors) and map_size(cursors) > 0 do
+    resolved =
+      Enum.map(cursors, fn {id, cursor} ->
+        with {:ok, branch} <- resolve_branch(id),
+             true <- is_integer(cursor) and cursor >= 0 do
+          {branch, cursor}
+        end
+      end)
+
+    if Enum.all?(resolved, &match?({%AL.Branch{}, _}, &1)) do
+      success("Committed commands", %{
+        "batches" => AL.MCP.Term.encode(AL.Observation.commands(resolved))
+      })
+    else
+      failure("Expected existing branches with non-negative command cursors")
+    end
+  end
+
+  defp observe_commands(_), do: failure("Expected a non-empty cursors map")
 
   defp inspect_object_tool do
     observation_tool(
