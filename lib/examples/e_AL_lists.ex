@@ -1,8 +1,8 @@
 defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
-  reverse, sort, min_by, dedupe, map, fold, flatten, same_length, at, all_dif,
-  label_range) and mapping an anonymous method over a list.
+  reverse, sort, min_by, dedupe, map, fold, flatten, join, same_length, at,
+  all_dif, label_range) and mapping an anonymous method over a list.
   """
 
   use ExExample
@@ -262,12 +262,27 @@ defmodule Examples.ALLists do
       run(
         ~S"""
         new anonymous_method #{args => [], body => [(= Next [X . Acc])], head => [Acc, X, Next]} Prepend.
-        fold_right [a, b, c] Prepend [] Out.
+        fold_right [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t] Prepend [] Out.
         """,
         branch: Examples.Support.branch()
       )
 
-    assert Map.get(bindings, "$Out") == [:a, :b, :c]
+    assert Map.get(bindings, "$Out") == ~w(a b c d e f g h i j k l m n o p q r s t)a
+    :ok
+  end
+
+  example join_concatenates_strings_in_order() do
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
+      run(
+        ~S"""
+        join ["<", "", "a&b", ">"] Text.
+        join [] Empty.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$Text") == "<a&b>"
+    assert Map.get(bindings, "$Empty") == ""
     :ok
   end
 
