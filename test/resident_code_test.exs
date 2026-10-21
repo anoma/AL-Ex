@@ -74,4 +74,31 @@ defmodule AL.ResidentCodeTest do
       AL.Branch.discard(other)
     end
   end
+
+  test "missing plans do not exclude another reader", %{branch: branch} do
+    parent = self()
+
+    readers =
+      for _ <- 1..2 do
+        Task.async(fn ->
+          transaction(fn ->
+            assert AL.ResolutionCache.fetch_plan(branch, :missing, fn _ -> true end, fn -> nil end) ==
+                     nil
+
+            send(parent, {:reading, self()})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+      end
+
+    try do
+      for _ <- readers, do: assert_receive({:reading, _}, 5_000)
+    after
+      for reader <- readers, do: send(reader.pid, :release)
+      for reader <- readers, do: assert({:atomic, :ok} = Task.await(reader))
+    end
+  end
 end
