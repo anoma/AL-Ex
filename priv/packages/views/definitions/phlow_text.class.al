@@ -1,12 +1,8 @@
 @phlow_text
-#{super => phlow, ivars => [#{name => text}, #{name => grammar}]}.
+#{super => phlow_xaml}.
 
-phlow_text >> to_map
-| Self Map |
-call_next_method Self Map1,
-put Map1 text Text Map2,
-put Map2 grammar Grammar Map,
-get_slots Self #{text => Text, grammar => Grammar}.
-
-phlow_text >> view_mapping
-| _Self "text" |.
+phlow_text >> init
+| Self Fields View |
+new brick_editor Fields Brick,
+put Fields brick Brick WithBrick,
+call_next_method Self WithBrick View.

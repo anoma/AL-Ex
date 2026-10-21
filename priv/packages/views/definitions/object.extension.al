@@ -1,7 +1,7 @@
 object >> view
 | Self Builder View |
-csharp_forward Builder ForwardBuilder,
-new ForwardBuilder #{view => "aguil_raw", title => "Raw", target => Self} View.
+raw Builder RawBuilder,
+new RawBuilder #{title => "Raw", target => Self} View.
 
 object >> view
 | Self Builder View |
@@ -13,7 +13,7 @@ new ListBuilder #{
   priority => 50,
   row_spacing => 8,
   items => Rows,
-  columns => [#{title => "Body", element => "editor", grammar => "al"}]
+  columns => [#{header => "Body", cell => brick_editor_cell, grammar => "al"}]
 } View.
 
 object >> view
@@ -27,5 +27,5 @@ new ListBuilder #{
   title => "Inheritance",
   priority => 30,
   items => Entries,
-  columns => [#{element => "text", title => "Class"}]
+  columns => [#{header => "Class", cell => brick_text}]
 } View.

@@ -6,8 +6,14 @@ brick >> to_xaml
 xaml_tag Self Tag,
 inheritance_chain Self Chain,
 collect_ivar_specs Chain Specs,
+lambda [ByName, Spec, Next] Index {
+  get Spec name Name,
+  put ByName Name Spec Next
+},
+fold_right Specs Index #{} ByName,
+map_pairs ByName Pairs,
 findall Spec XamlSpecs {
-  member Specs Spec,
+  member Pairs [_Name, Spec],
   get Spec xaml _
 },
 lambda [Spec, Property] Render {

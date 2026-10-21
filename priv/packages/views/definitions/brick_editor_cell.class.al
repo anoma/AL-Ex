@@ -1,0 +1,16 @@
+@brick_editor_cell
+#{super => brick_editor_template,
+  ivars => [#{name => text,
+              default => "text",
+              xaml => xaml_field_binding,
+              xaml_name => "editor:Code.Text"},
+            #{name => vertical_scroll_bar_visibility,
+              default => "Disabled",
+              xaml => xaml_literal},
+            #{name => horizontal_scroll_bar_visibility,
+              default => "Disabled",
+              xaml => xaml_literal},
+            #{name => follow_caret,
+              default => true,
+              xaml => xaml_literal,
+              xaml_name => "editor:Code.FollowCaret"}]}.
