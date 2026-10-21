@@ -307,14 +307,14 @@ list >> collect_ivar_specs
 
 list >> collect_ivar_specs
 | [C . Rest] Specs |
-collect_ivar_specs Rest RestSpecs,
 slot C ivars OwnSpecs,
+collect_ivar_specs Rest RestSpecs,
 concat OwnSpecs RestSpecs Specs.
 
 list >> collect_ivar_specs
 | [C . Rest] RestSpecs |
-collect_ivar_specs Rest RestSpecs,
-not (slot C ivars _).
+not (slot C ivars _),
+collect_ivar_specs Rest RestSpecs.
 
 object >> build_durable_slots
 | _Self _Class _Args [] #{} |.
