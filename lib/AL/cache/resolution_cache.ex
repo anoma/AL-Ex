@@ -173,6 +173,43 @@ defmodule AL.ResolutionCache do
     end
   end
 
+  def select_plan(branch, key, accepts?, valid?, compute) do
+    candidates_key = {:plan_candidates, key}
+
+    plans =
+      fetch_dispatch(branch, candidates_key, fn ->
+        fetch_code(branch, :compiled_plans, key, fn -> [] end)
+      end)
+
+    selected =
+      Enum.find(plans, fn {version, plan} ->
+        accepts?.(plan) and
+          fetch_dispatch(branch, {:plan_validity, version}, fn -> valid?.(plan) end)
+      end)
+
+    case selected do
+      nil ->
+        case compute.() do
+          %{assumptions: assumptions, observations: observations} = plan ->
+            plans =
+              Enum.reject(plans, fn {_version, existing} ->
+                existing.assumptions == assumptions and existing.observations == observations
+              end)
+
+            plans = [{make_ref(), plan} | plans]
+            store_code(branch, :compiled_plans, key, plans)
+            store_local({@dispatch_cache, table(:providers, branch)}, candidates_key, plans)
+            plan
+
+          _ ->
+            nil
+        end
+
+      {_version, plan} ->
+        plan
+    end
+  end
+
   def mark_new_receiver(branch, receiver) when is_atom(receiver) do
     if cache = Process.get(@transaction_cache) do
       key = {@new_receivers, branch.id}

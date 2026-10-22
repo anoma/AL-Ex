@@ -54,7 +54,7 @@ defmodule AL.JAM.Trace do
               %AL.JAM.IR.SendPlan{} ->
                 %{
                   key: plan.key,
-                  receiver_guard: plan.receiver_guard,
+                  assumptions: plan.assumptions,
                   frame: plan.frame,
                   argument_transfers: AL.JAM.IR.SendPlan.transfers(plan.compiled)
                 }

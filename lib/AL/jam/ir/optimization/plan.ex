@@ -1,87 +1,131 @@
 defmodule AL.JAM.IR.Plan do
+  use TypedStruct
+
   alias AL.{Goal, Var}
   alias AL.JAM.{Compiler, IR}
-  alias AL.JAM.IR.{Dataflow, MethodSummary, Program}
+  alias AL.JAM.IR.{Assumptions, Call, Dataflow, MethodSummary, Program}
+
+  @max_plan_constant_depth 12
+  @max_ivar_specs_constant_depth 24
+  @max_plan_constant_string_bytes 40
+  @max_plan_constant_map_entries 4
 
   defmodule State do
-    @enforce_keys [:branch, :mode]
-    defstruct [
-      :branch,
-      :mode,
-      dependencies: %{},
-      direct_classes: %{},
-      generated: MapSet.new(),
-      symbolic_classes: %{},
-      ivar_spec_lists: %{},
-      inlined: 0,
-      classes: %{},
-      ivar_specs: %{},
-      providers: %{},
-      fuel: 64,
-      stable: true,
-      protected: MapSet.new()
-    ]
+    use TypedStruct
+
+    typedstruct do
+      field(:branch, term(), enforce: true)
+      field(:mode, :region | :prefix, enforce: true)
+      field(:dependencies, map(), default: %{})
+      field(:direct_classes, map(), default: %{})
+      field(:generated, MapSet.t(), default: MapSet.new())
+      field(:store, Var.store(), default: %{})
+      field(:field_sources, map(), default: %{})
+      field(:inputs, map(), default: %{})
+      field(:call, Call.t())
+      field(:assumptions, Assumptions.t(), default: [])
+      field(:observations, map(), default: %{})
+      field(:ivar_spec_lists, map(), default: %{})
+      field(:inlined, non_neg_integer(), default: 0)
+      field(:classes, map(), default: %{})
+      field(:ivar_specs, map(), default: %{})
+      field(:providers, map(), default: %{})
+      field(:fuel, non_neg_integer(), default: 64)
+      field(:stable, boolean(), default: true)
+      field(:protected, MapSet.t(), default: MapSet.new())
+    end
   end
 
-  defstruct [
-    :compiled,
-    :branch,
-    :inlined,
-    :facts,
-    dependencies: %{},
-    direct_classes: %{},
-    ivar_spec_lists: %{},
-    classes: %{},
-    ivar_specs: %{},
-    providers: %{}
-  ]
+  typedstruct do
+    field(:compiled, term())
+    field(:branch, term())
+    field(:inlined, non_neg_integer())
+    field(:assumptions, Assumptions.t())
+    field(:observations, map(), default: %{})
+    field(:dependencies, map(), default: %{})
+    field(:direct_classes, map(), default: %{})
+    field(:ivar_spec_lists, map(), default: %{})
+    field(:classes, map(), default: %{})
+    field(:ivar_specs, map(), default: %{})
+    field(:providers, map(), default: %{})
+  end
 
   def select(
         {_, %{planning: true}} = original,
         receiver,
         selector,
-        operands,
+        arguments,
         method,
         branch
       ) do
-    if literal?(receiver, 12) and
-         not default_new_receiver_method?(receiver, selector, method, branch) do
-      AL.ResolutionCache.fetch_dispatch(
-        branch,
-        {:site_query_plan, receiver, selector, operands},
-        fn ->
-          with {:ok, args} <- operand_arguments(operands, 1) do
-            facts = [{receiver, 0} | args] |> Enum.reject(fn {value, _} -> Var.var?(value) end)
-            key = {:query_plan, receiver, selector, length(args), facts}
+    call = Call.new(receiver, selector, arguments)
+    {dispatch_receiver, _} = target(call)
 
-            plan =
-              AL.ResolutionCache.fetch_plan(branch, key, &valid?(&1, branch), fn ->
-                compile(receiver, selector, facts, branch)
-              end)
+    plan =
+      if supported?(call) and
+           not default_new_receiver_method?(dispatch_receiver, selector, method, branch) do
+        AL.ResolutionCache.select_plan(
+          branch,
+          {:query_plan, call.dispatch},
+          &accepts?(&1, call),
+          &valid?(&1, branch),
+          fn -> compile(call, branch) end
+        )
+      end
 
-            if plan && plan.compiled, do: plan.compiled, else: original
-          else
-            _ -> original
-          end
-        end
-      )
-    else
-      original
+    case plan do
+      %__MODULE__{compiled: compiled, assumptions: assumptions} when not is_nil(compiled) ->
+        {compiled, assumptions}
+
+      _ ->
+        {original, []}
     end
   end
 
-  def select(original, _, _, _, _, _), do: original
+  def select(original, _, _, _, _, _), do: {original, []}
+
+  defp target(%Call{dispatch: {{:instance, class}, selector}}),
+    do: {%{class: class}, selector}
+
+  defp target(%Call{dispatch: {receiver, selector}}), do: {receiver, selector}
+
+  defp supported?(call) do
+    {receiver, selector} = target(call)
+
+    is_atom(selector) and
+      (is_atom(receiver) or match?(%{class: class} when is_atom(class), receiver))
+  end
+
+  defp accepts?(%__MODULE__{compiled: nil, observations: observations}, call) do
+    Enum.all?(observations, fn {{position, property, field_path}, observed} ->
+      observe_input(call, position, property, field_path) === observed
+    end)
+  end
+
+  defp accepts?(plan, call), do: Assumptions.accepts?(plan.assumptions, call)
 
   defp default_new_receiver_method?(receiver, selector, method, branch) do
     AL.ResolutionCache.new_receiver?(branch, receiver) and
       match?({:ok, _, ^method}, AL.Dispatch.target(:object, selector, branch))
   end
 
-  def compile(receiver, selector, facts, branch) do
+  def compile(%Call{} = call, branch) do
     plan =
-      case compile_region(receiver, selector, facts, branch, :region) do
-        %__MODULE__{compiled: compiled} = plan when not is_nil(compiled) -> plan
-        _ -> compile_region(receiver, selector, facts, branch, :prefix)
+      case compile_region(call, branch, :region) do
+        %__MODULE__{compiled: compiled} = plan when not is_nil(compiled) ->
+          plan
+
+        region ->
+          case {region, compile_region(call, branch, :prefix)} do
+            {_, %__MODULE__{compiled: compiled} = prefix} when not is_nil(compiled) ->
+              prefix
+
+            {%__MODULE__{} = region, %__MODULE__{} = prefix} ->
+              %{prefix | observations: Map.merge(region.observations, prefix.observations)}
+
+            _ ->
+              nil
+          end
       end
 
     if plan && plan.compiled,
@@ -89,44 +133,50 @@ defmodule AL.JAM.IR.Plan do
       else: plan
   end
 
-  def compile_ir(receiver, selector, facts, branch) do
-    compile_region(receiver, selector, facts, branch, :region, :ir) ||
-      compile_region(receiver, selector, facts, branch, :prefix, :ir)
+  def compile_ir(%Call{} = call, branch) do
+    compile_region(call, branch, :region, :ir) ||
+      compile_region(call, branch, :prefix, :ir)
   end
 
-  defp compile_region(receiver, selector, facts, branch, mode, representation \\ :jam) do
+  defp compile_region(call, branch, mode, representation \\ :jam) do
+    {receiver, selector} = target(call)
+
     try do
       {id, clauses, program_clauses} = fetch(receiver, selector, branch)
+
+      argument_count =
+        Enum.reduce(program_clauses, 0, fn {:oapply, _, _, head, _}, count ->
+          if head == [] or not proper?(head), do: throw(:no_plan)
+          max(count, length(head))
+        end)
 
       state = %State{
         branch: branch,
         mode: mode,
+        call: call,
+        assumptions: List.duplicate(%{}, argument_count),
         dependencies: %{{receiver, selector} => {id, clauses}}
       }
 
       {rows, state} =
         Enum.map_reduce(program_clauses, state, fn {:oapply, _, seq, head, body}, state ->
-          if not proper?(head), do: throw(:no_plan)
-
-          bindings =
-            Enum.reduce(facts, %{}, fn {value, index}, bindings ->
-              case Enum.at(head, index) do
-                nil ->
-                  bindings
-
-                variable ->
-                  if Var.var?(variable) and variable != {:"$var", "_"},
-                    do: Map.put(bindings, variable, value),
-                    else: bindings
-              end
+          inputs =
+            head
+            |> Enum.with_index()
+            |> Enum.filter(fn {term, _} ->
+              Var.var?(term) and term != {:"$var", "_"}
             end)
+            |> Map.new()
 
-          head_bindings =
-            Map.filter(bindings, fn {_, value} -> MapSet.size(Var.find_vars(value)) > 0 end)
+          state = %{
+            state
+            | inputs: inputs,
+              store: %{},
+              field_sources: %{},
+              generated: MapSet.new()
+          }
 
-          head = AL.Term.map(head, &Map.get(head_bindings, &1, &1))
           {body, state} = fuse_providers(body, receiver, selector, id, state)
-          body = Program.subst(body, bindings)
 
           body =
             if mode == :region and Program.branching?(body),
@@ -146,11 +196,14 @@ defmodule AL.JAM.IR.Plan do
 
       plan = %__MODULE__{
         compiled:
-          if(representation == :jam and state.inlined > 0 and length(rows) <= length(clauses),
+          if(
+            representation == :jam and state.inlined > 0 and
+              length(rows) <= length(clauses),
             do: Compiler.compile(rows)
           ),
         branch: branch,
-        facts: facts,
+        assumptions: state.assumptions,
+        observations: state.observations,
         inlined: state.inlined,
         dependencies: state.dependencies,
         direct_classes: state.direct_classes,
@@ -163,6 +216,72 @@ defmodule AL.JAM.IR.Plan do
       if representation == :ir, do: {rows, plan}, else: plan
     catch
       :no_plan -> nil
+    end
+  end
+
+  defp input_bindings(values, state) do
+    Enum.reduce(Var.find_vars(values), {%{}, state}, fn variable, {bindings, state} ->
+      case known(variable, :value, state) do
+        {{:ok, value}, state} -> {Map.put(bindings, variable, value), state}
+        {:unknown, state} -> {bindings, state}
+      end
+    end)
+  end
+
+  defp known(term, property, state, field_path \\ []) do
+    cond do
+      property == :class and field_path == [] and MapSet.member?(state.generated, term) ->
+        {generated_class(term, state), state}
+
+      Map.has_key?(state.field_sources, term) ->
+        {object, key} = Map.fetch!(state.field_sources, term)
+        known(object, property, state, [key | field_path])
+
+      Map.has_key?(state.inputs, term) ->
+        position = Map.fetch!(state.inputs, term)
+        observed = observe_input(state.call, position, property, field_path)
+        observations = Map.put(state.observations, {position, property, field_path}, observed)
+
+        assumptions =
+          case observed do
+            {:ok, value} ->
+              Assumptions.require(state.assumptions, position, property, value, field_path)
+
+            :unknown ->
+              state.assumptions
+          end
+
+        {observed, %{state | observations: observations, assumptions: assumptions}}
+
+      true ->
+        {Call.observe({:constant, term}, property, {}, state.store, field_path), state}
+    end
+  end
+
+  defp observe_input(call, position, :value, field_path) do
+    with {:ok, operand} <- Call.argument(call, position, field_path) do
+      value = AL.JAM.Operand.shallow(operand, call.slots, call.store)
+
+      if within_value_budget?(value),
+        do: Call.observe(operand, :value, call.slots, call.store),
+        else: :unknown
+    end
+  end
+
+  defp observe_input(call, position, property, field_path),
+    do: Call.derive(call, position, property, field_path)
+
+  defp within_value_budget?(value)
+       when is_atom(value) or is_number(value) or is_binary(value),
+       do: true
+
+  defp within_value_budget?(value),
+    do: Var.var?(value) or bounded_plan_constant?(value, @max_plan_constant_depth)
+
+  defp generated_class(object, state) do
+    case MapSet.to_list(Var.direct_classes_of(state.store, object)) do
+      [class] -> {:ok, class}
+      _ -> :unknown
     end
   end
 
@@ -314,7 +433,8 @@ defmodule AL.JAM.IR.Plan do
     case Program.first(condition) do
       {:operation, %IR{kind: :send, name: :get, args: [receiver, [key, _]]}, tail}
       when is_map(receiver) ->
-        if state.stable and literal?(key, 12) and not Map.has_key?(receiver, key) and
+        if state.stable and bounded_plan_constant?(key, @max_plan_constant_depth) and
+             not Map.has_key?(receiver, key) and
              match?({:control, %{exit: :yield}}, Program.first(tail)) do
           case plain_map_get(receiver, state.branch) do
             {:ok, dependency} ->
@@ -338,7 +458,8 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_operation(goal, rest, body, state, stack) do
-    goal = IR.VirtualObject.specialize(goal)
+    {bindings, state} = input_bindings(specialization_inputs(goal), state)
+    goal = goal |> IR.map_values(&Map.get(bindings, &1, &1)) |> IR.VirtualObject.specialize()
 
     case goal do
       %IR{kind: :type, name: :atom, args: [term]} ->
@@ -365,12 +486,15 @@ defmodule AL.JAM.IR.Plan do
         boundary(goal, rest, %{state | generated: generated}, stack)
 
       %IR{kind: :mutation, name: :set_class, args: [object, class]} ->
-        symbolic_classes =
-          if state.stable and is_atom(class) and MapSet.member?(state.generated, object),
-            do: Map.put(state.symbolic_classes, object, class),
-            else: state.symbolic_classes
+        store =
+          if state.stable and is_atom(class) and MapSet.member?(state.generated, object) do
+            {store, _classes} = Var.add_direct_class(state.store, object, class)
+            store
+          else
+            state.store
+          end
 
-        boundary(goal, rest, %{state | symbolic_classes: symbolic_classes}, stack)
+        boundary(goal, rest, %{state | store: store}, stack)
 
       %IR{kind: :send, name: :get, args: [receiver, [key, result]]} ->
         expand_missing_map_get(receiver, key, result, goal, rest, state, stack)
@@ -400,6 +524,15 @@ defmodule AL.JAM.IR.Plan do
           expand_unification(goal, rest, body, state, stack)
         end
 
+      %IR{kind: :direct, name: name, args: [object, key, result | _]}
+      when name in [:map_get, :slot_get] and is_atom(key) ->
+        sources =
+          if IR.Binding.fresh?(result, state.protected) and result != object,
+            do: Map.put(state.field_sources, result, {object, key}),
+            else: state.field_sources
+
+        boundary(goal, rest, %{state | field_sources: sources}, stack)
+
       %IR{kind: :direct, name: :eq} ->
         expand_unification(goal, rest, body, state, stack)
 
@@ -420,6 +553,23 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
+  defp specialization_inputs(%IR{kind: :send, name: selector}), do: [selector]
+  defp specialization_inputs(%IR{kind: :scope}), do: []
+
+  defp specialization_inputs(%IR{kind: :direct, name: name})
+       when name in [:eq, :dif, :unify_structural],
+       do: []
+
+  defp specialization_inputs(%IR{kind: :relation, name: name, args: [_object, class]})
+       when name in [:class, :isa],
+       do: [class]
+
+  defp specialization_inputs(%IR{kind: :direct, name: name, args: [_object, key | _]})
+       when name in [:map_get, :slot_get],
+       do: [key]
+
+  defp specialization_inputs(operation), do: IR.Access.values(operation)
+
   defp expand_unification(goal, rest, _body, state, stack) do
     case IR.Inference.operation(goal, state.protected).binding do
       {variable, value} -> expand(Program.subst(rest, %{variable => value}), state, stack)
@@ -429,7 +579,7 @@ defmodule AL.JAM.IR.Plan do
 
   defp expand_send(receiver, selector, args, goal, rest, state, stack) do
     case inline(receiver, selector, args, state, stack) do
-      nil ->
+      {:skip, state} ->
         boundary(goal, rest, state, stack)
 
       {alternatives, state, id} ->
@@ -482,6 +632,10 @@ defmodule AL.JAM.IR.Plan do
        when is_atom(class),
        do: MapSet.size(Var.find_vars(object)) == 0
 
+  defp dispatch_stable?(%IR{kind: :direct, name: name}, _state)
+       when name in [:map_get, :slot_get],
+       do: true
+
   defp dispatch_stable?(%IR{kind: :direct, name: :unify_structural}, _state), do: true
 
   defp dispatch_stable?(%IR{kind: :direct, name: :eq}, _state), do: true
@@ -490,7 +644,7 @@ defmodule AL.JAM.IR.Plan do
     do: MapSet.member?(state.generated, symbol)
 
   defp dispatch_stable?(%IR{kind: :mutation, name: :set_class, args: [object, class]}, state),
-    do: Map.get(state.symbolic_classes, object) === class
+    do: generated_class(object, state) === {:ok, class}
 
   defp dispatch_stable?(
          %IR{kind: :mutation, name: :set_slot, args: [object, key, _]},
@@ -518,7 +672,7 @@ defmodule AL.JAM.IR.Plan do
   defp dispatch_stable?(_, _), do: false
 
   defp expand_atom(term, rest, body, state, stack) do
-    if literal?(term, 12) do
+    if bounded_plan_constant?(term, @max_plan_constant_depth) do
       if is_atom(term), do: expand(rest, state, stack), else: {[], state}
     else
       retain(body, state, stack)
@@ -530,7 +684,8 @@ defmodule AL.JAM.IR.Plan do
 
     cond do
       state.stable and Var.var?(class) and class != {:"$var", "_"} and
-        not MapSet.member?(state.protected, class) and literal?(object, 12) ->
+        not MapSet.member?(state.protected, class) and
+          bounded_plan_constant?(object, @max_plan_constant_depth) ->
         classes = AL.Dispatch.direct_classes(object, state.branch)
 
         case classes do
@@ -573,12 +728,13 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_ivar_spec(object, key, result, rest, body, state, stack) do
-    if state.stable and literal?(object, 12) and literal?(key, 12) and
+    if state.stable and bounded_plan_constant?(object, @max_plan_constant_depth) and
+         bounded_plan_constant?(key, @max_plan_constant_depth) and
          Var.var?(result) and result != {:"$var", "_"} and
          not MapSet.member?(state.protected, result) do
       spec = AL.Dispatch.find_ivar_spec(object, key, state.branch)
 
-      if literal?(spec, 12) do
+      if bounded_plan_constant?(spec, @max_plan_constant_depth) do
         state = %{
           state
           | ivar_specs: Map.put(state.ivar_specs, {object, key}, spec)
@@ -594,11 +750,14 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_ivar_specs(object, result, rest, body, state, stack) do
+    {known_class, state} = known(object, :class, state)
+
     with true <- state.stable and Var.var?(result) and result != {:"$var", "_"},
          false <- MapSet.member?(state.protected, result),
-         {:ok, class} <- Map.fetch(state.symbolic_classes, object),
+         {:ok, class} <- known_class,
          specs <- AL.Dispatch.ivar_specs_for_classes([class], state.branch),
-         true <- length(specs) <= 4 and literal?(specs, 24) do
+         true <-
+           length(specs) <= 4 and bounded_plan_constant?(specs, @max_ivar_specs_constant_depth) do
       state = %{state | ivar_spec_lists: Map.put(state.ivar_spec_lists, class, specs)}
       expand(Program.subst(rest, %{result => specs}), state, stack)
     else
@@ -607,8 +766,9 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_missing_map_get(receiver, key, result, goal, rest, state, stack) do
-    if state.stable and is_map(receiver) and literal?(receiver, 12) and
-         literal?(key, 12) and not Map.has_key?(receiver, key) do
+    if state.stable and is_map(receiver) and
+         bounded_plan_constant?(receiver, @max_plan_constant_depth) and
+         bounded_plan_constant?(key, @max_plan_constant_depth) and not Map.has_key?(receiver, key) do
       case plain_map_get(receiver, state.branch) do
         {:ok, dependency} ->
           state = %{
@@ -712,7 +872,8 @@ defmodule AL.JAM.IR.Plan do
 
       {:operation, %IR{kind: :send, name: :get, args: [receiver, [key, _]]}, tail} ->
         if state.stable and Program.first(tail) == :return and is_map(receiver) and
-             literal?(receiver, 12) and literal?(key, 12) and
+             bounded_plan_constant?(receiver, @max_plan_constant_depth) and
+             bounded_plan_constant?(key, @max_plan_constant_depth) and
              not Map.has_key?(receiver, key) do
           case plain_map_get(receiver, state.branch) do
             {:ok, dependency} ->
@@ -781,91 +942,111 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp inline(receiver, selector, args, state, stack) do
+    {known_class, state} = known(receiver, :class, state)
+
+    {bindings, state} =
+      if known_class == :unknown, do: input_bindings([receiver], state), else: {%{}, state}
+
+    receiver = Var.subst(receiver, bindings)
+
     dispatch_receiver =
-      case Map.fetch(state.symbolic_classes, receiver) do
+      case known_class do
         {:ok, class} -> %{class: class}
-        :error -> dispatch_receiver(receiver)
+        :unknown -> dispatch_receiver(receiver)
       end
 
-    if state.stable and literal?(dispatch_receiver, 12) and is_atom(selector) and
-         not Var.var?(selector) and
-         proper?(args) do
-      case AL.Dispatch.target(dispatch_receiver, selector, state.branch) do
-        {:ok, _, id} ->
-          clauses = AL.JAM.Clauses.cached_scan_clauses(id, state.branch)
+    with true <- inlineable_call?(dispatch_receiver, selector, args, state),
+         {:ok, _, id} <- AL.Dispatch.target(dispatch_receiver, selector, state.branch),
+         clauses <- AL.JAM.Clauses.cached_scan_clauses(id, state.branch),
+         true <- length(clauses) in 1..6,
+         true <-
+           id not in stack or
+             (is_list(receiver) and proper?(receiver) and length(receiver) <= 4) or
+             bounded_durable_slots?(dispatch_receiver, selector, args, state.branch) do
+      {matches, nested_state} =
+        id
+        |> Compiler.fetch_ir(state.branch)
+        |> Enum.map_reduce(state, fn clause, state ->
+          inline_clause(clause, [receiver | args], dispatch_receiver, selector, id, state)
+        end)
 
-          if (id not in stack or
-                (is_list(receiver) and proper?(receiver) and length(receiver) <= 4) or
-                bounded_durable_slots?(dispatch_receiver, selector, args, state.branch)) and
-               length(clauses) in 1..6 do
-            callees = Compiler.fetch_ir(id, state.branch)
+      bodies = for {:ok, body, bindings} <- matches, do: {body, bindings}
 
-            {matches, nested_state} =
-              Enum.map_reduce(callees, state, fn {:oapply, _, _, head, body}, state ->
-                {body, fused_state} = fuse_providers(body, dispatch_receiver, selector, id, state)
-                scope = Integer.to_string(AL.fresh_scope())
+      if bodies != [] and :unknown not in matches do
+        state = %{
+          nested_state
+          | inlined: nested_state.inlined + 1,
+            fuel: max(nested_state.fuel - 1, 0),
+            dependencies:
+              Map.put(nested_state.dependencies, {dispatch_receiver, selector}, {id, clauses})
+        }
 
-                rename = fn value ->
-                  if Var.var?(value) and value != {:"$var", "_"},
-                    do: Var.fresh(value, scope),
-                    else: value
-                end
+        {bodies, state, id}
+      else
+        {:skip, state}
+      end
+    else
+      _ -> {:skip, state}
+    end
+  end
 
-                head = AL.Term.map(head, rename)
-                body = Program.map_values(body, rename)
+  defp inlineable_call?(receiver, selector, args, %{stable: true}) when is_atom(selector) do
+    bounded_plan_constant?(receiver, @max_plan_constant_depth) and proper?(args)
+  end
 
-                case match_inline_head(head, receiver, selector, args, body, state) do
-                  {:ok, bindings, body} ->
-                    body = Program.subst(body, bindings)
+  defp inlineable_call?(_, _, _, _), do: false
 
-                    summary =
-                      if state.mode == :region,
-                        do: MethodSummary.infer(body, [receiver | args], state.protected),
-                        else: %MethodSummary{program: body}
+  defp inline_clause(clause, [receiver | args], dispatch_receiver, selector, id, state) do
+    {:oapply, _, _, head, body} = clause
+    {body, fused_state} = fuse_providers(body, dispatch_receiver, selector, id, state)
+    {head, body} = freshen_inline_clause(head, body)
 
-                    body = summary.program
+    case match_inline_head(head, receiver, selector, args, body, state) do
+      {:ok, bindings, body} ->
+        summary = summarize_inline(body, [receiver | args], bindings, state)
+        body = summary.program
 
-                    if context_free?(body) or
-                         (selector == :set_slots and ground_slot_write_scope?(body)) do
-                      {body, bindings} =
-                        if summary.determinism == :det and MethodSummary.transparent?(summary) do
-                          {Program.lower([]), Map.merge(bindings, summary.bindings)}
-                        else
-                          {body, bindings}
-                        end
-
-                      {{:ok, body, bindings}, fused_state}
-                    else
-                      {:unknown, state}
-                    end
-
-                  other ->
-                    {other, state}
-                end
-              end)
-
-            bodies = for {:ok, body, bindings} <- matches, do: {body, bindings}
-
-            if bodies != [] and :unknown not in matches do
-              state = %{
-                nested_state
-                | inlined: nested_state.inlined + 1,
-                  fuel: max(nested_state.fuel - 1, 0),
-                  dependencies:
-                    Map.put(
-                      nested_state.dependencies,
-                      {dispatch_receiver, selector},
-                      {id, clauses}
-                    )
-              }
-
-              {bodies, state, id}
+        if context_free?(body) or
+             (selector == :set_slots and ground_slot_write_scope?(body)) do
+          {body, bindings} =
+            if summary.determinism == :det and MethodSummary.transparent?(summary) do
+              {Program.lower([]), Map.merge(bindings, summary.bindings)}
+            else
+              {body, bindings}
             end
-          end
 
-        _ ->
-          nil
+          {{:ok, body, bindings}, fused_state}
+        else
+          {:unknown, state}
+        end
+
+      other ->
+        {other, state}
+    end
+  end
+
+  defp freshen_inline_clause(head, body) do
+    scope = Integer.to_string(AL.fresh_scope())
+
+    rename = fn value ->
+      if Var.var?(value) and value != {:"$var", "_"} do
+        Var.fresh(value, scope)
+      else
+        value
       end
+    end
+
+    {AL.Term.map(head, rename), Program.map_values(body, rename)}
+  end
+
+  defp summarize_inline(body, arguments, bindings, state) do
+    body = Program.subst(body, bindings)
+
+    if state.mode == :region do
+      arguments = Var.subst(arguments, bindings)
+      MethodSummary.infer(body, arguments, state.protected)
+    else
+      %MethodSummary{program: body}
     end
   end
 
@@ -911,9 +1092,13 @@ defmodule AL.JAM.IR.Plan do
          body,
          state
        ) do
-    class = Map.get(state.symbolic_classes, receiver)
+    class =
+      case generated_class(receiver, state) do
+        {:ok, class} -> class
+        :unknown -> nil
+      end
 
-    if class != nil and Var.var?(self) and
+    if class != nil and MapSet.member?(state.generated, receiver) and Var.var?(self) and
          AL.Dispatch.selected_provider(%{class: class}, :init, state.branch) == :object and
          length(AL.Dispatch.ivar_specs_for_classes([class], state.branch)) <= 4 do
       case match([self, arguments], [receiver, given_arguments], %{}, state.protected) do
@@ -934,12 +1119,12 @@ defmodule AL.JAM.IR.Plan do
   defp match_fresh_output_head(head, receiver, args, body, state) do
     values = [receiver | args]
 
-    if Map.has_key?(state.symbolic_classes, receiver) and length(head) == length(values) and
+    if MapSet.member?(state.generated, receiver) and length(head) == length(values) and
          length(head) > 1 do
       expected = List.last(head)
       actual = List.last(values)
 
-      if literal?(expected, 12) and Var.var?(actual) do
+      if bounded_plan_constant?(expected, @max_plan_constant_depth) and Var.var?(actual) do
         case match(Enum.drop(head, -1), Enum.drop(values, -1), %{}, state.protected) do
           {:ok, bindings} ->
             equality = IR.operation(:direct, :eq, [actual, expected])
@@ -990,7 +1175,8 @@ defmodule AL.JAM.IR.Plan do
           end
         end)
 
-      literal?(head, 12) and literal?(value, 12) ->
+      bounded_plan_constant?(head, @max_plan_constant_depth) and
+          bounded_plan_constant?(value, @max_plan_constant_depth) ->
         :impossible
 
       head == [] and match?([_ | _], value) ->
@@ -1049,104 +1235,32 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
-  defp operand_arguments({:constant, args}, index) when is_list(args) do
-    if proper?(args),
-      do:
-        {:ok, Enum.with_index(args, index) |> Enum.map(fn {v, i} -> {shape(v, "#{i}", 4), i} end)},
-      else: :error
+  defp bounded_plan_constant?(_, remaining_depth) when remaining_depth <= 0, do: false
+  defp bounded_plan_constant?(value, _) when is_atom(value), do: true
+
+  defp bounded_plan_constant?(value, _) when is_binary(value),
+    do: byte_size(value) <= @max_plan_constant_string_bytes
+
+  defp bounded_plan_constant?([], _), do: true
+
+  defp bounded_plan_constant?([head | tail], remaining_depth) do
+    bounded_plan_constant?(head, remaining_depth - 1) and
+      bounded_plan_constant?(tail, remaining_depth - 1)
   end
 
-  defp operand_arguments({:cons, h, t}, index) do
-    with {:ok, tail} <- operand_arguments(t, index + 1),
-         do: {:ok, [{operand_shape(h, "#{index}", 4), index} | tail]}
-  end
-
-  defp operand_arguments(_, _), do: :error
-  defp operand_shape(_, path, depth) when depth <= 0, do: field(path)
-  defp operand_shape({:constant, v}, path, depth), do: shape(v, path, depth)
-
-  defp operand_shape({:cons, h, t}, path, depth),
-    do: [operand_shape(h, path <> "h", depth - 1) | operand_shape(t, path <> "t", depth - 1)]
-
-  defp operand_shape({:map, fields}, path, depth) do
-    if Enum.all?(fields, &match?({{:constant, _}, _}, &1)) do
-      template =
-        fields
-        |> Enum.with_index()
-        |> Map.new(fn {{{:constant, k}, v}, i} ->
-          {k, operand_shape(v, path <> "m#{i}", depth - 1)}
-        end)
-
-      case template do
-        %{__struct__: tag} ->
-          if is_atom(tag), do: template, else: field(path)
-
-        _ ->
-          template
-      end
-    else
-      field(path)
-    end
-  end
-
-  defp operand_shape(_, path, _), do: field(path)
-
-  defp shape(value, path, depth) do
-    cond do
-      depth <= 0 ->
-        field(path)
-
-      is_atom(value) ->
-        value
-
-      is_number(value) ->
-        value
-
-      is_binary(value) and byte_size(value) <= 40 ->
-        value
-
-      value == [] ->
-        []
-
-      match?([_ | _], value) ->
-        [head | tail] = value
-
-        [shape(head, path <> "h", depth - 1) | shape(tail, path <> "t", depth - 1)]
-
-      match?(%Goal.Compound{}, value) ->
-        %{
-          value
-          | name: shape(value.name, path <> "n", depth - 1),
-            args: shape(value.args, path <> "a", depth - 1)
-        }
-
-      match?(%{class: _}, value) and map_size(value) == 1 ->
-        %{class: shape(value.class, path <> "c", depth - 1)}
-
-      true ->
-        field(path)
-    end
-  end
-
-  defp field(path), do: Var.fresh({:"$var", "PlanField"}, "query_" <> path)
-
-  defp literal?(_, fuel) when fuel <= 0, do: false
-  defp literal?(value, _) when is_atom(value), do: true
-  defp literal?(value, _) when is_binary(value), do: byte_size(value) <= 40
-  defp literal?([], _), do: true
-  defp literal?([h | t], fuel), do: literal?(h, fuel - 1) and literal?(t, fuel - 1)
-
-  defp literal?(%{class: class} = value, _) when map_size(value) == 1,
+  defp bounded_plan_constant?(%{class: class} = value, _) when map_size(value) == 1,
     do: is_atom(class)
 
-  defp literal?(value, fuel) when is_map(value) and not is_struct(value) do
-    map_size(value) <= 4 and
+  defp bounded_plan_constant?(value, remaining_depth)
+       when is_map(value) and not is_struct(value) do
+    map_size(value) <= @max_plan_constant_map_entries and
       Enum.all?(value, fn {key, entry} ->
-        literal?(key, fuel - 1) and literal?(entry, fuel - 1)
+        bounded_plan_constant?(key, remaining_depth - 1) and
+          bounded_plan_constant?(entry, remaining_depth - 1)
       end)
   end
 
-  defp literal?(_, _), do: false
+  defp bounded_plan_constant?(_, _), do: false
   defp proper?([]), do: true
   defp proper?([_ | t]), do: proper?(t)
   defp proper?(_), do: false

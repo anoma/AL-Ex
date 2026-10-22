@@ -1,16 +1,17 @@
 defmodule AL.JAM.IR do
   alias AL.JAM.Operand
 
-  @enforce_keys [:kind, :name, :args]
-  defstruct [
-    :kind,
-    :name,
-    :args,
-    :method_identity,
-    retained_goals: [],
-    fallback: [],
-    regions: %{}
-  ]
+  use TypedStruct
+
+  typedstruct do
+    field(:kind, atom(), enforce: true)
+    field(:name, term(), enforce: true)
+    field(:args, term(), enforce: true)
+    field(:method_identity, term())
+    field(:retained_goals, list(), default: [])
+    field(:fallback, list(), default: [])
+    field(:regions, map(), default: %{})
+  end
 
   def invoke(method, args), do: %__MODULE__{kind: :invoke, name: method, args: args}
   def operation(kind, name, args), do: %__MODULE__{kind: kind, name: name, args: args}
@@ -43,10 +44,10 @@ defmodule AL.JAM.IR do
       when name in [:pass, :fail],
       do: name
 
-  def emit(%__MODULE__{kind: :send, name: selector, args: [receiver, args]}, slots),
-    do:
-      {:send, make_ref(), Operand.compile(receiver, slots), Operand.compile(selector, slots),
-       Operand.compile(args, slots)}
+  def emit(%__MODULE__{kind: :send, name: selector, args: [receiver, args]}, slots) do
+    {:send, make_ref(), Operand.compile(receiver, slots), Operand.compile(selector, slots),
+     Operand.compile(args, slots)}
+  end
 
   def emit(%__MODULE__{kind: :compare, name: op, args: [a, b]}, slots),
     do: {:compare, op, Operand.compile(a, slots), Operand.compile(b, slots)}

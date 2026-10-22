@@ -1248,12 +1248,12 @@ defmodule AL.JAM do
           if AL.Var.var?(object) and object != {:"$var", "_"} do
             {:open, AL.Dispatch.open_targets(object, method, store, branch)}
           else
-            target(
+            AL.JAM.IR.SendPlan.resolve(
               targets,
               key,
               object,
               method,
-              args,
+              {:operands, args, slots, store},
               not traced? and pending == %{},
               branch,
               vm_trace?
@@ -1953,19 +1953,6 @@ defmodule AL.JAM do
         end
     end
   end
-
-  defp target(targets, key, object, method, operands, planning?, branch, trace?),
-    do:
-      AL.JAM.IR.SendPlan.resolve(
-        targets,
-        key,
-        object,
-        method,
-        operands,
-        planning?,
-        branch,
-        trace?
-      )
 
   defp resolve(value, store),
     do: if(AL.Var.var?(value), do: AL.Var.deref(store, value), else: value)

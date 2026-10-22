@@ -1,7 +1,7 @@
 defmodule AL.JAM.IR.Scan do
   alias AL.{Goal, Var}
   alias AL.JAM.IR
-  alias AL.JAM.IR.{Plan, Program}
+  alias AL.JAM.IR.{Call, Plan, Program}
 
   defstruct [
     :receiver,
@@ -242,7 +242,7 @@ defmodule AL.JAM.IR.Scan do
     state = repetition(repeat, state)
 
     {rows, scan} =
-      case Plan.compile_ir(state.receiver, step, [{state.receiver, 0}], state.branch) do
+      case Plan.compile_ir(Call.new(state.receiver, step), state.branch) do
         nil -> unsupported()
         result -> result
       end
