@@ -292,7 +292,9 @@ defmodule AL.JAM.IR.Plan do
         expand_functor(term, name, args, rest, body, state, stack)
 
       %IR{kind: :send, name: selector, args: [receiver, args]} ->
-        case inline(receiver, selector, args, state, stack) do
+        live = MapSet.union(state.protected, Program.variables(rest))
+
+        case inline(receiver, selector, args, live, state, stack) do
           nil ->
             boundary(goal, rest, state, stack)
 
@@ -409,7 +411,7 @@ defmodule AL.JAM.IR.Plan do
     end
   end
 
-  defp inline(receiver, selector, args, state, stack) do
+  defp inline(receiver, selector, args, live, state, stack) do
     dispatch_receiver = dispatch_receiver(receiver)
 
     if state.stable and literal?(dispatch_receiver, 12) and is_atom(selector) and
@@ -442,9 +444,14 @@ defmodule AL.JAM.IR.Plan do
                   {:ok, bindings} ->
                     body = Program.subst(body, bindings)
 
+                    reached =
+                      Map.filter(bindings, fn {variable, _} -> MapSet.member?(live, variable) end)
+
+                    arguments = Var.subst([receiver | args], reached)
+
                     summary =
                       if state.mode == :region,
-                        do: MethodSummary.infer(body, [receiver | args], state.protected),
+                        do: MethodSummary.infer(body, arguments, state.protected),
                         else: %MethodSummary{program: body}
 
                     body = summary.program

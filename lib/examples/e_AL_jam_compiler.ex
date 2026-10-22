@@ -2433,4 +2433,29 @@ defmodule Examples.ALJAMCompiler do
     assert actual == expected
     assert state.trace.events != []
   end
+
+  example inlined_sends_keep_bindings_inside_their_output_structures() do
+    source = ~S"""
+    @plan_output_probe #{super => object}.
+
+    plan_output_probe >> sevens
+    | _Self [] [] |.
+
+    plan_output_probe >> sevens
+    | Self [_ . Rest] [Seven . Sevens] |
+    = Seven 7,
+    sevens Self Rest Sevens.
+
+    plan_output_probe >> collect
+    | Self Result |
+    sevens Self [1, 2] Sevens,
+    = Result Sevens.
+
+    vm_set_class plan_output_instance plan_output_probe.
+    collect plan_output_instance Result.
+    """
+
+    {:atomic, {actual, _, _}} = evaluate(source)
+    assert actual["$Result"] == [7, 7]
+  end
 end
