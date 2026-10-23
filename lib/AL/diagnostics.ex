@@ -1,12 +1,27 @@
 defmodule AL.Diagnostics do
-  def format_failure(%AL.JAM.State{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state) do
+  def format_failure(state, failure \\ :recorded)
+
+  def format_failure(state, :bare) do
+    formatted = format(state, :bare)
+    %{formatted | state: %AL.JAM.State{formatted.state | trace: AL.Trace.new(MapSet.new())}}
+  end
+
+  def format_failure(state, :recorded), do: format(state, :recorded)
+
+  defp format(
+         %AL.JAM.State{diagnostics: [{:resource_limit_exceeded, limit} | _]} = state,
+         failure
+       ) do
     raw_tail =
       if AL.Trace.retained?(state.trace),
         do: last_raw_steps(state.trace.events, 20),
         else: []
 
-    steps = Enum.map(raw_tail, &AL.Trace.pretty/1)
-    failed_on = steps |> List.last() |> AL.Trace.payload() || current_failure(state)
+    steps = steps(raw_tail, failure)
+
+    failed_on =
+      raw_tail |> List.last() |> AL.Trace.pretty() |> AL.Trace.payload() ||
+        current_failure(state)
 
     %{
       message:
@@ -23,15 +38,15 @@ defmodule AL.Diagnostics do
     }
   end
 
-  def format_failure(state) do
+  defp format(state, failure) do
     if AL.Trace.enabled?(state.trace, :domino),
-      do: format_domino_failure(state),
-      else: format_compact_failure(state)
+      do: format_domino_failure(state, failure),
+      else: format_compact_failure(state, failure)
   end
 
-  defp format_compact_failure(state) do
-    steps = state.trace.events |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
-    failed_on = steps |> List.last() |> AL.Trace.payload() || current_failure(state)
+  defp format_compact_failure(state, failure) do
+    steps = state.trace.events |> Enum.reverse() |> steps(failure)
+    failed_on = newest_step(state.trace.events) || current_failure(state)
 
     {message, reason} =
       case state.failure_candidate do
@@ -54,9 +69,9 @@ defmodule AL.Diagnostics do
     }
   end
 
-  defp format_domino_failure(state) do
-    steps = state.trace.events |> Enum.reverse() |> Enum.map(&AL.Trace.pretty/1)
-    failed_on = steps |> List.last() |> AL.Trace.payload()
+  defp format_domino_failure(state, failure) do
+    steps = state.trace.events |> Enum.reverse() |> steps(failure)
+    failed_on = newest_step(state.trace.events)
     ancestry = failing_lineage(state.trace.events)
 
     relevant_diagnostics =
@@ -190,6 +205,11 @@ defmodule AL.Diagnostics do
 
   defp failure_from_call(nil, failed_on),
     do: {"Goal failed: #{inspect(failed_on)}", {:goal_failed, failed_on}}
+
+  defp steps(_events, :bare), do: []
+  defp steps(events, :recorded), do: Enum.map(events, &AL.Trace.pretty/1)
+
+  defp newest_step(events), do: events |> List.first() |> AL.Trace.pretty() |> AL.Trace.payload()
 
   defp current_failure(state) do
     case state.failure_candidate do

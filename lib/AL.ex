@@ -32,8 +32,9 @@ defmodule AL do
   Executes AL source text in one transaction.
 
   `bindings:` supplies initial values for named AL variables. `branch:` selects
-  a branch, and `trace:` selects retained trace families. The returned `%AL{}`
-  contains the transaction's result and its explicitly awaited completions.
+  a branch, and `trace:` selects retained trace families. `failure: :bare`
+  returns a failure without its trace and leaves it unrecorded. The returned
+  `%AL{}` contains the transaction's result and its explicitly awaited completions.
   `wait_timeout:` limits each wait in milliseconds (default 5,000) or is `:infinity`.
   A child's failure or timeout leaves its parent's committed result intact.
   """
@@ -100,13 +101,14 @@ defmodule AL do
 
   # Evaluate the AL program
   defp eval_program(program, initial_store, branch, opts, source) do
-    Keyword.validate!(opts, [:trace, :run, :caused_by, :transaction_object])
+    Keyword.validate!(opts, [:trace, :run, :caused_by, :transaction_object, :failure])
 
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
     trace_flags = AL.Trace.flags_from_options!(opts)
     lineage = Map.new(Keyword.take(opts, [:run, :caused_by]))
     reserved_transaction = Keyword.get(opts, :transaction_object)
+    failure_mode = Keyword.get(opts, :failure, :recorded)
 
     result =
       :mnesia.transaction(fn ->
@@ -138,7 +140,7 @@ defmodule AL do
             |> AL.Runner.Driver.execute()
 
           if result.active_choicepoint.store == nil do
-            :mnesia.abort(AL.Diagnostics.format_failure(result))
+            :mnesia.abort(AL.Diagnostics.format_failure(result, failure_mode))
           else
             if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
 
@@ -170,6 +172,9 @@ defmodule AL do
 
     case result do
       {:atomic, _} ->
+        result
+
+      {:aborted, _failure} when failure_mode == :bare ->
         result
 
       {:aborted, reason} ->

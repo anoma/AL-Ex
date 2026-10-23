@@ -227,6 +227,36 @@ defmodule Examples.ALFailures do
     assert reason.state.branch.id == Examples.Support.branch()
   end
 
+  # failure: :bare keeps a traced failure's diagnosis, formats none of its trace, and
+  # records no transaction for it.
+  example bare_failure_keeps_the_diagnosis_unrecorded() do
+    branch = Examples.Support.branch()
+    traced = [branch: branch, trace: [:domino]]
+
+    %AL{result: {:aborted, recorded}} = run("greett 1 world.\n", traced)
+    %AL{result: {:aborted, bare}} = run("greett 1 world.\n", [failure: :bare] ++ traced)
+
+    assert Map.take(bare, [:message, :reason, :failed_on]) ==
+             Map.take(recorded, [:message, :reason, :failed_on])
+
+    assert recorded.trace != []
+    assert bare.trace == []
+    assert bare.state.trace.events == []
+
+    slots = fn failure ->
+      {:atomic, slots} =
+        :mnesia.transaction(fn ->
+          AL.Object.read_slots(failure.state.transaction_object, %AL.Branch{id: branch})
+        end)
+
+      slots
+    end
+
+    assert [{:slots, _, %{status: :failed}}] = slots.(recorded)
+    assert [] = slots.(bare)
+    bare
+  end
+
   # constraint-rejected unify looks identical to a plain mismatch in the trace
   # alone -- reason names which constraint fired.
   example unify_failure_names_the_violated_constraint() do
