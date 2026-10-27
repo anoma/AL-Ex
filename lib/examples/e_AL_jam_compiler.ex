@@ -985,7 +985,7 @@ defmodule Examples.ALJAMCompiler do
     assert Enum.sort(actual["$Woken"]) == [1, 3]
   end
 
-  example forall_templates_keep_choicepoints_and_suspensions_per_solution() do
+  example forall_templates_test_each_action_and_suspension_per_solution() do
     source = ~S"""
     @jam_forall_template #{super => value}.
 
@@ -1016,7 +1016,7 @@ defmodule Examples.ALJAMCompiler do
       "$_Self" => {:"$var", "_Self"},
       "$Value" => {:"$var", "Value"},
       "$Key" => {:"$var", "Key"},
-      "$Result" => [:yes, :yes, :yes, :yes],
+      "$Result" => [:yes],
       "$Map" => {:"$var", "Map"},
       "$Number" => {:"$var", "Number"},
       "$Color" => {:"$var", "Color"},
@@ -1027,10 +1027,10 @@ defmodule Examples.ALJAMCompiler do
 
     %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
-    assert actual["$Result"] == [:yes, :yes, :yes, :yes]
+    assert actual["$Result"] == [:yes]
   end
 
-  example native_forall_preserves_shared_elements_body_choices_and_empty_search() do
+  example native_forall_tests_actions_without_exporting_bindings() do
     source = ~S"""
     @jam_forall_probe #{super => value}.
 
@@ -1051,38 +1051,24 @@ defmodule Examples.ALJAMCompiler do
     = Values [A, B],
     fill Self Values,
     bind_shared Self Shared,
-    ground Shared,
-    = Shared 9,
     forall {fail} {fail},
     forall {member [1, 2, 3] N} {= Double (* N 2), <= Double 6},
     forall {in_domain N [1, 2], member [1, 2] N} {in_domain N [1, 2]},
     forall {member [1, 2] N} {forall {member [N] M} {= M N}},
     not {forall {member [1, 2, 3] N} {< N 3}},
     findall yes Choices {choose Self},
-    = Result [Values, A, B, Choices].
+    = Result [Values, A, B, Shared, Choices].
 
     exercise #{class => jam_forall_probe} Result.
     """
 
-    expected = %{
-      "$Self" => {:"$var", "Self"},
-      "$_Self" => {:"$var", "_Self"},
-      "$Value" => {:"$var", "Value"},
-      "$M" => {:"$var", "M"},
-      "$Values" => {:"$var", "Values"},
-      "$N" => {:"$var", "N"},
-      "$Result" => [~c"\a\a", 7, 7, [:yes, :yes, :yes, :yes]],
-      "$Item" => {:"$var", "Item"},
-      "$A" => {:"$var", "A"},
-      "$B" => {:"$var", "B"},
-      "$Shared" => {:"$var", "Shared"},
-      "$Choices" => {:"$var", "Choices"},
-      "$Double" => {:"$var", "Double"}
-    }
-
     %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
-    assert actual == expected
-    assert actual["$Result"] == [[7, 7], 7, 7, [:yes, :yes, :yes, :yes]]
+    [values, a, b, shared, choices] = actual["$Result"]
+    assert values == [a, b]
+    assert AL.Var.var?(a)
+    assert AL.Var.var?(b)
+    assert AL.Var.var?(shared)
+    assert choices == [:yes]
   end
 
   example native_forall_runs_durable_updates_in_solution_order() do

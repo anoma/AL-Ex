@@ -385,7 +385,7 @@ defmodule AL.JAM.IR.Plan do
              true <- Enum.all?(head, &(Var.var?(&1) and &1 != {:"$var", "_"})),
              true <- length(Enum.uniq(head)) == length(head),
              {:ok, prefix, rows} <- fuse_prefix(callee, next_cursor, branch, fuel - 1) do
-          scope = Integer.to_string(AL.fresh_scope())
+          scope = Integer.to_string(AL.Scope.fresh())
           bindings = Map.new(Enum.zip(head, [receiver | args]))
 
           prefix =
@@ -1108,7 +1108,7 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp freshen_inline_clause(head, body) do
-    scope = Integer.to_string(AL.fresh_scope())
+    scope = Integer.to_string(AL.Scope.fresh())
 
     rename = fn value ->
       if Var.var?(value) and value != {:"$var", "_"} do

@@ -7,7 +7,7 @@ defmodule AL.JAM.IRProgramTest do
   alias AL.JAM.IR.{Dataflow, Program, Region}
 
   defp answers(program) do
-    snapshot = program |> AL.JAM.compile() |> AL.JAM.with_store(%{})
+    snapshot = program |> AL.JAM.compile() |> AL.JAM.Frame.with_store(%{})
     collect(AL.JAM.resume(snapshot, AL.Branch.head(), 1000), [])
   end
 
@@ -465,7 +465,12 @@ defmodule AL.JAM.IRProgramTest do
     assert {{:call, _, _, {:compiled_callable, {:constant, template}, _, _}, _}} = code
     assert %AL.JAM.Callable.Template{capture_slots: [0, 1]} = template
 
-    assert AL.JAM.pending_goals(%AL.JAM.Frame{id: :test, code: code, slots: slots, store: %{}}) ==
+    assert AL.JAM.Frame.pending_goals(%AL.JAM.Frame{
+             id: :test,
+             code: code,
+             slots: slots,
+             store: %{}
+           }) ==
              [goal]
 
     for value <- [1, [:different, :shape], %{name: :value}] do

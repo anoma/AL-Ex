@@ -208,7 +208,7 @@ defmodule AL.JAM.Instruction do
         put_elem(
           slots,
           index,
-          AL.Var.fresh({:"$var", "Local"}, Integer.to_string(AL.fresh_scope()))
+          AL.Var.fresh({:"$var", "Local"}, Integer.to_string(AL.Scope.fresh()))
         ),
       else: slots
   end

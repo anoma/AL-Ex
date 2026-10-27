@@ -200,7 +200,7 @@ defmodule AL.JAM.IR.Scan do
         require!(length(Enum.uniq(head)) == length(head))
         locals = MapSet.difference(Var.find_vars(body), Var.find_vars(head))
         require!(MapSet.disjoint?(locals, MapSet.union(exposed, Program.variables(rest))))
-        scope = Integer.to_string(AL.fresh_scope())
+        scope = Integer.to_string(AL.Scope.fresh())
 
         body =
           AL.Term.map(body, fn value ->

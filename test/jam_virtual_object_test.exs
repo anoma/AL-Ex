@@ -19,7 +19,7 @@ defmodule AL.JAM.VirtualObjectTest do
     do: goals |> Normalize.lower() |> Region.compile(MapSet.new([@output]))
 
   defp answers(program) do
-    frame = program |> JAM.compile() |> JAM.with_store(%{})
+    frame = program |> JAM.compile() |> AL.JAM.Frame.with_store(%{})
     collect(JAM.resume(frame, AL.Branch.head(), 1000), [])
   end
 

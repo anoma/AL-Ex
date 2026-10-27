@@ -34,13 +34,7 @@ defmodule AL.JAM.Collection do
     Goals.instructions(condition, 0, slots)
   end
 
-  def forall?(%Frame{
-        code: code,
-        pc: pc
-      }),
-      do: match?({:forall, _, _, _, _}, elem(code, pc))
-
-  def forall_continuation(
+  def forall_action(
         %Frame{
           id: id,
           code: code,
@@ -50,11 +44,11 @@ defmodule AL.JAM.Collection do
           store: store,
           pending: pending
         },
-        solutions,
+        solution,
         visible
       ) do
     {:forall, operand, _condition, heads, {body, body_values}} = elem(code, pc)
-    scope = Integer.to_string(AL.fresh_scope())
+    scope = Integer.to_string(AL.Scope.fresh())
 
     raw_slots =
       slots
@@ -73,7 +67,7 @@ defmodule AL.JAM.Collection do
     resolved_slots = body_values |> Operand.read(slots) |> AL.Var.subst(store)
 
     frames =
-      AL.JAM.Forall.instances(raw.condition, raw.body, captures.body, visible, solutions)
+      AL.JAM.Forall.instances(raw.condition, raw.body, captures.body, visible, [solution])
       |> Enum.flat_map(fn {connects, freshener, raw_vars} ->
         body_slots = AL.Var.freshen(resolved_slots, freshener, raw_vars)
 
@@ -85,7 +79,7 @@ defmodule AL.JAM.Collection do
         bindings ++ [{id, body, 0, body_slots}]
       end)
 
-    case frames ++ [{id, code, pc + 1, slots} | returns] do
+    case frames do
       [{next_id, next_code, next_pc, next_slots} | rest] ->
         %Frame{
           id: next_id,

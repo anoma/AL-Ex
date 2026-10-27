@@ -461,7 +461,7 @@ defmodule AL.JAM.IR.Loop do
   end
 
   defp rename(head, body) do
-    scope = Integer.to_string(AL.fresh_scope())
+    scope = Integer.to_string(AL.Scope.fresh())
 
     AL.Term.map({head, body}, fn term ->
       if Var.var?(term) and term != {:"$var", "_"}, do: Var.fresh(term, scope), else: term

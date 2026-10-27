@@ -76,7 +76,7 @@ defmodule AL.Dispatch.MethodOrder do
       children =
         for {:super, child, _seq, ^class} <-
               AL.Object.scan_super(
-                AL.Var.fresh({:"$var", "descendant_scan"}, Integer.to_string(AL.fresh_scope())),
+                AL.Var.fresh({:"$var", "descendant_scan"}, Integer.to_string(AL.Scope.fresh())),
                 class,
                 branch
               ),

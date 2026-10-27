@@ -62,7 +62,7 @@ defmodule AL.Var.Relation do
       branch
     )
     |> Enum.map(fn row ->
-      {:oapply, object, seq, head, body} = AL.standardize_apart(row)
+      {:oapply, object, seq, head, body} = AL.Var.standardize_apart(row)
       [object, seq, head, body]
     end)
   end

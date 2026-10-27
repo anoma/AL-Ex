@@ -152,7 +152,7 @@ defmodule Examples.ALLists do
     :ok
   end
 
-  example forall_binds_shared_open_elements() do
+  example forall_does_not_bind_shared_open_elements() do
     %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
@@ -162,8 +162,8 @@ defmodule Examples.ALLists do
         branch: Examples.Support.branch()
       )
 
-    assert Map.get(bindings, "$A") == 7
-    assert Map.get(bindings, "$B") == 7
+    assert AL.Var.var?(Map.get(bindings, "$A"))
+    assert AL.Var.var?(Map.get(bindings, "$B"))
     :ok
   end
 

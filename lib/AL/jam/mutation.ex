@@ -330,7 +330,7 @@ defmodule AL.JAM.Mutation do
     do: AL.Object.scan_super(class, :value, branch) != []
 
   defp direct_classes(o, branch) do
-    scope = AL.fresh_scope()
+    scope = AL.Scope.fresh()
 
     for {:class, _o, _seq, class} <-
           AL.Object.scan_class(

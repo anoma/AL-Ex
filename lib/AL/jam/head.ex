@@ -159,7 +159,7 @@ defmodule AL.JAM.Head do
 
   def match({:set_register, index, name}, {:"$var", "_"}, store, registers, _branch),
     do:
-      {store, put_elem(registers, index, AL.Var.fresh(name, Integer.to_string(AL.fresh_scope())))}
+      {store, put_elem(registers, index, AL.Var.fresh(name, Integer.to_string(AL.Scope.fresh())))}
 
   def match({:set_register, index, _name}, call, store, registers, _branch),
     do: {store, put_elem(registers, index, call)}
@@ -285,7 +285,7 @@ defmodule AL.JAM.Head do
   end
 
   defp construct({operand, introduced}, call, store, registers, branch) do
-    scope = Integer.to_string(AL.fresh_scope())
+    scope = Integer.to_string(AL.Scope.fresh())
 
     registers =
       Enum.reduce(introduced, registers, fn {index, name}, registers ->

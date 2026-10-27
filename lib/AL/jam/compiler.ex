@@ -4,6 +4,16 @@ defmodule AL.JAM.Compiler do
   alias AL.Goal
   alias AL.JAM.CompiledClause
 
+  def compile_root(goals) do
+    {code, initial_slots} = AL.JAM.IR.Assembler.compile(goals)
+
+    %AL.JAM.Frame{
+      id: {:root, 0},
+      code: code,
+      slots: initial_slots
+    }
+  end
+
   defmodule PreparedClause do
     @enforce_keys [
       :method,

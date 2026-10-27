@@ -37,7 +37,7 @@ defmodule AL.JAM.IR.Inline do
          parameters <- Var.find_vars(head),
          locals <- MapSet.difference(Var.find_vars(body), parameters),
          true <- MapSet.disjoint?(MapSet.delete(locals, {:"$var", "_"}), exposed) do
-      scope = Integer.to_string(AL.fresh_scope())
+      scope = Integer.to_string(AL.Scope.fresh())
 
       Enum.map(operations, fn operation ->
         Instruction.map_values(operation, fn value ->

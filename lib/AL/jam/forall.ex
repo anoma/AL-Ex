@@ -16,7 +16,7 @@ defmodule AL.JAM.Forall do
     outer = MapSet.difference(visible, raw_vars)
 
     Enum.map(solutions, fn store ->
-      freshener = Integer.to_string(AL.fresh_scope())
+      freshener = Integer.to_string(AL.Scope.fresh())
 
       representatives =
         Enum.reduce(outer, %{}, fn v, acc ->

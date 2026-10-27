@@ -7,16 +7,16 @@ defmodule AL.JAMProgressTest do
     assert {:ok, %{}, _steps} =
              [%AL.Goal.Pass{}, %AL.Goal.Pass{}]
              |> AL.JAM.compile()
-             |> AL.JAM.with_store(%{})
+             |> AL.JAM.Frame.with_store(%{})
              |> AL.JAM.resume(branch, 100)
 
     assert {:failed, snapshot, _steps} =
              [%AL.Goal.Pass{}, %AL.Goal.Fail{}]
              |> AL.JAM.compile()
-             |> AL.JAM.with_store(%{})
+             |> AL.JAM.Frame.with_store(%{})
              |> AL.JAM.resume(branch, 100)
 
-    assert AL.JAM.completed_goals(snapshot) == 1
+    assert AL.JAM.Frame.completed_goals(snapshot) == 1
   end
 
   test "a nested method failure retains completed top-level progress" do

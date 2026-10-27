@@ -54,7 +54,7 @@ defmodule AL.JAM.Selection do
           if locals == [] do
             slots
           else
-            scope = Integer.to_string(AL.fresh_scope())
+            scope = Integer.to_string(AL.Scope.fresh())
 
             Enum.reduce(locals, slots, fn {index, name}, slots ->
               put_elem(slots, index, AL.Var.fresh(name, scope))

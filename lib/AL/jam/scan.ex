@@ -120,7 +120,7 @@ defmodule AL.JAM.Scan do
             fn -> true end
           )
 
-          scope = Integer.to_string(AL.fresh_scope())
+          scope = Integer.to_string(AL.Scope.fresh())
 
           slots =
             Enum.reduce(labels.locals, :erlang.make_tuple(count, nil), fn index, slots ->

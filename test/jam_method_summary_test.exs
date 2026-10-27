@@ -46,7 +46,7 @@ defmodule AL.JAM.MethodSummaryTest do
     assert summary.determinism == :det
     assert summary.bindings[output] == 5
     refute MapSet.member?(Program.variables(summary.program), local)
-    frame = summary.program |> AL.JAM.compile() |> AL.JAM.with_store(%{})
+    frame = summary.program |> AL.JAM.compile() |> AL.JAM.Frame.with_store(%{})
     assert {:ok, store, _} = AL.JAM.resume(frame, AL.Branch.head(), 100)
     assert Var.subst(output, store) == 5
   end

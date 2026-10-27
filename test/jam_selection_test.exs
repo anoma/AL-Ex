@@ -25,8 +25,8 @@ defmodule AL.JAM.SelectionTest do
     assert {{:numeric_tests, {:register, 0}, [{:>=, 1}, {:<, 4}], fallback}} = code
     assert tuple_size(fallback) == 2
 
-    assert AL.JAM.pending_goals(snapshot(selected, %{})) ==
-             AL.JAM.pending_goals(snapshot(range(), %{}))
+    assert AL.JAM.Frame.pending_goals(snapshot(selected, %{})) ==
+             AL.JAM.Frame.pending_goals(snapshot(range(), %{}))
 
     for value <- [1, 2.5, 3] do
       store = %{{:"$var", "Value"} => value}
@@ -39,8 +39,8 @@ defmodule AL.JAM.SelectionTest do
       store = %{{:"$var", "Value"} => value}
       assert {:failed, original, steps} = run(range(), store)
       assert {:failed, selected, ^steps} = run(Selection.select(range()), store)
-      assert AL.JAM.failed_goal(selected) == AL.JAM.failed_goal(original)
-      assert AL.JAM.pending_goals(selected) == AL.JAM.pending_goals(original)
+      assert AL.JAM.Frame.failed_goal(selected) == AL.JAM.Frame.failed_goal(original)
+      assert AL.JAM.Frame.pending_goals(selected) == AL.JAM.Frame.pending_goals(original)
     end
   end
 
@@ -57,7 +57,7 @@ defmodule AL.JAM.SelectionTest do
       store = %{{:"$var", "Value"} => 2}
       assert {:suspend, original, [], steps} = run(range(), store, budget)
       assert {:suspend, selected, [], ^steps} = run(Selection.select(range()), store, budget)
-      assert AL.JAM.pending_goals(selected) == AL.JAM.pending_goals(original)
+      assert AL.JAM.Frame.pending_goals(selected) == AL.JAM.Frame.pending_goals(original)
 
       assert AL.JAM.resume(selected, AL.Branch.head(), 100) ==
                AL.JAM.resume(original, AL.Branch.head(), 100)
@@ -106,8 +106,8 @@ defmodule AL.JAM.SelectionTest do
           assert actual == expected
 
         {{:failed, expected, steps}, {:failed, actual, steps}} ->
-          assert AL.JAM.failed_goal(actual) == AL.JAM.failed_goal(expected)
-          assert AL.JAM.pending_goals(actual) == AL.JAM.pending_goals(expected)
+          assert AL.JAM.Frame.failed_goal(actual) == AL.JAM.Frame.failed_goal(expected)
+          assert AL.JAM.Frame.pending_goals(actual) == AL.JAM.Frame.pending_goals(expected)
       end
     end
 

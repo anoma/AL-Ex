@@ -111,7 +111,7 @@ defmodule AL.JAM.Trace do
   def depth(returns), do: Enum.count(returns, &match?({:trace_exit, _}, &1))
 
   def method_call(parent, receiver, method, args, store, depth) do
-    scope = AL.fresh_scope()
+    scope = AL.Scope.fresh()
     open = AL.Answer.open_positions(AL.Answer.call_positions(receiver, args), store)
 
     update(fn trace ->
@@ -133,7 +133,7 @@ defmodule AL.JAM.Trace do
   end
 
   def clause_call(parent, method, call, store, depth) do
-    scope = AL.fresh_scope()
+    scope = AL.Scope.fresh()
 
     {receiver, args} =
       case call do
@@ -238,9 +238,14 @@ defmodule AL.JAM.Trace do
 
   def flounder, do: update(&AL.Trace.push(&1, :goals, :flounder))
 
+  def collection_begin(scope, kind, condition, output),
+    do: update(&push(&1, {:collection_begin, scope, kind, condition, output}))
+
+  def collection_end(scope), do: update(&push(&1, {:collection_end, scope}))
+
   def collection(kind, condition, output, fun) do
     outer = Process.get(@key)
-    scope = AL.fresh_scope()
+    scope = AL.Scope.fresh()
     child = AL.Trace.new(outer.flags)
 
     Process.put(@key, %AL.Trace{

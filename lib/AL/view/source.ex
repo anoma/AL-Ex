@@ -49,10 +49,10 @@ defmodule AL.Source do
   def method_source_rows(class, branch) do
     case :mnesia.transaction(fn ->
            name_pattern =
-             AL.Var.fresh({:"$var", "source_method_name"}, Integer.to_string(AL.fresh_scope()))
+             AL.Var.fresh({:"$var", "source_method_name"}, Integer.to_string(AL.Scope.fresh()))
 
            id_pattern =
-             AL.Var.fresh({:"$var", "source_method_id"}, Integer.to_string(AL.fresh_scope()))
+             AL.Var.fresh({:"$var", "source_method_id"}, Integer.to_string(AL.Scope.fresh()))
 
            for {:method, ^class, name, _method_seq, _method_t, :open, method_id} <-
                  AL.Object.scan_open_method_versions(class, name_pattern, id_pattern, branch),
@@ -61,10 +61,10 @@ defmodule AL.Source do
                    method_id,
                    AL.Var.fresh(
                      {:"$var", "source_clause_seq"},
-                     Integer.to_string(AL.fresh_scope())
+                     Integer.to_string(AL.Scope.fresh())
                    ),
-                   AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.fresh_scope())),
-                   AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.fresh_scope())),
+                   AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.Scope.fresh())),
+                   AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.Scope.fresh())),
                    branch
                  ) do
              result = retained_method_source(class, name, head, body, command_t, branch)
@@ -92,17 +92,17 @@ defmodule AL.Source do
   def method_object_source_rows(method_id, branch \\ AL.Branch.head()) do
     for {:method, class, name, ^method_id} <-
           AL.Object.scan_method(
-            AL.Var.fresh({:"$var", "method_source_class"}, Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh({:"$var", "method_source_name"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_class"}, Integer.to_string(AL.Scope.fresh())),
+            AL.Var.fresh({:"$var", "method_source_name"}, Integer.to_string(AL.Scope.fresh())),
             method_id,
             branch
           ),
         {:oapply, ^method_id, clause_seq, _row_seq, command_t, :open, head, body} <-
           AL.Object.scan_open_oapply_versions(
             method_id,
-            AL.Var.fresh({:"$var", "method_source_seq"}, Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh({:"$var", "method_source_head"}, Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh({:"$var", "method_source_body"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_seq"}, Integer.to_string(AL.Scope.fresh())),
+            AL.Var.fresh({:"$var", "method_source_head"}, Integer.to_string(AL.Scope.fresh())),
+            AL.Var.fresh({:"$var", "method_source_body"}, Integer.to_string(AL.Scope.fresh())),
             branch
           ) do
       result = retained_method_source(class, name, head, body, command_t, branch)
@@ -210,8 +210,8 @@ defmodule AL.Source do
     case AL.Object.scan_open_oapply_versions(
            method_id,
            clause_seq,
-           AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.fresh_scope())),
-           AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.fresh_scope())),
+           AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.Scope.fresh())),
+           AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.Scope.fresh())),
            branch
          ) do
       [{:oapply, ^method_id, ^clause_seq, _seq, command_t, :open, head, body} | _] ->
