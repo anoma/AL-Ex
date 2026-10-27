@@ -2,14 +2,14 @@ defmodule AL.JAM.IR.Rejection do
   import Bitwise, only: [band: 2, bor: 2, bsl: 2, bsr: 2]
 
   alias AL.{Goal, Var}
-  alias AL.JAM.{IR, Operand}
+  alias AL.JAM.Operand
   alias AL.JAM.IR.Program
 
   def compile(clauses) do
     Map.new(
       Enum.flat_map(clauses, fn {:oapply, id, seq, head, body} ->
         with true <- proper?(head),
-             {:operation, operation, _rest} <- Program.first(body),
+             {:operation, operation, _rest} <- Program.take_next_instruction(body),
              {test, term} <- test(operation),
              true <- Var.var?(term) and term != {:"$var", "_"},
              position when is_integer(position) <- Enum.find_index(head, &(&1 === term)) do
@@ -142,11 +142,11 @@ defmodule AL.JAM.IR.Rejection do
       else: select_mask(rest, bsr(mask, 1))
   end
 
-  defp test(%IR{kind: :type, name: :atom, args: [term]}), do: {:atom, term}
-  defp test(%IR{kind: :direct, name: :is_var, args: [term]}), do: {:var, term}
-  defp test(%IR{kind: :term, name: :functor, args: [term, _, _]}), do: {:compound, term}
+  defp test({:primitive, :atom, [term]}), do: {:atom, term}
+  defp test({:is_var, term}), do: {:var, term}
+  defp test({:primitive, :functor, [term, _, _]}), do: {:compound, term}
 
-  defp test(%IR{kind: :relation, name: :class, args: [term, class]}) when is_atom(class) do
+  defp test({:relation, :class, [term, class]}) when is_atom(class) do
     if Var.var?(class), do: nil, else: {{:class, class}, term}
   end
 

@@ -1,4 +1,5 @@
 defmodule AL.JAM.Compiler do
+  alias AL.JAM.Instruction
   require AL.Block
   alias AL.Goal
   alias AL.JAM.CompiledClause
@@ -24,7 +25,7 @@ defmodule AL.JAM.Compiler do
 
   def fetch_ir(method_id, branch) do
     AL.ResolutionCache.fetch_dispatch(branch, {:method_ir, method_id}, fn ->
-      method_id |> AL.JAM.Clauses.cached_scan_clauses(branch) |> AL.JAM.IR.Program.lower_clauses()
+      method_id |> AL.JAM.Clauses.cached_scan_clauses(branch) |> lower_clauses()
     end)
   end
 
@@ -37,9 +38,8 @@ defmodule AL.JAM.Compiler do
       |> AL.JAM.IR.SendPlan.prepare()
     end
 
-    if AL.JAM.Trace.active?(),
-      do: AL.ResolutionCache.fetch_dispatch(branch, {:traced_method, method_id}, compile),
-      else: AL.ResolutionCache.fetch_compiled_method(branch, method_id, compile)
+    requirements = if AL.JAM.Trace.active?(), do: %{tracing: true}, else: %{}
+    AL.PlanStore.fetch_method(branch, method_id, compile, requirements)
   end
 
   def fetch_callable(head, body, branch) when AL.Block.is_block(body),
@@ -65,7 +65,7 @@ defmodule AL.JAM.Compiler do
   end
 
   defp callable_source(head, body) do
-    body = Enum.map(body, &Goal.from_stored/1)
+    body = Goal.goals(body)
 
     {variables, captures} =
       AL.Term.reduce({head, body}, {%{}, []}, fn term, {variables, captures} ->
@@ -102,8 +102,14 @@ defmodule AL.JAM.Compiler do
     compile_with_captures(clauses, return_modes, [])
   end
 
+  defp lower_clauses(clauses) do
+    Enum.map(clauses, fn {:oapply, id, seq, head, body} ->
+      {:oapply, id, seq, head, AL.JAM.IR.Normalize.lower(body)}
+    end)
+  end
+
   defp compile_with_captures(clauses, return_modes, captures) do
-    clauses = AL.JAM.IR.Program.lower_clauses(clauses)
+    clauses = lower_clauses(clauses)
     rejections = AL.JAM.IR.Rejection.compile(clauses)
     clauses = prepare(clauses, captures, return_modes and not AL.JAM.Trace.active?())
 
@@ -207,7 +213,7 @@ defmodule AL.JAM.Compiler do
 
     scoped? =
       Enum.any?(clauses, fn {:oapply, _, _, _, body} ->
-        AL.JAM.IR.contains?(body, :cut)
+        Instruction.contains?(body, :cut)
       end)
 
     Enum.map(clauses, fn {:oapply, id, seq, head, body} ->
@@ -218,7 +224,7 @@ defmodule AL.JAM.Compiler do
           inline?
         )
 
-      cursor? = AL.JAM.IR.contains?(body, :next)
+      cursor? = Instruction.contains?(body, :next)
 
       names =
         MapSet.union(AL.Var.find_vars(head), AL.JAM.IR.Program.variables(body))
@@ -235,7 +241,12 @@ defmodule AL.JAM.Compiler do
       locals = Enum.map(locals, &{Map.fetch!(slots, &1), &1})
       head_slots = Enum.map(seen, &Map.fetch!(slots, &1))
       body_slots = Map.put(slots, :jam_head_slots, head_slots)
-      builders = AL.JAM.IR.Program.emit(body, body_slots)
+      builders = AL.JAM.IR.Assembler.emit(body, body_slots)
+
+      offset = if(scoped?, do: 1, else: 0) + if cursor?, do: 1, else: 0
+
+      builders =
+        Enum.map(builders, &AL.JAM.IR.Code.map_targets(&1, fn target -> target + offset end))
 
       usage =
         AL.JAM.IR.Program.usage(body, body_slots, MapSet.union(AL.Var.find_vars(head), captures))

@@ -47,8 +47,8 @@ defmodule Examples.ALValueMethodSummaries do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :project), branch)
         end)
 
-      assert plan.compiled
-      [clause] = elem(plan.compiled, 0)
+      assert plan.code
+      [clause] = elem(plan.code, 0)
       assert [{:unify_structural, _, _}] = Tuple.to_list(clause.code)
 
       assert %AL{result: {:atomic, {%{"$Result" => 10}, _, _}}} =

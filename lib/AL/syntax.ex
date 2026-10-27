@@ -927,10 +927,10 @@ defmodule AL.Syntax do
   defp number_anonymous(other, count), do: {other, count}
 
   defp item({:clear, owner, selector}),
-    do: compound(:clear_method, [term(owner), term(selector)])
+    do: Goal.lower(:clear_method, [term(owner), term(selector)])
 
   defp item({:method, method}) do
-    compound(:defmethod, [
+    Goal.lower(:defmethod, [
       term(method.owner),
       term(method.selector),
       head_term(method),
@@ -952,7 +952,7 @@ defmodule AL.Syntax do
         :error -> raise ArgumentError, "@+ at #{describe(class.start)} needs a super: option"
       end
 
-    compound(:extend_class, [term(class.name), supers])
+    Goal.lower(:extend_class, [term(class.name), supers])
   end
 
   defp item({:class, class}) do
@@ -965,7 +965,7 @@ defmodule AL.Syntax do
           raise ArgumentError, "a class at #{describe(start(other))} needs a map of options"
       end
 
-    compound(:defclass, [
+    Goal.lower(:defclass, [
       term(class.name),
       Map.get(options, :metaclass, :class),
       Map.get(options, :super) ||
@@ -989,14 +989,16 @@ defmodule AL.Syntax do
   end
 
   defp goal({:binary, :";", left, right, _, _}),
-    do: compound(:";", [goals(left), goals(right)])
+    do: alternative(left, goals(right))
 
   defp goal({:binary, :->, condition, then, _, _}),
-    do: compound(:->, [goals(condition), goals(then)])
+    do: Goal.lower(:->, [goals(condition), goals(then)])
 
   defp goal({:paren, inner, _, _}), do: goal(inner)
-  defp goal({:atom, name, _, _}), do: compound(name, [])
-  defp goal({:call, name, arguments, start, _}), do: call(name, arguments, start)
+  defp goal({:atom, name, _, _}), do: Goal.lower(name, [])
+
+  defp goal({:call, name, arguments, start, _}),
+    do: Goal.lower(name, call_arguments(name, arguments, start))
 
   defp goal({:var, name, start, _}),
     do: raise(ArgumentError, "expected a goal at #{describe(start)} but found variable #{name}")
@@ -1006,94 +1008,98 @@ defmodule AL.Syntax do
 
   defp goal(node), do: raise(ArgumentError, "expected a goal at #{describe(start(node))}")
 
-  defp call(:defmethod, [class, selector, head, block], _start)
+  defp alternative({:paren, inner, _, _}, otherwise), do: alternative(inner, otherwise)
+
+  defp alternative({:binary, :->, condition, then, _, _}, otherwise),
+    do: %Goal.Implies{condition: goals(condition), then: goals(then), otherwise: otherwise}
+
+  defp alternative(left, otherwise), do: %Goal.Or{or: goals(left), then: otherwise}
+
+  defp call_arguments(:defmethod, [class, selector, head, block], _start)
        when goal_body(block),
-       do:
-         compound(:defmethod, [
-           term(class),
-           term(selector),
-           term(head),
-           goals(block)
-         ])
+       do: [
+         term(class),
+         term(selector),
+         term(head),
+         data_goals(block)
+       ]
 
-  defp call(:findnsols, [count, template, result, block], _start)
+  defp call_arguments(:findnsols, [count, template, result, block], _start)
        when goal_body(block),
-       do:
-         compound(:findnsols, [
-           term(count),
-           term(template),
-           term(result),
-           goals(block)
-         ])
+       do: [
+         term(count),
+         term(template),
+         term(result),
+         data_goals(block)
+       ]
 
-  defp call(:findall, [template, result, block], _start)
+  defp call_arguments(:findall, [template, result, block], _start)
        when goal_body(block),
-       do: compound(:findall, [term(template), term(result), goals(block)])
+       do: [term(template), term(result), data_goals(block)]
 
-  defp call(:forall, [condition, block], _start)
+  defp call_arguments(:forall, [condition, block], _start)
        when goal_body(block),
-       do: compound(:forall, [goals(condition), goals(block)])
+       do: [data_goals(condition), data_goals(block)]
 
-  defp call(:not, [condition], _start), do: compound(:not, [goals(condition)])
+  defp call_arguments(:not, [condition], _start), do: [data_goals(condition)]
 
-  defp call(:lambda, [arguments, method, block], _start)
+  defp call_arguments(:lambda, [arguments, method, block], _start)
        when goal_body(block),
-       do: compound(:lambda, [term(arguments), term(method), goals(block)])
+       do: [term(arguments), term(method), data_goals(block)]
 
-  defp call(:spawn, [block], start)
+  defp call_arguments(:spawn, [block], start)
        when goal_body(block) do
-    case goals(block) do
+    case data_goals(block) do
       [] -> raise ArgumentError, "spawn at #{describe(start)} requires at least one goal"
-      goals -> compound(:spawn, [goals])
+      goals -> [goals]
     end
   end
 
-  defp call(:on_completion, [effect, outcome, block], start)
+  defp call_arguments(:on_completion, [effect, outcome, block], start)
        when goal_body(block) do
-    case goals(block) do
+    case data_goals(block) do
       [] -> raise ArgumentError, "on_completion at #{describe(start)} requires at least one goal"
-      goals -> compound(:on_completion, [term(effect), term(outcome), goals])
+      goals -> [term(effect), term(outcome), goals]
     end
   end
 
-  defp call(:on_completion, [effect, outcome, future, block], start)
+  defp call_arguments(:on_completion, [effect, outcome, future, block], start)
        when goal_body(block) do
-    case goals(block) do
+    case data_goals(block) do
       [] -> raise ArgumentError, "on_completion at #{describe(start)} requires at least one goal"
-      goals -> compound(:on_completion, [term(effect), term(outcome), term(future), goals])
+      goals -> [term(effect), term(outcome), term(future), goals]
     end
   end
 
-  defp call(:vm_source_scope, [capture_id, block], _start)
+  defp call_arguments(:vm_source_scope, [capture_id, block], _start)
        when goal_body(block),
-       do: compound(:vm_source_scope, [term(capture_id), goals(block)])
+       do: [term(capture_id), data_goals(block)]
 
-  defp call(:freeze, [variable, goals], _start),
-    do: compound(:freeze, [term(variable), goals(goals)])
+  defp call_arguments(:freeze, [variable, goals], _start),
+    do: [term(variable), data_goals(goals)]
 
-  defp call(:call, [head, body, args], _start),
-    do: compound(:call, [term(head), goals(body), term(args)])
+  defp call_arguments(:call, [head, body, args], _start),
+    do: [term(head), data_goals(body), term(args)]
 
-  defp call(:vm_set_oapply, [object, head, body], _start),
-    do: compound(:vm_set_oapply, [term(object), term(head), goals(body)])
+  defp call_arguments(:vm_set_oapply, [object, head, body], _start),
+    do: [term(object), term(head), data_goals(body)]
 
-  defp call(:vm_set_oapply, [object, seq, head, body], _start),
-    do:
-      compound(:vm_set_oapply, [
-        term(object),
-        term(seq),
-        term(head),
-        goals(body)
-      ])
+  defp call_arguments(:vm_set_oapply, [object, seq, head, body], _start),
+    do: [
+      term(object),
+      term(seq),
+      term(head),
+      data_goals(body)
+    ]
 
-  defp call(name, arguments, _start),
-    do: compound(name, Enum.map(arguments, &term(&1)))
+  defp call_arguments(_name, arguments, _start),
+    do: Enum.map(arguments, &term(&1))
 
   defp body(nil), do: []
 
   defp body(items) when is_list(items) do
     Enum.map(items, fn
-      {:comment, text, _, _} -> compound(:comment, [text])
+      {:comment, text, _, _} -> Goal.lower(:comment, [text])
       item -> goal(item)
     end)
   end
@@ -1105,6 +1111,18 @@ defmodule AL.Syntax do
   defp goals({:paren, inner, _, _}), do: goals(inner)
   defp goals(node), do: [goal(node)]
 
+  defp data_goals({:block, items, _, _}), do: Enum.map(items, &data_goal/1)
+  defp data_goals({:var, _, _, _} = variable), do: term(variable)
+  defp data_goals({:paren, inner, _, _}), do: data_goals(inner)
+  defp data_goals(node), do: [data_goal(node)]
+
+  defp data_goal({:atom, name, _, _}), do: compound(name, [])
+  defp data_goal({:comment, text, _, _}), do: compound(:comment, [text])
+  defp data_goal({:paren, inner, _, _}), do: data_goal(inner)
+  defp data_goal({:call, _, _, _, _} = node), do: term(node)
+  defp data_goal({:binary, op, _, _, _, _} = node) when op in [:";", :->], do: term(node)
+  defp data_goal(node), do: raise(ArgumentError, "expected a goal at #{describe(start(node))}")
+
   defp term({:literal, value, _, _}), do: value
   defp term({:atom, value, _, _}), do: value
   defp term({:var, name, _, _}), do: AL.Var.var(name)
@@ -1112,7 +1130,7 @@ defmodule AL.Syntax do
   defp term({:paren, {:atom, name, _, _}, _, _}), do: compound(name, [])
 
   defp term({:paren, inner, _, _}), do: term(inner)
-  defp term({:block, _, _, _} = block), do: AL.Block.new(body(block))
+  defp term({:block, _, _, _} = block), do: AL.Block.new(data_goals(block))
 
   defp term({:list, items, _, _}) do
     case Enum.split(items, -1) do
@@ -1124,10 +1142,11 @@ defmodule AL.Syntax do
   defp term({:map, entries, _, _}),
     do: Map.new(entries, fn {key, value} -> {term(key), term(value)} end)
 
-  defp term({:binary, op, _, _, _, _} = node) when op in [:";", :->],
-    do: goal(node)
+  defp term({:binary, op, left, right, _, _}) when op in [:";", :->],
+    do: compound(op, [data_goals(left), data_goals(right)])
 
-  defp term({:call, _, _, _, _} = node), do: goal(node)
+  defp term({:call, name, arguments, start, _}),
+    do: compound(name, call_arguments(name, arguments, start))
 
   defp captures(items) do
     {captures, _ordinal} =

@@ -10,9 +10,9 @@ defmodule AL.JAM.IR.MethodIdentity do
           |> Enum.with_index()
           |> Enum.flat_map(fn {variable, position} ->
             if Var.var?(variable) and variable != {:"$var", "_"} and
-                 Program.any?(body, fn operation ->
-                   operation.kind == :invoke and operation.name == variable and
-                     argument(operation.args, position) == {:ok, variable}
+                 Program.any?(body, fn
+                   {:call_method, ^variable, args} -> argument(args, position) == {:ok, variable}
+                   _ -> false
                  end),
                do: [position],
                else: []
@@ -65,24 +65,16 @@ defmodule AL.JAM.IR.MethodIdentity do
       body =
         if variable == {:"$var", "_"}, do: body, else: Program.subst(body, %{variable => method})
 
-      body = %{
-        body
-        | blocks:
-            Map.new(body.blocks, fn {key, block} ->
-              exit =
-                case block.exit do
-                  {:call, %{kind: :invoke, name: ^method} = operation, next} ->
-                    if argument(operation.args, position) == {:ok, method},
-                      do: {:call, %{operation | method_identity: position}, next},
-                      else: block.exit
+      body =
+        Program.map_instructions(body, fn
+          {:call_method, ^method, args} = instruction ->
+            if argument(args, position) == {:ok, method},
+              do: {:call_method, {:method_identity, method, position}, args},
+              else: instruction
 
-                  _ ->
-                    block.exit
-                end
-
-              {key, %{block | exit: exit}}
-            end)
-      }
+          instruction ->
+            instruction
+        end)
 
       {:oapply, id, seq, List.replace_at(head, position, {:"$var", "_"}), body}
     else

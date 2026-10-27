@@ -11,6 +11,32 @@ defmodule Examples.ALSourceInput do
 
   alias AL.Syntax
 
+  example executable_ast_distinguishes_goals_from_compound_data() do
+    {:ok, %{program: [send, equality, conditional, collection]}} =
+      Syntax.parse(~S"""
+      inspect Receiver (message X).
+      = Term (= X 7).
+      = X 1 -> pass ; fail.
+      findall Y Values {= Y 2 ; = Y 3}.
+      """)
+
+    assert %AL.Goal.Send{method: :inspect, args: [%AL.Goal.Compound{name: :message}]} = send
+    assert %AL.Goal.Eq{b: %AL.Goal.Compound{name: :=}} = equality
+
+    assert %AL.Goal.Implies{
+             condition: [%AL.Goal.Eq{}],
+             then: [%AL.Goal.Pass{}],
+             otherwise: [%AL.Goal.Fail{}]
+           } = conditional
+
+    assert %AL.Goal.Findall{
+             condition: [%AL.Goal.Or{or: [%AL.Goal.Eq{}], then: [%AL.Goal.Eq{}]}]
+           } = collection
+
+    assert {:ok, %{program: [^send, ^equality, ^conditional, ^collection]}} =
+             Syntax.parse(AL.Syntax.Printer.program([send, equality, conditional, collection]))
+  end
+
   defp al(term), do: AL.Syntax.Printer.term(term)
 
   defp fresh_id(prefix) do
@@ -46,9 +72,10 @@ defmodule Examples.ALSourceInput do
     assert class_source == "@source_parse_other \#{super => object}"
 
     assert [
-             %AL.Goal.Compound{name: :clear_method},
-             %AL.Goal.Compound{
-               args: [_, _, _, [%AL.Goal.Compound{name: :comment}, %AL.Goal.Compound{name: :=}]]
+             %AL.Goal.OApply{method_id: :clear_method},
+             %AL.Goal.OApply{
+               method_id: :defmethod,
+               args: [_, _, _, [%AL.Goal.Comment{}, %AL.Goal.Eq{}]]
              },
              _
            ] = result.program

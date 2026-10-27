@@ -289,15 +289,13 @@ defmodule AL do
   end
 
   # Decide which variables from the input program will appear in the returned bindings
-  defp observable_vars(goals), do: observable_vars(goals, MapSet.new())
+  defp observable_vars(goals),
+    do: goals |> observable_vars(MapSet.new()) |> MapSet.delete({:"$var", "_"})
 
   defp observable_vars([goal | rest], acc),
     do: observable_vars(rest, observable_vars(goal, acc))
 
   defp observable_vars([], acc), do: acc
-
-  defp observable_vars(%Goal.Compound{} = compound, acc),
-    do: observable_vars(Goal.lower(compound), acc)
 
   defp observable_vars(%Goal.FindNSols{count: count, result: result}, acc),
     do: AL.Var.find_vars([count, result], acc)

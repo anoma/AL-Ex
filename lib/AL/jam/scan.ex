@@ -1,10 +1,14 @@
 defmodule AL.JAM.Scan do
+  alias AL.Goal
   alias AL.JAM.{IR, Operand}
   alias AL.Var
+  alias AL.PlanStore.Implementation
 
   def enter(
-        {[%AL.JAM.CompiledClause{head: [_, _, _, _]}, %AL.JAM.CompiledClause{head: [_, _, _, _]}],
-         _},
+        {[
+           %AL.JAM.CompiledClause{method: id, head: [_, _, _, _]},
+           %AL.JAM.CompiledClause{head: [_, _, _, _]}
+         ], _},
         receiver,
         selector,
         operands,
@@ -21,22 +25,24 @@ defmodule AL.JAM.Scan do
 
         if fresh?(rest, store) and rest !== output and (is_atom(output) or Var.var?(output)) and
              match?([_ | _], input) do
-          key = {:scan_region, receiver, selector}
+          requirements = %{scan_region: %{receiver: receiver, selector: selector}}
 
-          compiled =
-            AL.ResolutionCache.fetch_dispatch(branch, key, fn ->
-              AL.ResolutionCache.fetch_plan(
-                branch,
-                key,
-                fn {plan, _, _, _} -> IR.Scan.valid?(plan, branch) end,
-                fn ->
-                  case IR.Scan.compile(receiver, selector, branch) do
-                    nil -> nil
-                    plan -> emit(plan)
-                  end
-                end
-              )
+          implementation =
+            AL.PlanStore.fetch(branch, id, requirements, fn ->
+              case IR.Scan.compile(receiver, selector, branch) do
+                nil ->
+                  nil
+
+                plan ->
+                  %Implementation{
+                    code: emit(plan),
+                    requirements: requirements,
+                    dependencies: plan.dependencies
+                  }
+              end
             end)
+
+          compiled = if implementation, do: implementation.code
 
           prepare(compiled, input, rest, output, store, budget)
         else
@@ -49,7 +55,10 @@ defmodule AL.JAM.Scan do
   end
 
   def enter(
-        {[%AL.JAM.CompiledClause{head: [_, _, _]}, %AL.JAM.CompiledClause{head: [_, _, _]}], _},
+        {[
+           %AL.JAM.CompiledClause{method: id, head: [_, _, _]},
+           %AL.JAM.CompiledClause{head: [_, _, _]}
+         ], _},
         receiver,
         selector,
         operands,
@@ -64,22 +73,24 @@ defmodule AL.JAM.Scan do
         rest = Var.deref(store, rest)
 
         if fresh?(rest, store) and (input == [] or match?([_ | _], input)) do
-          key = {:consumption_region, receiver, selector}
+          requirements = %{consumption_region: %{receiver: receiver, selector: selector}}
 
-          compiled =
-            AL.ResolutionCache.fetch_dispatch(branch, key, fn ->
-              AL.ResolutionCache.fetch_plan(
-                branch,
-                key,
-                fn {plan, _, _, _} -> IR.Scan.valid?(plan, branch) end,
-                fn ->
-                  case IR.Scan.compile_consumption(receiver, selector, branch) do
-                    nil -> nil
-                    plan -> emit(plan)
-                  end
-                end
-              )
+          implementation =
+            AL.PlanStore.fetch(branch, id, requirements, fn ->
+              case IR.Scan.compile_consumption(receiver, selector, branch) do
+                nil ->
+                  nil
+
+                plan ->
+                  %Implementation{
+                    code: emit(plan),
+                    requirements: requirements,
+                    dependencies: plan.dependencies
+                  }
+              end
             end)
+
+          compiled = if implementation, do: implementation.code
 
           prepare_consumption(compiled, input, rest, budget)
         else
@@ -127,7 +138,7 @@ defmodule AL.JAM.Scan do
             |> put_elem(2, rest)
             |> put_elem(3, output)
 
-          {:region, {labels.guard_token, plan.guard, labels.outputs}, code, slots, labels.answer,
+          {:region, {labels.guard_token, plan, labels.outputs}, code, slots, labels.answer,
            labels.fallback, used}
 
         :fallback ->
@@ -166,7 +177,7 @@ defmodule AL.JAM.Scan do
           true
         end)
 
-        {:region, {labels.guard_token, plan.guard, labels.outputs}, code, {input, rest, nil, nil},
+        {:region, {labels.guard_token, plan, labels.outputs}, code, {input, rest, nil, nil},
          labels.answer, labels.answer, used}
 
       :fallback ->
@@ -230,9 +241,11 @@ defmodule AL.JAM.Scan do
                                                                   {ops, input, names} ->
         output = Var.fresh({:"$var", "Suffix"}, Integer.to_string(map_size(names)))
         names = Map.put(names, output, 11 + map_size(names))
-        pattern = %AL.Goal.Compound{name: check, args: [{:"$var", "Value"}]}
-        op = IR.operation(:send, selector, [plan.receiver, [input, output, pattern]])
-        {ops ++ [IR.emit(op, names)], output, names}
+        pattern = %Goal.Compound{name: check, args: [{:"$var", "Value"}]}
+
+        op = {:send, nil, plan.receiver, selector, [input, output, pattern]}
+
+        {ops ++ [IR.Assembler.instruction(op, names)], output, names}
       end)
 
     last =

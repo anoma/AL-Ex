@@ -1,13 +1,21 @@
 defmodule AL.JAM.IR.Access do
-  alias AL.JAM.{IR, Operand}
+  alias AL.JAM.Instruction
+  alias AL.JAM.Operand
 
-  def modes(%IR{kind: :callable, args: [_, _, _]}), do: [:deep, :deep, :reference]
+  def modes({:call, _, _, _, _}), do: [:deep, :deep, :reference]
 
-  def modes(%IR{kind: kind, name: name, args: args}),
-    do: Enum.map(values(%IR{kind: kind, name: name, args: args}), fn _ -> mode(kind, name) end)
+  def modes(instruction) do
+    access =
+      case instruction do
+        {op, _, _} when op in [:eq, :dif] -> :shallow
+        {:primitive, name, _} -> mode(:primitive, name)
+        _ -> :deep
+      end
 
-  def values(%IR{kind: :invoke, name: method, args: args}), do: [method, args]
-  def values(%IR{args: args}), do: args
+    Enum.map(Instruction.operands(instruction), fn _ -> access end)
+  end
+
+  def values(instruction), do: Instruction.operands(instruction)
 
   def mode(:direct, name) when name in [:eq, :dif], do: :shallow
   def mode(:type, :atom), do: :shallow

@@ -6,22 +6,55 @@ defmodule AL.JAM.Goals do
   defp context_method(:transaction_object), do: :vm_transaction_object
 
   def instructions(code, pc, slots) do
-    code
-    |> Tuple.to_list()
-    |> Enum.drop(pc)
-    |> Enum.flat_map(fn
+    instructions(code, pc, tuple_size(code), slots)
+  end
+
+  defp instructions(_code, pc, stop, _slots) when pc >= stop, do: []
+
+  defp instructions(code, pc, stop, slots) do
+    case elem(code, pc) do
+      {:try, alternative, _live} = operation ->
+        case branch_end(code, alternative) do
+          {:ok, left_end, join} when join <= stop ->
+            left = instructions(code, pc + 1, left_end, slots)
+            right = instructions(code, alternative, join, slots)
+
+            [%Goal.Or{or: left, then: right} | instructions(code, join, stop, slots)]
+
+          _ ->
+            [instruction(operation, slots) | instructions(code, pc + 1, stop, slots)]
+        end
+
+      {:jump, target, []} when target > pc and target <= stop ->
+        instructions(code, target, stop, slots)
+
       {:numeric_tests, _, _, fallback} ->
-        instructions(fallback, 0, slots)
+        instructions(fallback, 0, slots) ++ instructions(code, pc + 1, stop, slots)
 
       {:mutation, :slot_batch, [writes]} ->
         Enum.map(Operand.read(writes, slots), fn {object, key, value} ->
           %Goal.SetSlot{object: object, key: key, value: value}
-        end)
+        end) ++ instructions(code, pc + 1, stop, slots)
 
       operation ->
-        [instruction(operation, slots)]
-    end)
+        [instruction(operation, slots) | instructions(code, pc + 1, stop, slots)]
+    end
   end
+
+  defp branch_end(code, alternative) when alternative > 0 do
+    last = alternative - 1
+
+    if last >= 0 do
+      case elem(code, last) do
+        {:jump, join, []} when join >= alternative -> {:ok, last, join}
+        _ -> :error
+      end
+    else
+      :error
+    end
+  end
+
+  defp branch_end(_code, _alternative), do: :error
 
   def instruction({:move, _, _}, _), do: %Goal.Pass{}
   def instruction({:jump, _, _}, _), do: %Goal.Pass{}
@@ -164,7 +197,6 @@ defmodule AL.JAM.Goals do
     do: AL.JAM.Primitive.goal(operation, Enum.map(arguments, &Operand.read(&1, slots)))
 
   def instruction(:cut_scope, _slots), do: %Goal.Pass{}
-  def instruction(:progress, _slots), do: %Goal.Pass{}
   def instruction(:cut, _slots), do: %Goal.Cut{}
   def instruction(:pass, _slots), do: %Goal.Pass{}
 

@@ -34,6 +34,13 @@ defmodule AL.JAM.IR.Call do
          do: observe(operand, property, call.slots, call.store)
   end
 
+  @spec satisfies?(t(), map()) :: boolean()
+  def satisfies?(call, %{dispatch: dispatch, arguments: arguments}) do
+    call.dispatch == dispatch and Assumptions.accepts?(arguments, call)
+  end
+
+  def satisfies?(_call, _requirements), do: false
+
   def argument(call, position, field_path \\ []) do
     with {:ok, operand} <- operand_at(call.arguments, position, call),
          do: field_operand(operand, field_path, call.slots, call.store)

@@ -14,7 +14,8 @@ Bench.Language.isolated(fn ->
 
   expected =
     parsed.program
-    |> Enum.reject(&match?(%AL.Goal.Compound{name: :clear_method}, &1))
+    |> Enum.reject(&match?(%AL.Goal.OApply{method_id: :clear_method}, &1))
+    |> AL.Goal.to_term()
     |> AL.Term.map(fn term ->
       if AL.Var.var?(term),
         do: %AL.Goal.Compound{

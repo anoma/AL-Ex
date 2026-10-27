@@ -1,10 +1,11 @@
 defmodule AL.JAM.SelectionTest do
+  alias AL.JAM.IR.Normalize
   use ExUnit.Case, async: true
   alias AL.Goal
   alias AL.JAM.IR.{Program, Selection}
 
   defp range do
-    Program.lower([
+    Normalize.lower([
       %Goal.Compare{op: :<=, a: 1, b: {:"$var", "Value"}},
       %Goal.Compare{op: :<, a: {:"$var", "Value"}, b: 4}
     ])
@@ -44,7 +45,7 @@ defmodule AL.JAM.SelectionTest do
   end
 
   test "open values retain constraint propagation" do
-    program = Program.concat(range(), Program.lower([%Goal.Eq{a: {:"$var", "Value"}, b: 2}]))
+    program = Program.concat(range(), Normalize.lower([%Goal.Eq{a: {:"$var", "Value"}, b: 2}]))
     assert {:ok, original, steps} = run(program, %{})
     assert {:ok, selected, ^steps} = run(Selection.select(program), %{})
     assert AL.Var.subst({:"$var", "Value"}, selected) == 2
@@ -65,7 +66,7 @@ defmodule AL.JAM.SelectionTest do
 
   test "selection does not move tests across an operation or combine different operands" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Compare{op: :>=, a: {:"$var", "Value"}, b: 1},
         %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}},
         %Goal.Compare{op: :<, a: {:"$var", "Value"}, b: 4},
@@ -73,7 +74,7 @@ defmodule AL.JAM.SelectionTest do
       ])
 
     selected = Selection.select(program)
-    refute Program.any?(selected, &(&1.kind == :machine))
+    refute Program.any?(selected, &match?({:numeric_tests, _, _, _}, &1))
   end
 
   test "tracing observes both original comparisons" do
@@ -90,7 +91,7 @@ defmodule AL.JAM.SelectionTest do
 
   test "numeric exclusions preserve open and nonnumeric behavior and diagnostics" do
     original =
-      Program.lower([
+      Normalize.lower([
         %Goal.Dif{a: {:"$var", "Value"}, b: 1},
         %Goal.Dif{a: 2, b: {:"$var", "Value"}}
       ])

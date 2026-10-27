@@ -1,5 +1,206 @@
 defmodule AL.JAM.Instruction do
   alias AL.JAM.Operand
+  alias AL.JAM.IR.Program
+
+  @type register() :: non_neg_integer()
+  @type address() :: atom() | non_neg_integer()
+  @type code() :: Program.t() | [t()] | tuple()
+
+  @type t() ::
+          :pass
+          | :fail
+          | :cut
+          | :cut_scope
+          | {:eq, left :: term(), right :: term()}
+          | {:unify_structural, left :: term(), right :: term()}
+          | {:dif, left :: term(), right :: term()}
+          | {:compare, operator :: atom(), left :: term(), right :: term()}
+          | {:ground, term()}
+          | {:is_var, term()}
+          | {:copy_term, original :: term(), copy :: term(), goals :: term()}
+          | {:map_get, map :: term(), key :: term(), value :: term()}
+          | {:map_put, map :: term(), key :: term(), value :: term(), result :: term()}
+          | {:slot_get, object :: term(), key :: term(), value :: term(), storage :: term()}
+          | {:primitive, name :: atom(), arguments :: [term()]}
+          | {:constraint, name :: atom(), arguments :: [term()]}
+          | {:relation, name :: atom(), arguments :: [term()]}
+          | {:mutation, name :: atom(), arguments :: [term()]}
+          | {:context, field :: atom(), result :: term()}
+          | {:label, site :: term(), value :: term()}
+          | {:send, site :: term(), receiver :: term(), selector :: term(), arguments :: term()}
+          | {:call_method, method :: term(), arguments :: term()}
+          | {:call, site :: term(), head :: term(), body :: term(), arguments :: term()}
+          | {:next, cursor :: term(), receiver :: term(), arguments :: term()}
+          | {:send_as, provider :: term(), cursor :: term(), arguments :: term()}
+          | {:collect, template :: term(), result :: term(), condition :: code()}
+          | {:collect_n, count :: term(), template :: term(), result :: term(),
+             condition :: code()}
+          | {:forall, captures :: term(), condition :: code(), head_slots :: [register()] | nil,
+             body :: Program.t() | {code(), term()}}
+          | {:negate, condition :: code()}
+          | {:freeze, variable :: term(), body :: code()}
+          | {:source_scope, capture_id :: term(), source :: term(), body :: code()}
+          | {:branch, left :: code(), right :: code()}
+          | {:condition, condition :: code(), otherwise :: code()}
+          | {:commit, then :: code()}
+          | {:move, destination :: register(), source :: term()}
+          | {:jump, target :: address(), transfers :: [{register(), term()}]}
+          | {:get_cons, source :: term(), head :: register(), tail :: register(),
+             failure :: address()}
+          | {:try, alternative :: address(), live :: [register()]}
+          | {:numeric_tests, value :: term(), tests :: [{atom(), number()}], fallback :: code()}
+          | {:integer_arithmetic, operator :: :+ | :- | :*, destination :: register(),
+             left :: term(), right :: term(), fallback :: t()}
+          | {:local, destination :: register(), instruction :: t()}
+          | {:send_local, instruction :: t(), destinations :: [register()]}
+
+  def operands({family, _name, args})
+      when family in [:primitive, :constraint, :relation, :mutation],
+      do: args
+
+  def operands({:call_method, {:method_identity, _, _}, args}), do: [args]
+
+  def operands(instruction),
+    do: Enum.map(operand_positions(instruction), &elem(instruction, &1))
+
+  def map_operands({family, name, args}, fun)
+      when family in [:primitive, :constraint, :relation, :mutation],
+      do: {family, name, Enum.map(args, fun)}
+
+  def map_operands({:call_method, {:method_identity, _, _} = method, args}, fun),
+    do: {:call_method, method, fun.(args)}
+
+  def map_operands(instruction, fun),
+    do:
+      Enum.reduce(operand_positions(instruction), instruction, fn index, result ->
+        put_elem(result, index, fun.(elem(instruction, index)))
+      end)
+
+  defp operand_positions(instruction) do
+    case instruction do
+      op when op in [:pass, :fail, :cut] -> []
+      {:compare, _, _, _} -> [2, 3]
+      {:context, _, _} -> [2]
+      {:numeric_tests, _, _, _} -> [1]
+      {:send, _, _, _, _} -> [2, 3, 4]
+      {:call, _, _, _, _} -> [2, 3, 4]
+      {:label, _, _} -> [2]
+      {:next, _, _, _} -> [2, 3]
+      {:collect, _, _, _} -> [1, 2]
+      {:collect_n, _, _, _, _} -> [1, 2, 3]
+      {:forall, _, _, _, _} -> []
+      {:negate, _} -> []
+      {:freeze, _, _} -> [1]
+      {:source_scope, _, _, _} -> [1, 2]
+      {op, _} when op in [:ground, :is_var] -> [1]
+      {op, _, _} when op in [:eq, :dif, :unify_structural, :call_method] -> [1, 2]
+      {op, _, _, _} when op in [:map_get, :copy_term] -> [1, 2, 3]
+      {op, _, _, _, _} when op in [:map_put, :slot_get] -> [1, 2, 3, 4]
+    end
+  end
+
+  def map_values({:branch, left, right}, fun),
+    do: {:branch, Enum.map(left, &map_values(&1, fun)), Enum.map(right, &map_values(&1, fun))}
+
+  def map_values({:numeric_tests, value, tests, fallback}, fun),
+    do: {:numeric_tests, AL.Term.map(value, fun), tests, Enum.map(fallback, &map_values(&1, fun))}
+
+  def map_values(instruction, fun) do
+    instruction
+    |> map_operands(&AL.Term.map(&1, fun))
+    |> map_regions(&Program.map_values(&1, fun))
+  end
+
+  def variables({:numeric_tests, value, _tests, fallback}),
+    do: Enum.reduce(fallback, AL.Var.find_vars(value), &MapSet.union(variables(&1), &2))
+
+  def variables(instruction) do
+    Enum.reduce(regions(instruction), AL.Var.find_vars(operands(instruction)), fn {_, body},
+                                                                                  vars ->
+      MapSet.union(vars, Program.variables(body))
+    end)
+  end
+
+  def regions({:collect, _, _, condition}), do: [condition: condition]
+  def regions({:collect_n, _, _, _, condition}), do: [condition: condition]
+  def regions({:forall, _, condition, _, body}), do: [condition: condition, body: body]
+  def regions({:negate, condition}), do: [condition: condition]
+  def regions({:freeze, _, goals}), do: [goals: goals]
+  def regions({:source_scope, _, _, body}), do: [body: body]
+  def regions(_), do: []
+
+  defp map_regions({:collect, template, result, condition}, fun),
+    do: {:collect, template, result, fun.(condition)}
+
+  defp map_regions({:collect_n, count, template, result, condition}, fun),
+    do: {:collect_n, count, template, result, fun.(condition)}
+
+  defp map_regions({:forall, captures, condition, head, body}, fun),
+    do: {:forall, captures, fun.(condition), head, fun.(body)}
+
+  defp map_regions({:negate, condition}, fun), do: {:negate, fun.(condition)}
+  defp map_regions({:freeze, var, goals}, fun), do: {:freeze, var, fun.(goals)}
+
+  defp map_regions({:source_scope, id, source, body}, fun),
+    do: {:source_scope, id, source, fun.(body)}
+
+  defp map_regions(instruction, _fun), do: instruction
+
+  def scoped?(instruction), do: regions(instruction) != []
+
+  def contains?(program, name) do
+    Program.any?(program, fn instruction ->
+      control?(instruction, name) or
+        Enum.any?(regions(instruction), fn {_, child} -> contains?(child, name) end)
+    end)
+  end
+
+  defp control?(:cut, :cut), do: true
+  defp control?({:next, _, _, _}, :next), do: true
+  defp control?(_, _), do: false
+
+  def local?(instruction) do
+    case instruction do
+      op when op in [:pass, :fail] ->
+        true
+
+      {:primitive, name, _}
+      when name in [
+             :variant,
+             :equal,
+             :string_codes,
+             :atom_string,
+             :atom,
+             :functor,
+             :map_pairs,
+             :block_goals
+           ] ->
+        true
+
+      {op, _} when op in [:ground, :is_var] ->
+        true
+
+      {op, _, _} when op in [:eq, :dif, :unify_structural] ->
+        true
+
+      {op, _, _, _} when op in [:copy_term, :compare, :map_get] ->
+        true
+
+      {op, _, _, _, _} when op in [:slot_get, :map_put] ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  def effects(:pass), do: :pure
+  def effects({op, _, _}) when op in [:eq, :dif, :unify_structural], do: :binding
+  def effects({:mutation, _, _}), do: :write
+  def effects({:relation, _, _}), do: :read_and_bind
+  def effects(:cut), do: :control
+  def effects({:next, _, _, _}), do: :control
+  def effects(instruction), do: if(scoped?(instruction), do: :scoped, else: :unknown)
 
   defp materialize_local(slots, index) do
     if elem(slots, index) == nil,

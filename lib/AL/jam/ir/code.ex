@@ -26,4 +26,15 @@ defmodule AL.JAM.IR.Code do
 
     {code, labels}
   end
+
+  def map_targets({:jump, target, transfers}, fun),
+    do: {:jump, fun.(target), transfers}
+
+  def map_targets({:try, target, live}, fun),
+    do: {:try, fun.(target), live}
+
+  def map_targets({:get_cons, source, head, tail, failure}, fun),
+    do: {:get_cons, source, head, tail, fun.(failure)}
+
+  def map_targets(instruction, _fun), do: instruction
 end

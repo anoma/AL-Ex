@@ -38,21 +38,15 @@ defmodule AL.JAM do
     end
   end
 
-  def compile({code, slots}) when is_tuple(code) and is_tuple(slots) do
-    code =
-      code
-      |> Tuple.to_list()
-      |> Enum.flat_map(&[&1, :progress])
-      |> List.to_tuple()
+  def compile(goals) do
+    {code, initial_slots} = AL.JAM.IR.Assembler.compile(goals)
 
     %Frame{
       id: {:root, 0},
       code: code,
-      slots: slots
+      slots: initial_slots
     }
   end
-
-  def compile(goals), do: goals |> AL.JAM.IR.Assembler.compile() |> compile()
 
   def resume(snapshot, branch, budget, context \\ %{}),
     do:
@@ -248,7 +242,7 @@ defmodule AL.JAM do
        ) do
     valid =
       AL.ResolutionCache.fetch_dispatch(branch, {:region_guard, token}, fn ->
-        AL.JAM.IR.Plan.valid?(guard, branch)
+        AL.JAM.IR.Scan.valid?(guard, branch)
       end)
 
     if valid, do: answer, else: fallback
@@ -480,9 +474,14 @@ defmodule AL.JAM do
 
       {:try, alternative, live} ->
         saved =
-          Enum.reduce(live, :erlang.make_tuple(tuple_size(slots), nil), fn index, saved ->
-            put_elem(saved, index, elem(slots, index))
-          end)
+          if length(live) == tuple_size(slots) and
+               live == Enum.to_list(0..(tuple_size(slots) - 1)//1) do
+            slots
+          else
+            Enum.reduce(live, :erlang.make_tuple(tuple_size(slots), nil), fn index, saved ->
+              put_elem(saved, index, elem(slots, index))
+            end)
+          end
 
         choice = %{current | pc: alternative, slots: saved}
 
@@ -603,12 +602,6 @@ defmodule AL.JAM do
           :error ->
             retry(current, %{execution | steps: steps + 1})
         end
-
-      :progress ->
-        loop(
-          %{current | pc: pc + 1},
-          execution
-        )
 
       {:mutation, operation, arguments} ->
         arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
@@ -1056,7 +1049,7 @@ defmodule AL.JAM do
                   enter_tail(
                     method,
                     first,
-                    returns,
+                    Frame.return_to(id, code, pc, slots, returns),
                     pending,
                     %{execution | targets: targets, steps: steps + 1}
                   )
@@ -1463,7 +1456,7 @@ defmodule AL.JAM do
                         enter_tail(
                           callee_id,
                           first,
-                          returns,
+                          Frame.return_to(id, code, pc, slots, returns),
                           pending,
                           %{execution | targets: targets, steps: steps + 1}
                         )
@@ -1595,7 +1588,6 @@ defmodule AL.JAM do
 
   defp trace_instruction(:cut_scope, _slots, _store), do: :ok
   defp trace_instruction({:cursor, _}, _slots, _store), do: :ok
-  defp trace_instruction(:progress, _slots, _store), do: :ok
   defp trace_instruction({:commit, _}, _slots, _store), do: :ok
 
   defp trace_instruction(operation, slots, store) do

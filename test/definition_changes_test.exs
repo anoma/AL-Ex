@@ -52,8 +52,8 @@ defmodule ALDefinitionChangesTest do
     assert {:ok,
             %{
               program: [
-                %AL.Goal.Compound{name: :clear_method, args: [:example, :pick]},
-                %AL.Goal.Compound{name: :defmethod}
+                %AL.Goal.OApply{method_id: :clear_method, args: [:example, :pick]},
+                %AL.Goal.OApply{method_id: :defmethod}
               ]
             }} = AL.Syntax.parse(definition)
   end
@@ -134,7 +134,7 @@ defmodule ALDefinitionChangesTest do
     assert {:ok, [{definition, {:example, :pick}}]} =
              Changes.plan(snapshot(%{example: old}), [edited])
 
-    assert {:ok, %{program: [_clear, %AL.Goal.Compound{name: :defmethod}]}} =
+    assert {:ok, %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod}]}} =
              AL.Syntax.parse(definition)
   end
 end

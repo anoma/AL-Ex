@@ -14,9 +14,6 @@ defmodule AL.ResolutionCache do
     :generative_descendants,
     :durable_classes,
     :oapply_clauses,
-    :compiled_methods,
-    :compiled_plans,
-    :code_versions,
     :method_scopes,
     :descendants,
     :ivar_specs,
@@ -27,7 +24,6 @@ defmodule AL.ResolutionCache do
   @dispatch_cache :al_dispatch_cache
   @new_receivers :al_new_receivers
   @fresh_tables :al_resolution_fresh_tables
-  @resident_code :al_resident_code
 
   def with_fresh_tables(fun) when is_function(fun, 0) do
     previous = Process.get(@fresh_tables)
@@ -153,63 +149,6 @@ defmodule AL.ResolutionCache do
   def fetch_oapply_clauses(branch, method_id, compute),
     do: fetch(table(:oapply_clauses, branch), :oapply_clauses, method_id, compute)
 
-  def fetch_compiled_method(branch, method_id, compute) do
-    table = table(:compiled_methods, branch)
-    load = fn -> fetch_code(branch, :compiled_methods, method_id, compute) end
-
-    case Process.get(@transaction_cache) do
-      nil -> load.()
-      cache -> fetch_local(cache, table, method_id, load)
-    end
-  end
-
-  def fetch_plan(branch, key, valid?, compute) do
-    case fetch_code(branch, :compiled_plans, key, compute) do
-      nil ->
-        nil
-
-      plan ->
-        if valid?.(plan), do: plan, else: store_code(branch, :compiled_plans, key, compute.())
-    end
-  end
-
-  def select_plan(branch, key, accepts?, valid?, compute) do
-    candidates_key = {:plan_candidates, key}
-
-    plans =
-      fetch_dispatch(branch, candidates_key, fn ->
-        fetch_code(branch, :compiled_plans, key, fn -> [] end)
-      end)
-
-    selected =
-      Enum.find(plans, fn {version, plan} ->
-        accepts?.(plan) and
-          fetch_dispatch(branch, {:plan_validity, version}, fn -> valid?.(plan) end)
-      end)
-
-    case selected do
-      nil ->
-        case compute.() do
-          %{assumptions: assumptions, observations: observations} = plan ->
-            plans =
-              Enum.reject(plans, fn {_version, existing} ->
-                existing.assumptions == assumptions and existing.observations == observations
-              end)
-
-            plans = [{make_ref(), plan} | plans]
-            store_code(branch, :compiled_plans, key, plans)
-            store_local({@dispatch_cache, table(:providers, branch)}, candidates_key, plans)
-            plan
-
-          _ ->
-            nil
-        end
-
-      {_version, plan} ->
-        plan
-    end
-  end
-
   def mark_new_receiver(branch, receiver) when is_atom(receiver) do
     if cache = Process.get(@transaction_cache) do
       key = {@new_receivers, branch.id}
@@ -231,59 +170,6 @@ defmodule AL.ResolutionCache do
       cache ->
         cache |> Map.get({@new_receivers, branch.id}, MapSet.new()) |> MapSet.member?(receiver)
     end
-  end
-
-  defp fetch_code(branch, relation, key, compute) do
-    versions = table(:code_versions, branch)
-    version_key = {relation, key}
-    cache_key = {table(relation, branch), key}
-
-    case :mnesia.read(versions, version_key) do
-      [{:code_versions, ^version_key, version}] ->
-        case Map.get(Process.get(@resident_code, %{}), cache_key) do
-          {^version, value} ->
-            value
-
-          _ ->
-            [{^relation, ^key, value}] = :mnesia.read(table(relation, branch), key)
-            retain_code(cache_key, version, value)
-        end
-
-      [] ->
-        store_code(branch, relation, key, compute.())
-    end
-  end
-
-  defp store_code(branch, relation, key, nil) do
-    :mnesia.delete(table(:code_versions, branch), {relation, key}, :write)
-    :mnesia.delete(table(relation, branch), key, :write)
-
-    Process.put(
-      @resident_code,
-      Map.delete(Process.get(@resident_code, %{}), {table(relation, branch), key})
-    )
-
-    nil
-  end
-
-  defp store_code(branch, relation, key, value) do
-    version = make_ref()
-    :mnesia.write(table(relation, branch), {relation, key, value}, :write)
-
-    :mnesia.write(
-      table(:code_versions, branch),
-      {:code_versions, {relation, key}, version},
-      :write
-    )
-
-    retain_code({table(relation, branch), key}, version, value)
-  end
-
-  defp retain_code(key, version, value) do
-    cache = Process.get(@resident_code, %{})
-    cache = if map_size(cache) >= 256 and not Map.has_key?(cache, key), do: %{}, else: cache
-    Process.put(@resident_code, Map.put(cache, key, {version, value}))
-    value
   end
 
   def fetch_branch_registration(id, compute) do
@@ -320,6 +206,12 @@ defmodule AL.ResolutionCache do
       cache -> fetch_local(cache, table, key, compute)
     end
   end
+
+  def store_dispatch(branch, key, value),
+    do: store_local({@dispatch_cache, table(:providers, branch)}, key, value)
+
+  def invalidate_dispatch(branch),
+    do: clear_local({@dispatch_cache, table(:providers, branch)})
 
   @doc "Caches AL.Object.get_native/2 -- nil (not native) is cached same as a real binding."
   @spec fetch_native(AL.Branch.t(), term(), (-> term())) :: term()
@@ -456,8 +348,7 @@ defmodule AL.ResolutionCache do
   @spec invalidate_oapply_clauses(AL.Branch.t(), term()) :: :ok
   def invalidate_oapply_clauses(branch, method_id) do
     clear_local({@dispatch_cache, table(:providers, branch)})
-    delete(table(:code_versions, branch), {:compiled_methods, method_id})
-    delete(table(:compiled_methods, branch), method_id)
+    unless Process.get(@fresh_tables), do: AL.PlanStore.invalidate_method(branch, method_id)
     delete(table(:oapply_clauses, branch), method_id)
     :ok
   end

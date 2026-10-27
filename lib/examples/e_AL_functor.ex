@@ -9,6 +9,31 @@ defmodule Examples.ALFunctor do
   use AL
   import ExUnit.Assertions
 
+  example compound_data_becomes_a_goal_only_when_called() do
+    source = ~S"""
+    = Term (= X 7), var X.
+    functor Term = [X, 7].
+    = Body [Term], call [X] Body [X].
+    functor Dynamic Selector [Y, 9], = Selector =, var Y.
+    = DynamicBody [Dynamic], call [Y] DynamicBody [Y].
+    findall Value Values {= Alternatives [(= Value 1 ; = Value 2)], call [Value] Alternatives [Value]}.
+    @compound_body_probe #{super => value}.
+    defmethod compound_body_probe value [Self, Output] [(= Output 11)].
+    value #{class => compound_body_probe} Answer.
+    """
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      %AL{result: {:atomic, {bindings, _, _}}} =
+        run(source, [branch: Examples.Support.branch()] ++ options)
+
+      assert bindings["$X"] == 7
+      assert bindings["$Y"] == 9
+      assert bindings["$Term"] == %AL.Goal.Compound{name: :=, args: [7, 7]}
+      assert bindings["$Values"] == [1, 2]
+      assert bindings["$Answer"] == 11
+    end
+  end
+
   example decomposes_a_send() do
     %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(

@@ -1,4 +1,5 @@
 defmodule AL.JAM.VirtualObjectTest do
+  alias AL.JAM.IR.Normalize
   use ExUnit.Case, async: true
   alias AL.{Goal, JAM, Var}
   alias AL.JAM.IR.{Program, Region}
@@ -15,7 +16,7 @@ defmodule AL.JAM.VirtualObjectTest do
     do: %Goal.OApply{method_id: :map_get, args: [map, key, result]}
 
   defp optimized(goals),
-    do: goals |> Program.lower() |> Region.compile(MapSet.new([@output]))
+    do: goals |> Normalize.lower() |> Region.compile(MapSet.new([@output]))
 
   defp answers(program) do
     frame = program |> JAM.compile() |> JAM.with_store(%{})
@@ -41,13 +42,12 @@ defmodule AL.JAM.VirtualObjectTest do
     ]
 
     program = optimized(goals)
-    assert answers(Program.lower(goals)) == [10]
+    assert answers(Normalize.lower(goals)) == [10]
     assert answers(program) == [10]
     frame = JAM.compile(program)
 
     assert Tuple.to_list(frame.code) == [
-             {:unify_structural, {:register, 0}, {:constant, 10}},
-             :progress
+             {:unify_structural, {:register, 0}, {:constant, 10}}
            ]
   end
 
@@ -59,14 +59,14 @@ defmodule AL.JAM.VirtualObjectTest do
     ]
 
     expected = [%{class: :point, x: 7, y: 7}]
-    assert answers(Program.lower(goals)) == expected
+    assert answers(Normalize.lower(goals)) == expected
     assert answers(optimized(goals)) == expected
   end
 
   test "arithmetic fields remain terms rather than being evaluated" do
     term = %Goal.Compound{name: :+, args: [1, 2]}
     goals = [put(%{}, :expression, term, @first), get(@first, :expression, @output)]
-    assert answers(Program.lower(goals)) == [term]
+    assert answers(Normalize.lower(goals)) == [term]
     assert answers(optimized(goals)) == [term]
   end
 
@@ -76,14 +76,14 @@ defmodule AL.JAM.VirtualObjectTest do
       get(@first, :x, @output)
     ]
 
-    assert answers(Program.lower(goals)) == [1, 2]
+    assert answers(Normalize.lower(goals)) == [1, 2]
     assert answers(optimized(goals)) == [1, 2]
     assert answers(optimized([get(%{x: 1}, :missing, @output)])) == []
   end
 
   test "unknown keys retain relational enumeration" do
     goals = [get(%{x: 1, y: 2}, @field, @output)]
-    assert Enum.sort(answers(Program.lower(goals))) == [1, 2]
+    assert Enum.sort(answers(Normalize.lower(goals))) == [1, 2]
     assert Enum.sort(answers(optimized(goals))) == [1, 2]
   end
 
@@ -97,7 +97,7 @@ defmodule AL.JAM.VirtualObjectTest do
         %Goal.Eq{a: @field, b: value}
       ]
 
-      assert answers(optimized(goals)) == answers(Program.lower(goals))
+      assert answers(optimized(goals)) == answers(Normalize.lower(goals))
     end
   end
 
@@ -108,7 +108,7 @@ defmodule AL.JAM.VirtualObjectTest do
       get(@first, :x, @output)
     ]
 
-    assert answers(optimized(goals)) == answers(Program.lower(goals))
+    assert answers(optimized(goals)) == answers(Normalize.lower(goals))
   end
 
   test "a call boundary retains the map needed by its callee" do
@@ -119,9 +119,8 @@ defmodule AL.JAM.VirtualObjectTest do
 
     program = optimized(goals)
 
-    assert {:call, %{kind: :send, name: :consume, args: [%{class: :point, x: @field}, [@output]]},
-            _} =
-             program.blocks[program.entry].exit
+    assert {:operation, {:send, nil, %{class: :point, x: @field}, :consume, [@output]}, _} =
+             Program.take_next_instruction(program)
 
     assert MapSet.member?(Program.variables(program), @field)
   end

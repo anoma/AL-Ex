@@ -1,6 +1,8 @@
 defmodule AL.JAM.IR.Scan do
+  alias AL.JAM.Instruction
+  alias AL.JAM.IR.Normalize
   alias AL.{Goal, Var}
-  alias AL.JAM.IR
+  alias AL.PlanStore.Implementation
   alias AL.JAM.IR.{Call, Plan, Program}
 
   defstruct [
@@ -9,7 +11,7 @@ defmodule AL.JAM.IR.Scan do
     :branch,
     :tests,
     :reject,
-    :guard,
+    :dependencies,
     :evidence,
     :mode,
     :minimum,
@@ -34,24 +36,22 @@ defmodule AL.JAM.IR.Scan do
         receiver: receiver,
         branch: branch,
         dependencies: %{
-          {receiver, selector} => {root, AL.JAM.Clauses.cached_scan_clauses(root, branch)}
+          {:method, receiver, selector} =>
+            {root, AL.JAM.Clauses.cached_scan_clauses(root, branch)}
         },
-        classes: %{},
         evidence: [],
         suffix: []
       }
 
       {definitions, state} = Enum.map_reduce(ids, state, &definition/2)
-      {tests, scan_guard, state} = base(List.last(definitions), state)
+      {tests, implementation, state} = base(List.last(definitions), state)
       {reject, state} = wrappers(Enum.drop(definitions, -1), state)
       rows = Enum.map(ids, &{&1, AL.JAM.Clauses.cached_scan_clauses(&1, branch)})
 
-      guard = %{
-        scan_guard
-        | dependencies: Map.merge(scan_guard.dependencies, state.dependencies),
-          classes: Map.merge(scan_guard.classes, state.classes),
-          providers: Map.put(scan_guard.providers, {receiver, selector, root}, {cursor, rows})
-      }
+      dependencies =
+        implementation.dependencies
+        |> Map.merge(state.dependencies)
+        |> Map.put({:providers, {receiver, selector, root}}, {cursor, rows})
 
       %__MODULE__{
         receiver: receiver,
@@ -59,7 +59,7 @@ defmodule AL.JAM.IR.Scan do
         branch: branch,
         tests: tests,
         reject: reject,
-        guard: guard,
+        dependencies: dependencies,
         mode: :ground_characters_fresh_rest,
         minimum: 1,
         suffix: state.suffix,
@@ -73,7 +73,7 @@ defmodule AL.JAM.IR.Scan do
   def compile_consumption(receiver, selector, branch) do
     try do
       require!(MapSet.size(Var.find_vars(receiver)) == 0)
-      state = %{receiver: receiver, branch: branch, dependencies: %{}, classes: %{}}
+      state = %{receiver: receiver, branch: branch, dependencies: %{}}
       {rows, state} = fetch(selector, state)
       {step, repeat, minimum} = consumption(rows, selector)
       {recursive, state} = fetch(repeat, state)
@@ -82,7 +82,7 @@ defmodule AL.JAM.IR.Scan do
 
       values =
         Enum.map(leaves, fn
-          {[self, input, rest], [%IR{kind: :direct, name: :eq, args: [input, [value | rest]]}]}
+          {[self, input, rest], [{:eq, input, [value | rest]}]}
           when is_integer(value) ->
             require!(distinct_vars?([self, input, rest]))
             value
@@ -104,14 +104,12 @@ defmodule AL.JAM.IR.Scan do
         [{:>=, low}, {:<=, high}] ++
           for value <- low..high, value not in values, do: {:dif, value}
 
-      guard = %Plan{branch: branch, dependencies: state.dependencies}
-
       %__MODULE__{
         receiver: receiver,
         selector: selector,
         branch: branch,
         tests: tests,
-        guard: guard,
+        dependencies: state.dependencies,
         reject: [],
         suffix: [],
         mode: :integer_prefix_fresh_rest,
@@ -128,8 +126,8 @@ defmodule AL.JAM.IR.Scan do
            {[self, input, rest],
             [
               guard,
-              %IR{kind: :send, name: step, args: [self, [input, after_one]]},
-              %IR{kind: :send, name: selector, args: [self, [after_one, rest]]}
+              {:send, nil, self, step, [input, after_one]},
+              {:send, nil, self, selector, [after_one, rest]}
             ]},
            {[base_self, tail, tail], []}
          ],
@@ -144,14 +142,14 @@ defmodule AL.JAM.IR.Scan do
          [
            {[s, i, r],
             [
-              %IR{kind: :direct, name: :is_var, args: [i]},
-              %IR{kind: :direct, name: :eq, args: [i, [_ | r]]}
+              {:is_var, i},
+              {:eq, i, [_ | r]}
             ]},
            {[self, input, rest],
             [
               guard,
-              %IR{kind: :send, name: step, args: [self, [input, after_one]]},
-              %IR{kind: :send, name: repeat, args: [self, [after_one, rest]]}
+              {:send, nil, self, step, [input, after_one]},
+              {:send, nil, self, repeat, [after_one, rest]}
             ]}
          ],
          _
@@ -163,7 +161,9 @@ defmodule AL.JAM.IR.Scan do
 
   defp consumption(_, _), do: unsupported()
 
-  def valid?(%__MODULE__{guard: guard}, branch), do: Plan.valid?(guard, branch)
+  def valid?(%__MODULE__{} = scan, branch) do
+    scan.branch == branch and Implementation.valid_dependencies?(scan.dependencies, branch)
+  end
 
   defp definition(id, state) do
     rows = AL.JAM.Compiler.fetch_ir(id, state.branch)
@@ -178,7 +178,7 @@ defmodule AL.JAM.IR.Scan do
       {:ok, _, id} ->
         state =
           put_in(
-            state.dependencies[{state.receiver, selector}],
+            state.dependencies[{:method, state.receiver, selector}],
             {id, AL.JAM.Clauses.cached_scan_clauses(id, state.branch)}
           )
 
@@ -191,11 +191,11 @@ defmodule AL.JAM.IR.Scan do
   end
 
   defp operations(program, exposed \\ MapSet.new()) do
-    case Program.first(program) do
+    case Program.take_next_instruction(program) do
       :return ->
         []
 
-      {:operation, %IR{kind: :callable, args: [head, body, head]}, rest} ->
+      {:operation, {:call, nil, head, body, head}, rest} ->
         require!(proper?(head) and Enum.all?(head, &Var.var?/1))
         require!(length(Enum.uniq(head)) == length(head))
         locals = MapSet.difference(Var.find_vars(body), Var.find_vars(head))
@@ -207,16 +207,16 @@ defmodule AL.JAM.IR.Scan do
             if MapSet.member?(locals, value), do: Var.fresh(value, scope), else: value
           end)
 
-        operations(Program.lower(body), Var.find_vars(head)) ++
+        operations(Normalize.lower(body), Var.find_vars(head)) ++
           operations(rest, MapSet.union(exposed, Var.find_vars(head)))
 
       {:operation, operation, rest} ->
-        [operation | operations(rest, MapSet.union(exposed, IR.variables(operation)))]
+        [operation | operations(rest, MapSet.union(exposed, Instruction.variables(operation)))]
 
-      {:control, %{exit: {:choice, left, right, join}}} ->
+      {:control, %Program.Choice{left: left, right: right, join: join}} ->
         l = operations(Program.before(Program.continuation(program, left), join))
         r = operations(Program.before(Program.continuation(program, right), join))
-        [IR.operation(:branch, nil, [l, r]) | operations(Program.continuation(program, join))]
+        [{:branch, l, r} | operations(Program.continuation(program, join))]
 
       _ ->
         unsupported()
@@ -228,12 +228,12 @@ defmodule AL.JAM.IR.Scan do
            {[self, input, rest, output],
             [
               guard,
-              %IR{kind: :send, name: step, args: [self, [input, after_first, first]]},
-              %IR{kind: :send, name: repeat, args: [self, [after_first, rest, step, more]]},
-              %IR{kind: :primitive, name: :atom_string, args: [output, text]},
-              %IR{kind: :primitive, name: :string_codes, args: [text, [first | more]]}
+              {:send, nil, self, step, [input, after_first, first]},
+              {:send, nil, self, repeat, [after_first, rest, step, more]},
+              {:primitive, :atom_string, [output, text]},
+              {:primitive, :string_codes, [text, [first | more]]}
             ]},
-           {[_, other_input, _, _], [%IR{kind: :direct, name: :is_var, args: [other_input]} | _]}
+           {[_, other_input, _, _], [{:is_var, other_input} | _]}
          ],
          state
        ) do
@@ -241,20 +241,20 @@ defmodule AL.JAM.IR.Scan do
     require!(not_var?(guard, input))
     state = repetition(repeat, state)
 
-    {rows, scan} =
+    implementation =
       case Plan.compile_ir(Call.new(state.receiver, step), state.branch) do
         nil -> unsupported()
         result -> result
       end
 
-    tests = step_tests(rows)
-    {tests, scan, evidence(state, {:scan, step, repeat, :longest_first})}
+    tests = step_tests(implementation.code)
+    {tests, implementation, evidence(state, {:scan, step, repeat, :longest_first})}
   end
 
   defp base(_, _), do: unsupported()
 
-  defp not_var?(%IR{kind: :scope, name: :negate, regions: %{condition: program}}, input) do
-    operations(program) == [IR.operation(:direct, :is_var, [input])]
+  defp not_var?({:negate, program}, input) do
+    operations(program) == [{:is_var, input}]
   end
 
   defp not_var?(_, _), do: false
@@ -266,9 +266,9 @@ defmodule AL.JAM.IR.Scan do
       [
         {[self, input, rest, pattern, [value | values]],
          [
-           %IR{kind: :send, name: pattern, args: [self, [input, after_one, value]]},
-           %IR{kind: :direct, name: :dif, args: [input, after_one]},
-           %IR{kind: :send, name: ^selector, args: [self, [after_one, rest, pattern, values]]}
+           {:send, nil, self, pattern, [input, after_one, value]},
+           {:dif, input, after_one},
+           {:send, nil, self, ^selector, [after_one, rest, pattern, values]}
          ]},
         {[base_self, tail, tail, base_pattern, []], []}
       ] ->
@@ -285,11 +285,11 @@ defmodule AL.JAM.IR.Scan do
     require!(distinct_vars?([self, input, rest, character]))
 
     case operations(body, MapSet.new([self, input, rest, character])) do
-      [%IR{kind: :direct, name: :eq, args: [^input, [^character | ^rest]]} | operations] ->
+      [{:eq, ^input, [^character | ^rest]} | operations] ->
         require!(operations != [])
 
         Enum.map(operations, fn
-          %IR{kind: :direct, name: :dif, args: [^character, value]} when is_integer(value) ->
+          {:dif, ^character, value} when is_integer(value) ->
             {:dif, value}
 
           _ ->
@@ -307,20 +307,11 @@ defmodule AL.JAM.IR.Scan do
     Enum.map_reduce(rows, state, fn clauses, state ->
       case bound_input_clauses(clauses) do
         [
-          {[self, input, _rest, %Goal.Compound{}],
-           [%IR{kind: :send, name: first, args: [self, [input | _]]} | _]},
+          {[self, input, _rest, %Goal.Compound{}], [{:send, nil, self, first, [input | _]} | _]},
           {[fallback_self, fallback_input, fallback_rest, value],
            [
-             %IR{
-               kind: :send,
-               name: negator,
-               args: [fallback_self, [fallback_input, after_check, check]]
-             },
-             %IR{
-               kind: :control,
-               name: :next,
-               args: [fallback_self, [after_check, fallback_rest, value]]
-             }
+             {:send, nil, fallback_self, negator, [fallback_input, after_check, check]},
+             {:next, :jam_cursor, fallback_self, [after_check, fallback_rest, value]}
            ]}
         ]
         when is_atom(check) ->
@@ -337,8 +328,8 @@ defmodule AL.JAM.IR.Scan do
         [
           {[self, input, rest, value],
            [
-             %IR{kind: :relation, name: :isa, args: [value, :number]},
-             %IR{kind: :send, name: recognizer, args: [self, [input, rest, value]]}
+             {:relation, :isa, [value, :number]},
+             {:send, nil, self, recognizer, [input, rest, value]}
            ]},
           fallback
         ] ->
@@ -352,8 +343,8 @@ defmodule AL.JAM.IR.Scan do
         [
           {[self, input, rest, %Goal.Compound{args: [value]}],
            [
-             %IR{kind: :control, name: :next, args: [self, [input, after_next, value]]},
-             %IR{kind: :send, name: check, args: [self, [after_next, rest, value]]}
+             {:next, :jam_cursor, self, [input, after_next, value]},
+             {:send, nil, self, check, [after_next, rest, value]}
            ]},
           fallback
         ] ->
@@ -372,7 +363,7 @@ defmodule AL.JAM.IR.Scan do
 
   defp bound_input_clauses(clauses) do
     Enum.flat_map(clauses, fn
-      {[_self, input | _], [%IR{kind: :direct, name: :is_var, args: [input]} | _]} ->
+      {[_self, input | _], [{:is_var, input} | _]} ->
         []
 
       {[_self, input | _] = head, [guard | rest] = body} ->
@@ -388,13 +379,12 @@ defmodule AL.JAM.IR.Scan do
 
     case rows do
       [
-        {[self, tail, tail, pattern],
-         [%IR{kind: :scope, name: :negate, regions: %{condition: condition}}]}
+        {[self, tail, tail, pattern], [{:negate, condition}]}
       ] ->
         require!(distinct_vars?([self, tail, pattern]))
 
         case operations(condition) do
-          [%IR{kind: :send, name: matcher, args: [^self, [^pattern, ^tail, ignored]]}] ->
+          [{:send, nil, ^self, matcher, [^pattern, ^tail, ignored]}] ->
             require!(distinct_vars?([self, tail, pattern, ignored]))
             matcher(matcher, state)
 
@@ -410,12 +400,9 @@ defmodule AL.JAM.IR.Scan do
   defp negative(
          {[self, input, rest, value],
           [
-            %IR{kind: :control, name: :next, args: [self, [input, after_next, value]]},
-            %IR{
-              kind: :send,
-              name: negator,
-              args: [self, [after_next, rest, %Goal.Compound{name: check, args: [value]}]]
-            }
+            {:next, :jam_cursor, self, [input, after_next, value]},
+            {:send, nil, self, negator,
+             [after_next, rest, %Goal.Compound{name: check, args: [value]}]}
           ]},
          state
        ) do
@@ -424,13 +411,12 @@ defmodule AL.JAM.IR.Scan do
 
     case rows do
       [
-        {[s, tail, tail, pattern],
-         [%IR{kind: :scope, name: :negate, regions: %{condition: condition}}]}
+        {[s, tail, tail, pattern], [{:negate, condition}]}
       ] ->
         require!(distinct_vars?([s, tail, pattern]))
 
         case operations(condition) do
-          [%IR{kind: :send, name: matcher, args: [^s, [^pattern, ^tail, ignored]]}] ->
+          [{:send, nil, ^s, matcher, [^pattern, ^tail, ignored]}] ->
             require!(distinct_vars?([s, tail, pattern, ignored]))
             state = %{state | suffix: [{negator, check} | state.suffix]}
             {check, matcher(matcher, state)}
@@ -453,10 +439,10 @@ defmodule AL.JAM.IR.Scan do
       [
         {[self, input, rest, value],
          [
-           %IR{kind: :type, name: :atom, args: [value]},
-           %IR{kind: :primitive, name: :atom_string, args: [value, text]},
-           %IR{kind: :primitive, name: :string_codes, args: [text, codes]},
-           %IR{kind: :send, name: within, args: [self, [input, rest, codes, [pattern | _]]]}
+           {:primitive, :atom, [value]},
+           {:primitive, :atom_string, [value, text]},
+           {:primitive, :string_codes, [text, codes]},
+           {:send, nil, self, within, [input, rest, codes, [pattern | _]]}
          ]}
       ] ->
         require!(distinct_vars?([self, input, rest, value, text, codes]))
@@ -491,7 +477,7 @@ defmodule AL.JAM.IR.Scan do
       [
         {[self, tail, tail, codes, patterns],
          [
-           %IR{kind: :send, name: sequence, args: [self, [patterns, codes, []]]}
+           {:send, nil, self, sequence, [patterns, codes, []]}
          ]}
       ] ->
         require!(distinct_vars?([self, tail, codes, patterns]))
@@ -510,8 +496,8 @@ defmodule AL.JAM.IR.Scan do
         {[base_self, [], tail, tail], []},
         {[self, [pattern | patterns], input, rest],
          [
-           %IR{kind: :send, name: matcher, args: [self, [pattern, input, after_one]]},
-           %IR{kind: :send, name: ^selector, args: [self, [patterns, after_one, rest]]}
+           {:send, nil, self, matcher, [pattern, input, after_one]},
+           {:send, nil, self, ^selector, [patterns, after_one, rest]}
          ]}
       ] ->
         require!(distinct_vars?([base_self, tail]))
@@ -528,16 +514,15 @@ defmodule AL.JAM.IR.Scan do
 
     case rows do
       [
-        {[s, p, i, r],
-         [%IR{kind: :type, name: :atom, args: [p]}, %IR{kind: :send, name: p, args: [s, [i, r]]}]},
-        {[_s2, p2, _i2, _r2], [%IR{kind: :relation, name: :class, args: [p2, :list]} | _]},
-        {[_s3, p3, _i3, _r3], [%IR{kind: :relation, name: :class, args: [p3, :string]} | _]},
+        {[s, p, i, r], [{:primitive, :atom, [p]}, {:send, nil, s, p, [i, r]}]},
+        {[_s2, p2, _i2, _r2], [{:relation, :class, [p2, :list]} | _]},
+        {[_s3, p3, _i3, _r3], [{:relation, :class, [p3, :string]} | _]},
         {[s4, p4, i4, r4],
          [
-           %IR{kind: :term, name: :functor, args: [p4, rule, args]},
-           %IR{kind: :type, name: :atom, args: [rule]},
-           %IR{kind: :send, name: append, args: [[i4, r4], [args, call_args]]},
-           %IR{kind: :send, name: rule, args: [s4, call_args]}
+           {:primitive, :functor, [p4, rule, args]},
+           {:primitive, :atom, [rule]},
+           {:send, nil, [i4, r4], append, [args, call_args]},
+           {:send, nil, s4, rule, call_args}
          ]}
       ] ->
         require!(distinct_vars?([s, p, i, r]))
@@ -558,14 +543,14 @@ defmodule AL.JAM.IR.Scan do
         {[[], base_tail, base_tail], []},
         {[[head | tail], other, [head | output]],
          [
-           %IR{kind: :send, name: ^selector, args: [tail, [other, output]]}
+           {:send, nil, tail, ^selector, [other, output]}
          ]}
       ] ->
         require!(Var.var?(base_tail))
         require!(distinct_vars?([head, tail, other, output]))
 
         put_in(
-          state.dependencies[{[], selector}],
+          state.dependencies[{:method, [], selector}],
           {id, AL.JAM.Clauses.cached_scan_clauses(id, state.branch)}
         )
 
@@ -595,7 +580,7 @@ defmodule AL.JAM.IR.Scan do
           body =
             Enum.map(
               body,
-              &IR.map_values(&1, fn v -> if v == self, do: state.receiver, else: v end)
+              &Instruction.map_values(&1, fn v -> if v == self, do: state.receiver, else: v end)
             )
 
           {tests, state} = seek(body, input, state, [selector | stack])
@@ -607,49 +592,49 @@ defmodule AL.JAM.IR.Scan do
     end)
   end
 
-  defp seek([%IR{kind: :direct, name: :eq, args: [input, [code | _]]} | rest], input, state, _) do
+  defp seek([{:eq, input, [code | _]} | rest], input, state, _) do
     tests = if is_integer(code), do: [[{:eq, code}]], else: tests(rest, code, [[]])
     require!(tests != [] and Enum.all?(tests, &(&1 != [])))
     {tests, state}
   end
 
   defp seek(
-         [%IR{kind: :send, name: selector, args: [receiver, [input | _]]} | _],
+         [{:send, nil, receiver, selector, [input | _]} | _],
          input,
          %{receiver: receiver} = state,
          stack
        ),
        do: first_tests(selector, state, stack)
 
-  defp seek([%IR{kind: :direct, name: :eq} | rest], input, state, stack),
+  defp seek([{:eq, _, _} | rest], input, state, stack),
     do: seek(rest, input, state, stack)
 
-  defp seek([%IR{kind: :compare} | rest], input, state, stack),
+  defp seek([{:compare, _, _, _} | rest], input, state, stack),
     do: seek(rest, input, state, stack)
 
   defp seek(_, _, _, _), do: unsupported()
 
   defp tests([], _, paths), do: paths
 
-  defp tests([%IR{kind: :compare, name: op, args: [code, bound]} | rest], code, paths)
+  defp tests([{:compare, op, code, bound} | rest], code, paths)
        when is_integer(bound),
        do: tests(rest, code, Enum.map(paths, &(&1 ++ [{op, bound}])))
 
-  defp tests([%IR{kind: :direct, name: :eq, args: [code, bound]} | rest], code, paths)
+  defp tests([{:eq, code, bound} | rest], code, paths)
        when is_integer(bound),
        do: tests(rest, code, Enum.map(paths, &(&1 ++ [{:eq, bound}])))
 
-  defp tests([%IR{kind: :branch, args: [left, right]} | rest], code, paths),
+  defp tests([{:branch, left, right} | rest], code, paths),
     do: tests(left ++ rest, code, paths) ++ tests(right ++ rest, code, paths)
 
-  defp tests([%IR{kind: :direct, name: :eq} | rest], code, paths), do: tests(rest, code, paths)
+  defp tests([{:eq, _, _} | rest], code, paths), do: tests(rest, code, paths)
   defp tests(_, _, _), do: unsupported()
 
   defp no_collection_class(pattern, state) do
     Enum.reduce([:list, :string], state, fn class, state ->
       rows = AL.Object.scan_class(pattern, class, state.branch)
       require!(rows == [])
-      put_in(state.classes[{pattern, class}], rows)
+      put_in(state.dependencies[{:class, {pattern, class}}], rows)
     end)
   end
 

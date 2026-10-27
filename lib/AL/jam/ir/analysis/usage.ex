@@ -1,5 +1,5 @@
 defmodule AL.JAM.IR.Usage do
-  alias AL.JAM.IR
+  alias AL.JAM.Instruction
   alias AL.JAM.IR.Program
 
   defstruct reads: MapSet.new(),
@@ -9,7 +9,7 @@ defmodule AL.JAM.IR.Usage do
             scope: :current
 
   def operation(operation, inference \\ nil) do
-    variables = IR.variables(operation)
+    variables = Instruction.variables(operation)
     preserves = preserved(operation)
 
     writes =
@@ -22,7 +22,7 @@ defmodule AL.JAM.IR.Usage do
       reads: MapSet.difference(variables, writes),
       writes: writes,
       escapes:
-        if(match?(%IR{kind: :direct, name: :is_var}, operation),
+        if(match?({:is_var, _}, operation),
           do: MapSet.new(),
           else: variables
         ),
@@ -36,6 +36,39 @@ defmodule AL.JAM.IR.Usage do
       merge(usage, operation(operation))
     end)
   end
+
+  def for_layout(items, slots, analysis) do
+    Enum.flat_map(items, fn
+      {:instruction, id, instruction} ->
+        usage =
+          instruction
+          |> operation(analysis.inference[id])
+          |> registers(slots)
+
+        [usage]
+
+      {:try, _alternative} ->
+        preserved = slots |> Map.values() |> Enum.filter(&is_integer/1) |> MapSet.new()
+        [%__MODULE__{preserves: preserved}]
+
+      {:jump, _target} ->
+        [%__MODULE__{}]
+
+      {:label, _name} ->
+        []
+
+      {:condition, condition, yes, no} ->
+        yes_usage = for_layout(yes, slots, analysis)
+        condition_usage = for_layout(condition, slots, analysis) ++ [merge_all(yes_usage)]
+        no_usage = for_layout(no, slots, analysis)
+        [merge(merge_all(condition_usage), merge_all(no_usage))]
+
+      :fail ->
+        [%__MODULE__{}]
+    end)
+  end
+
+  defp merge_all(usages), do: Enum.reduce(usages, %__MODULE__{}, &merge/2)
 
   def merge(left, right) do
     %__MODULE__{
@@ -64,10 +97,10 @@ defmodule AL.JAM.IR.Usage do
     end)
   end
 
-  defp preserved(%IR{kind: :scope, name: :forall} = operation), do: IR.variables(operation)
+  defp preserved({:forall, nil, _, nil, _} = operation), do: Instruction.variables(operation)
 
   defp preserved(operation) do
-    Enum.reduce(operation.regions, MapSet.new(), fn {_, program}, found ->
+    Enum.reduce(Instruction.regions(operation), MapSet.new(), fn {_, program}, found ->
       MapSet.union(found, region(program).preserves)
     end)
   end

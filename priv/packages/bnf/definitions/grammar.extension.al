@@ -140,13 +140,14 @@ grammar >> goal_items
 | _Self _Receiver var _Args [written] |.
 
 grammar >> goal_items
-| _Self _Receiver Name _Args [] |
+| Self Receiver Name Args Items |
 dif Name match_pattern,
 dif Name sequence,
 dif Name call_next_method,
 dif Name send,
 dif Name =,
-dif Name var.
+dif Name var,
+{= Args [Grammar, _Input, _Rest . Arguments], == Grammar Receiver} -> call_items Self Name Arguments Items ; = Items [].
 
 grammar >> call_items
 | Self Name Arguments Items |

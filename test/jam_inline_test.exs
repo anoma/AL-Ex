@@ -1,4 +1,5 @@
 defmodule AL.JAM.InlineTest do
+  alias AL.JAM.IR.Normalize
   use ExUnit.Case, async: true
   alias AL.{Goal, Var}
   alias AL.JAM.IR.{Inline, Program, Selection}
@@ -17,7 +18,7 @@ defmodule AL.JAM.InlineTest do
     do: %Goal.Call{head: head, body: body, args: head}
 
   defp inline(goals, observable \\ MapSet.new([{:"$var", "Output"}])),
-    do: goals |> Program.lower() |> Inline.callables(observable)
+    do: goals |> Normalize.lower() |> Inline.callables(observable)
 
   test "known identity calls disappear and numeric tests fuse across their boundaries" do
     goals = [
@@ -27,11 +28,11 @@ defmodule AL.JAM.InlineTest do
     ]
 
     selected = goals |> inline() |> Selection.select()
-    refute Program.any?(selected, &(&1.kind == :callable))
-    assert Program.any?(selected, &(&1.kind == :machine))
+    refute Program.any?(selected, &match?({:call, nil, _, _, _}, &1))
+    assert Program.any?(selected, &match?({:numeric_tests, _, _, _}, &1))
 
     for value <- [1, 3, 4, 2, 2.0] do
-      original = run(Program.lower(goals), %{{:"$var", "Output"} => value})
+      original = run(Normalize.lower(goals), %{{:"$var", "Output"} => value})
       optimized = run(selected, %{{:"$var", "Output"} => value})
       assert elem(original, 0) == elem(optimized, 0)
     end
@@ -53,7 +54,7 @@ defmodule AL.JAM.InlineTest do
       %Goal.IsVar{term: {:"$var", "Local"}}
     ]
 
-    for program <- [Program.lower(goals), inline(goals)] do
+    for program <- [Normalize.lower(goals), inline(goals)] do
       assert {:ok, store, _} = run(program)
       assert Var.subst({:"$var", "Output"}, store) == 1
       assert Var.subst({:"$var", "Other"}, store) == 2
@@ -68,7 +69,7 @@ defmodule AL.JAM.InlineTest do
     ]
 
     selected = inline(goals)
-    assert Program.any?(selected, &(&1.kind == :callable))
+    assert Program.any?(selected, &match?({:call, nil, _, _, _}, &1))
     assert {:ok, store, _} = run(selected)
     assert Var.subst({:"$var", "Output"}, store) == 9
   end
@@ -76,7 +77,7 @@ defmodule AL.JAM.InlineTest do
   test "open parameters retain deferred constraints" do
     goals = [callable([%Goal.Dif{a: {:"$var", "Output"}, b: 2}])]
 
-    for program <- [Program.lower(goals), inline(goals)] do
+    for program <- [Normalize.lower(goals), inline(goals)] do
       assert {:ok, store, _} = run(program)
       assert Var.unify({:"$var", "Output"}, 2, store, AL.Branch.head()) == nil
       assert Var.unify({:"$var", "Output"}, 3, store, AL.Branch.head())
@@ -86,7 +87,7 @@ defmodule AL.JAM.InlineTest do
   test "bound structured parameters preserve repeated variable aliases" do
     goals = [callable([%Goal.Eq{a: {:"$var", "Output"}, b: [1, 2]}])]
 
-    for program <- [Program.lower(goals), inline(goals)] do
+    for program <- [Normalize.lower(goals), inline(goals)] do
       assert {:failed, _, _} =
                run(program, %{{:"$var", "Output"} => [{:"$var", "Shared"}, {:"$var", "Shared"}]})
     end
@@ -109,7 +110,7 @@ defmodule AL.JAM.InlineTest do
     ]
 
     for call <- calls do
-      assert Program.any?(inline([call]), &(&1.kind == :callable))
+      assert Program.any?(inline([call]), &match?({:call, nil, _, _, _}, &1))
     end
   end
 end

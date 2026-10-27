@@ -1,5 +1,5 @@
 defmodule AL.JAM.IR.Closure do
-  alias AL.{Goal, JAM.IR}
+  alias AL.Goal
 
   def static?(body) when is_list(body), do: Enum.all?(body, &static_goal?/1)
   def static?(_), do: false
@@ -38,7 +38,7 @@ defmodule AL.JAM.IR.Closure do
         static?(body)
 
       goal ->
-        IR.lower(goal).kind != :unsupported
+        not match?(%Goal.Compound{}, goal) and Goal.compound?(goal)
     end
   end
 end

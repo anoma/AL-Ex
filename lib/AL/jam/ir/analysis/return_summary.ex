@@ -1,4 +1,6 @@
 defmodule AL.JAM.IR.ReturnSummary do
+  alias AL.Goal
+
   @moduledoc """
   Conditional integer return facts for integer-receiver methods.
 
@@ -7,7 +9,6 @@ defmodule AL.JAM.IR.ReturnSummary do
   operations invalidate a clause's guarantees. Cache entries use the existing
   transaction-local dispatch cache and its dependency invalidation boundary.
   """
-  alias AL.JAM.IR
   alias AL.JAM.IR.Program
   alias AL.Var
 
@@ -109,7 +110,7 @@ defmodule AL.JAM.IR.ReturnSummary do
   end
 
   defp walk(program, facts, nodes, calls) do
-    case Program.first(program) do
+    case Program.take_next_instruction(program) do
       :return ->
         {:ok, facts, calls}
 
@@ -124,15 +125,15 @@ defmodule AL.JAM.IR.ReturnSummary do
     end
   end
 
-  defp operation(%IR{kind: :direct, name: :pass}, facts, _), do: {:ok, facts, nil}
-  defp operation(%IR{kind: :compare}, facts, _), do: {:ok, facts, nil}
+  defp operation(:pass, facts, _), do: {:ok, facts, nil}
+  defp operation({:compare, _, _, _}, facts, _), do: {:ok, facts, nil}
 
-  defp operation(%IR{kind: :direct, name: :eq, args: [a, b]}, facts, _) do
+  defp operation({:eq, a, b}, facts, _) do
     next = facts |> bind(a, expression(b, facts)) |> bind(b, expression(a, facts))
     {:ok, next, nil}
   end
 
-  defp operation(%IR{kind: :send, name: selector, args: [receiver, args]}, facts, nodes)
+  defp operation({:send, nil, receiver, selector, args}, facts, nodes)
        when is_atom(selector) and is_list(args) do
     if proper?(args) and type(receiver, facts) == :integer do
       terms = [receiver | args]
@@ -156,7 +157,7 @@ defmodule AL.JAM.IR.ReturnSummary do
 
   defp operation(_, _, _), do: :unknown
 
-  defp expression(%AL.Goal.Compound{name: op, args: args}, facts) when op in [:+, :-, :*] do
+  defp expression(%Goal.Compound{name: op, args: args}, facts) when op in [:+, :-, :*] do
     if proper?(args) and length(args) == 2 and
          Enum.all?(args, &(expression(&1, facts) == :integer)),
        do: :integer,

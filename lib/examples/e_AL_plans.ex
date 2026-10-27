@@ -40,6 +40,16 @@ defmodule Examples.ALPlans do
     )
   end
 
+  defp original(branch, selector) do
+    {:atomic, compiled} =
+      :mnesia.transaction(fn ->
+        {:ok, _, method} = AL.Dispatch.target(%{class: :query_probe}, selector, branch)
+        AL.JAM.Compiler.fetch_method(method, branch)
+      end)
+
+    compiled
+  end
+
   example known_facts_eliminate_a_chain_of_calls_and_its_atom_filter() do
     with_branch(fn branch ->
       receiver = %{class: :query_probe}
@@ -49,8 +59,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :pipeline), branch)
         end)
 
-      assert plan.inlined == 2
-      assert length(elem(plan.compiled, 0)) == 1
+      assert length(elem(plan.code, 0)) == 1
 
       assert {:atomic, {%{"$Output" => :token}, _, _}} =
                run(:pipeline, [{:"$var", "Output"}], branch)
@@ -80,6 +89,54 @@ defmodule Examples.ALPlans do
       for selector <- [:calculated, :constrained] do
         assert {:atomic, {%{"$Output" => [5, :number]}, _, _}} =
                  run(selector, [{:"$var", "Output"}], branch)
+      end
+    end)
+  end
+
+  example plans_keep_simplifications_without_inlining_and_skip_unchanged_code() do
+    with_branch(fn branch ->
+      %AL{result: {:atomic, _}} =
+        AL.run(
+          ~S"""
+          query_probe >> checked_atom
+          | _Self Input Output |
+          atom Input,
+          = Output Input.
+          query_probe >> checked_ground
+          | _Self Input Output |
+          ground Input,
+          = Output Input.
+          """,
+          branch
+        )
+
+      receiver = %{class: :query_probe}
+      output = AL.Var.var("Output")
+
+      {:atomic, plan} =
+        :mnesia.transaction(fn ->
+          AL.JAM.IR.Plan.compile(
+            AL.JAM.IR.Call.new(receiver, :checked_atom, [:token, output]),
+            branch
+          )
+        end)
+
+      assert plan.code != nil
+      [clause] = elem(plan.code, 0)
+      refute Enum.any?(Tuple.to_list(clause.code), &match?({:primitive, :atom, _}, &1))
+
+      {:atomic, unchanged} =
+        :mnesia.transaction(fn ->
+          AL.JAM.IR.Plan.compile(
+            AL.JAM.IR.Call.new(receiver, :checked_ground, [AL.Var.var("Input"), output]),
+            branch
+          )
+        end)
+
+      assert unchanged.code == original(branch, :checked_ground)
+
+      for selector <- [:checked_atom, :checked_ground] do
+        assert {:atomic, {%{"$Output" => :token}, _, _}} = run(selector, [:token, output], branch)
       end
     end)
   end
@@ -130,8 +187,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :route), branch)
         end)
 
-      assert plan.inlined >= 4
-      [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
+      [%AL.JAM.CompiledClause{code: code}] = elem(plan.code, 0)
       assert tuple_size(code) == 1
 
       assert {:atomic, {%{"$Output" => :answer}, _, _}} =
@@ -217,6 +273,62 @@ defmodule Examples.ALPlans do
     end)
   end
 
+  example class_query_dependencies_invalidate_after_reclassification() do
+    with_branch(fn branch ->
+      %AL{result: {:atomic, _}} =
+        AL.run(
+          ~S"""
+          vm_set_class query_marker list.
+          query_probe >> class_name
+          | Self Output |
+          read_class Self Output.
+          query_probe >> read_class
+          | _Self Output |
+          class query_marker Class,
+          = Output Class.
+          """,
+          branch
+        )
+
+      {:atomic, plan} =
+        :mnesia.transaction(fn ->
+          AL.JAM.IR.Plan.compile(
+            AL.JAM.IR.Call.new(%{class: :query_probe}, :class_name),
+            branch
+          )
+        end)
+
+      assert plan.code != nil
+
+      assert {:atomic, true} =
+               :mnesia.transaction(fn ->
+                 AL.PlanStore.Implementation.valid_dependencies?(plan.dependencies, branch)
+               end)
+
+      for _ <- 1..2 do
+        assert {:atomic, {%{"$Output" => :list}, _, _}} =
+                 run(:class_name, [{:"$var", "Output"}], branch)
+      end
+
+      %AL{result: {:atomic, _}} =
+        AL.run(
+          ~S"""
+          vm_retract_class query_marker list,
+          vm_set_class query_marker string.
+          """,
+          branch
+        )
+
+      assert {:atomic, false} =
+               :mnesia.transaction(fn ->
+                 AL.PlanStore.Implementation.valid_dependencies?(plan.dependencies, branch)
+               end)
+
+      assert {:atomic, {%{"$Output" => :string}, _, _}} =
+               run(:class_name, [{:"$var", "Output"}], branch)
+    end)
+  end
+
   example slot_plans_recheck_ivar_specifications_and_method_overrides() do
     with_branch(fn branch ->
       assert %AL{result: {:atomic, {%{"$Obj" => object}, _, _}}} =
@@ -242,7 +354,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(object, :write_many), branch)
         end)
 
-      assert Enum.any?(elem(plan.compiled, 0), fn clause ->
+      assert Enum.any?(elem(plan.code, 0), fn clause ->
                Enum.any?(Tuple.to_list(clause.code), fn
                  {:mutation, :slot_batch, _} -> true
                  _ -> false
@@ -342,7 +454,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(object, :write_map), branch)
         end)
 
-      assert Enum.any?(elem(plan.compiled, 0), fn clause ->
+      assert Enum.any?(elem(plan.code, 0), fn clause ->
                Enum.any?(Tuple.to_list(clause.code), fn
                  {:mutation, :slot_batch, _} -> true
                  _ -> false
@@ -495,8 +607,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :region_route), branch)
         end)
 
-      assert plan.inlined == 2
-      [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
+      [%AL.JAM.CompiledClause{code: code}] = elem(plan.code, 0)
       assert tuple_size(code) == 1
 
       assert {:atomic, {%{"$Output" => :token}, _, _}} =
@@ -529,7 +640,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :region_boundary), branch)
         end)
 
-      [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
+      [%AL.JAM.CompiledClause{code: code}] = elem(plan.code, 0)
       assert tuple_size(code) == 2
 
       assert {:atomic, {%{"$Output" => [:chosen, [:value]]}, _, _}} =
@@ -584,7 +695,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :region_failure), branch)
         end)
 
-      [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
+      [%AL.JAM.CompiledClause{code: code}] = elem(plan.code, 0)
       assert [{:ground, _}, :fail] = Tuple.to_list(code)
       assert {:aborted, _} = run(:region_failure, [:value], branch)
     end)
@@ -618,7 +729,7 @@ defmodule Examples.ALPlans do
     end)
   end
 
-  example rejected_region_expansion_retains_the_profitable_prefix() do
+  example rejected_region_expansion_preserves_all_answers() do
     with_branch(fn branch ->
       %AL{result: {:atomic, _}} =
         AL.run(
@@ -647,8 +758,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :region_fallback), branch)
         end)
 
-      assert plan.inlined == 1
-      assert length(elem(plan.compiled, 0)) == 1
+      assert plan.code == original(branch, :region_fallback)
 
       assert %AL{result: {:atomic, {bindings, _, _}}} =
                AL.run(
@@ -685,8 +795,7 @@ defmodule Examples.ALPlans do
           AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(receiver, :joined), branch)
         end)
 
-      assert plan.inlined >= 3
-      [%AL.JAM.CompiledClause{code: code}] = elem(plan.compiled, 0)
+      [%AL.JAM.CompiledClause{code: code}] = elem(plan.code, 0)
 
       refute Enum.any?(Tuple.to_list(code), fn
                {:send, _, _, _, _} -> true
@@ -764,8 +873,8 @@ defmodule Examples.ALPlans do
           )
         end)
 
-      assert plan.compiled != nil
-      assert map_size(plan.providers) == 1
+      assert plan.code != nil
+      assert Enum.count(plan.dependencies, fn {key, _} -> match?({:providers, _}, key) end) == 1
 
       assert {:atomic, {%{"$Output" => :ok}, _, _}} =
                run(:inherited_wrapper, [[:ok], {:"$var", "Output"}], branch)
@@ -796,7 +905,10 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert {:atomic, false} = :mnesia.transaction(fn -> AL.JAM.IR.Plan.valid?(plan, branch) end)
+      assert {:atomic, false} =
+               :mnesia.transaction(fn ->
+                 AL.PlanStore.Implementation.valid_dependencies?(plan.dependencies, branch)
+               end)
 
       assert %AL{result: {:atomic, {bindings, _, _}}} =
                AL.run(
@@ -814,9 +926,8 @@ defmodule Examples.ALPlans do
     with_branch(fn branch ->
       providers(branch)
       plan = provider_plan(branch)
-      assert plan.compiled != nil
-      assert plan.inlined == 2
-      assert map_size(plan.providers) == 1
+      assert plan.code != nil
+      assert Enum.count(plan.dependencies, fn {key, _} -> match?({:providers, _}, key) end) == 1
 
       assert {:atomic, {%{"$Output" => :ok}, _, _}} =
                run(:inherited, [[:ok], {:"$var", "Output"}], branch)
@@ -857,7 +968,10 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert {:atomic, false} = :mnesia.transaction(fn -> AL.JAM.IR.Plan.valid?(plan, branch) end)
+      assert {:atomic, false} =
+               :mnesia.transaction(fn ->
+                 AL.PlanStore.Implementation.valid_dependencies?(plan.dependencies, branch)
+               end)
 
       assert {:atomic, {%{"$Output" => :changed}, _, _}} =
                run(:inherited, [[:old], {:"$var", "Output"}], branch)
@@ -876,7 +990,10 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert {:atomic, false} = :mnesia.transaction(fn -> AL.JAM.IR.Plan.valid?(plan, branch) end)
+      assert {:atomic, false} =
+               :mnesia.transaction(fn ->
+                 AL.PlanStore.Implementation.valid_dependencies?(plan.dependencies, branch)
+               end)
 
       assert {:atomic, {%{"$Output" => :other}, _, _}} =
                run(:inherited, [[:old], {:"$var", "Output"}], branch)
@@ -897,7 +1014,7 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert provider_plan(branch).compiled != nil
+      assert provider_plan(branch).code != nil
 
       assert %AL{result: {:atomic, {bindings, _, _}}} =
                AL.run(
@@ -926,7 +1043,7 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert provider_plan(branch).compiled == nil
+      assert provider_plan(branch).code == original(branch, :inherited)
 
       assert %AL{result: {:atomic, {bindings, _, _}}} =
                AL.run(
@@ -955,7 +1072,7 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert provider_plan(branch).compiled == nil
+      assert provider_plan(branch).code == original(branch, :inherited)
 
       assert {:atomic, _} =
                run(:inherited, [[:ok], {:"$var", "Output"}], branch)
@@ -971,7 +1088,7 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert provider_plan(branch).compiled == nil
+      assert provider_plan(branch).code == original(branch, :inherited)
 
       assert {:atomic, _} =
                run(:inherited, [[:ok], {:"$var", "Output"}], branch)
@@ -995,7 +1112,7 @@ defmodule Examples.ALPlans do
                  branch
                )
 
-      assert provider_plan(branch).compiled != nil
+      assert provider_plan(branch).code != nil
 
       assert {:atomic, {%{"$Output" => :replacement}, _, _}} =
                run(:inherited, [:ignored, {:"$var", "Output"}], branch)

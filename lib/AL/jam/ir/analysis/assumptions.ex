@@ -31,6 +31,18 @@ defmodule AL.JAM.IR.Assumptions do
   def require(arguments, position, property, value, field_path \\ []),
     do: List.update_at(arguments, position, &put(&1, property, value, field_path))
 
+  @spec fetch(t(), non_neg_integer(), property(), [term()]) :: {:ok, term()} | :error
+  def fetch(arguments, position, property, field_path \\ []),
+    do: fetch_property(Enum.at(arguments, position, %{}), property, field_path)
+
+  defp fetch_property(requirements, property, []), do: Map.fetch(requirements, property)
+
+  defp fetch_property(requirements, property, [field | rest]) do
+    with {:ok, fields} <- Map.fetch(requirements, :fields),
+         {:ok, child} <- Map.fetch(fields, field),
+         do: fetch_property(child, property, rest)
+  end
+
   @spec accepts?(t(), Call.t()) :: boolean()
   def accepts?(arguments, call), do: accepts_arguments?(arguments, call, 0)
 

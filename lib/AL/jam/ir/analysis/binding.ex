@@ -1,4 +1,5 @@
 defmodule AL.JAM.IR.Binding do
+  alias AL.JAM.Instruction
   alias AL.Var
 
   def fresh?(term, exposed),
@@ -17,7 +18,7 @@ defmodule AL.JAM.IR.Binding do
        do: {variable, value}
   end
 
-  def escape(operation, exposed), do: MapSet.union(exposed, AL.JAM.IR.variables(operation))
+  def escape(operation, exposed), do: MapSet.union(exposed, Instruction.variables(operation))
 
   defp candidate(variable, value, exposed) do
     vars = Var.find_vars(value)

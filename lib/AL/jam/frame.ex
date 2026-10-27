@@ -161,7 +161,10 @@ defmodule AL.JAM.Frame do
 
   def keep_return(caller, [{:return_to, _, _, _, _, _} | _] = returns), do: [caller | returns]
 
-  def keep_return({_id, code, pc, _slots}, returns) when pc == tuple_size(code), do: returns
+  def keep_return({id, code, pc, _slots} = caller, returns) when pc == tuple_size(code) do
+    if root_progress(id, pc) != nil, do: [caller | returns], else: returns
+  end
+
   def keep_return(caller, returns), do: [caller | returns]
 
   def transfer_registers(callee_slots, caller_slots, transfers),
@@ -308,10 +311,10 @@ defmodule AL.JAM.Frame do
     returns
     |> Enum.reduce(root_progress(id, pc), fn
       {:return_to, caller, _code, caller_pc, _slots, _transfers}, progress ->
-        root_progress(caller, caller_pc) || progress
+        root_progress(caller, max(caller_pc - 1, 0)) || progress
 
       {caller, _code, caller_pc, _slots}, progress ->
-        root_progress(caller, caller_pc) || progress
+        root_progress(caller, max(caller_pc - 1, 0)) || progress
 
       _, progress ->
         progress
@@ -319,7 +322,7 @@ defmodule AL.JAM.Frame do
     |> then(&(&1 || 0))
   end
 
-  defp root_progress({:root, _scope}, pc), do: div(pc, 2)
+  defp root_progress({:root, _scope}, pc), do: pc
   defp root_progress({:traced, _scope, _seq, id}, pc), do: root_progress(id, pc)
   defp root_progress({:cut_scope, _scope, id}, pc), do: root_progress(id, pc)
   defp root_progress(_id, _pc), do: nil

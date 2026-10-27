@@ -320,7 +320,10 @@ defmodule AL.JAM.Mutation do
   end
 
   defp store_body(body) when AL.Block.is_block(body), do: store_body(Tuple.to_list(body))
-  defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
+
+  defp store_body(body) when is_list(body),
+    do: body |> Goal.goals() |> Enum.map(&Goal.to_stored/1)
+
   defp store_body(body), do: body
 
   defp generative_value_class?(class, branch),

@@ -1,7 +1,9 @@
 defmodule AL.JAM.IR.Dataflow do
+  alias AL.JAM.Instruction
   alias AL.Var
   alias AL.JAM.IR
   alias AL.JAM.IR.Program
+  alias AL.JAM.IR.Program.{Node, Choice, Condition}
 
   defmodule Facts do
     defstruct values: %{}, exposed: MapSet.new(), stable: true
@@ -40,40 +42,20 @@ defmodule AL.JAM.IR.Dataflow do
   end
 
   def eliminate_dead_bindings(%Analysis{} = analysis) do
-    blocks =
-      Map.new(analysis.program.blocks, fn {id, block} ->
-        removable = Map.get(analysis.removable, id, %{})
+    nodes =
+      Map.new(analysis.program.nodes, fn {id, node} ->
+        case {node, Map.fetch(analysis.removable, id)} do
+          {%Node{next: next}, {:ok, variable}} ->
+            if MapSet.member?(analysis.live.out[id], variable),
+              do: {id, node},
+              else: {id, {:next, next}}
 
-        {operations, _live} =
-          block.operations
-          |> Enum.with_index()
-          |> Enum.reverse()
-          |> Enum.reduce(
-            {[],
-             MapSet.union(Map.get(analysis.live.out, id, MapSet.new()), exit_variables(block))},
-            fn {op, index}, {ops, live} ->
-              case Map.fetch(removable, index) do
-                {:ok, variable} ->
-                  if MapSet.member?(live, variable) do
-                    {[op | ops],
-                     MapSet.union(
-                       MapSet.delete(live, variable),
-                       variables(op) |> MapSet.delete(variable)
-                     )}
-                  else
-                    {ops, live}
-                  end
-
-                :error ->
-                  {[op | ops], MapSet.union(live, variables(op))}
-              end
-            end
-          )
-
-        {id, %{block | operations: operations}}
+          _ ->
+            {id, node}
+        end
       end)
 
-    %{analysis.program | blocks: blocks}
+    %{analysis.program | nodes: nodes}
   end
 
   defp walk(stop, stop, facts, state), do: {facts, state}
@@ -87,85 +69,54 @@ defmodule AL.JAM.IR.Dataflow do
     }
 
     state = put_in(state.before[id], facts)
-    block = Map.fetch!(state.program.blocks, id)
 
-    {operations, {facts, uses, defines, removable, inferred}} =
-      block.operations
-      |> Enum.with_index()
-      |> Enum.map_reduce({facts, MapSet.new(), MapSet.new(), %{}, %{}}, fn {op, index},
-                                                                           {facts, uses, defs,
-                                                                            removable,
-                                                                            inferred} ->
-        {op, next, defined, inference} = transfer(op, facts, state.rewrite)
-        reads = MapSet.difference(variables(op), defined)
-        uses = MapSet.union(uses, MapSet.difference(reads, defs))
-
-        removable =
-          case MapSet.to_list(defined) do
-            [variable] -> Map.put(removable, index, variable)
-            _ -> removable
-          end
-
-        {op,
-         {next, uses, MapSet.union(defs, defined), removable, Map.put(inferred, index, inference)}}
-      end)
-
-    state = %{
-      state
-      | uses: Map.put(state.uses, id, uses),
-        defines: Map.put(state.defines, id, defines),
-        removable: Map.put(state.removable, id, removable),
-        inference: Map.put(state.inference, id, inferred),
-        unsafe: state.unsafe or not facts.stable
-    }
-
-    escaped =
-      Enum.reduce(Enum.with_index(operations), state.escaped, fn {op, index}, escaped ->
-        if Map.has_key?(removable, index), do: escaped, else: MapSet.union(escaped, variables(op))
-      end)
-
-    state = %{state | escaped: escaped}
-    state = put_in(state.program.blocks[id], %{block | operations: operations})
-
-    case block.exit do
-      :return ->
-        {facts, state}
-
-      :yield ->
+    case Map.fetch!(state.program.nodes, id) do
+      terminal when terminal in [:return, :yield] ->
         {facts, state}
 
       :fail ->
         {nil, state}
 
-      {:jump, next} ->
+      {:next, next} ->
         walk(next, stop, facts, state)
 
-      {kind, operation, next} when kind in [:call, :execute] ->
-        {operation, facts, _, inference} = transfer(operation, facts, state.rewrite)
+      {:jump, next, _} ->
+        walk(next, stop, facts, state)
+
+      %Node{instruction: instruction, next: next} = node ->
+        {instruction, facts, defined, inference} = transfer(instruction, facts, state.rewrite)
+        reads = MapSet.difference(variables(instruction), defined)
+
+        removable =
+          case MapSet.to_list(defined) do
+            [variable] -> Map.put(state.removable, id, variable)
+            _ -> state.removable
+          end
+
+        escaped =
+          if Map.has_key?(removable, id),
+            do: state.escaped,
+            else: MapSet.union(state.escaped, variables(instruction))
 
         state = %{
           state
-          | unsafe: state.unsafe or not facts.stable,
-            escaped: MapSet.union(state.escaped, variables(operation))
+          | uses: Map.put(state.uses, id, reads),
+            defines: Map.put(state.defines, id, defined),
+            removable: removable,
+            inference: Map.put(state.inference, id, inference),
+            unsafe: state.unsafe or not facts.stable,
+            escaped: escaped
         }
 
-        state = put_in(state.inference[id][:exit], inference)
-        state = put_in(state.program.blocks[id].exit, {kind, operation, next})
-
-        state =
-          put_in(
-            state.uses[id],
-            MapSet.union(uses, MapSet.difference(variables(operation), defines))
-          )
-
+        state = put_in(state.program.nodes[id], %{node | instruction: instruction})
         walk(next, stop, facts, state)
 
-      {:choice, left, right, join} ->
+      %Choice{left: left, right: right, join: join} ->
         {left_facts, state} = walk(left, join, facts, state)
         {right_facts, state} = walk(right, join, facts, state)
         walk(join, stop, merge(left_facts, right_facts), state)
 
-      {:condition, condition, yes, no, join} ->
+      %Condition{condition: condition, then: yes, otherwise: no, join: join} ->
         {condition_facts, state} = walk(condition, nil, facts, state)
         {yes_facts, state} = walk(yes, join, condition_facts, state)
         failed = %{facts | stable: false}
@@ -176,11 +127,16 @@ defmodule AL.JAM.IR.Dataflow do
 
   defp transfer(operation, facts, rewrite) do
     operation =
-      if rewrite and operation.kind in [:direct, :type, :term, :compare, :send, :primitive],
-        do: IR.map_values(operation, &Var.subst(&1, facts.values)),
+      if rewrite and (Instruction.local?(operation) or match?({:send, nil, _, _, _}, operation)),
+        do: Instruction.map_values(operation, &Var.subst(&1, facts.values)),
         else: operation
 
-    operation = if rewrite, do: IR.VirtualObject.specialize(operation), else: operation
+    operation =
+      case rewrite && IR.VirtualObject.specialize(operation) do
+        :unchanged -> operation
+        false -> operation
+        replacement -> replacement
+      end
 
     inference = AL.JAM.IR.Inference.operation(operation, facts.exposed)
     defined = inference.binding
@@ -188,7 +144,7 @@ defmodule AL.JAM.IR.Dataflow do
     operation =
       case defined do
         {variable, value} when rewrite ->
-          IR.operation(:direct, operation.name, [variable, value])
+          bind(operation, variable, value)
 
         _ ->
           operation
@@ -212,6 +168,11 @@ defmodule AL.JAM.IR.Dataflow do
      inference}
   end
 
+  defp bind({:eq, _, _}, variable, value), do: {:eq, variable, value}
+
+  defp bind({:unify_structural, _, _}, variable, value),
+    do: {:unify_structural, variable, value}
+
   defp merge(nil, right), do: right
   defp merge(left, nil), do: left
 
@@ -228,24 +189,19 @@ defmodule AL.JAM.IR.Dataflow do
     }
   end
 
-  defp exit_variables(%{exit: {kind, operation, _}}) when kind in [:call, :execute],
-    do: variables(operation)
-
-  defp exit_variables(_), do: MapSet.new()
-
-  defp variables(operation), do: IR.variables(operation) |> MapSet.delete({:"$var", "_"})
+  defp variables(operation), do: Instruction.variables(operation) |> MapSet.delete({:"$var", "_"})
 
   defp liveness(state, observable) do
-    ids = Program.reachable(state.program)
-    successors = Map.new(ids, fn id -> {id, live_successors(state.program.blocks[id])} end)
+    ids = state.program |> Program.reachable() |> Enum.sort()
+    successors = Map.new(ids, fn id -> {id, live_successors(state.program.nodes[id])} end)
 
     successors =
       Enum.reduce(ids, successors, fn id, edges ->
-        case state.program.blocks[id].exit do
-          {:condition, condition, yes, _, _} ->
+        case state.program.nodes[id] do
+          %Condition{condition: condition, then: yes} ->
             Enum.reduce(Program.reachable(%{state.program | entry: condition}), edges, fn child,
                                                                                           edges ->
-              if state.program.blocks[child].exit == :yield,
+              if state.program.nodes[child] == :yield,
                 do: Map.update!(edges, child, &Enum.uniq([yes | &1])),
                 else: edges
             end)
@@ -261,25 +217,35 @@ defmodule AL.JAM.IR.Dataflow do
     |> Map.put(:successors, successors)
   end
 
-  defp live_successors(%{exit: {:choice, left, right, _}}), do: [left, right]
-  defp live_successors(%{exit: {:condition, condition, _, no, _}}), do: [condition, no]
-  defp live_successors(block), do: Program.successors(block)
+  defp live_successors(%Choice{left: left, right: right}), do: [left, right]
+  defp live_successors(%Condition{condition: condition, otherwise: no}), do: [condition, no]
+  defp live_successors(node), do: Program.successors(node)
 
   defp solve(ids, successors, state, observable, live) do
     next =
       Enum.reduce(ids, live, fn id, live ->
-        seed = if state.program.blocks[id].exit == :return, do: observable, else: MapSet.new()
+        seed = if state.program.nodes[id] == :return, do: observable, else: MapSet.new()
         out = Enum.reduce(successors[id], seed, &MapSet.union(Map.fetch!(live.in, &1), &2))
 
         input =
-          MapSet.union(
-            Map.get(state.uses, id, MapSet.new()),
-            MapSet.difference(out, Map.get(state.defines, id, MapSet.new()))
-          )
+          case Map.fetch(state.removable, id) do
+            {:ok, variable} ->
+              if MapSet.member?(out, variable), do: live_inputs(state, id, out), else: out
+
+            :error ->
+              live_inputs(state, id, out)
+          end
 
         %{in: Map.put(live.in, id, input), out: Map.put(live.out, id, out)}
       end)
 
     if next == live, do: next, else: solve(ids, successors, state, observable, next)
+  end
+
+  defp live_inputs(state, id, out) do
+    MapSet.union(
+      Map.get(state.uses, id, MapSet.new()),
+      MapSet.difference(out, Map.get(state.defines, id, MapSet.new()))
+    )
   end
 end

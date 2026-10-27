@@ -1,4 +1,5 @@
 defmodule AL.JAM.MethodSummaryTest do
+  alias AL.JAM.IR.Normalize
   use ExUnit.Case, async: true
   alias AL.{Goal, Var}
   alias AL.JAM.IR.{MethodSummary, Program}
@@ -8,7 +9,7 @@ defmodule AL.JAM.MethodSummaryTest do
     output = Var.var("Output")
 
     program =
-      Program.lower([AL.JAM.IR.operation(:direct, :unify_structural, [output, %{x: input}])])
+      Normalize.lower([{:unify_structural, output, %{x: input}}])
 
     summary = MethodSummary.infer(program, [input, output], MapSet.new([input]))
     assert summary.inputs == [:unknown, :fresh]
@@ -23,11 +24,11 @@ defmodule AL.JAM.MethodSummaryTest do
   end
 
   test "search and unknown calls cannot become deterministic summaries" do
-    program = Program.lower([%Goal.Or{or: [%Goal.Pass{}], then: [%Goal.Pass{}]}])
+    program = Normalize.lower([%Goal.Or{or: [%Goal.Pass{}], then: [%Goal.Pass{}]}])
     assert MethodSummary.infer(program, [], MapSet.new()).determinism == :unknown
-    program = Program.lower([%Goal.Send{object: :unknown, method: :effect, args: []}])
+    program = Normalize.lower([%Goal.Send{object: :unknown, method: :effect, args: []}])
     refute MethodSummary.transparent?(MethodSummary.infer(program, [], MapSet.new()))
-    summary = MethodSummary.infer(Program.lower([%Goal.Fail{}]), [], MapSet.new())
+    summary = MethodSummary.infer(Normalize.lower([%Goal.Fail{}]), [], MapSet.new())
     assert summary.determinism == :semidet
   end
 
@@ -36,7 +37,7 @@ defmodule AL.JAM.MethodSummaryTest do
     output = Var.var("Output")
 
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: local, b: 4},
         %Goal.Eq{a: output, b: %Goal.Compound{name: :+, args: [local, 1]}}
       ])
@@ -54,7 +55,7 @@ defmodule AL.JAM.MethodSummaryTest do
     local = Var.var("Local")
 
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: local, b: 4},
         %Goal.Send{object: :unknown, method: :effect, args: [local]}
       ])
@@ -71,7 +72,7 @@ defmodule AL.JAM.MethodSummaryTest do
           [%Goal.Eq{a: output, b: 1}, %Goal.Fail{}],
           [%Goal.Or{or: [%Goal.Eq{a: output, b: 1}], then: [%Goal.Eq{a: output, b: 2}]}]
         ] do
-      summary = MethodSummary.infer(Program.lower(body), [output], MapSet.new())
+      summary = MethodSummary.infer(Normalize.lower(body), [output], MapSet.new())
       assert summary.bindings == %{}
       refute summary.determinism == :det
     end

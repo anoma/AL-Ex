@@ -59,7 +59,6 @@ defmodule AL.Goal do
           | AL.Goal.Equal.t()
           | AL.Goal.Variant.t()
           | AL.Goal.CopyTerm.t()
-          | AL.Goal.Compound.t()
           | AL.Goal.StringCodes.t()
           | AL.Goal.AtomString.t()
           | AL.Goal.Atom.t()
@@ -84,6 +83,7 @@ defmodule AL.Goal do
           | AL.Goal.Comment.t()
 
   @type t() :: command() | instructions()
+  @type body() :: [t()]
 
   # Commands ----------------------------------------
   typedstruct enforce: true, module: SetClass do
@@ -261,20 +261,20 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Forall do
-    field(:condition, [AL.Goal.t()])
-    field(:body, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
+    field(:body, AL.Goal.body())
   end
 
   typedstruct enforce: true, module: FindNSols do
     field(:count, AL.Var.t())
     field(:template, AL.Var.t())
-    field(:condition, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
     field(:result, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Findall do
     field(:template, AL.Var.t())
-    field(:condition, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
     field(:result, AL.Var.t())
   end
 
@@ -307,7 +307,7 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Not do
-    field(:condition, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
   end
 
   typedstruct enforce: true, module: Eq do
@@ -419,7 +419,7 @@ defmodule AL.Goal do
 
   typedstruct enforce: true, module: Freeze do
     field(:var, AL.Var.t())
-    field(:goals, [AL.Goal.t()])
+    field(:goals, AL.Goal.body())
   end
 
   typedstruct enforce: true, module: Call do
@@ -603,6 +603,8 @@ defmodule AL.Goal do
     end)
   end
 
+  @statements [:defclass, :extend_class, :clear_method, :defprogram, :defpackage]
+
   @arithmetic [:+, :-, :*, :/, :**, :rem]
   @comparisons [:<, :>, :<=, :>=]
 
@@ -617,8 +619,8 @@ defmodule AL.Goal do
   @spec call_form(term()) :: {atom(), [term()]} | nil
   def call_form(%Compound{name: name, args: args}), do: {name, args}
 
-  def call_form(%Send{object: object, method: method, args: args}) when is_list(args),
-    do: if(named?(method), do: {method, [object | args]})
+  def call_form(%Send{object: object, method: method, args: args} = goal) when is_list(args),
+    do: if(named?(method), do: {method, [object | args]}, else: to_call(goal))
 
   def call_form(%Compare{op: op, a: a, b: b}), do: {op, [a, b]}
   def call_form(%Either{left: left, right: right}), do: {:or, [left, right]}
@@ -640,11 +642,32 @@ defmodule AL.Goal do
   def call_form(%Findall{template: template, condition: condition, result: result}),
     do: {:findall, [template, result, condition]}
 
-  def call_form(%OApply{method_id: method_id, args: args}) when is_list(args) do
-    if named?(method_id) and
-         (method_id in @arithmetic or args == [] or AL.Syntax.primitive?(method_id)),
-       do: {method_id, args}
+  def call_form(%OApply{method_id: method_id, args: args}) do
+    if is_list(args) and named?(method_id) and
+         (method_id in @arithmetic or method_id in @statements or method_id == :defmethod or
+            args == [] or AL.Syntax.primitive?(method_id)),
+       do: {method_id, args},
+       else: {:vm_oapply, [method_id, args]}
   end
+
+  def call_form(%Call{head: head, body: body, args: args}), do: {:call, [head, body, args]}
+
+  def call_form(%Or{or: left, then: right}), do: {:";", [left, right]}
+
+  def call_form(%Implies{condition: condition, then: yes, otherwise: [%Fail{}]}),
+    do: {:->, [condition, yes]}
+
+  def call_form(%Implies{condition: condition, then: yes, otherwise: no}),
+    do: {:";", [[%Compound{name: :->, args: [condition, yes]}], no]}
+
+  def call_form(%SetOapply{object: object, seq: :next, head: head, body: body}),
+    do: {:vm_set_oapply, [object, head, body]}
+
+  def call_form(%SetOapply{object: object, seq: seq, head: head, body: body}),
+    do: {:vm_set_oapply, [object, seq, head, body]}
+
+  def call_form(%SourceScope{capture_id: id, goals: body}), do: {:vm_source_scope, [id, body]}
+  def call_form(%Comment{text: text}), do: {:comment, [text]}
 
   def call_form(%Cut{}), do: {:cut, []}
   def call_form(%Fail{}), do: {:fail, []}
@@ -652,11 +675,23 @@ defmodule AL.Goal do
   def call_form(goal) when is_struct(goal), do: to_call(goal)
   def call_form(_term), do: nil
 
-  @doc "The compound term with this name and these arguments."
-  @spec from_call_form(atom(), [term()]) :: t()
-  def from_call_form(name, args), do: %Compound{name: name, args: args}
+  def to_term(%_{} = goal) do
+    case call_form(goal) do
+      {name, args} -> %Compound{name: name, args: to_term(args)}
+      nil -> goal
+    end
+  end
 
-  @statements [:defclass, :extend_class, :clear_method, :defprogram, :defpackage]
+  def to_term([head | tail]), do: [to_term(head) | to_term(tail)]
+
+  def to_term(block) when AL.Block.is_block(block),
+    do: block |> Tuple.to_list() |> to_term() |> AL.Block.new()
+
+  def to_term(term), do: term
+
+  @doc "The compound term with this name and these arguments."
+  @spec from_call_form(atom(), [term()]) :: Compound.t()
+  def from_call_form(name, args), do: %Compound{name: name, args: args}
 
   @doc "The goal a compound runs as, once it is called."
   @spec lower(term()) :: t()
@@ -667,6 +702,9 @@ defmodule AL.Goal do
   def lower(:cut, []), do: %Cut{}
   def lower(:fail, []), do: %Fail{}
   def lower(:pass, []), do: %Pass{}
+
+  def lower(:";", [%Compound{name: :->} = condition, otherwise]),
+    do: lower(:";", [[condition], otherwise])
 
   def lower(:";", [[%Compound{name: :->, args: [condition, then]}], otherwise]),
     do: %Implies{condition: goals(condition), then: goals(then), otherwise: goals(otherwise)}
@@ -736,13 +774,14 @@ defmodule AL.Goal do
     end
   end
 
-  defp goals(goals) when is_list(goals), do: goals
+  def goals([]), do: []
+  def goals([head | tail]), do: [head |> from_stored() |> lower() | goals(tail)]
 
-  defp goals(goal) do
+  def goals(goal) do
     cond do
       AL.Var.var?(goal) -> goal
-      AL.Block.block?(goal) -> Tuple.to_list(goal)
-      true -> [goal]
+      AL.Block.block?(goal) -> goals(Tuple.to_list(goal))
+      true -> [lower(goal)]
     end
   end
 

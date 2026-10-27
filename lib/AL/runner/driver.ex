@@ -77,7 +77,7 @@ defmodule AL.Runner.Driver do
         child = resume_collection_child(state, child) |> backtrack()
         continue(collect_batch(state, snapshot, count, child, false))
 
-      %AL.Choicepoint{continuations: [{:resume, snapshot} | ahead]} = choice ->
+      %AL.Choicepoint{continuations: [%AL.JAM.Frame{} = snapshot | ahead]} = choice ->
         state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
         snapshot = AL.JAM.with_store(snapshot, store(state))
 
@@ -193,11 +193,11 @@ defmodule AL.Runner.Driver do
     do: if(AL.Var.var?(arg), do: AL.Var.deref(store, arg), else: arg)
 
   defp continuation_goals({:collect_next, snapshot, _, _}), do: AL.JAM.failed_goal(snapshot)
-  defp continuation_goals({:resume, snapshot}), do: AL.JAM.pending_goals(snapshot)
+  defp continuation_goals(%AL.JAM.Frame{} = snapshot), do: AL.JAM.pending_goals(snapshot)
 
   defp start_program(state) do
     choice = state.active_choicepoint
-    continuations = [{:resume, AL.JAM.compile(state.program)}]
+    continuations = [AL.JAM.compile(state.program)]
     %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: continuations}}
   end
 
@@ -224,7 +224,7 @@ defmodule AL.Runner.Driver do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            continuations: [{:resume, snapshot} | state.active_choicepoint.continuations]
+            continuations: [snapshot | state.active_choicepoint.continuations]
         }
     }
   end
@@ -238,7 +238,7 @@ defmodule AL.Runner.Driver do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            continuations: [{:resume, snapshot} | state.active_choicepoint.continuations]
+            continuations: [snapshot | state.active_choicepoint.continuations]
         }
     }
 
@@ -319,7 +319,7 @@ defmodule AL.Runner.Driver do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            continuations: [{:resume, next} | state.active_choicepoint.continuations]
+            continuations: [next | state.active_choicepoint.continuations]
         }
     }
   end
@@ -338,7 +338,7 @@ defmodule AL.Runner.Driver do
     {child_snapshot, cut_scope} = AL.JAM.collection_entry(child_snapshot)
 
     child =
-      collection_child(state, snapshot, [{:resume, child_snapshot}], [{:jam_cut, cut_scope}])
+      collection_child(state, snapshot, [child_snapshot], [{:jam_cut, cut_scope}])
 
     child = if count == 0, do: child, else: continue(child)
     collect_batch(state, snapshot, count, child, true)
@@ -377,7 +377,7 @@ defmodule AL.Runner.Driver do
               | active_choicepoint: %AL.Choicepoint{
                   state.active_choicepoint
                   | store: new_store,
-                    continuations: [{:resume, next} | state.active_choicepoint.continuations]
+                    continuations: [next | state.active_choicepoint.continuations]
                 }
             }
           end
@@ -399,7 +399,7 @@ defmodule AL.Runner.Driver do
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: AL.JAM.snapshot_store(snapshot),
-            continuations: [{:resume, snapshot} | state.active_choicepoint.continuations]
+            continuations: [snapshot | state.active_choicepoint.continuations]
         }
     }
   end
@@ -429,7 +429,7 @@ defmodule AL.Runner.Driver do
       | reductions: state.reductions + steps,
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
-          | continuations: [{:resume, snapshot} | state.active_choicepoint.continuations],
+          | continuations: [snapshot | state.active_choicepoint.continuations],
             store: AL.JAM.snapshot_store(snapshot)
         }
     }
@@ -529,7 +529,7 @@ defmodule AL.Runner.Driver do
           | active_choicepoint: %AL.Choicepoint{
               choice
               | store: next_store,
-                continuations: [{:resume, next} | choice.continuations]
+                continuations: [next | choice.continuations]
             }
         }
     end
@@ -590,7 +590,7 @@ defmodule AL.Runner.Driver do
     %AL.Choicepoint{
       state.active_choicepoint
       | continuations: [
-          {:resume, AL.JAM.without_suspensions(snapshot)}
+          AL.JAM.without_suspensions(snapshot)
           | state.active_choicepoint.continuations
         ],
         progress: AL.JAM.completed_goals(snapshot),
@@ -623,7 +623,7 @@ defmodule AL.Runner.Driver do
 
   defp wake(choice) do
     {suspensions, ready} = AL.JAM.Suspension.ready(choice.suspensions, choice.store)
-    woken = Enum.map(ready, &{:resume, AL.JAM.wake_frame(&1)})
+    woken = Enum.map(ready, &AL.JAM.wake_frame/1)
 
     %AL.Choicepoint{
       choice

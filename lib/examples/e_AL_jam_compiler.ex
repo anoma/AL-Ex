@@ -5,6 +5,114 @@ defmodule Examples.ALJAMCompiler do
   defp evaluate(source, options \\ []),
     do: AL.run(source, %AL.Branch{id: Examples.Support.branch()}, options)
 
+  example named_goal_operands_preserve_constraints_calls_and_alternatives() do
+    source = ~S"""
+    findall [Tag, Pair, Left] Rows {
+      = Args [X, Y],
+      call [A, B] {
+        in_domain A [1, 2],
+        in_domain B [1, 2],
+        all_dif [A, B],
+        label A,
+        label B
+      } Args,
+      = Receiver #{left => X, right => Y},
+      = Selector get,
+      send Receiver Selector [left, Left],
+      = Pair (pair X Y),
+      = Tag first ; = Tag second
+    }.
+    """
+
+    expected = [
+      [:first, %AL.Goal.Compound{name: :pair, args: [1, 2]}, 1],
+      [:second, %AL.Goal.Compound{name: :pair, args: [1, 2]}, 1],
+      [:first, %AL.Goal.Compound{name: :pair, args: [2, 1]}, 2],
+      [:second, %AL.Goal.Compound{name: :pair, args: [2, 1]}, 2]
+    ]
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source, options)
+      assert bindings["$Rows"] == expected
+    end
+  end
+
+  example instruction_rewrites_preserve_scoped_bindings() do
+    source = ~S"""
+    @jam_instruction_probe #{super => value}.
+
+    jam_instruction_probe >> choose
+    | _Self Input Output |
+    dif Input forbidden,
+    = Temporary #{value => Input},
+    get Temporary value Selected,
+    {= Tag first} ; {{= Tag first} ; {= Tag second}},
+    = Output [Tag, Selected].
+
+    findall Output Rows {
+      choose #{class => jam_instruction_probe} Input Output,
+      = Input accepted
+    }.
+    findall Output Rejected {
+      choose #{class => jam_instruction_probe} Input Output,
+      = Input forbidden
+    }.
+    findall [Input, Values] Nested {
+      member [a, b] Input,
+      findall Output Values {choose #{class => jam_instruction_probe} Input Output}
+    }.
+    """
+
+    rows = fn value -> [[:first, value], [:first, value], [:second, value]] end
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source, options)
+      assert bindings["$Rows"] == rows.(:accepted)
+      assert bindings["$Rejected"] == []
+      assert bindings["$Nested"] == [[:a, rows.(:a)], [:b, rows.(:b)]]
+    end
+  end
+
+  example alternative_bindings_reach_the_same_send() do
+    source = ~S"""
+    @jam_node_probe #{super => value}.
+
+    jam_node_probe >> choose
+    | Self X Output |
+    {= X 1} ; {{= X 2} ; {= X 1}},
+    describe Self X Output.
+
+    jam_node_probe >> describe
+    | _Self 1 one |.
+
+    jam_node_probe >> describe
+    | _Self 2 two |.
+
+    findall [X, Output] Rows {
+      choose #{class => jam_node_probe} X Output
+    }.
+    findall X Selected {
+      choose #{class => jam_node_probe} X two
+    }.
+    findall [X, Output] Constrained {
+      dif X 1,
+      choose #{class => jam_node_probe} X Output
+    }.
+    findall [X, Output] Recovered {
+      {= X 9, fail} ; {= X 2},
+      describe #{class => jam_node_probe} X Output
+    }.
+    """
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      assert %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source, options)
+      assert bindings["$Rows"] == [[1, :one], [2, :two], [1, :one]]
+      assert bindings["$Selected"] == [2]
+      assert bindings["$Constrained"] == [[2, :two]]
+      assert bindings["$Recovered"] == [[2, :two]]
+    end
+  end
+
   example transaction_context_survives_calls_mutations_and_collections() do
     source = ~S"""
     @jam_context_probe #{super => object, ivars => [#{name => touched}]}.

@@ -287,8 +287,9 @@ region from loaded IR. The benchmark supplies only the entry receiver and
 selector. The pass checks recursive argument relationships, one-cell
 consumption, character exclusions, stop-clause order, conversions, and inherited
 classification/rejection paths. No grammar selector names occur in the pass.
-`Plan.compile_ir/2` exposes residual IR before register allocation or instruction
-selection. Unsupported source shapes retain ordinary dispatch.
+`Plan.compile_ir/2` returns an `Implementation` with residual IR in `code`, before
+register allocation or instruction selection. Unsupported source shapes retain
+ordinary dispatch.
 
 The inferred classify/scan/ordered-answer/bind blocks now lower to ordinary JAM
 execution. Generic `move`, `get_cons`, `jump`, and `try` instructions provide raw

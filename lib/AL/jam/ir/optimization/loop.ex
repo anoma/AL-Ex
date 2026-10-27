@@ -1,6 +1,7 @@
 defmodule AL.JAM.IR.Loop do
+  alias AL.PlanStore.Implementation
   alias AL.Var
-  alias AL.JAM.IR
+  alias AL.JAM.IR.{Normalize, Program}
 
   defstruct [
     :driver,
@@ -38,16 +39,36 @@ defmodule AL.JAM.IR.Loop do
           is_atom(value)
         end)
 
-      key = {:compiled_loop, id, receiver_key, selector, length(arguments), static}
+      requirements = %{
+        loop: %{
+          receiver: receiver_key,
+          selector: selector,
+          arity: length(arguments),
+          static: static
+        }
+      }
 
-      plan =
-        AL.ResolutionCache.fetch_dispatch(branch, key, fn ->
-          AL.ResolutionCache.fetch_plan(branch, key, &valid?(&1, branch), fn ->
-            compile(receiver_key, selector, arguments, branch)
-          end)
+      implementation =
+        AL.PlanStore.fetch(branch, id, requirements, fn ->
+          case compile(receiver_key, selector, arguments, branch) do
+            nil ->
+              nil
+
+            plan ->
+              %Implementation{
+                code: plan,
+                requirements: requirements,
+                dependencies:
+                  Map.new(plan.dependencies, fn {{receiver, selector}, dependency} ->
+                    {{:method, receiver, selector}, dependency}
+                  end)
+              }
+          end
         end)
 
-      if plan, do: apply(plan, [receiver | arguments], store, branch, budget), else: :fallback
+      if implementation,
+        do: apply(implementation.code, [receiver | arguments], store, branch, budget),
+        else: :fallback
     else
       _ -> :fallback
     end
@@ -177,7 +198,7 @@ defmodule AL.JAM.IR.Loop do
             rec_state = unify(rec_head, rec_call, %{bindings: %{}, guards: []})
 
             if base && rec_state do
-              {paths, analysis} = walk(body, rec_state, analysis)
+              {paths, analysis} = walk(Normalize.lower(body), rec_state, analysis)
 
               descriptions =
                 Enum.map(paths, fn {state, next} ->
@@ -270,24 +291,40 @@ defmodule AL.JAM.IR.Loop do
   end
 
   defp walk(_code, _state, %{fuel: 0}), do: unsupported()
-  defp walk([], _state, _analysis), do: unsupported()
   defp walk(_code, nil, analysis), do: {[], analysis}
 
-  defp walk([operation | rest], state, analysis) do
+  defp walk(program, state, analysis) do
     analysis = %{analysis | fuel: analysis.fuel - 1}
-    resolve = &Var.subst(&1, state.bindings)
 
-    case IR.lower(operation) do
-      %IR{kind: :direct, name: :pass} ->
-        walk(rest, state, analysis)
-
-      %IR{kind: :direct, name: :fail} ->
+    case Program.take_next_instruction(program) do
+      :fail ->
         {[], analysis}
 
-      %IR{kind: :direct, name: :eq, args: [a, b]} ->
+      {:operation, operation, rest} ->
+        walk_operation(operation, rest, state, analysis)
+
+      {:control, %Program.Choice{left: left, right: right}} ->
+        Enum.reduce([left, right], {[], analysis}, fn entry, {paths, analysis} ->
+          {next, analysis} = walk(%{program | entry: entry}, state, analysis)
+          {paths ++ next, analysis}
+        end)
+
+      _ ->
+        unsupported()
+    end
+  end
+
+  defp walk_operation(operation, rest, state, analysis) do
+    resolve = &Var.subst(&1, state.bindings)
+
+    case operation do
+      :pass ->
+        walk(rest, state, analysis)
+
+      {:eq, a, b} ->
         walk(rest, unify(a, b, state), analysis)
 
-      %IR{kind: :direct, name: :dif, args: [a, b]} ->
+      {:dif, a, b} ->
         a = resolve.(a)
         b = resolve.(b)
 
@@ -295,17 +332,11 @@ defmodule AL.JAM.IR.Loop do
           do: walk(rest, state, analysis),
           else: unsupported()
 
-      %IR{kind: :compare, name: op, args: [a, b]} ->
+      {:compare, op, a, b} ->
         state = compare(resolve.(a), resolve.(b), op, state)
         walk(rest, state, analysis)
 
-      %IR{kind: :branch, args: branches} ->
-        Enum.reduce(branches, {[], analysis}, fn code, {paths, analysis} ->
-          {next, analysis} = walk(code ++ rest, state, analysis)
-          {paths ++ next, analysis}
-        end)
-
-      %IR{kind: :send, name: selector, args: [receiver, args]} ->
+      {:send, nil, receiver, selector, args} ->
         receiver = resolve.(receiver)
         selector = resolve.(selector)
         args = resolve.(args)
@@ -323,14 +354,17 @@ defmodule AL.JAM.IR.Loop do
         }
 
         if id == analysis.root do
-          if rest != [], do: unsupported()
+          if Program.take_next_instruction(rest) != :return, do: unsupported()
           {[{state, [receiver | args]}], analysis}
         else
           Enum.reduce(clauses, {[], analysis}, fn {:oapply, _, _, head, body},
                                                   {paths, analysis} ->
             {head, body} = rename(head, body)
             matched = unify(head, [receiver | args], state)
-            {next, analysis} = walk(body ++ rest, matched, analysis)
+
+            {next, analysis} =
+              walk(Program.concat(Normalize.lower(body), rest), matched, analysis)
+
             {paths ++ next, analysis}
           end)
         end

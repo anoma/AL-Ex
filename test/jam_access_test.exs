@@ -107,14 +107,15 @@ defmodule AL.JAM.AccessTest do
 
   test "IR distinguishes deep equality inspection from shallow term access" do
     operations = [
-      {IR.operation(:direct, :eq, [{:"$var", "X"}, {:"$var", "Y"}]), [:shallow, :shallow]},
-      {IR.operation(:term, :functor, [{:"$var", "X"}, {:"$var", "Name"}, {:"$var", "Args"}]),
+      {%AL.Goal.Eq{a: {:"$var", "X"}, b: {:"$var", "Y"}}, [:shallow, :shallow]},
+      {%AL.Goal.Functor{term: {:"$var", "X"}, name: {:"$var", "Name"}, args: {:"$var", "Args"}},
        [:shallow, :shallow, :shallow]},
-      {IR.operation(:primitive, :equal, [{:"$var", "X"}, {:"$var", "Y"}]), [:deep, :deep]}
+      {%AL.Goal.Equal{a: {:"$var", "X"}, b: {:"$var", "Y"}}, [:deep, :deep]}
     ]
 
     for {operation, access} <- operations do
-      assert IR.Inference.operation(operation, MapSet.new()).access == access
+      assert IR.Inference.operation(IR.Normalize.instruction(operation), MapSet.new()).access ==
+               access
     end
 
     slots = {[1, {:"$var", "Value"}], [1, 2]}

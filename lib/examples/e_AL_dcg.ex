@@ -4,7 +4,7 @@ defmodule Examples.ALDCG do
   import ExUnit.Assertions
 
   defp term(source) do
-    {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, term]}]}} =
+    {:ok, %{program: [%AL.Goal.Eq{b: term}]}} =
       AL.Syntax.parse("= _ " <> source <> ".")
 
     AL.Term.map(term, fn leaf ->
@@ -14,13 +14,16 @@ defmodule Examples.ALDCG do
 
   defp statement(source) do
     {:ok, %{program: [statement]}} = AL.Syntax.parse(source)
-    AL.Term.map(statement, fn leaf -> if AL.Var.var?(leaf), do: quoted(leaf), else: leaf end)
+
+    AL.Term.map(AL.Goal.to_term(statement), fn leaf ->
+      if AL.Var.var?(leaf), do: quoted(leaf), else: leaf
+    end)
   end
 
   defp clause(source) do
     {:ok, %{program: [_clear, method]}} = AL.Syntax.parse(source)
 
-    AL.Term.map(method, fn leaf ->
+    AL.Term.map(AL.Goal.to_term(method), fn leaf ->
       if AL.Var.var?(leaf), do: quoted(leaf), else: leaf
     end)
   end
@@ -402,7 +405,7 @@ defmodule Examples.ALDCG do
         }
       )
 
-    {:ok, %{program: [%AL.Goal.Compound{name: :=, args: [_, decoded]}]}} =
+    {:ok, %{program: [%AL.Goal.Eq{b: decoded}]}} =
       AL.Syntax.parse("= _ " <> escaped <> ".")
 
     assert bindings["$Plain"] == "abc"

@@ -1,6 +1,7 @@
 defmodule Examples.ALPlanAssumptions do
   use ExExample
   import ExUnit.Assertions
+  alias AL.PlanStore.Implementation
   alias AL.JAM.IR.{Assumptions, Call, Plan}
 
   defp install_protocol() do
@@ -93,7 +94,9 @@ defmodule Examples.ALPlanAssumptions do
     output = AL.Var.var("Output")
     call = Call.new(first, :read_selected, [:unused, output])
 
-    assert {:atomic, %Plan{assumptions: requirements, compiled: {_, _}}} =
+    assert {:atomic,
+            %Implementation{requirements: %{arguments: requirements}, code: {_, _}} =
+              implementation} =
              :mnesia.transaction(fn -> Plan.compile(call, branch) end)
 
     assert requirements == [
@@ -104,13 +107,25 @@ defmodule Examples.ALPlanAssumptions do
 
     other_call = Call.new(first, :read_other, [second, :unused, output])
 
-    assert {:atomic, %Plan{assumptions: other_requirements}} =
+    assert {:atomic, %Implementation{requirements: %{arguments: other_requirements}}} =
              :mnesia.transaction(fn -> Plan.compile(other_call, branch) end)
 
     assert other_requirements == [%{} | requirements]
 
-    assert Assumptions.accepts?(requirements, Call.new(second, :read_selected, [7, output]))
-    refute Assumptions.accepts?(requirements, Call.new(third, :read_selected, [7, output]))
+    assert Call.satisfies?(
+             Call.new(second, :read_selected, [7, output]),
+             implementation.requirements
+           )
+
+    refute Call.satisfies?(
+             Call.new(third, :read_selected, [7, output]),
+             implementation.requirements
+           )
+
+    refute Call.satisfies?(
+             Call.new(second, :read_other, [7, output]),
+             implementation.requirements
+           )
 
     compiled = selected(first, :read_selected, branch, [:unused, output])
     assert selected(second, :read_selected, branch, [[1, 2, 3], output]) == compiled
@@ -140,6 +155,117 @@ defmodule Examples.ALPlanAssumptions do
     end
   end
 
+  example rejected_rewrite_observations_do_not_become_requirements() do
+    branch = install_protocol()
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               @assumption_committed #{super => value}.
+               assumption_committed >> payload
+               | Self Output |
+               cut,
+               get Self payload Output.
+               @assumption_committed_other #{super => value}.
+               assumption_committed_other >> payload
+               | Self Output |
+               cut,
+               get Self alternate Output.
+               assumption_probe >> checked_send
+               | _Self Tag Input Output |
+               check_tag #{class => assumption_probe} Tag,
+               payload Input Output.
+               assumption_probe >> check_tag
+               | _Self Tag |
+               atom Tag.
+               """,
+               branch
+             )
+
+    receiver = %{class: :assumption_probe}
+    first = %{class: :assumption_committed, payload: :first}
+    second = %{class: :assumption_probe, payload: :second}
+    third = %{class: :assumption_committed_other, alternate: :third}
+    output = AL.Var.var("Output")
+
+    assert {:atomic, %Implementation{} = implementation} =
+             :mnesia.transaction(fn ->
+               Plan.compile(Call.new(receiver, :checked_send, [:token, first, output]), branch)
+             end)
+
+    assert implementation.requirements.arguments == [%{}, %{value: :token}, %{}, %{}]
+
+    assert Call.satisfies?(
+             Call.new(receiver, :checked_send, [:token, second, output]),
+             implementation.requirements
+           )
+
+    refute Call.satisfies?(
+             Call.new(receiver, :checked_send, [7, first, output]),
+             implementation.requirements
+           )
+
+    first_code = selected(receiver, :checked_send, branch, [:token, first, output])
+    assert selected(receiver, :checked_send, branch, [:token, first, output]) == first_code
+    selected(receiver, :checked_send, branch, [:token, third, output])
+    assert selected(receiver, :checked_send, branch, [:token, first, output]) == first_code
+    refute selected(receiver, :checked_send, branch, [:token, second, output]) == first_code
+
+    source = ~S"""
+    findall Output Answers {
+      member [First, Second, Third] Input,
+      checked_send Receiver token Input Output
+    }.
+    """
+
+    bindings = %{"Receiver" => receiver, "First" => first, "Second" => second, "Third" => third}
+    result = answer(source, branch, bindings: bindings)
+    assert {:ok, %{"$Answers" => [:first, :second, :third]}, _} = result
+    assert result == answer(source, branch, bindings: bindings, trace: [:domino])
+  end
+
+  example locally_established_facts_do_not_require_input_facts() do
+    branch = install_protocol()
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               assumption_probe >> local_payload
+               | _Self Input Output |
+               = Local #{class => assumption_probe, payload => Input},
+               payload Local Output.
+               """,
+               branch
+             )
+
+    receiver = %{class: :assumption_probe}
+    input = AL.Var.var("Input")
+    output = AL.Var.var("Output")
+
+    assert {:atomic, %Implementation{} = implementation} =
+             :mnesia.transaction(fn ->
+               Plan.compile(Call.new(receiver, :local_payload, [input, output]), branch)
+             end)
+
+    assert implementation.requirements.arguments == [%{}, %{}, %{}]
+    compiled = selected(receiver, :local_payload, branch, [input, output])
+
+    for value <- [:token, [1, 2], %{class: :assumption_other, alternate: 7}] do
+      assert Call.satisfies?(
+               Call.new(receiver, :local_payload, [value, output]),
+               implementation.requirements
+             )
+
+      assert selected(receiver, :local_payload, branch, [value, output]) == compiled
+    end
+
+    source = "local_payload Receiver Input Output, = Output 7."
+    bindings = %{"Receiver" => receiver}
+    result = answer(source, branch, bindings: bindings)
+    assert {:ok, %{"$Input" => 7, "$Output" => 7}, _} = result
+    assert result == answer(source, branch, bindings: bindings, trace: [:domino])
+  end
+
   example nested_value_objects_require_the_childs_class_without_freezing_its_payload() do
     branch = install_protocol()
 
@@ -159,7 +285,7 @@ defmodule Examples.ALPlanAssumptions do
     third = %{first | child: %{class: :assumption_other, alternate: :third}}
     output = AL.Var.var("Output")
 
-    assert {:atomic, %Plan{assumptions: requirements}} =
+    assert {:atomic, %Implementation{requirements: %{arguments: requirements}}} =
              :mnesia.transaction(fn ->
                Plan.compile(Call.new(first, :child_payload, [output]), branch)
              end)
@@ -224,7 +350,7 @@ defmodule Examples.ALPlanAssumptions do
     changed = %{second | right: %{class: :assumption_probe, selected: :payload, payload: 9}}
     arguments = [AL.Var.var("Left"), AL.Var.var("Right")]
 
-    assert {:atomic, %Plan{assumptions: requirements}} =
+    assert {:atomic, %Implementation{requirements: %{arguments: requirements}}} =
              :mnesia.transaction(fn ->
                Plan.compile(Call.new(first, :selected_children, arguments), branch)
              end)
@@ -297,7 +423,9 @@ defmodule Examples.ALPlanAssumptions do
     {store, _domain} = AL.Var.add_domain(store, AL.Var.deref(store, key), [:payload])
     call = Call.new(receiver, :selected_child, {:operands, {:constant, [output]}, {}, store})
 
-    assert {:atomic, %Plan{assumptions: requirements, compiled: {_, _}}} =
+    assert {:atomic,
+            %Implementation{requirements: %{arguments: requirements}, code: {_, _}} =
+              implementation} =
              :mnesia.transaction(fn -> Plan.compile(call, branch) end)
 
     assert requirements == [
@@ -313,15 +441,15 @@ defmodule Examples.ALPlanAssumptions do
              %{}
            ]
 
-    assert Assumptions.accepts?(requirements, call)
-    refute Assumptions.accepts?(requirements, %{call | store: %{}})
+    assert Call.satisfies?(call, implementation.requirements)
+    refute Call.satisfies?(%{call | store: %{}}, implementation.requirements)
     assert AL.Var.var?(AL.Var.deref(store, key))
     broad_store = AL.Var.unify(key, alias_key, %{}, branch)
 
     {broad_store, _domain} =
       AL.Var.add_domain(broad_store, AL.Var.deref(broad_store, key), [:payload, :other])
 
-    refute Assumptions.accepts?(requirements, %{call | store: broad_store})
+    refute Call.satisfies?(%{call | store: broad_store}, implementation.requirements)
     constrained_store = AL.Var.add_key(store, child, :selected, key, branch)
 
     constrained_call = %{
@@ -340,7 +468,10 @@ defmodule Examples.ALPlanAssumptions do
       child: %{class: :assumption_probe, selected: :payload, payload: 7}
     }
 
-    assert Assumptions.accepts?(requirements, Call.new(bound, :selected_child, [output]))
+    assert Call.satisfies?(
+             Call.new(bound, :selected_child, [output]),
+             implementation.requirements
+           )
 
     refute Assumptions.accepts?(
              requirements,
@@ -538,8 +669,13 @@ defmodule Examples.ALPlanAssumptions do
     other = %{class: :assumption_probe, payload: :first}
     assumptions = Call.new(receiver, :forward, [other, AL.Var.var("Output")])
 
-    assert {:atomic, %Plan{inlined: 0, compiled: nil}} =
-             :mnesia.transaction(fn -> Plan.compile(assumptions, branch) end)
+    assert {:atomic, :ok} =
+             :mnesia.transaction(fn ->
+               {:ok, _, method} = AL.Dispatch.target(receiver, :forward, branch)
+               original = AL.JAM.Compiler.fetch_method(method, branch)
+               assert Plan.compile(assumptions, branch).code == original
+               :ok
+             end)
 
     source = ~S"""
     findall Output Answers {
