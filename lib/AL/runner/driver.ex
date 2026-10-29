@@ -56,7 +56,7 @@ defmodule AL.Runner.Driver do
             {bindings, constraints} =
               AL.Answer.format(input_vars, result.active_choicepoint.store)
 
-            {bindings, constraints, collect(result, transaction_slots.waits, post_commit_work)}
+            {bindings, constraints, collect(result, post_commit_work)}
           end
         end)
       end)
@@ -125,7 +125,7 @@ defmodule AL.Runner.Driver do
             {bindings, constraints} =
               AL.Answer.format(input_vars, result.active_choicepoint.store)
 
-            {bindings, constraints, collect(result, transaction_slots.waits, post_commit_work)}
+            {bindings, constraints, collect(result, post_commit_work)}
           end
         end)
       end)
@@ -133,21 +133,12 @@ defmodule AL.Runner.Driver do
     post_commit(result)
   end
 
-  defp collect(state, waits, post_commit_work) do
-    commands = transaction_commands(state.tx_id, state.branch)
-
+  defp collect(state, post_commit_work) do
     %{
       state
-      | commands: commands,
-        waits: waits,
-        transaction_work: AL.JAM.TransactionWork.new(),
+      | transaction_work: AL.JAM.TransactionWork.new(),
         post_commit_work: post_commit_work
     }
-  end
-
-  defp transaction_commands(tx_id, branch) do
-    AL.Command.commands_for_transaction(tx_id, branch)
-    |> Enum.sort_by(fn {:command, time, _, _} -> time end)
   end
 
   def notify_outbox({:atomic, {_, _, state}} = result) do
@@ -198,7 +189,7 @@ defmodule AL.Runner.Driver do
 
   defp collect_outcomes({:atomic, {_, _, state}} = result, timeout) do
     children =
-      Enum.map(state.waits, fn handle ->
+      Enum.map(state.post_commit_work.waits, fn handle ->
         AL.Runner.Completion.await(handle, branch: state.branch, timeout: timeout)
       end)
 

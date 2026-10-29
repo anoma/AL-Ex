@@ -96,6 +96,24 @@ defmodule AL.FindNSolsTest do
              AL.run("findall B Answers {solution_batches 0 B}.", branch)
   end
 
+  test "parent alternatives run before the next batch", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Answers" => expected}, _, _}}} =
+             AL.run(
+               "findall [Batch,Y] Answers {findnsols 1 X Batch {member [1,2] X}, member [a,b] Y}.",
+               branch
+             )
+
+    assert expected == [[[1], :a], [[1], :b], [[2], :a], [[2], :b]]
+  end
+
+  test "nested batches resume the inner search", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Answers" => [[[1]], [[2]]]}, _, _}}} =
+             AL.run(
+               "findall Outer Answers {findnsols 1 Batch Outer {findnsols 1 X Batch {member [1,2] X}}}.",
+               branch
+             )
+  end
+
   test "resource exhaustion is not reported as an empty batch", %{branch: branch} do
     assert %AL{result: {:atomic, _}} =
              AL.run(

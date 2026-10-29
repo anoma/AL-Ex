@@ -3,6 +3,12 @@
 AL is an object-oriented logic language. Write AL programs as relations and
 object protocols, not as Elixir control flow expressed through AL syntax.
 
+## Discussion-first workflow
+
+Treat questions, reactions, critiques, and requests for ideas as discussion only.
+Do not edit files or run tests or benchmarks unless I explicitly ask for that action.
+If my wording is ambiguous, discuss the proposed action and wait.
+
 ## Syntax
 
 - AL has its own Prolog-like syntax, read by `AL.Syntax` into compound terms

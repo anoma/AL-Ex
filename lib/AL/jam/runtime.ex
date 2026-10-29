@@ -35,6 +35,9 @@ defmodule AL.JAM.Runtime do
         state = traced(state, fn -> AL.JAM.Trace.fail(scope, :method_fail) end)
         backtrack(%State{state | choicepoint_stack: rest})
 
+      [{:collection_end, _scope} | rest] ->
+        finish_collection(%State{state | choicepoint_stack: rest})
+
       [choice | rest] ->
         state =
           traced(state, fn ->
@@ -73,10 +76,18 @@ defmodule AL.JAM.Runtime do
       %AL.Choicepoint{continuations: []} ->
         state |> traced(&AL.JAM.Trace.flounder/0) |> backtrack()
 
-      %AL.Choicepoint{continuations: [{:collect_next, snapshot, count, child} | ahead]} = choice ->
+      %AL.Choicepoint{continuations: [:collect_answer | ahead]} = choice ->
         state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
-        child = resume_collection_child(state, child) |> backtrack()
-        continue(collect_batch(state, snapshot, count, child, false))
+        continue(collect_answer(state))
+
+      %AL.Choicepoint{continuations: [{:collect_resume, collection} | ahead]} = choice ->
+        state = %State{
+          state
+          | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead},
+            collection: %{collection | outer: state.collection}
+        }
+
+        backtrack(state)
 
       %AL.Choicepoint{continuations: [{:forall_next, snapshot, child} | ahead]} = choice ->
         state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
@@ -199,7 +210,11 @@ defmodule AL.JAM.Runtime do
   defp resolve_arg(arg, store),
     do: if(AL.Var.var?(arg), do: AL.Var.deref(store, arg), else: arg)
 
-  defp continuation_goals({:collect_next, snapshot, _, _}), do: Frame.failed_goal(snapshot)
+  defp continuation_goals(:collect_answer), do: []
+
+  defp continuation_goals({:collect_resume, collection}),
+    do: Frame.failed_goal(collection.snapshot)
+
   defp continuation_goals({:forall_next, snapshot, _}), do: Frame.failed_goal(snapshot)
   defp continuation_goals(%AL.JAM.Frame{} = snapshot), do: Frame.pending_goals(snapshot)
 
@@ -335,24 +350,48 @@ defmodule AL.JAM.Runtime do
     collect_forall(state, snapshot, continue(child), scope)
   end
 
-  defp apply_machine_result({:collect_n, snapshot, choices, steps, count, child}, state)
-       when snapshot.pending != %{} do
-    {:collect_n, Frame.without_suspensions(snapshot), choices, steps, count, child}
-    |> apply_machine_result(state)
-    |> import_machine_suspensions(Frame.pending(snapshot))
-  end
-
   defp apply_machine_result({:collect_n, snapshot, choices, steps, count, child_snapshot}, state) do
     state = install_machine_choices(state, choices)
+    pending = Frame.pending(snapshot)
+    snapshot = Frame.without_suspensions(snapshot)
+    choice = %AL.Choicepoint{state.active_choicepoint | store: Frame.snapshot_store(snapshot)}
+    parent = if pending == %{}, do: choice, else: import_choice_suspensions(choice, pending)
     state = %State{state | reductions: state.reductions + steps}
 
-    {child_snapshot, cut_scope} = collection_entry(child_snapshot)
+    if count == 0 do
+      return_collection(
+        state,
+        %{parent: parent, snapshot: snapshot, outer: state.collection},
+        [],
+        state.choicepoint_stack
+      )
+    else
+      {child_snapshot, cut_scope} = collection_entry(child_snapshot)
 
-    child =
-      collection_child(state, snapshot, [child_snapshot], [{:jam_cut, cut_scope}])
+      collection = %{
+        parent: parent,
+        snapshot: snapshot,
+        count: count,
+        remaining: count,
+        solutions: [],
+        emitted?: false,
+        outer: state.collection,
+        scope: cut_scope
+      }
 
-    child = if count == 0, do: child, else: continue(child)
-    collect_batch(state, snapshot, count, child, true)
+      %State{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            choice
+            | continuations: [child_snapshot, :collect_answer]
+          },
+          choicepoint_stack: [
+            {:jam_cut, cut_scope},
+            {:collection_end, cut_scope} | state.choicepoint_stack
+          ],
+          collection: collection
+      }
+    end
   end
 
   defp apply_machine_result({:collect, snapshot, choices, steps, child, solutions}, state)
@@ -493,15 +532,6 @@ defmodule AL.JAM.Runtime do
     {state, child}
   end
 
-  defp collect_batch(state, snapshot, count, child, first?) do
-    {solutions, child} = take_solutions(child, count, [])
-    {state, child} = handoff_collection(state, child)
-
-    if resource_limited?(child),
-      do: resource_limit_abort(state),
-      else: finish_batch(state, snapshot, count, child, first?, solutions)
-  end
-
   defp begin_forall_trace(state, snapshot) do
     if AL.Trace.enabled?(state.trace, :domino) do
       scope = AL.Scope.fresh()
@@ -588,43 +618,98 @@ defmodule AL.JAM.Runtime do
     end
   end
 
-  defp finish_batch(state, snapshot, count, child, first?, solutions) do
-    if solutions == [] and not first? do
+  defp collect_answer(state) do
+    collection = state.collection
+
+    collection = %{
+      collection
+      | remaining: collection.remaining - 1,
+        solutions: [store(state) | collection.solutions]
+    }
+
+    state = %State{state | collection: collection}
+
+    if collection.remaining > 0 do
+      backtrack(state)
+    else
+      inner_choices =
+        Enum.take_while(state.choicepoint_stack, &(&1 != {:collection_end, collection.scope}))
+
+      choices =
+        if Enum.any?(inner_choices, &match?(%AL.Choicepoint{}, &1)) do
+          next_collection = %{
+            collection
+            | remaining: collection.count,
+              solutions: [],
+              emitted?: true
+          }
+
+          resume = %AL.Choicepoint{
+            collection.parent
+            | continuations: [
+                {:collect_resume, next_collection} | collection.parent.continuations
+              ]
+          }
+
+          [resume | state.choicepoint_stack]
+        else
+          [_boundary | outer_choices] =
+            Enum.drop_while(
+              state.choicepoint_stack,
+              &(&1 != {:collection_end, collection.scope})
+            )
+
+          outer_choices
+        end
+
+      return_collection(state, collection, Enum.reverse(collection.solutions), choices)
+    end
+  end
+
+  defp finish_collection(state) do
+    collection = state.collection
+
+    if resource_limited?(state) or (collection.emitted? and collection.solutions == []) do
+      state = %State{
+        state
+        | collection: collection.outer,
+          active_choicepoint: %AL.Choicepoint{collection.parent | store: nil}
+      }
+
+      backtrack(state)
+    else
+      return_collection(
+        state,
+        collection,
+        Enum.reverse(collection.solutions),
+        state.choicepoint_stack
+      )
+    end
+  end
+
+  defp return_collection(state, collection, solutions, choices) do
+    {next, next_store} =
+      AL.JAM.Collection.collection_continuation(collection.snapshot, solutions, state.branch)
+
+    state = %State{
+      state
+      | collection: collection.outer,
+        choicepoint_stack: choices,
+        active_choicepoint: %AL.Choicepoint{collection.parent | store: next_store}
+    }
+
+    if is_nil(next_store) do
       backtrack(state)
     else
       choice = state.active_choicepoint
 
-      more? =
-        count > 0 and child.active_choicepoint.store != nil and
-          Enum.any?(child.choicepoint_stack, &match?(%AL.Choicepoint{}, &1))
-
-      choices =
-        if more?,
-          do: [
-            %AL.Choicepoint{
-              choice
-              | store: Frame.snapshot_store(snapshot),
-                continuations: [{:collect_next, snapshot, count, child} | choice.continuations]
-            }
-            | state.choicepoint_stack
-          ],
-          else: state.choicepoint_stack
-
-      state = %State{state | choicepoint_stack: choices}
-
-      {next, next_store} =
-        AL.JAM.Collection.collection_continuation(snapshot, solutions, state.branch)
-
-      if is_nil(next_store),
-        do: backtrack(state),
-        else: %State{
-          state
-          | active_choicepoint: %AL.Choicepoint{
-              choice
-              | store: next_store,
-                continuations: [next | choice.continuations]
-            }
-        }
+      %State{
+        state
+        | active_choicepoint: %AL.Choicepoint{
+            choice
+            | continuations: [next | choice.continuations]
+          }
+      }
     end
   end
 

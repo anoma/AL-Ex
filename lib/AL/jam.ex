@@ -30,8 +30,6 @@ defmodule AL.JAM do
       state
       | tx_id: tx_id,
         transaction_object: transaction_object,
-        commands: [],
-        waits: [],
         transaction_work: AL.JAM.TransactionWork.new(),
         post_commit_work: %{}
     }
