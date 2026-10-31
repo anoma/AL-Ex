@@ -1,8 +1,12 @@
 @brick_table
-#{super => [value, brick],
-  ivars => [#{name => columns, default => []},
-            #{name => row_spacing, default => 0},
-            #{name => show_headers, default => true}]}.
+#{
+  super => [value, brick],
+  ivars => [
+    #{default => [], name => columns},
+    #{default => 0, name => row_spacing},
+    #{default => true, name => show_headers}
+  ]
+}.
 
 brick_table >> to_xaml
 | Self Text |

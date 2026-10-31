@@ -1,5 +1,5 @@
 @phlow_builder
-#{super => value, ivars => []}.
+#{super => value}.
 
 phlow_builder >> text
 | _Self phlow_text |.

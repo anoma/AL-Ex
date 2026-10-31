@@ -1,7 +1,7 @@
-@xaml_field_binding
-#{super => xaml_slot}.
+@xaml_field_binding_property
+#{super => xaml_property}.
 
-xaml_field_binding >> to_xaml
+xaml_field_binding_property >> xaml_content
 | Self Text |
 slot_value Self Field,
 xml_escape Self Field Escaped,

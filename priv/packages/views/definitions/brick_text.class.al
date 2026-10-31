@@ -1,7 +1,15 @@
 @brick_text
-#{super => [value, brick],
-  ivars => [#{name => text, default => "text", xaml => xaml_field_binding},
-            #{name => background, default => "Transparent", xaml => xaml_literal}]}.
+#{
+  super => [value, brick],
+  ivars => [
+    #{default => "text", name => text, xaml => xaml_field_binding_property},
+    #{
+      default => "Transparent",
+      name => background,
+      xaml => xaml_literal_property
+    }
+  ]
+}.
 
 brick_text >> xaml_tag
 | _Self "TextBlock" |.

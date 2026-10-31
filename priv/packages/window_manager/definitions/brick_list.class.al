@@ -1,7 +1,13 @@
 @brick_list
 #{
   super => brick,
-  ivars => [#{name => items_source, type => observable_list, xaml => xaml_binding}]
+  ivars => [
+    #{
+      name => items_source,
+      type => observable_list,
+      xaml => xaml_binding_property
+    }
+  ]
 }.
 
 brick_list >> init

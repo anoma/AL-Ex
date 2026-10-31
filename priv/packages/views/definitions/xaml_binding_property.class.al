@@ -1,8 +1,8 @@
-@xaml_binding
-#{super => xaml_slot}.
+@xaml_binding_property
+#{super => xaml_property}.
 
-xaml_binding >> to_xaml
-  | Self Text |
+xaml_binding_property >> xaml_content
+| Self Text |
 get_slots Self #{owner => Owner, spec => Spec},
 get_slots Spec #{name => Slot},
 atom_string Slot RawPath,
