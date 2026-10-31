@@ -1,6 +1,6 @@
 @brick_textbox
 #{
-  super => brick,
+  super => brick_control,
   ivars => [
     #{name => text, type => string, xaml => xaml_binding_property},
     #{

@@ -6,8 +6,7 @@
 
 observable_list >> init
 | Self Items Self |
-set_slots Self #{contents => Items,
-                 changes => []}.
+set_slots Self #{changes => [], contents => Items}.
 
 observable_list >> insert
 | Self Index Item |
@@ -16,8 +15,7 @@ isa Prefix list,
 length Prefix Index,
 concat Prefix Rest Before,
 concat Prefix [Item . Rest] After,
-set_slots Self #{contents => After,
-                 changes => [[add, Index, Item]]}.
+set_slots Self #{changes => [[add, Index, Item]], contents => After}.
 
 observable_list >> remove
 | Self Index |
@@ -26,13 +24,11 @@ isa Prefix list,
 length Prefix Index,
 concat Prefix [_ . Rest] Before,
 concat Prefix Rest After,
-set_slots Self #{contents => After,
-                 changes => [[remove, Index]]}.
+set_slots Self #{changes => [[remove, Index]], contents => After}.
 
 observable_list >> replace
 | Self Items |
-set_slots Self #{contents => Items,
-                 changes => [[reset, Items]]}.
+set_slots Self #{changes => [[reset, Items]], contents => Items}.
 
 observable_list >> map
 | Self Operation |

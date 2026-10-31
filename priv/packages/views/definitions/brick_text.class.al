@@ -1,6 +1,6 @@
 @brick_text
 #{
-  super => [value, brick],
+  super => [value, brick_text_block],
   ivars => [
     #{default => "text", name => text, xaml => xaml_field_binding_property},
     #{

@@ -1,6 +1,6 @@
 @brick_editor
 #{
-  super => brick,
+  super => brick_control,
   ivars => [
     #{
       name => text,
@@ -26,6 +26,20 @@
       name => options,
       type => brick_editor_options,
       xaml => xaml_object_property
+    },
+    #{name => font_size, xaml => xaml_literal_property},
+    #{
+      name => font_family,
+      default => "Fira Code,avares://Aguil/Assets/Fonts#Fira Code",
+      xaml => xaml_literal_property
+    },
+    #{name => padding, xaml => xaml_literal_property},
+    #{name => vertical_scroll_bar_visibility, xaml => xaml_literal_property},
+    #{name => horizontal_scroll_bar_visibility, xaml => xaml_literal_property},
+    #{
+      name => follow_caret,
+      xaml => xaml_literal_property,
+      xaml_name => "editor:Code.FollowCaret"
     }
   ]
 }.

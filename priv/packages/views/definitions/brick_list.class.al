@@ -1,6 +1,6 @@
 @brick_list
 #{
-  super => brick,
+  super => brick_control,
   ivars => [
     #{
       name => items_source,

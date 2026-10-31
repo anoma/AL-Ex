@@ -23,13 +23,9 @@ layout >> placement_changes
 | Self Prev ChangedWindows RemovedWindows |
 get Self windows CurrWindows,
 get Prev windows PrevWindows,
-findall Window ChangedWindows {member CurrWindows Window, not {member PrevWindows Window}},
+findall Window ChangedWindows {member CurrWindows Window, not (member PrevWindows Window)},
 map CurrWindows id CurrIds,
-findall Window RemovedWindows {
-  member PrevWindows Window,
-  id Window WinId,
-  not {member CurrIds WinId}
-}.
+findall Window RemovedWindows {member PrevWindows Window, id Window WinId, not (member CurrIds WinId)}.
 
 layout >> place_window
 | _Self _Wm _Request _NewLayout |
@@ -38,3 +34,8 @@ fail.
 layout >> resize
 | _Self _Wm _NewLayout |
 fail.
+
+layout >> to_xaml
+| _Self Text |
+new brick_workspace #{} Brick,
+to_xaml Brick Text.
