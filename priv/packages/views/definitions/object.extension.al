@@ -1,31 +1,23 @@
 object >> view
 | Self Builder View |
 raw Builder RawBuilder,
-new RawBuilder #{title => "Raw", target => Self} View.
+new RawBuilder #{target => Self, title => "Raw"} View.
+
+object >> view
+| Self _Builder View |
+class Self Class,
+new phlow_views #{priority => 50, selector => class_view, target => Class, title => "meta"} View.
 
 object >> view
 | Self Builder View |
 list Builder ListBuilder,
 class Self Class,
-findall Text Rows {method Class _Name Id, vm_method_source Id _Seq Text _Prov},
-new ListBuilder #{
-  title => "meta",
-  priority => 50,
-  row_spacing => 8,
-  items => Rows,
-  columns => [#{header => "Body", cell => brick_editor_cell, grammar => "al"}]
-} View.
-
-object >> view
-| Self Builder View |
-list Builder ListBuilder,
-class Self Class,
-lambda [X, Res] ToEntry {= Res #{text => X, target => X}},
+lambda [X, Res] ToEntry (= Res #{target => X, text => X}),
 reachable_classes [Class] [] InheritanceChain,
 map InheritanceChain ToEntry Entries,
 new ListBuilder #{
-  title => "Inheritance",
-  priority => 30,
+  columns => [#{cell => brick_text, header => "Class"}],
   items => Entries,
-  columns => [#{header => "Class", cell => brick_text}]
+  priority => 30,
+  title => "Inheritance"
 } View.
