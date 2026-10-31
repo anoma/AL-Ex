@@ -234,7 +234,7 @@ defmodule AL.Package do
   def configured_current?(branch \\ AL.Branch.head()) do
     case Discovery.discover(configured_channels()) do
       {:ok, catalog} ->
-        current_environment?(configured_environment(), branch) and
+        current_environment?(configured_environment(), catalog, branch) and
           channels_current?(catalog.channels, branch)
 
       {:error, _reason} ->
@@ -458,7 +458,7 @@ defmodule AL.Package do
                     added_superclasses: superclasses,
                     foreign_methods: foreign.methods,
                     foreign_superclasses: foreign.superclasses,
-                    snapshot: Snapshot.capture_in_transaction(branch)
+                    snapshot: Snapshot.capture_in_transaction(branch, classes)
                   }}
                else
                  {:error, _reason} = error -> error
@@ -955,7 +955,12 @@ defmodule AL.Package do
     with :ok <- validate_build_closure(final, branch),
          {:ok, old_sources} <- sources_for_builds(current, branch),
          {:ok, new_sources} <- sources_for_builds(final, branch),
-         snapshot <- Snapshot.capture_in_transaction(branch),
+         declared_classes <-
+           (old_sources ++ new_sources)
+           |> Enum.flat_map(& &1.documents)
+           |> Enum.filter(&(&1.kind == :class))
+           |> Enum.map(& &1.owner),
+         snapshot <- Snapshot.capture_in_transaction(branch, declared_classes),
          {:ok, definition_chunks} <-
            AL.Package.Activation.plan(old_sources, new_sources, snapshot),
          {:ok, membership_chunks} <- build_definition_chunks(final, branch),
@@ -1014,13 +1019,6 @@ defmodule AL.Package do
     end)
   end
 
-  defp build_source_documents(_build, %{provider: provider}, branch) when is_atom(provider) do
-    with {:ok, slots} <- package_provider_slots(provider, branch),
-         {:ok, documents} <- parse_provider_documents(provider, slots) do
-      {:ok, documents}
-    end
-  end
-
   defp build_source_documents(
          build,
          %{
@@ -1042,9 +1040,16 @@ defmodule AL.Package do
              added_superclasses: superclasses,
              foreign_methods: foreign.methods,
              foreign_superclasses: foreign.superclasses,
-             snapshot: Snapshot.capture_in_transaction(branch)
+             snapshot: Snapshot.capture_in_transaction(branch, classes)
            }) do
       {:ok, snapshot.documents}
+    end
+  end
+
+  defp build_source_documents(_build, %{provider: provider}, branch) when is_atom(provider) do
+    with {:ok, slots} <- package_provider_slots(provider, branch),
+         {:ok, documents} <- parse_provider_documents(provider, slots) do
+      {:ok, documents}
     end
   end
 
@@ -1139,8 +1144,10 @@ defmodule AL.Package do
     removed ++ changed
   end
 
-  defp current_environment?(requested, branch) do
-    case :mnesia.transaction(fn -> current_environment_in_transaction?(requested, branch) end) do
+  defp current_environment?(requested, catalog, branch) do
+    case :mnesia.transaction(fn ->
+           current_environment_in_transaction?(requested, catalog, branch)
+         end) do
       {:atomic, current?} -> current?
       _ -> false
     end
@@ -1163,12 +1170,20 @@ defmodule AL.Package do
     end
   end
 
-  defp current_environment_in_transaction?(requested, branch) do
+  defp current_environment_in_transaction?(requested, catalog, branch) do
     current = active_builds_in_transaction(branch)
+    sources = MapSet.new(catalog.providers, &{&1.document.name, &1.source_digest})
 
     with true <- Enum.all?(requested, &Map.has_key?(current, &1)),
-         {:ok, _closure} <- active_closure(requested, current, branch, %{}) do
-      true
+         {:ok, closure} <- active_closure(requested, current, branch, %{}) do
+      Enum.all?(closure, fn {package, build} ->
+        with {:ok, %{provider: provider}} <- build_slots(build, branch),
+             {:ok, %{source_digest: digest}} <- package_provider_slots(provider, branch) do
+          MapSet.member?(sources, {package, digest})
+        else
+          _ -> false
+        end
+      end)
     else
       _ -> false
     end
