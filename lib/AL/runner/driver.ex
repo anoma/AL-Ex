@@ -174,8 +174,6 @@ defmodule AL.Runner.Driver do
 
   defp observable_vars(%Goal.Not{}, acc), do: acc
 
-  defp observable_vars(%Goal.Forall{}, acc), do: acc
-
   defp observable_vars(%Goal.Or{or: left, then: right}, acc),
     do: observable_vars(right, observable_vars(left, acc))
 

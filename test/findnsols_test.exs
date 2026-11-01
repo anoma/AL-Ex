@@ -114,6 +114,69 @@ defmodule AL.FindNSolsTest do
              )
   end
 
+  test "a machine batch resumes in a later transaction", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {member [1,2] X}.", branch)
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+    assert %AL{result: {:aborted, _}} = AL.next_solution(second)
+  end
+
+  test "an effectful batch resumes in the current transaction", %{branch: branch} do
+    for trace <- [[], [:vm]] do
+      assert %AL{result: {:atomic, {%{"$R" => [first_transaction]}, _, first}}} =
+               AL.run(
+                 "findnsols 1 Tx R {member [1,2] X, vm_set_slot collection_probe value X, vm_transaction_object Tx}.",
+                 branch,
+                 trace: trace
+               )
+
+      assert first_transaction == first.transaction_object
+
+      assert %AL{result: {:atomic, {%{"$R" => [second_transaction]}, _, second}}} =
+               AL.next_solution(first)
+
+      assert second_transaction == second.transaction_object
+      refute second_transaction == first_transaction
+    end
+  end
+
+  test "a machine batch retains parent suspensions on backtracking", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, _}}} =
+             AL.run(
+               "freeze Y {= Y [2]}, findnsols 1 X R {member [1,2] X}, = Y R.",
+               branch
+             )
+  end
+
+  test "effects created in each batch remain usable", %{branch: branch} do
+    directory =
+      Path.join(System.tmp_dir!(), "al_findnsols_effects_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(directory)
+    on_exit(fn -> File.rm_rf!(directory) end)
+
+    paths =
+      for value <- ["first", "second", "third"] do
+        path = Path.join(directory, value)
+        File.write!(path, value)
+        path
+      end
+
+    assert %AL{result: {:atomic, {%{"$Batches" => batches}, _, _}}} =
+             AL.run(
+               ~S(findall Batch Batches {findnsols 1 Effect Batch {member Paths Path, new effect #{arguments => [Path], operation => read, provider => file} Effect}}.),
+               branch,
+               bindings: %{"Paths" => paths}
+             )
+
+    assert Enum.map(batches, &length/1) == [1, 1, 1]
+
+    for {[effect], value} <- Enum.zip(batches, ["first", "second", "third"]) do
+      assert {:ok, ^value} = AL.await_effect(effect, branch: branch, timeout: 1000)
+    end
+  end
+
   test "resource exhaustion is not reported as an empty batch", %{branch: branch} do
     assert %AL{result: {:atomic, _}} =
              AL.run(

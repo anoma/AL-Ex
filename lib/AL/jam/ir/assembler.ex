@@ -58,16 +58,6 @@ defmodule AL.JAM.IR.Assembler do
       {:collect, Operand.compile(template, slots), Operand.compile(result, slots),
        code(condition, Map.delete(slots, :jam_cursor))}
 
-  def instruction({:forall, _, condition, _, body}, slots) do
-    captures = %{
-      condition: condition |> Program.variables() |> MapSet.to_list(),
-      body: body |> Program.variables() |> MapSet.to_list()
-    }
-
-    {:forall, Operand.compile(captures, slots), code(condition, Map.delete(slots, :jam_cursor)),
-     Map.get(slots, :jam_head_slots, []), body_template(body, slots)}
-  end
-
   def instruction({:negate, condition}, slots),
     do: {:negate, code(condition, Map.delete(slots, :jam_cursor))}
 
@@ -85,7 +75,7 @@ defmodule AL.JAM.IR.Assembler do
     body = code(body, slots)
 
     {:source_scope, id, Operand.compile(source, slots),
-     Tuple.insert_at(body, tuple_size(body), {:mutation, :source_scope_exit, [id]})}
+     Tuple.insert_at(body, tuple_size(body), {:source_scope_exit, id})}
   end
 
   def instruction({:next, :jam_cursor, self, args}, slots) do
@@ -124,21 +114,4 @@ defmodule AL.JAM.IR.Assembler do
     do: Instruction.map_operands(instruction, &Operand.compile(&1, slots))
 
   defp code(program, slots), do: emit(program, slots) |> List.to_tuple()
-
-  defp body_template(body, slots) do
-    variables = body |> Program.variables() |> MapSet.delete({:"$var", "_"}) |> MapSet.to_list()
-    registers = variables |> Enum.with_index() |> Map.new()
-    values = Enum.map(variables, &Operand.compile(&1, slots))
-
-    {registers, values} =
-      case Map.fetch(slots, :jam_cursor) do
-        {:ok, cursor} ->
-          {Map.put(registers, :jam_cursor, length(variables)), values ++ [{:register, cursor}]}
-
-        :error ->
-          {registers, values}
-      end
-
-    {code(body, registers), {:tuple, values}}
-  end
 end

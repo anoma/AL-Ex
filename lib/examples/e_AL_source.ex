@@ -251,8 +251,7 @@ defmodule Examples.ALSource do
        {:"$var", "Arguments"}},
       {:compare, :>, {:"$var", "X"}, 1},
       {:not, [{:get_class, {:"$var", "O"}, :thing}]},
-      {:findall, {:"$var", "X"}, [{:get_class, {:"$var", "X"}, :thing}], {:"$var", "Xs"}},
-      {:forall, [{:get_class, {:"$var", "X"}, :thing}], [{:=, {:"$var", "X"}, 1}]}
+      {:findall, {:"$var", "X"}, [{:get_class, {:"$var", "X"}, :thing}], {:"$var", "Xs"}}
     ]
   end
 end

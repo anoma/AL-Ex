@@ -97,8 +97,6 @@ defmodule AL.JAM.IR.Usage do
     end)
   end
 
-  defp preserved({:forall, nil, _, nil, _} = operation), do: Instruction.variables(operation)
-
   defp preserved(operation) do
     Enum.reduce(Instruction.regions(operation), MapSet.new(), fn {_, program}, found ->
       MapSet.union(found, region(program).preserves)

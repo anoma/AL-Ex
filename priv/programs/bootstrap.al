@@ -1,4 +1,4 @@
-defprogram bootstrap #{deps => [], version => 39}.
+defprogram bootstrap #{deps => [], version => 40}.
 
 vm_set_class class class.
 vm_set_class object class.
@@ -20,10 +20,20 @@ vm_set_oapply defmethod [Self, MethodName, Head, Body] {
   }
 }.
 vm_set_class clear_method behaviour.
-vm_set_oapply clear_method [Self, MethodName] (forall (method Self MethodName Impl) {
+vm_set_oapply clear_method [Self, MethodName] (forall {method Self MethodName Impl} {
     findall Head Heads (clause Impl Head _),
-    forall (member Heads Head) (vm_retract_oapply Impl Head)
+    forall {member Heads Head} {vm_retract_oapply Impl Head}
   }).
+vm_set_class block class.
+vm_set_super block value.
+vm_fresh_id BlockRunMethod.
+vm_set_method block run BlockRunMethod.
+vm_set_class BlockRunMethod behaviour.
+vm_set_oapply BlockRunMethod [Self] (call [Self] Self [Self]).
+vm_fresh_id BlockForallMethod.
+vm_set_method block forall BlockForallMethod.
+vm_set_class BlockForallMethod behaviour.
+vm_set_oapply BlockForallMethod [Condition, Action] (not {run Condition, not {run Action}}).
 
 object >> does_not_understand
 | Self Method Args |
@@ -43,8 +53,8 @@ object >> reorder_clauses
 | Self MethodName Left Right |
 method Self MethodName MethodObject,
 findall [Head, Body] Left (clause MethodObject Head Body),
-forall (member Left [Head, _]) (vm_retract_oapply MethodObject Head),
-forall (member Right [Head, Body]) (vm_set_oapply MethodObject Head Body).
+forall {member Left [Head, _]} {vm_retract_oapply MethodObject Head},
+forall {member Right [Head, Body]} {vm_set_oapply MethodObject Head Body}.
 
 object >> print_object
 | Self Text |
@@ -122,7 +132,7 @@ vm_set_slot Self Key Value.
 
 object >> set_slots
 | Self Slots |
-forall (get Slots Key Value) (set_slot Self Key Value).
+forall {get Slots Key Value} {set_slot Self Key Value}.
 
 object >> get_slots
 | Self Requested |
@@ -182,20 +192,20 @@ object >> retract_existing_facts
 | Self |
 retract_declaration Self,
 findall [N, Id] ExistingMethods (method Self N Id),
-forall (member ExistingMethods [N, Id]) (vm_retract_method Self N Id).
+forall {member ExistingMethods [N, Id]} {vm_retract_method Self N Id}.
 
 object >> retract_declaration
 | Self |
 findall C ExistingClasses (class Self C),
-forall (member ExistingClasses C) (vm_retract_class Self C),
+forall {member ExistingClasses C} {vm_retract_class Self C},
 findall S ExistingSupers (super Self S),
-forall (member ExistingSupers S) (vm_retract_super Self S),
+forall {member ExistingSupers S} {vm_retract_super Self S},
 findall K ExistingAosKeys (slot Self K _),
 vm_cached_ivar_specs Self IvarSpecs,
 ivar_names IvarSpecs DeclaredNames,
 findall K ExistingSoaKeys {member DeclaredNames K, slot Self K _ soa},
 concat ExistingAosKeys ExistingSoaKeys ExistingSlotKeys,
-forall (member ExistingSlotKeys K) (vm_retract_slot Self K).
+forall {member ExistingSlotKeys K} {vm_retract_slot Self K}.
 
 object >> claim_name
 | Self Name |
@@ -248,7 +258,7 @@ findall Spec AddedSpecs {
 },
 findall Name RemovedNames {member OldNames Name, not (member NewNames Name)},
 findall O Instances {isa O Self, label O},
-forall (member Instances O) (reconcile_redefined_instance O AddedSpecs RemovedNames).
+forall {member Instances O} {reconcile_redefined_instance O AddedSpecs RemovedNames}.
 
 class >> delete_class
 | Self |
@@ -259,8 +269,8 @@ retract_existing_facts Self.
 
 object >> reconcile_redefined_instance
 | Self AddedSpecs RemovedNames |
-forall (member RemovedNames Key) (vm_retract_slot Self Key),
-forall (member AddedSpecs Spec) (backfill_ivar Self Spec).
+forall {member RemovedNames Key} {vm_retract_slot Self Key},
+forall {member AddedSpecs Spec} {backfill_ivar Self Spec}.
 
 object >> backfill_ivar
 | Self Spec |
@@ -424,10 +434,10 @@ vm_set_super map object.
 vm_set_class defclass behaviour.
 vm_set_oapply defclass [Name, Metaclass, Super, Ivars, Categories] {
   new Metaclass #{ivars => Ivars, name => Name, super => Super} _,
-  forall (member Categories Category) (import Name Category)
+  forall {member Categories Category} {import Name Category}
 }.
 vm_set_class extend_class behaviour.
-vm_set_oapply extend_class [Name, Supers] (forall (member Supers S) (super Name S -> pass ; vm_set_super Name S)).
+vm_set_oapply extend_class [Name, Supers] (forall {member Supers S} {super Name S -> pass ; vm_set_super Name S}).
 
 object >> examine
 | Self #{
@@ -1168,11 +1178,13 @@ behaviour >> run
 | Self ProvidedArgs |
 vm_oapply Self ProvidedArgs.
 
-@block #{super => value}.
-
 block >> run
 | Self |
 call [Self] Self [Self].
+
+block >> forall
+| Condition Action |
+not {run Condition, not {run Action}}.
 
 @anonymous_method
 #{

@@ -8,7 +8,7 @@ defmodule AL.JAM.Compiler do
     {code, initial_slots} = AL.JAM.IR.Assembler.compile(goals)
 
     %AL.JAM.Frame{
-      id: {:root, 0},
+      descriptor: {:root, 0},
       code: code,
       slots: initial_slots
     }

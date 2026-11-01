@@ -88,7 +88,6 @@ defmodule AL.Syntax do
              :defpackage,
              :findall,
              :findnsols,
-             :forall,
              :not,
              :lambda,
              :spawn,
@@ -1036,10 +1035,6 @@ defmodule AL.Syntax do
   defp call_arguments(:findall, [template, result, block], _start)
        when goal_body(block),
        do: [term(template), term(result), data_goals(block)]
-
-  defp call_arguments(:forall, [condition, block], _start)
-       when goal_body(block),
-       do: [data_goals(condition), data_goals(block)]
 
   defp call_arguments(:not, [condition], _start), do: [data_goals(condition)]
 

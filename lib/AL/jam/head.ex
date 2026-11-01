@@ -292,7 +292,7 @@ defmodule AL.JAM.Head do
         put_elem(registers, index, AL.Var.fresh(name, scope))
       end)
 
-    unify(call, Operand.read(operand, registers), store, registers, branch)
+    unify(AL.Var.subst(call, store), Operand.read(operand, registers), store, registers, branch)
   end
 
   defp dereference(value, store),

@@ -8,7 +8,7 @@ propagator >> init
 | Self Args Self |
 get_slots Args #{input_cells => InputCells, output_cell => OutputCell},
 set_slots Self #{input_cells => InputCells, name => Self, output_cell => OutputCell},
-forall (member InputCells InputCell) (subscribe InputCell Self),
+forall {member InputCells InputCell} {subscribe InputCell Self},
 send_async Self cell_updated [none, none].
 
 propagator >> cell_updated

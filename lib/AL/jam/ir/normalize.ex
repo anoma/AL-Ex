@@ -142,7 +142,7 @@ defmodule AL.JAM.IR.Normalize do
     do: {:relation, :send_async, [object, method, args, future]}
 
   def instruction(%Goal.AssertValidClauseSelf{class: class, head: head}),
-    do: {:mutation, :assert_valid_clause_self, [class, head]}
+    do: {:assert_valid_clause_self, class, head}
 
   def instruction(%Goal.EmitEffect{
         effect: effect,
@@ -150,42 +150,42 @@ defmodule AL.JAM.IR.Normalize do
         operation: operation,
         arguments: arguments
       }),
-      do: {:mutation, :emit_effect, [effect, provider, operation, arguments]}
+      do: {:emit_effect, effect, provider, operation, arguments}
 
-  def instruction(%Goal.Await{target: target}), do: {:mutation, :await, [target]}
+  def instruction(%Goal.Await{target: target}), do: {:await, target}
 
   def instruction(%Goal.SendElixir{pid: pid, message: message}),
-    do: {:mutation, :send_elixir, [pid, message]}
+    do: {:send_elixir, pid, message}
 
   def instruction(%Goal.SetClass{object: object, class: class}),
-    do: {:mutation, :set_class, [object, class]}
+    do: {:set_class, object, class}
 
   def instruction(%Goal.SetSuper{object: object, super: super}),
-    do: {:mutation, :set_super, [object, super]}
+    do: {:set_super, object, super}
 
   def instruction(%Goal.SetMethod{object: object, name: name, id: id}),
-    do: {:mutation, :set_method, [object, name, id]}
+    do: {:set_method, object, name, id}
 
   def instruction(%Goal.SetOapply{object: object, seq: seq, head: head, body: body}),
-    do: {:mutation, :set_oapply, [object, seq, head, body]}
+    do: {:set_oapply, object, seq, head, body}
 
   def instruction(%Goal.SetSlot{object: object, key: key, value: value}),
-    do: {:mutation, :set_slot, [object, key, value]}
+    do: {:set_slot, object, key, value}
 
   def instruction(%Goal.RetractClass{object: object, class: class}),
-    do: {:mutation, :retract_class, [object, class]}
+    do: {:retract_class, object, class}
 
   def instruction(%Goal.RetractSuper{object: object, super: super}),
-    do: {:mutation, :retract_super, [object, super]}
+    do: {:retract_super, object, super}
 
   def instruction(%Goal.RetractMethod{object: object, name: name, id: id}),
-    do: {:mutation, :retract_method, [object, name, id]}
+    do: {:retract_method, object, name, id}
 
   def instruction(%Goal.RetractOapply{object: object, head: head}),
-    do: {:mutation, :retract_oapply, [object, head]}
+    do: {:retract_oapply, object, head}
 
   def instruction(%Goal.RetractSlot{object: object, key: key}),
-    do: {:mutation, :retract_slot, [object, key]}
+    do: {:retract_slot, object, key}
 
   def instruction(%Goal.TransactionSource{tx: tx, text: text, origin: origin}),
     do: {:relation, :transaction_source, [tx, text, origin]}
@@ -226,9 +226,6 @@ defmodule AL.JAM.IR.Normalize do
   def instruction(%Goal.Fail{}), do: :fail
 
   def instruction(%Goal.Cut{}), do: :cut
-
-  def instruction(%Goal.Forall{condition: condition, body: body}),
-    do: {:forall, nil, lower(condition), nil, lower(body)}
 
   def instruction(%Goal.SourceScope{capture_id: id, goals: goals}),
     do: {:source_scope, id, goals, lower(goals)}

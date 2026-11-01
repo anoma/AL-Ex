@@ -12,8 +12,7 @@ defmodule AL.JAM.State do
           AL.Choicepoint.t()
           | {:mark, scope()}
           | {:method_mark, scope()}
-          | {:jam_cut, reference()}
-          | {:collection_end, reference()}
+          | {:cut, reference()}
           | :implies_mark
 
   @type failure_score() :: {non_neg_integer(), 0 | 1, non_neg_integer()}
@@ -24,8 +23,7 @@ defmodule AL.JAM.State do
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
     # The stack of choicepoints, cuts, markers, etc
     field(:choicepoint_stack, [stack_entry()], default: [])
-    # Active batches for collection E.G., for findall
-    field(:collection, map() | nil, default: nil)
+    field(:cut_boundaries, map(), default: %{})
     # ID of the transaction for the AL program
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
     # Object ID for transaction object representing the AL tx 

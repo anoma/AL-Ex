@@ -157,7 +157,7 @@ defmodule Examples.ALLists do
       run(
         ~S"""
         = L [A, B].
-        forall (member L C) (= C 7).
+        forall {member L C} {= C 7}.
         """,
         branch: Examples.Support.branch()
       )
@@ -171,7 +171,7 @@ defmodule Examples.ALLists do
     %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
-        forall (member [1, 2, 3] N) {= Double (* N 2), <= Double 6}.
+        forall {member [1, 2, 3] N} {= Double (* N 2), <= Double 6}.
         = Done true.
         """,
         branch: Examples.Support.branch()

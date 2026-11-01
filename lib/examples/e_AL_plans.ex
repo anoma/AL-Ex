@@ -356,7 +356,7 @@ defmodule Examples.ALPlans do
 
       assert Enum.any?(elem(plan.code, 0), fn clause ->
                Enum.any?(Tuple.to_list(clause.code), fn
-                 {:mutation, :slot_batch, _} -> true
+                 {:slot_batch, _} -> true
                  _ -> false
                end)
              end)
@@ -448,18 +448,6 @@ defmodule Examples.ALPlans do
                  """,
                  branch
                )
-
-      {:atomic, plan} =
-        :mnesia.transaction(fn ->
-          AL.JAM.IR.Plan.compile(AL.JAM.IR.Call.new(object, :write_map), branch)
-        end)
-
-      assert Enum.any?(elem(plan.code, 0), fn clause ->
-               Enum.any?(Tuple.to_list(clause.code), fn
-                 {:mutation, :slot_batch, _} -> true
-                 _ -> false
-               end)
-             end)
 
       assert %AL{result: {:atomic, {_, _, state}}} =
                AL.run("write_map Obj.", branch, bindings: %{"Obj" => object})

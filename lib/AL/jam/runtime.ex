@@ -1,8 +1,30 @@
 defmodule AL.JAM.Runtime do
+  @moduledoc """
+  I hold the runtime
+  """
+
   alias AL.Goal
+  alias AL.JAM.Collection.Cursor
   alias AL.JAM.Frame
   alias AL.JAM.State
   @max_reductions 2_000_000
+
+  @typep machine_result() ::
+           {:ok, term(), non_neg_integer()}
+           | {:answers, term(), list(), non_neg_integer()}
+           | {:waiting, map(), machine_result()}
+           | {:failed, Frame.t() | nil, non_neg_integer()}
+           | {:budget_exhausted, Frame.t(), list(), non_neg_integer()}
+           | {:cut, Frame.t(), list(), non_neg_integer(), term()}
+           | {:commit, Frame.t(), list(), non_neg_integer()}
+           | {:runtime_action, Frame.t(), list(), non_neg_integer(), tuple()}
+           | {:diagnostic, Frame.t(), list(), non_neg_integer(), term()}
+           | {:collect, Frame.t(), list(), non_neg_integer(), term(), list()}
+           | {:collect_n, Frame.t(), list(), non_neg_integer(), non_neg_integer(), Frame.t()}
+           | {:collect_n_yield, Frame.t(), list(), non_neg_integer(), non_neg_integer(),
+              boolean(), term(), list()}
+           | {:collection_end, non_neg_integer()}
+           | {:collection_exhausted, non_neg_integer()}
 
   def execute(state), do: state |> start_program() |> continue() |> finalize_trace()
 
@@ -15,29 +37,37 @@ defmodule AL.JAM.Runtime do
     state = traced(state, &AL.JAM.Trace.abandon/0)
 
     case state.choicepoint_stack do
+      # Search is exhausted, mark failure
       [] ->
         %State{
           state
           | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
         }
 
-      [{:jam_cut, _} | rest] ->
-        backtrack(%State{state | choicepoint_stack: rest})
+      [{:cut, _} = boundary | rest] ->
+        backtrack(%State{
+          state
+          | choicepoint_stack: rest,
+            cut_boundaries: Map.delete(state.cut_boundaries, boundary)
+        })
 
       [:implies_mark | rest] ->
         backtrack(%State{state | choicepoint_stack: rest})
 
-      [{:mark, scope} | rest] ->
+      [{:mark, scope} = boundary | rest] ->
         state = traced(state, fn -> AL.JAM.Trace.fail(scope, :clause_fail) end)
-        backtrack(%State{state | choicepoint_stack: rest})
+
+        backtrack(%State{
+          state
+          | choicepoint_stack: rest,
+            cut_boundaries: Map.delete(state.cut_boundaries, boundary)
+        })
 
       [{:method_mark, scope} | rest] ->
         state = traced(state, fn -> AL.JAM.Trace.fail(scope, :method_fail) end)
         backtrack(%State{state | choicepoint_stack: rest})
 
-      [{:collection_end, _scope} | rest] ->
-        finish_collection(%State{state | choicepoint_stack: rest})
-
+      # Backtrack to next choicepoint
       [choice | rest] ->
         state =
           traced(state, fn ->
@@ -45,7 +75,11 @@ defmodule AL.JAM.Runtime do
             if choice.clause, do: AL.JAM.Trace.chosen(choice.scope_pointer, choice.clause)
           end)
 
-        continue(%State{state | active_choicepoint: choice, choicepoint_stack: rest})
+        continue(%State{
+          state
+          | active_choicepoint: choice,
+            choicepoint_stack: rest
+        })
     end
   end
 
@@ -57,61 +91,76 @@ defmodule AL.JAM.Runtime do
   @spec continue(State.t()) :: State.t() | nil
   defp continue(nil), do: nil
 
+  # Continuation handler
   defp continue(state) do
     state = traced(state, fn -> AL.JAM.Trace.settle(store(state)) end)
 
     case state.active_choicepoint do
+      # Exceeded max reductions, hit resource limit
       _choice when state.reductions > @max_reductions ->
         %State{
           record_resource_limit(state)
           | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
         }
 
+      # Invalid choicepoint, current path failed, backtrack
       %AL.Choicepoint{store: nil} ->
         backtrack(state)
 
+      # No continuations, no suspensions, solution reached
       %AL.Choicepoint{continuations: [], suspensions: suspensions} when suspensions == %{} ->
         state
 
+      # Unwakeable goals, flounder and backtrack
       %AL.Choicepoint{continuations: []} ->
         state |> traced(&AL.JAM.Trace.flounder/0) |> backtrack()
 
-      %AL.Choicepoint{continuations: [:collect_answer | ahead]} = choice ->
-        state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
-        continue(collect_answer(state))
+      # Resume a collection search
+      %AL.Choicepoint{continuations: [%Cursor{} = cursor | ahead]} = choice ->
+        resume_collection_continuation(state, choice, cursor, ahead)
 
-      %AL.Choicepoint{continuations: [{:collect_resume, collection} | ahead]} = choice ->
-        state = %State{
-          state
-          | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead},
-            collection: %{collection | outer: state.collection}
-        }
-
-        backtrack(state)
-
-      %AL.Choicepoint{continuations: [{:forall_next, snapshot, child} | ahead]} = choice ->
-        state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
-        {state, scope} = begin_forall_trace(state, snapshot)
-        child = resume_collection_child(state, child) |> backtrack()
-        continue(collect_forall(state, snapshot, child, scope))
-
-      %AL.Choicepoint{continuations: [%AL.JAM.Frame{} = snapshot | ahead]} = choice ->
-        state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
-        snapshot = Frame.with_store(snapshot, store(state))
-
-        {result, trace} =
-          AL.JAM.Trace.run(state.trace, fn ->
-            AL.JAM.resume(
-              snapshot,
-              state.branch,
-              @max_reductions - state.reductions,
-              machine_context(state)
-            )
-          end)
-
-        state = %State{state | trace: trace}
-        continue(apply_machine_result(result, release_machine_suspensions(state)))
+      # Instruction
+      %AL.Choicepoint{continuations: [%AL.JAM.Frame{} = frame | ahead]} = choice ->
+        resume_frame_continuation(state, choice, frame, ahead)
     end
+  end
+
+  defp resume_collection_continuation(state, choice, %Cursor{driver: nil} = cursor, ahead),
+    do: resume_machine_collection(state, choice, cursor, ahead)
+
+  defp resume_collection_continuation(
+         state,
+         choice,
+         %Cursor{parent: snapshot, choices: choices, count: count, driver: driver},
+         ahead
+       ) do
+    state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
+    collection = %{parent: driver.choicepoint, snapshot: snapshot, count: count, emitted?: true}
+    child = collection_child(state, snapshot, [], choices, driver.trace)
+    continue(collect_batch(state, collection, backtrack(child)))
+  end
+
+  defp resume_frame_continuation(state, choice, frame, ahead),
+    do: run_machine_continuation(state, choice, Frame.with_store(frame, store(state)), ahead)
+
+  defp resume_machine_collection(state, choice, cursor, ahead),
+    do: run_machine_continuation(state, choice, cursor, ahead)
+
+  defp run_machine_continuation(state, choice, snapshot, ahead) do
+    state = %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: ahead}}
+
+    {result, trace} =
+      AL.JAM.Trace.run(state.trace, fn ->
+        resume(
+          snapshot,
+          state.branch,
+          @max_reductions - state.reductions,
+          machine_context(state)
+        )
+      end)
+
+    state = %State{state | trace: trace}
+    continue(apply_machine_result(result, release_machine_suspensions(state)))
   end
 
   defp record_resource_limit(state),
@@ -210,18 +259,15 @@ defmodule AL.JAM.Runtime do
   defp resolve_arg(arg, store),
     do: if(AL.Var.var?(arg), do: AL.Var.deref(store, arg), else: arg)
 
-  defp continuation_goals(:collect_answer), do: []
-
-  defp continuation_goals({:collect_resume, collection}),
-    do: Frame.failed_goal(collection.snapshot)
-
-  defp continuation_goals({:forall_next, snapshot, _}), do: Frame.failed_goal(snapshot)
-  defp continuation_goals(%AL.JAM.Frame{} = snapshot), do: Frame.pending_goals(snapshot)
-
   defp start_program(state) do
     choice = state.active_choicepoint
     continuations = [AL.JAM.Compiler.compile_root(state.program)]
-    %State{state | active_choicepoint: %AL.Choicepoint{choice | continuations: continuations}}
+
+    %State{
+      state
+      | active_choicepoint: %AL.Choicepoint{choice | continuations: continuations},
+        cut_boundaries: index_cut_boundaries(state.choicepoint_stack)
+    }
   end
 
   defp machine_context(state),
@@ -238,12 +284,14 @@ defmodule AL.JAM.Runtime do
     }
 
   defp apply_machine_result({:cut, snapshot, [], steps, scope}, state) do
-    remaining = Enum.drop_while(state.choicepoint_stack, &(&1 != scope))
+    remaining = Map.fetch!(state.cut_boundaries, scope)
+    cut_boundaries = discard_cut_boundaries(state.choicepoint_stack, scope, state.cut_boundaries)
 
     %State{
       state
       | reductions: state.reductions + steps,
         choicepoint_stack: remaining,
+        cut_boundaries: cut_boundaries,
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: Frame.snapshot_store(snapshot),
@@ -252,7 +300,10 @@ defmodule AL.JAM.Runtime do
     }
   end
 
-  defp apply_machine_result({:mutation, snapshot, choices, steps, operation, arguments}, state) do
+  defp apply_machine_result(
+         {:runtime_action, snapshot, choices, steps, action},
+         state
+       ) do
     state = install_machine_choices(state, choices)
 
     state = %State{
@@ -265,7 +316,7 @@ defmodule AL.JAM.Runtime do
         }
     }
 
-    AL.JAM.Mutation.execute(operation, arguments, state)
+    AL.JAM.Mutation.execute(action, state)
   end
 
   defp apply_machine_result({:diagnostic, snapshot, choices, steps, diagnostic}, state) do
@@ -326,72 +377,47 @@ defmodule AL.JAM.Runtime do
     do: result |> apply_machine_result(state) |> import_machine_suspensions(pending)
 
   defp apply_machine_result({kind, snapshot, choices, steps}, state)
-       when kind in [:suspend, :commit] and snapshot.pending != %{} do
+       when kind in [:budget_exhausted, :commit] and snapshot.pending != %{} do
     {kind, Frame.without_suspensions(snapshot), choices, steps}
     |> apply_machine_result(state)
     |> import_machine_suspensions(Frame.pending(snapshot))
   end
 
-  defp apply_machine_result({:forall, snapshot, choices, steps, child_snapshot}, state) do
-    state = install_machine_choices(state, choices)
+  defp apply_machine_result({:collect_n, snapshot, choices, steps, count, child_snapshot}, state) do
+    start_driver_collection(
+      state,
+      snapshot,
+      choices,
+      steps,
+      count,
+      false,
+      {:entry, child_snapshot}
+    )
+  end
 
+  defp apply_machine_result(
+         {:collect_n_yield, snapshot, choices, steps, count, emitted?, child_result, solutions},
+         state
+       ) do
+    start_driver_collection(
+      state,
+      snapshot,
+      choices,
+      steps,
+      count,
+      emitted?,
+      {:yield, child_result, solutions}
+    )
+  end
+
+  defp apply_machine_result({:collection_exhausted, steps}, state) do
     state = %State{
       state
       | reductions: state.reductions + steps,
-        active_choicepoint: %AL.Choicepoint{
-          state.active_choicepoint
-          | store: Frame.snapshot_store(snapshot)
-        }
+        active_choicepoint: %AL.Choicepoint{state.active_choicepoint | store: nil}
     }
 
-    {child_snapshot, cut_scope} = collection_entry(child_snapshot)
-    child = collection_child(state, snapshot, [child_snapshot], [{:jam_cut, cut_scope}])
-    {state, scope} = begin_forall_trace(state, snapshot)
-    collect_forall(state, snapshot, continue(child), scope)
-  end
-
-  defp apply_machine_result({:collect_n, snapshot, choices, steps, count, child_snapshot}, state) do
-    state = install_machine_choices(state, choices)
-    pending = Frame.pending(snapshot)
-    snapshot = Frame.without_suspensions(snapshot)
-    choice = %AL.Choicepoint{state.active_choicepoint | store: Frame.snapshot_store(snapshot)}
-    parent = if pending == %{}, do: choice, else: import_choice_suspensions(choice, pending)
-    state = %State{state | reductions: state.reductions + steps}
-
-    if count == 0 do
-      return_collection(
-        state,
-        %{parent: parent, snapshot: snapshot, outer: state.collection},
-        [],
-        state.choicepoint_stack
-      )
-    else
-      {child_snapshot, cut_scope} = collection_entry(child_snapshot)
-
-      collection = %{
-        parent: parent,
-        snapshot: snapshot,
-        count: count,
-        remaining: count,
-        solutions: [],
-        emitted?: false,
-        outer: state.collection,
-        scope: cut_scope
-      }
-
-      %State{
-        state
-        | active_choicepoint: %AL.Choicepoint{
-            choice
-            | continuations: [child_snapshot, :collect_answer]
-          },
-          choicepoint_stack: [
-            {:jam_cut, cut_scope},
-            {:collection_end, cut_scope} | state.choicepoint_stack
-          ],
-          collection: collection
-      }
-    end
+    backtrack(state)
   end
 
   defp apply_machine_result({:collect, snapshot, choices, steps, child, solutions}, state)
@@ -406,7 +432,8 @@ defmodule AL.JAM.Runtime do
     state = %State{state | reductions: state.reductions + steps}
     child = collection_child(state, snapshot, [], [])
     child = continue(apply_machine_result(child_result, child))
-    {solutions, child} = take_solutions(child, :all, solutions)
+    limit = if match?({:negate, _}, elem(snapshot.code, snapshot.pc)), do: 1, else: :all
+    {solutions, child} = take_solutions(child, limit, solutions)
     {state, child} = handoff_collection(state, child)
 
     collected = if resource_limited?(child), do: :resource_limit_exceeded, else: {:ok, solutions}
@@ -438,10 +465,14 @@ defmodule AL.JAM.Runtime do
     state = install_machine_choices(state, choices)
     [_mark | remaining] = Enum.drop_while(state.choicepoint_stack, &(&1 != :implies_mark))
 
+    cut_boundaries =
+      discard_cut_boundaries(state.choicepoint_stack, :implies_mark, state.cut_boundaries)
+
     %State{
       state
       | reductions: state.reductions + steps,
         choicepoint_stack: remaining,
+        cut_boundaries: cut_boundaries,
         active_choicepoint: %AL.Choicepoint{
           state.active_choicepoint
           | store: Frame.snapshot_store(snapshot),
@@ -467,7 +498,7 @@ defmodule AL.JAM.Runtime do
     }
   end
 
-  defp apply_machine_result({:suspend, snapshot, choices, steps}, state) do
+  defp apply_machine_result({:budget_exhausted, snapshot, choices, steps}, state) do
     state = install_machine_choices(state, choices)
 
     %State{
@@ -481,7 +512,39 @@ defmodule AL.JAM.Runtime do
     }
   end
 
-  defp collection_child(state, snapshot, continuations, choices) do
+  defp start_driver_collection(state, snapshot, choices, steps, count, emitted?, child_start) do
+    state = install_machine_choices(state, choices)
+    pending = Frame.pending(snapshot)
+    snapshot = Frame.without_suspensions(snapshot)
+    choice = %AL.Choicepoint{state.active_choicepoint | store: Frame.snapshot_store(snapshot)}
+    parent = if pending == %{}, do: choice, else: import_choice_suspensions(choice, pending)
+    state = %State{state | reductions: state.reductions + steps}
+
+    if count == 0 do
+      return_batch(state, %{parent: parent, snapshot: snapshot}, [], nil)
+    else
+      collection = %{
+        parent: parent,
+        snapshot: snapshot,
+        count: count,
+        emitted?: emitted?
+      }
+
+      case child_start do
+        {:entry, child_snapshot} ->
+          {child_snapshot, cut_scope} = collection_entry(child_snapshot)
+          child = collection_child(state, snapshot, [child_snapshot], [{:cut, cut_scope}])
+          collect_batch(state, collection, continue(child))
+
+        {:yield, child_result, solutions} ->
+          child = collection_child(state, snapshot, [], [])
+          child = continue(apply_machine_result(child_result, child))
+          collect_batch(state, collection, child, solutions)
+      end
+    end
+  end
+
+  defp collection_child(state, snapshot, continuations, choices, trace \\ nil) do
     %State{
       active_choicepoint: %AL.Choicepoint{
         continuations: continuations,
@@ -490,25 +553,15 @@ defmodule AL.JAM.Runtime do
         source_scopes: state.active_choicepoint.source_scopes
       },
       choicepoint_stack: choices,
+      cut_boundaries: index_cut_boundaries(choices),
       tx_id: state.tx_id,
       transaction_object: state.transaction_object,
       branch: state.branch,
       reductions: state.reductions,
       source_refs: state.source_refs,
       source_anchors: state.source_anchors,
-      trace: AL.Trace.new(state.trace.flags),
+      trace: trace || AL.Trace.new(state.trace.flags),
       program: AL.JAM.Collection.collection_condition(snapshot)
-    }
-  end
-
-  defp resume_collection_child(state, child) do
-    %State{
-      child
-      | reductions: state.reductions,
-        tx_id: state.tx_id,
-        transaction_object: state.transaction_object,
-        source_refs: state.source_refs,
-        source_anchors: state.source_anchors
     }
   end
 
@@ -532,169 +585,47 @@ defmodule AL.JAM.Runtime do
     {state, child}
   end
 
-  defp begin_forall_trace(state, snapshot) do
-    if AL.Trace.enabled?(state.trace, :domino) do
-      scope = AL.Scope.fresh()
-
-      state =
-        traced(state, fn ->
-          AL.JAM.Trace.collection_begin(
-            scope,
-            :forall,
-            AL.JAM.Collection.collection_condition(snapshot),
-            nil
-          )
-        end)
-
-      {state, scope}
-    else
-      {state, nil}
-    end
-  end
-
-  defp collect_forall(state, snapshot, child, scope) do
-    {solutions, child} = take_solutions(child, 1, [])
+  defp collect_batch(state, collection, child, earlier \\ []) do
+    {solutions, child} = take_solutions(child, collection.count - length(earlier), [])
+    solutions = earlier ++ solutions
     {state, child} = handoff_collection(state, child)
-
-    state =
-      if scope do
-        traced(state, fn ->
-          Enum.each(solutions, &AL.JAM.Trace.solution(scope, &1))
-          AL.JAM.Trace.collection_end(scope)
-        end)
-      else
-        state
-      end
 
     cond do
       resource_limited?(child) ->
         resource_limit_abort(state)
 
-      solutions == [] ->
-        choice = state.active_choicepoint
-        next = %Frame{snapshot | pc: snapshot.pc + 1}
-
-        %State{
+      solutions == [] and collection.emitted? ->
+        backtrack(%State{
           state
-          | active_choicepoint: %AL.Choicepoint{
-              choice
-              | continuations: [next | choice.continuations]
-            }
-        }
+          | active_choicepoint: %AL.Choicepoint{collection.parent | store: nil}
+        })
 
       true ->
-        [solution] = solutions
-        action = AL.JAM.Collection.forall_action(snapshot, solution, visible_vars(state))
-        {action, cut_scope} = collection_entry(action)
-
-        action_child =
-          collection_child(state, snapshot, [action], [{:jam_cut, cut_scope}])
-          |> then(&%State{&1 | program: Frame.pending_goals(action)})
-          |> continue()
-
-        {state, _action_child} = handoff_collection(state, action_child)
-
-        cond do
-          resource_limited?(action_child) ->
-            resource_limit_abort(state)
-
-          is_nil(action_child.active_choicepoint.store) ->
-            backtrack(state)
-
-          true ->
-            choice = state.active_choicepoint
-
-            %State{
-              state
-              | active_choicepoint: %AL.Choicepoint{
-                  choice
-                  | continuations: [
-                      {:forall_next, snapshot, child}
-                      | choice.continuations
-                    ]
-                }
-            }
-        end
+        return_batch(state, collection, solutions, child)
     end
   end
 
-  defp collect_answer(state) do
-    collection = state.collection
+  defp return_batch(state, collection, solutions, child) do
+    choices =
+      if child && Enum.any?(child.choicepoint_stack, &match?(%AL.Choicepoint{}, &1)) do
+        cursor = collection_cursor(collection, child)
 
-    collection = %{
-      collection
-      | remaining: collection.remaining - 1,
-        solutions: [store(state) | collection.solutions]
-    }
+        resume = %AL.Choicepoint{
+          collection.parent
+          | continuations: [cursor]
+        }
 
-    state = %State{state | collection: collection}
-
-    if collection.remaining > 0 do
-      backtrack(state)
-    else
-      inner_choices =
-        Enum.take_while(state.choicepoint_stack, &(&1 != {:collection_end, collection.scope}))
-
-      choices =
-        if Enum.any?(inner_choices, &match?(%AL.Choicepoint{}, &1)) do
-          next_collection = %{
-            collection
-            | remaining: collection.count,
-              solutions: [],
-              emitted?: true
-          }
-
-          resume = %AL.Choicepoint{
-            collection.parent
-            | continuations: [
-                {:collect_resume, next_collection} | collection.parent.continuations
-              ]
-          }
-
-          [resume | state.choicepoint_stack]
-        else
-          [_boundary | outer_choices] =
-            Enum.drop_while(
-              state.choicepoint_stack,
-              &(&1 != {:collection_end, collection.scope})
-            )
-
-          outer_choices
-        end
-
-      return_collection(state, collection, Enum.reverse(collection.solutions), choices)
-    end
-  end
-
-  defp finish_collection(state) do
-    collection = state.collection
-
-    if resource_limited?(state) or (collection.emitted? and collection.solutions == []) do
-      state = %State{
-        state
-        | collection: collection.outer,
-          active_choicepoint: %AL.Choicepoint{collection.parent | store: nil}
-      }
-
-      backtrack(state)
-    else
-      return_collection(
-        state,
-        collection,
-        Enum.reverse(collection.solutions),
+        [resume | state.choicepoint_stack]
+      else
         state.choicepoint_stack
-      )
-    end
-  end
+      end
 
-  defp return_collection(state, collection, solutions, choices) do
     {next, next_store} =
       AL.JAM.Collection.collection_continuation(collection.snapshot, solutions, state.branch)
 
     state = %State{
       state
-      | collection: collection.outer,
-        choicepoint_stack: choices,
+      | choicepoint_stack: choices,
         active_choicepoint: %AL.Choicepoint{collection.parent | store: next_store}
     }
 
@@ -710,6 +641,63 @@ defmodule AL.JAM.Runtime do
             | continuations: [next | choice.continuations]
           }
       }
+    end
+  end
+
+  defp collection_cursor(collection, child) do
+    case collection_machine_choices(child, collection.parent.source_scopes) do
+      {:ok, choices} ->
+        %Cursor{parent: collection.snapshot, choices: choices, count: collection.count}
+
+      :driver ->
+        %Cursor{
+          parent: collection.snapshot,
+          choices: child.choicepoint_stack,
+          count: collection.count,
+          driver: %{choicepoint: collection.parent, trace: child.trace}
+        }
+    end
+  end
+
+  defp collection_machine_choices(child, source_scopes) do
+    if AL.JAM.Trace.tracing?(child.trace) do
+      :driver
+    else
+      result =
+        Enum.reduce_while(child.choicepoint_stack, {:ok, []}, fn
+          %AL.Choicepoint{
+            continuations: [continuation],
+            store: store,
+            suspensions: suspensions,
+            source_scopes: scopes
+          },
+          {:ok, choices}
+          when not is_nil(store) and suspensions == %{} and scopes == source_scopes ->
+            case continuation do
+              %Frame{} = frame ->
+                {:cont, {:ok, [Frame.with_store(frame, store) | choices]}}
+
+              %Cursor{driver: nil} = cursor ->
+                {:cont, {:ok, [cursor | choices]}}
+
+              _ ->
+                {:halt, :driver}
+            end
+
+          {:cut, _} = mark, {:ok, choices} ->
+            {:cont, {:ok, [mark | choices]}}
+
+          :implies_mark, {:ok, choices} ->
+            {:cont, {:ok, [:implies_mark | choices]}}
+
+          _, _ ->
+            {:halt, :driver}
+        end)
+
+      case result do
+        {:ok, choices} -> {:ok, Enum.reverse(choices) ++ [:collection_end]}
+        :driver -> :driver
+      end
     end
   end
 
@@ -737,7 +725,7 @@ defmodule AL.JAM.Runtime do
         :implies_mark ->
           :implies_mark
 
-        {:jam_cut, _} = mark ->
+        {:cut, _} = mark ->
           mark
 
         {:trace_fail, :clause_fail, scope} ->
@@ -757,11 +745,65 @@ defmodule AL.JAM.Runtime do
         {:trace_alternative, scope, seq, snapshot} ->
           %AL.Choicepoint{machine_choice(state, snapshot) | clause: seq, scope_pointer: scope}
 
+        %Cursor{} = cursor ->
+          machine_choice(state, cursor)
+
         snapshot ->
           machine_choice(state, snapshot)
       end)
 
-    %State{state | choicepoint_stack: choices ++ state.choicepoint_stack}
+    {stack, cut_boundaries} =
+      Enum.reduce(Enum.reverse(choices), {state.choicepoint_stack, state.cut_boundaries}, fn
+        entry, {stack, cut_boundaries} ->
+          stack = [entry | stack]
+
+          cut_boundaries =
+            if cut_boundary?(entry),
+              do: Map.put(cut_boundaries, entry, stack),
+              else: cut_boundaries
+
+          {stack, cut_boundaries}
+      end)
+
+    %State{state | choicepoint_stack: stack, cut_boundaries: cut_boundaries}
+  end
+
+  defp index_cut_boundaries(stack), do: index_cut_boundaries(stack, %{})
+  defp index_cut_boundaries([], boundaries), do: boundaries
+
+  defp index_cut_boundaries([entry | rest] = stack, boundaries) do
+    boundaries =
+      if cut_boundary?(entry), do: Map.put_new(boundaries, entry, stack), else: boundaries
+
+    index_cut_boundaries(rest, boundaries)
+  end
+
+  defp cut_boundary?({:cut, _}), do: true
+  defp cut_boundary?({:mark, _}), do: true
+  defp cut_boundary?(_), do: false
+
+  defp discard_cut_boundaries([boundary | _], boundary, cut_boundaries),
+    do: cut_boundaries
+
+  defp discard_cut_boundaries([entry | rest], boundary, cut_boundaries) do
+    cut_boundaries =
+      if cut_boundary?(entry), do: Map.delete(cut_boundaries, entry), else: cut_boundaries
+
+    discard_cut_boundaries(rest, boundary, cut_boundaries)
+  end
+
+  defp machine_choice(state, %Cursor{parent: parent} = cursor) do
+    cursor = %Cursor{cursor | parent: Frame.without_suspensions(parent)}
+
+    %AL.Choicepoint{
+      state.active_choicepoint
+      | continuations: [cursor | state.active_choicepoint.continuations],
+        progress: Frame.completed_goals(parent),
+        store: Frame.snapshot_store(parent),
+        scope_pointer:
+          AL.JAM.Trace.scope_of(parent.descriptor) || state.active_choicepoint.scope_pointer
+    }
+    |> import_choice_suspensions(Frame.pending(parent))
   end
 
   defp machine_choice(state, snapshot) do
@@ -773,9 +815,9 @@ defmodule AL.JAM.Runtime do
         ],
         progress: Frame.completed_goals(snapshot),
         store: Frame.snapshot_store(snapshot),
-        clause: AL.JAM.Trace.seq_of(snapshot.id),
+        clause: AL.JAM.Trace.seq_of(snapshot.descriptor),
         scope_pointer:
-          AL.JAM.Trace.scope_of(snapshot.id) || state.active_choicepoint.scope_pointer
+          AL.JAM.Trace.scope_of(snapshot.descriptor) || state.active_choicepoint.scope_pointer
     }
     |> import_choice_suspensions(Frame.pending(snapshot))
   end
@@ -822,10 +864,6 @@ defmodule AL.JAM.Runtime do
     }
   end
 
-  defp visible_vars(%State{active_choicepoint: choice}) do
-    AL.Var.find_vars(Enum.map(choice.continuations, &continuation_goals/1))
-  end
-
   defp finalize_trace(state), do: %State{state | trace: AL.JAM.Trace.finalize(state.trace)}
 
   alias AL.JAM.{
@@ -864,7 +902,25 @@ defmodule AL.JAM.Runtime do
     end
   end
 
-  def resume(snapshot, branch, budget, context \\ %{}),
+  def resume(snapshot, branch, budget, context \\ %{})
+
+  def resume(%Cursor{} = cursor, branch, budget, context) do
+    cursor = %Cursor{cursor | parent: Frame.import_pending(cursor.parent, context)}
+
+    result =
+      resume_collection_cursor(cursor, %Execution{
+        branch: branch,
+        targets: %{context: context},
+        budget: budget
+      })
+
+    case result do
+      {:failed, nil, steps} -> {:collection_exhausted, steps}
+      other -> other
+    end
+  end
+
+  def resume(snapshot, branch, budget, context),
     do:
       resume_entry(Frame.import_pending(snapshot, context), %Execution{
         branch: branch,
@@ -888,7 +944,7 @@ defmodule AL.JAM.Runtime do
          budget
        ) do
     %Frame{
-      id: id,
+      descriptor: id,
       code: code,
       pc: pc,
       slots: slots,
@@ -925,7 +981,7 @@ defmodule AL.JAM.Runtime do
 
               {Enum.map(items, fn {tag, scope, seq, entry} ->
                  {tag, scope, seq, entry && scope_entry(entry, ref)}
-               end), [{:jam_cut, ref} | markers]}
+               end), [{:cut, ref} | markers]}
             else
               {items, markers}
             end
@@ -969,8 +1025,8 @@ defmodule AL.JAM.Runtime do
   end
 
   defp traced_entry(frame, matched, returns, scope, seq, pending) do
-    entry = Frame.with_pending(Frame.entry(frame, matched, returns), pending)
-    %{entry | id: {:traced, scope, seq, entry.id}}
+    entry = Frame.entry(frame, matched, returns, pending)
+    %{entry | descriptor: {:traced, scope, seq, entry.descriptor}}
   end
 
   defp enter_tail(id, {code, slots, store, _, [], head}, returns, pending, execution)
@@ -978,7 +1034,7 @@ defmodule AL.JAM.Runtime do
               (elem(code, 0) != :cut_scope and elem(elem(code, 0), 0) != :cursor) do
     loop(
       %Frame{
-        id: Frame.frame_id(id, {head, slots}),
+        descriptor: Frame.frame_descriptor(id, {head, slots}),
         code: code,
         slots: slots,
         returns: returns,
@@ -990,7 +1046,7 @@ defmodule AL.JAM.Runtime do
   end
 
   defp enter_tail(id, selected, returns, pending, execution) do
-    resume_call(Frame.with_pending(Frame.entry(id, selected, returns), pending), [], execution)
+    resume_call(Frame.entry(id, selected, returns, pending), [], execution)
   end
 
   defp resume_call(first, alternatives, %Execution{choices: choices} = execution) do
@@ -998,7 +1054,7 @@ defmodule AL.JAM.Runtime do
       scope = make_ref()
       first = scope_entry(first, scope)
       alternatives = Enum.map(alternatives, &scope_entry(&1, scope))
-      resume_entry(first, %{execution | choices: alternatives ++ [{:jam_cut, scope} | choices]})
+      resume_entry(first, %{execution | choices: alternatives ++ [{:cut, scope} | choices]})
     else
       resume_entry(first, %{execution | choices: alternatives ++ choices})
     end
@@ -1012,7 +1068,7 @@ defmodule AL.JAM.Runtime do
 
   defp scope_entry(
          %Frame{
-           id: id,
+           descriptor: id,
            code: code,
            pc: pc,
            slots: slots,
@@ -1025,7 +1081,7 @@ defmodule AL.JAM.Runtime do
     pc = if cut_scope?(entry), do: pc + 1, else: pc
 
     %Frame{
-      id: {:cut_scope, scope, id},
+      descriptor: {:cut_scope, scope, id},
       code: code,
       pc: pc,
       slots: slots,
@@ -1041,7 +1097,7 @@ defmodule AL.JAM.Runtime do
 
   defp resume_position(
          %Frame{
-           id: {:guarded_region, _parent, {token, guard, _outputs}, answer, fallback},
+           descriptor: {:guarded_region, _parent, {token, guard, _outputs}, answer, fallback},
            pc: answer
          },
          branch
@@ -1073,10 +1129,13 @@ defmodule AL.JAM.Runtime do
     retry(current, %{execution | choices: rest})
   end
 
+  defp retry(_current, %Execution{choices: [%Cursor{} = cursor | rest]} = execution),
+    do: resume_collection_cursor(cursor, %{execution | choices: rest})
+
   defp retry(_current, %Execution{choices: [:collection_end], steps: steps}),
     do: {:collection_end, steps + 1}
 
-  defp retry(current, %Execution{choices: [{:jam_cut, _} | rest]} = execution),
+  defp retry(current, %Execution{choices: [{:cut, _} | rest]} = execution),
     do: retry(current, %{execution | choices: rest})
 
   defp retry(current, %Execution{choices: [:implies_mark | rest]} = execution),
@@ -1089,7 +1148,7 @@ defmodule AL.JAM.Runtime do
 
   defp retry(_current, %Execution{choices: [choice | rest]} = execution) do
     if AL.JAM.Trace.active?() do
-      id = choice.id
+      id = choice.descriptor
       AL.JAM.Trace.abandon()
       AL.JAM.Trace.resume(AL.JAM.Trace.parent(id))
       if seq = AL.JAM.Trace.seq_of(id), do: AL.JAM.Trace.chosen(AL.JAM.Trace.parent(id), seq)
@@ -1098,6 +1157,7 @@ defmodule AL.JAM.Runtime do
     resume_entry(choice, %{execution | choices: rest, steps: execution.steps + 1})
   end
 
+  # Entrypoint for machine instruction cycle
   defp loop(%Frame{pending: pending} = frame, execution) when pending == %{},
     do: step(frame, execution)
 
@@ -1111,20 +1171,32 @@ defmodule AL.JAM.Runtime do
 
       [{wake_id, wake_code, wake_slots} | rest] ->
         returns =
-          Enum.map(rest, fn {id, code, slots} -> {id, code, 0, slots} end) ++
-            Frame.keep_return({frame.id, frame.code, frame.pc, frame.slots}, frame.returns)
+          Enum.map(rest, fn {id, code, slots} -> {:return_to, id, code, 0, slots, []} end) ++
+            Frame.keep_return(
+              {frame.descriptor, frame.code, frame.pc, frame.slots},
+              frame.returns
+            )
 
         loop(
-          %{frame | id: wake_id, code: wake_code, pc: 0, slots: wake_slots, returns: returns},
+          %{
+            frame
+            | descriptor: wake_id,
+              code: wake_code,
+              pc: 0,
+              slots: wake_slots,
+              returns: returns
+          },
           execution
         )
     end
   end
 
+  # Budget exhausted, fail
   defp step(frame, %Execution{steps: steps, budget: budget, choices: choices})
        when steps > budget,
-       do: {:suspend, frame, choices, steps}
+       do: {:budget_exhausted, frame, choices, steps}
 
+  # Finished instructions, marks end of machine run
   defp step(
          %Frame{code: code, pc: pc, returns: [], store: store, pending: pending},
          %Execution{choices: choices, steps: steps}
@@ -1135,64 +1207,15 @@ defmodule AL.JAM.Runtime do
     if pending == %{}, do: result, else: {:waiting, pending, result}
   end
 
-  defp step(
-         %Frame{code: code, pc: pc, returns: [{:trace_exit, scope} | returns]} = frame,
-         execution
-       )
-       when pc == tuple_size(code) do
-    AL.JAM.Trace.settle(frame.store)
-    AL.JAM.Trace.exit(scope, frame.store)
-
-    returns =
-      case returns do
-        [{:return_to, caller, next_code, next_pc, caller_slots, transfers} | rest] ->
-          [
-            {:return_to, AL.JAM.Trace.returned(caller), next_code, next_pc, caller_slots,
-             transfers}
-            | rest
-          ]
-
-        [{caller, next_code, next_pc, caller_slots} | rest] ->
-          [{AL.JAM.Trace.returned(caller), next_code, next_pc, caller_slots} | rest]
-
-        other ->
-          other
-      end
-
-    step(%{frame | returns: returns}, execution)
-  end
-
-  defp step(
-         %Frame{
-           code: code,
-           pc: pc,
-           returns: [{:return_to, id, next_code, next_pc, caller_slots, transfers} | returns]
-         } = frame,
-         execution
-       )
-       when pc == tuple_size(code) do
-    slots = Frame.transfer_registers(frame.slots, caller_slots, transfers)
-
-    loop(
-      %{frame | id: id, code: next_code, pc: next_pc, slots: slots, returns: returns},
-      execution
-    )
-  end
-
-  defp step(
-         %Frame{code: code, pc: pc, returns: [{id, next_code, next_pc, slots} | returns]} = frame,
-         execution
-       )
+  # Return to caller
+  defp step(%Frame{code: code, pc: pc, returns: [_ | _]} = frame, execution)
        when pc == tuple_size(code),
-       do:
-         loop(
-           %{frame | id: id, code: next_code, pc: next_pc, slots: slots, returns: returns},
-           execution
-         )
+       do: handle_return(frame, execution)
 
+  # Execute the next instruction
   defp step(
          %Frame{
-           id: id,
+           descriptor: id,
            code: code,
            pc: pc,
            slots: slots,
@@ -1220,10 +1243,48 @@ defmodule AL.JAM.Runtime do
     execute_instruction(operation, current, execution, traced?, vm_trace?)
   end
 
+  # Return to trace exit
+  defp handle_return(%Frame{returns: [{:trace_exit, scope} | returns]} = frame, execution) do
+    AL.JAM.Trace.settle(frame.store)
+    AL.JAM.Trace.exit(scope, frame.store)
+
+    returns =
+      case returns do
+        [{:return_to, caller, next_code, next_pc, caller_slots, transfers} | rest] ->
+          [
+            {:return_to, AL.JAM.Trace.returned(caller), next_code, next_pc, caller_slots,
+             transfers}
+            | rest
+          ]
+
+        other ->
+          other
+      end
+
+    step(%{frame | returns: returns}, execution)
+  end
+
+  # Return to caller, putting back relevant register outputs
+  defp handle_return(
+         %Frame{
+           returns: [{:return_to, id, next_code, next_pc, caller_slots, transfers} | returns]
+         } = frame,
+         execution
+       ) do
+    slots = Frame.transfer_registers(frame.slots, caller_slots, transfers)
+
+    loop(
+      %{frame | descriptor: id, code: next_code, pc: next_pc, slots: slots, returns: returns},
+      execution
+    )
+  end
+
+  @spec execute_instruction(Instruction.t(), Frame.t(), Execution.t(), boolean(), boolean()) ::
+          machine_result()
   defp execute_instruction(
          operation,
          %Frame{
-           id: id,
+           descriptor: id,
            code: code,
            pc: pc,
            slots: slots,
@@ -1242,6 +1303,7 @@ defmodule AL.JAM.Runtime do
          vm_trace?
        ) do
     case operation do
+      # Move value to destination, operand is a value or location
       {:move, destination, operand} ->
         slots = put_elem(slots, destination, Operand.read(operand, slots))
 
@@ -1250,6 +1312,7 @@ defmodule AL.JAM.Runtime do
           %{execution | steps: steps + 1}
         )
 
+      # Jump to target, transferring register values
       {:jump, target, transfers} ->
         next_slots =
           Enum.reduce(transfers, slots, fn {destination, operand}, next ->
@@ -1261,6 +1324,7 @@ defmodule AL.JAM.Runtime do
           %{execution | steps: steps + 1}
         )
 
+      # Read a cons into head and tail
       {:get_cons, operand, head, tail, failure} ->
         case Operand.read(operand, slots) do
           [first | rest] ->
@@ -1278,6 +1342,7 @@ defmodule AL.JAM.Runtime do
             )
         end
 
+      # Create an alternative for backtracking
       {:try, alternative, live} ->
         saved =
           if length(live) == tuple_size(slots) and
@@ -1296,22 +1361,24 @@ defmodule AL.JAM.Runtime do
           %{execution | choices: [choice | choices], steps: steps + 1}
         )
 
+      # Set the boundary for a later cut
       :cut_scope ->
         scope = make_ref()
 
         loop(
           %{
             current
-            | id: {:cut_scope, scope, id},
+            | descriptor: {:cut_scope, scope, id},
               pc: pc + 1
           },
           %{
             execution
-            | choices: [{:jam_cut, scope} | choices],
+            | choices: [{:cut, scope} | choices],
               steps: steps + 1
           }
         )
 
+      # Cut to latest scope
       :cut ->
         scope = cut_mark(id)
 
@@ -1327,28 +1394,12 @@ defmodule AL.JAM.Runtime do
             resume_entry(next, %{execution | choices: remaining, steps: steps + 1})
         end
 
-      {:branch, left, right} ->
-        returns = Frame.return_to(id, code, pc, slots, returns)
-
-        choice = %Frame{
-          id: id,
-          code: right,
-          slots: slots,
-          returns: returns,
-          store: store,
-          pending: pending
-        }
-
-        loop(
-          %{current | code: left, pc: 0, returns: returns},
-          %{execution | choices: [choice | choices], steps: steps + 1}
-        )
-
+      # Run conditional code with implies scope
       {:condition, condition, otherwise} ->
         returns = Frame.return_to(id, code, pc, slots, returns)
 
         choice = %Frame{
-          id: id,
+          descriptor: id,
           code: otherwise,
           slots: slots,
           returns: returns,
@@ -1361,10 +1412,11 @@ defmodule AL.JAM.Runtime do
           %{execution | choices: [choice, :implies_mark | choices], steps: steps + 1}
         )
 
+      # Condition passed, implication passed, cut other branch
       {:commit, then} ->
         {:commit,
          %Frame{
-           id: id,
+           descriptor: id,
            code: then,
            slots: slots,
            returns: returns,
@@ -1372,6 +1424,7 @@ defmodule AL.JAM.Runtime do
            pending: pending
          }, choices, steps + 1}
 
+      # Suspend a goal
       {:freeze, variable, delayed} ->
         variable = Operand.shallow(variable, slots, store)
 
@@ -1391,6 +1444,7 @@ defmodule AL.JAM.Runtime do
           )
         end
 
+      # Fetch some info from run context
       {:context, field, result} ->
         case Map.fetch(targets.context, field) do
           {:ok, value} ->
@@ -1409,22 +1463,13 @@ defmodule AL.JAM.Runtime do
             retry(current, %{execution | steps: steps + 1})
         end
 
-      {:mutation, operation, arguments} ->
-        arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
-
-        next = %{current | pc: pc + 1}
-
-        {:mutation, next, choices, steps + 1, operation, arguments}
-
       {:source_scope, capture_id, goals, body} ->
-        arguments = [
-          Operand.resolve(capture_id, slots, store),
-          Operand.resolve(goals, slots, store)
-        ]
+        capture_id = Operand.resolve(capture_id, slots, store)
+        goals = Operand.resolve(goals, slots, store)
 
         next =
           %Frame{
-            id: id,
+            descriptor: id,
             code: body,
             slots: slots,
             returns: Frame.keep_return({id, code, pc + 1, slots}, returns),
@@ -1432,7 +1477,7 @@ defmodule AL.JAM.Runtime do
             pending: pending
           }
 
-        {:mutation, next, choices, steps + 1, :source_scope_enter, arguments}
+        {:runtime_action, next, choices, steps + 1, {:source_scope_enter, capture_id, goals}}
 
       {:send_as, provider_id, cursor, call} ->
         call = Operand.read(call, slots)
@@ -1579,7 +1624,7 @@ defmodule AL.JAM.Runtime do
             entries =
               Enum.map(plans, fn {next_store, next_code, next_slots} ->
                 %Frame{
-                  id: id,
+                  descriptor: id,
                   code: next_code,
                   slots: next_slots,
                   returns: next_returns,
@@ -1672,19 +1717,9 @@ defmodule AL.JAM.Runtime do
             )
         end
 
-      {:forall, _goal, condition, _heads, _body} ->
-        child = %Frame{
-          id: id,
-          code: condition,
-          slots: slots,
-          store: store
-        }
-
-        {:forall, current, choices, steps + 1, child}
-
       {:negate, condition} ->
         child = %Frame{
-          id: id,
+          descriptor: id,
           code: condition,
           slots: slots,
           store: store
@@ -1711,18 +1746,45 @@ defmodule AL.JAM.Runtime do
           :mnesia.abort({:invalid_solution_limit, count})
         end
 
-        child = %Frame{
-          id: id,
-          code: condition,
-          slots: slots,
-          store: store
-        }
+        cond do
+          count == 0 ->
+            return_machine_batch(current, [], [], count, %{execution | steps: steps + 1})
 
-        {:collect_n, current, choices, steps + 1, count, child}
+          AL.JAM.Trace.active?() ->
+            child = %Frame{descriptor: id, code: condition, slots: slots, store: store}
+            {:collect_n, current, choices, steps + 1, count, child}
+
+          true ->
+            child = %Frame{descriptor: id, code: condition, slots: slots, store: store}
+
+            case collect_n_begin(child, count, branch, budget - steps - 1, targets.context) do
+              {:batch, solutions, child_choices, child_steps} ->
+                return_machine_batch(
+                  current,
+                  solutions,
+                  child_choices,
+                  count,
+                  %{execution | steps: steps + child_steps + 1}
+                )
+
+              {:done, solutions, child_steps} ->
+                return_machine_batch(
+                  current,
+                  solutions,
+                  [],
+                  count,
+                  %{execution | steps: steps + child_steps + 1}
+                )
+
+              {:yield, child_result, solutions} ->
+                {:collect_n_yield, current, choices, steps + 1, count, false, child_result,
+                 solutions}
+            end
+        end
 
       {:collect, template, result, condition} ->
         child = %Frame{
-          id: id,
+          descriptor: id,
           code: condition,
           slots: slots,
           store: store
@@ -1858,10 +1920,10 @@ defmodule AL.JAM.Runtime do
                   returns = Frame.return_to(id, code, pc, slots, returns)
 
                   alternatives =
-                    Enum.map(rest, &Frame.with_pending(Frame.entry(method, &1, returns), pending))
+                    Enum.map(rest, &Frame.entry(method, &1, returns, pending))
 
                   resume_call(
-                    Frame.with_pending(Frame.entry(method, first, returns), pending),
+                    Frame.entry(method, first, returns, pending),
                     alternatives,
                     %{execution | targets: targets, steps: steps + 1}
                   )
@@ -1897,12 +1959,9 @@ defmodule AL.JAM.Runtime do
               scope = AL.Scope.fresh()
 
               entry =
-                Frame.with_pending(
-                  Frame.entry(:call, first, [{:trace_exit, scope} | returns]),
-                  pending
-                )
+                Frame.entry(:call, first, [{:trace_exit, scope} | returns], pending)
 
-              entry = %{entry | id: {:traced, scope, nil, entry.id}}
+              entry = %{entry | descriptor: {:traced, scope, nil, entry.descriptor}}
               choices = [{:trace_fail, :clause_fail, scope} | choices]
 
               resume_call(entry, [], %{
@@ -1913,7 +1972,7 @@ defmodule AL.JAM.Runtime do
               })
             else
               resume_call(
-                Frame.with_pending(Frame.entry(:call, first, returns), pending),
+                Frame.entry(:call, first, returns, pending),
                 [],
                 %{execution | choices: choices, targets: targets, steps: steps + 1}
               )
@@ -1988,10 +2047,10 @@ defmodule AL.JAM.Runtime do
                   frame = {:provider, callee_id, next_cursor}
 
                   alternatives =
-                    Enum.map(rest, &Frame.with_pending(Frame.entry(frame, &1, returns), pending))
+                    Enum.map(rest, &Frame.entry(frame, &1, returns, pending))
 
                   resume_call(
-                    Frame.with_pending(Frame.entry(frame, first, returns), pending),
+                    Frame.entry(frame, first, returns, pending),
                     alternatives,
                     %{execution | steps: steps + 1}
                   )
@@ -2214,7 +2273,7 @@ defmodule AL.JAM.Runtime do
                 loop(
                   %{
                     current
-                    | id: region_id,
+                    | descriptor: region_id,
                       code: region_code,
                       pc: 0,
                       slots: region_slots,
@@ -2294,10 +2353,10 @@ defmodule AL.JAM.Runtime do
                              )}
                           end
 
-                        alternatives = Enum.map(alternatives, &Frame.with_pending(&1, pending))
+                        alternatives = Enum.map(alternatives, &%{&1 | pending: pending})
 
                         resume_call(
-                          Frame.with_pending(first_entry, pending),
+                          %{first_entry | pending: pending},
                           alternatives,
                           %{execution | targets: targets, steps: steps + 1}
                         )
@@ -2324,6 +2383,28 @@ defmodule AL.JAM.Runtime do
                 end
             end
         end
+
+      operation ->
+        yield_runtime_action(operation, current, execution)
+    end
+  end
+
+  defp yield_runtime_action(
+         operation,
+         %Frame{pc: pc, slots: slots, store: store} = frame,
+         %Execution{choices: choices, steps: steps}
+       ) do
+    case Instruction.runtime_action_operands(operation) do
+      {:ok, operands} ->
+        action =
+          List.to_tuple([
+            elem(operation, 0) | Enum.map(operands, &Operand.resolve(&1, slots, store))
+          ])
+
+        {:runtime_action, %{frame | pc: pc + 1}, choices, steps + 1, action}
+
+      :error ->
+        raise ArgumentError, "unknown JAM instruction: #{inspect(operation)}"
     end
   end
 
@@ -2379,7 +2460,7 @@ defmodule AL.JAM.Runtime do
   end
 
   defp failed_call(%Frame{
-         id: id,
+         descriptor: id,
          slots: slots
        }),
        do: frame_call(id, slots)
@@ -2394,7 +2475,7 @@ defmodule AL.JAM.Runtime do
     AL.JAM.Trace.goal(AL.Var.subst(Goals.instruction(operation, slots), store), store)
   end
 
-  defp cut_mark({:cut_scope, scope, _}), do: {:jam_cut, scope}
+  defp cut_mark({:cut_scope, scope, _}), do: {:cut, scope}
   defp cut_mark({:root, scope}), do: {:mark, scope}
   defp cut_mark({:traced, _scope, _seq, id}), do: cut_mark(id)
 
@@ -2419,11 +2500,12 @@ defmodule AL.JAM.Runtime do
   defp collection_context(context), do: Map.put(context, :transaction_object, nil)
 
   defp collect_child(kind, output, child, branch, targets, budget) do
-    context = collection_context(targets.context)
+    context = if kind == :not, do: targets.context, else: collection_context(targets.context)
+    limit = if kind == :not, do: 1, else: :all
 
     if AL.JAM.Trace.active?() do
       %Frame{
-        id: id,
+        descriptor: id,
         code: condition,
         pc: pc,
         slots: slots,
@@ -2436,7 +2518,7 @@ defmodule AL.JAM.Runtime do
 
       AL.JAM.Trace.collection(kind, goals, output, fn scope ->
         child = %Frame{
-          id: {:traced, 0, nil, id},
+          descriptor: {:traced, 0, nil, id},
           code: condition,
           pc: pc,
           slots: slots,
@@ -2445,10 +2527,10 @@ defmodule AL.JAM.Runtime do
           pending: pending
         }
 
-        collect(child, branch, budget, context, scope)
+        collect_limited(child, branch, budget, context, scope, limit)
       end)
     else
-      collect(child, branch, budget, context, nil)
+      collect_limited(child, branch, budget, context, nil, limit)
     end
   end
 
@@ -2458,13 +2540,17 @@ defmodule AL.JAM.Runtime do
   end
 
   def collect(snapshot, branch, budget, context \\ %{}, trace_scope \\ nil) do
+    collect_limited(snapshot, branch, budget, context, trace_scope, :all)
+  end
+
+  defp collect_limited(snapshot, branch, budget, context, trace_scope, limit) do
     {snapshot, scope} = collection_entry(snapshot)
 
     collect_result(
       resume_entry(
         snapshot,
         %Execution{
-          choices: [{:jam_cut, scope}, :collection_end],
+          choices: [{:cut, scope}, :collection_end],
           branch: branch,
           targets: %{context: context},
           steps: 0,
@@ -2474,8 +2560,80 @@ defmodule AL.JAM.Runtime do
       [],
       branch,
       budget,
-      {context, trace_scope}
+      {context, trace_scope, limit}
     )
+  end
+
+  defp collect_n_begin(snapshot, count, branch, budget, context),
+    do: collect_limited(snapshot, branch, budget, context, nil, {:batch, count})
+
+  defp collect_n_retry(choices, count, branch, budget, context) do
+    collect_result(
+      retry(nil, %Execution{
+        choices: choices,
+        branch: branch,
+        targets: %{context: context},
+        budget: budget
+      }),
+      [],
+      branch,
+      budget,
+      {context, nil, {:batch, count}}
+    )
+  end
+
+  defp return_machine_batch(parent, solutions, child_choices, count, execution) do
+    choices =
+      if count > 0 and
+           Enum.any?(child_choices, &(match?(%Frame{}, &1) or match?(%Cursor{}, &1))) do
+        [%Cursor{parent: parent, choices: child_choices, count: count} | execution.choices]
+      else
+        execution.choices
+      end
+
+    {next, next_store} =
+      Collection.collection_continuation(parent, solutions, execution.branch)
+
+    execution = %{execution | choices: choices}
+
+    if is_nil(next_store),
+      do: retry(parent, execution),
+      else: loop(%Frame{next | store: next_store}, execution)
+  end
+
+  defp resume_collection_cursor(cursor, execution) do
+    case collect_n_retry(
+           cursor.choices,
+           cursor.count,
+           execution.branch,
+           execution.budget - execution.steps,
+           execution.targets.context
+         ) do
+      {:batch, solutions, choices, child_steps} ->
+        return_machine_batch(
+          cursor.parent,
+          solutions,
+          choices,
+          cursor.count,
+          %{execution | steps: execution.steps + child_steps}
+        )
+
+      {:done, [], child_steps} ->
+        retry(nil, %{execution | steps: execution.steps + child_steps})
+
+      {:done, solutions, child_steps} ->
+        return_machine_batch(
+          cursor.parent,
+          solutions,
+          [],
+          cursor.count,
+          %{execution | steps: execution.steps + child_steps}
+        )
+
+      {:yield, child_result, solutions} ->
+        {:collect_n_yield, cursor.parent, execution.choices, execution.steps, cursor.count, true,
+         child_result, solutions}
+    end
   end
 
   defp collect_result(
@@ -2489,11 +2647,27 @@ defmodule AL.JAM.Runtime do
 
   defp collect_result({:answers, store, choices, steps}, solutions, branch, budget, collection) do
     case collection do
-      {_context, nil} -> :ok
-      {_context, scope} -> AL.JAM.Trace.solution(scope, store)
+      {_context, nil, _limit} -> :ok
+      {_context, scope, _limit} -> AL.JAM.Trace.solution(scope, store)
     end
 
-    collect_next(choices, [store | solutions], branch, steps, budget, collection)
+    case collection do
+      {_context, _scope, 1} ->
+        {:ok, Enum.reverse([store | solutions]), steps}
+
+      {_context, _scope, {:batch, 1}} ->
+        {:batch, Enum.reverse([store | solutions]), choices, steps}
+
+      {context, scope, {:batch, remaining}} ->
+        collect_next(choices, [store | solutions], branch, steps, budget, {
+          context,
+          scope,
+          {:batch, remaining - 1}
+        })
+
+      _ ->
+        collect_next(choices, [store | solutions], branch, steps, budget, collection)
+    end
   end
 
   defp collect_result(
@@ -2505,15 +2679,18 @@ defmodule AL.JAM.Runtime do
        ),
        do: collect_next(choices, solutions, branch, steps, budget, collection)
 
-  defp collect_result({:collection_end, steps}, solutions, _branch, _budget, _collection),
-    do: {:ok, Enum.reverse(solutions), steps}
+  defp collect_result({:collection_end, steps}, solutions, _branch, _budget, {_, _, limit}) do
+    if match?({:batch, _}, limit),
+      do: {:done, Enum.reverse(solutions), steps},
+      else: {:ok, Enum.reverse(solutions), steps}
+  end
 
   defp collect_result(
          {:commit, snapshot, choices, steps},
          solutions,
          branch,
          budget,
-         {context, _} = collection
+         {context, _, _} = collection
        ) do
     [:implies_mark | remaining] = Enum.drop_while(choices, &(&1 != :implies_mark))
 
@@ -2537,7 +2714,7 @@ defmodule AL.JAM.Runtime do
     {:yield, put_elem(result, 2, choices), solutions}
   end
 
-  defp collect_next(choices, solutions, branch, steps, budget, {context, _} = collection),
+  defp collect_next(choices, solutions, branch, steps, budget, {context, _, _} = collection),
     do:
       collect_result(
         retry(nil, %Execution{
@@ -2572,7 +2749,7 @@ defmodule AL.JAM.Runtime do
          plans,
          call,
          %Frame{
-           id: id,
+           descriptor: id,
            code: code,
            pc: pc,
            slots: slots,
@@ -2617,7 +2794,7 @@ defmodule AL.JAM.Runtime do
          plans,
          method_scope,
          %Frame{
-           id: id,
+           descriptor: id,
            code: code,
            pc: pc,
            slots: slots,
@@ -2631,7 +2808,7 @@ defmodule AL.JAM.Runtime do
 
     for {:query, store} <- plans,
         do: %Frame{
-          id: {:traced, method_scope, seq, id},
+          descriptor: {:traced, method_scope, seq, id},
           code: {query},
           slots: slots,
           returns: returns,
@@ -2642,7 +2819,7 @@ defmodule AL.JAM.Runtime do
 
   defp traced_open(plans, _method_scope, _method, call_list, current, query, receiver_args) do
     %Frame{
-      id: id,
+      descriptor: id,
       code: code,
       pc: pc,
       slots: slots,
@@ -2668,7 +2845,7 @@ defmodule AL.JAM.Runtime do
       scope = AL.Scope.fresh()
 
       %Frame{
-        id: {:traced, scope, AL.JAM.Trace.seq_of(id), id},
+        descriptor: {:traced, scope, AL.JAM.Trace.seq_of(id), id},
         code: {plan_code},
         slots: slots,
         returns: [{:trace_exit, scope} | returns],
@@ -2700,7 +2877,7 @@ defmodule AL.JAM.Runtime do
 
   defp open_entry({:code, store, code}, id, slots, returns, pending),
     do: %Frame{
-      id: id,
+      descriptor: id,
       code: code,
       slots: slots,
       returns: returns,
@@ -2709,7 +2886,7 @@ defmodule AL.JAM.Runtime do
     }
 
   defp open_entry({frame, selected}, _id, _slots, returns, pending),
-    do: Frame.with_pending(Frame.entry(frame, selected, returns), pending)
+    do: Frame.entry(frame, selected, returns, pending)
 
   defp direct_target(targets, method, branch) do
     cond do

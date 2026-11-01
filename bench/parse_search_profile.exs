@@ -57,7 +57,7 @@ defmodule Bench.ParseSearchProfile do
     entries
   end
 
-  def resumed(%AL.JAM.Frame{id: id, code: code, pc: pc, returns: returns} = entry) do
+  def resumed(%AL.JAM.Frame{descriptor: id, code: code, pc: pc, returns: returns} = entry) do
     if Process.get(:search_profile_enabled) do
       case Process.delete({:search_choice, snapshot(entry)}) do
         nil ->
@@ -71,7 +71,7 @@ defmodule Bench.ParseSearchProfile do
     end
   end
 
-  def failed(%AL.JAM.Frame{id: id, code: code, pc: pc, returns: returns}) do
+  def failed(%AL.JAM.Frame{descriptor: id, code: code, pc: pc, returns: returns}) do
     if Process.get(:search_profile_enabled) do
       case Process.delete({:search_resumed, id, code, returns}) do
         {kind, selector, ^pc} when pc < tuple_size(code) ->

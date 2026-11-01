@@ -19,7 +19,6 @@ defmodule AL.Syntax.Printer do
     :->,
     :findnsols,
     :findall,
-    :forall,
     :not,
     :freeze,
     :spawn,
@@ -348,9 +347,6 @@ defmodule AL.Syntax.Printer do
            [argument(template, indent), argument(result, indent), goal_group(condition, indent)],
            context
          )
-
-  defp goal(%Goal.Forall{condition: condition, body: body}, indent, context) when is_list(body),
-    do: applied(:forall, [goal_group(condition, indent), goal_group(body, indent)], context)
 
   defp goal(%Goal.Not{condition: condition}, indent, context),
     do: applied(:not, [goal_group(condition, indent)], context)

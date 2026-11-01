@@ -580,7 +580,7 @@ defmodule AL.JAM.IR.Scan do
           body =
             Enum.map(
               body,
-              &Instruction.map_values(&1, fn v -> if v == self, do: state.receiver, else: v end)
+              &map_operation(&1, fn v -> if v == self, do: state.receiver, else: v end)
             )
 
           {tests, state} = seek(body, input, state, [selector | stack])
@@ -591,6 +591,12 @@ defmodule AL.JAM.IR.Scan do
       end
     end)
   end
+
+  defp map_operation({:branch, left, right}, fun),
+    do:
+      {:branch, Enum.map(left, &map_operation(&1, fun)), Enum.map(right, &map_operation(&1, fun))}
+
+  defp map_operation(operation, fun), do: Instruction.map_values(operation, fun)
 
   defp seek([{:eq, input, [code | _]} | rest], input, state, _) do
     tests = if is_integer(code), do: [[{:eq, code}]], else: tests(rest, code, [[]])

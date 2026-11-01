@@ -158,18 +158,15 @@ defmodule AL.JAM.IRProgramTest do
   test "scoped code is a nested IR program and effects are conservative" do
     program =
       Normalize.lower([
-        %Goal.Forall{
-          condition: [%Goal.Pass{}],
-          body: [%Goal.Eq{a: {:"$var", "Output"}, b: :value}]
-        },
+        %Goal.Not{condition: [%Goal.Eq{a: {:"$var", "Output"}, b: :value}]},
         %Goal.SetClass{object: :object, class: :class}
       ])
 
     assert %Program.Node{instruction: operation} = program.nodes[program.entry]
-    assert {:forall, nil, %Program{}, nil, %Program{}} = operation
+    assert {:negate, %Program{}} = operation
     assert Instruction.effects(operation) == :scoped
     assert Program.any?(program, &(Instruction.effects(&1) == :write))
-    assert Program.any?(program, &match?({:mutation, :set_class, _}, &1))
+    assert Program.any?(program, &match?({:set_class, _, _}, &1))
   end
 
   test "equal branch facts reach the join without losing duplicate answers" do
@@ -466,7 +463,7 @@ defmodule AL.JAM.IRProgramTest do
     assert %AL.JAM.Callable.Template{capture_slots: [0, 1]} = template
 
     assert AL.JAM.Frame.pending_goals(%AL.JAM.Frame{
-             id: :test,
+             descriptor: :test,
              code: code,
              slots: slots,
              store: %{}
@@ -475,7 +472,7 @@ defmodule AL.JAM.IRProgramTest do
 
     for value <- [1, [:different, :shape], %{name: :value}] do
       snapshot = %AL.JAM.Frame{
-        id: :test,
+        descriptor: :test,
         code: code,
         slots: slots,
         store: %{{:"$var", "Capture"} => value}
@@ -527,7 +524,7 @@ defmodule AL.JAM.IRProgramTest do
 
       assert {:ok, _, _} =
                AL.JAM.resume(
-                 %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+                 %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store},
                  AL.Branch.head(),
                  100
                )
@@ -540,7 +537,7 @@ defmodule AL.JAM.IRProgramTest do
 
     assert {:failed, _, _} =
              AL.JAM.resume(
-               %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+               %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store},
                AL.Branch.head(),
                100
              )
@@ -560,7 +557,7 @@ defmodule AL.JAM.IRProgramTest do
       goal = %Goal.Compound{name: :=, args: [{:"$var", "Argument"}, value]}
 
       snapshot = %AL.JAM.Frame{
-        id: :test,
+        descriptor: :test,
         code: code,
         slots: slots,
         store: %{{:"$var", "Goal"} => goal}
@@ -579,7 +576,7 @@ defmodule AL.JAM.IRProgramTest do
     {code, slots} = AL.JAM.IR.Assembler.compile([selected])
 
     snapshot = %AL.JAM.Frame{
-      id: :test,
+      descriptor: :test,
       code: code,
       slots: slots,
       store: %{{:"$var", "Selector"} => :atom}

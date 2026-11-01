@@ -1,4 +1,7 @@
 defmodule AL.JAM.Operand do
+  @moduledoc """
+  """
+
   def compile(term, registers) do
     if (is_list(term) or is_map(term) or is_tuple(term)) and
          MapSet.size(AL.Var.find_vars(term)) == 0 do

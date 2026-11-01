@@ -6,6 +6,24 @@ defmodule AL.JAM.Instruction do
   @type address() :: atom() | non_neg_integer()
   @type code() :: Program.t() | [t()] | tuple()
 
+  @type runtime_action() ::
+          {:assert_valid_clause_self, term(), term()}
+          | {:emit_effect, term(), term(), term(), term()}
+          | {:await, term()}
+          | {:send_elixir, term(), term()}
+          | {:set_class, term(), term()}
+          | {:set_super, term(), term()}
+          | {:set_method, term(), term(), term()}
+          | {:set_oapply, term(), term(), term(), term()}
+          | {:set_slot, term(), term(), term()}
+          | {:slot_batch, term()}
+          | {:retract_class, term(), term()}
+          | {:retract_super, term(), term()}
+          | {:retract_method, term(), term(), term()}
+          | {:retract_oapply, term(), term()}
+          | {:retract_slot, term(), term()}
+          | {:source_scope_exit, term()}
+
   @type t() ::
           :pass
           | :fail
@@ -24,7 +42,7 @@ defmodule AL.JAM.Instruction do
           | {:primitive, name :: atom(), arguments :: [term()]}
           | {:constraint, name :: atom(), arguments :: [term()]}
           | {:relation, name :: atom(), arguments :: [term()]}
-          | {:mutation, name :: atom(), arguments :: [term()]}
+          | runtime_action()
           | {:context, field :: atom(), result :: term()}
           | {:label, site :: term(), value :: term()}
           | {:send, site :: term(), receiver :: term(), selector :: term(), arguments :: term()}
@@ -35,12 +53,9 @@ defmodule AL.JAM.Instruction do
           | {:collect, template :: term(), result :: term(), condition :: code()}
           | {:collect_n, count :: term(), template :: term(), result :: term(),
              condition :: code()}
-          | {:forall, captures :: term(), condition :: code(), head_slots :: [register()] | nil,
-             body :: Program.t() | {code(), term()}}
           | {:negate, condition :: code()}
           | {:freeze, variable :: term(), body :: code()}
           | {:source_scope, capture_id :: term(), source :: term(), body :: code()}
-          | {:branch, left :: code(), right :: code()}
           | {:condition, condition :: code(), otherwise :: code()}
           | {:commit, then :: code()}
           | {:move, destination :: register(), source :: term()}
@@ -55,26 +70,67 @@ defmodule AL.JAM.Instruction do
           | {:send_local, instruction :: t(), destinations :: [register()]}
 
   def operands({family, _name, args})
-      when family in [:primitive, :constraint, :relation, :mutation],
+      when family in [:primitive, :constraint, :relation],
       do: args
 
   def operands({:call_method, {:method_identity, _, _}, args}), do: [args]
 
-  def operands(instruction),
-    do: Enum.map(operand_positions(instruction), &elem(instruction, &1))
+  def operands(instruction) do
+    case runtime_action_operands(instruction) do
+      {:ok, operands} -> operands
+      :error -> Enum.map(operand_positions(instruction), &elem(instruction, &1))
+    end
+  end
 
   def map_operands({family, name, args}, fun)
-      when family in [:primitive, :constraint, :relation, :mutation],
+      when family in [:primitive, :constraint, :relation],
       do: {family, name, Enum.map(args, fun)}
 
   def map_operands({:call_method, {:method_identity, _, _} = method, args}, fun),
     do: {:call_method, method, fun.(args)}
 
-  def map_operands(instruction, fun),
-    do:
-      Enum.reduce(operand_positions(instruction), instruction, fn index, result ->
-        put_elem(result, index, fun.(elem(instruction, index)))
-      end)
+  def map_operands(instruction, fun) do
+    case runtime_action_operands(instruction) do
+      {:ok, operands} ->
+        List.to_tuple([elem(instruction, 0) | Enum.map(operands, fun)])
+
+      :error ->
+        Enum.reduce(operand_positions(instruction), instruction, fn index, result ->
+          put_elem(result, index, fun.(elem(instruction, index)))
+        end)
+    end
+  end
+
+  @spec runtime_action_operands(term()) :: {:ok, [term()]} | :error
+  def runtime_action_operands({:assert_valid_clause_self, class, head}),
+    do: {:ok, [class, head]}
+
+  def runtime_action_operands({:emit_effect, effect, provider, operation, arguments}),
+    do: {:ok, [effect, provider, operation, arguments]}
+
+  def runtime_action_operands({:await, target}), do: {:ok, [target]}
+  def runtime_action_operands({:send_elixir, pid, message}), do: {:ok, [pid, message]}
+  def runtime_action_operands({:set_class, object, class}), do: {:ok, [object, class]}
+  def runtime_action_operands({:set_super, object, super}), do: {:ok, [object, super]}
+  def runtime_action_operands({:set_method, object, name, id}), do: {:ok, [object, name, id]}
+
+  def runtime_action_operands({:set_oapply, object, seq, head, body}),
+    do: {:ok, [object, seq, head, body]}
+
+  def runtime_action_operands({:set_slot, object, key, value}),
+    do: {:ok, [object, key, value]}
+
+  def runtime_action_operands({:slot_batch, writes}), do: {:ok, [writes]}
+  def runtime_action_operands({:retract_class, object, class}), do: {:ok, [object, class]}
+  def runtime_action_operands({:retract_super, object, super}), do: {:ok, [object, super]}
+
+  def runtime_action_operands({:retract_method, object, name, id}),
+    do: {:ok, [object, name, id]}
+
+  def runtime_action_operands({:retract_oapply, object, head}), do: {:ok, [object, head]}
+  def runtime_action_operands({:retract_slot, object, key}), do: {:ok, [object, key]}
+  def runtime_action_operands({:source_scope_exit, capture_id}), do: {:ok, [capture_id]}
+  def runtime_action_operands(_), do: :error
 
   defp operand_positions(instruction) do
     case instruction do
@@ -88,7 +144,6 @@ defmodule AL.JAM.Instruction do
       {:next, _, _, _} -> [2, 3]
       {:collect, _, _, _} -> [1, 2]
       {:collect_n, _, _, _, _} -> [1, 2, 3]
-      {:forall, _, _, _, _} -> []
       {:negate, _} -> []
       {:freeze, _, _} -> [1]
       {:source_scope, _, _, _} -> [1, 2]
@@ -98,9 +153,6 @@ defmodule AL.JAM.Instruction do
       {op, _, _, _, _} when op in [:map_put, :slot_get] -> [1, 2, 3, 4]
     end
   end
-
-  def map_values({:branch, left, right}, fun),
-    do: {:branch, Enum.map(left, &map_values(&1, fun)), Enum.map(right, &map_values(&1, fun))}
 
   def map_values({:numeric_tests, value, tests, fallback}, fun),
     do: {:numeric_tests, AL.Term.map(value, fun), tests, Enum.map(fallback, &map_values(&1, fun))}
@@ -123,7 +175,6 @@ defmodule AL.JAM.Instruction do
 
   def regions({:collect, _, _, condition}), do: [condition: condition]
   def regions({:collect_n, _, _, _, condition}), do: [condition: condition]
-  def regions({:forall, _, condition, _, body}), do: [condition: condition, body: body]
   def regions({:negate, condition}), do: [condition: condition]
   def regions({:freeze, _, goals}), do: [goals: goals]
   def regions({:source_scope, _, _, body}), do: [body: body]
@@ -134,9 +185,6 @@ defmodule AL.JAM.Instruction do
 
   defp map_regions({:collect_n, count, template, result, condition}, fun),
     do: {:collect_n, count, template, result, fun.(condition)}
-
-  defp map_regions({:forall, captures, condition, head, body}, fun),
-    do: {:forall, captures, fun.(condition), head, fun.(body)}
 
   defp map_regions({:negate, condition}, fun), do: {:negate, fun.(condition)}
   defp map_regions({:freeze, var, goals}, fun), do: {:freeze, var, fun.(goals)}
@@ -196,11 +244,16 @@ defmodule AL.JAM.Instruction do
 
   def effects(:pass), do: :pure
   def effects({op, _, _}) when op in [:eq, :dif, :unify_structural], do: :binding
-  def effects({:mutation, _, _}), do: :write
   def effects({:relation, _, _}), do: :read_and_bind
   def effects(:cut), do: :control
   def effects({:next, _, _, _}), do: :control
-  def effects(instruction), do: if(scoped?(instruction), do: :scoped, else: :unknown)
+
+  def effects(instruction) do
+    case runtime_action_operands(instruction) do
+      {:ok, _} -> :write
+      :error -> if(scoped?(instruction), do: :scoped, else: :unknown)
+    end
+  end
 
   defp materialize_local(slots, index) do
     if elem(slots, index) == nil,

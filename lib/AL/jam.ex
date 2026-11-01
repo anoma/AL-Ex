@@ -5,6 +5,9 @@ defmodule AL.JAM do
 
   alias AL.JAM.State
 
+  @doc """
+  Given an AL program, provided bindings (possibly), and runtime context, run until first answer or failure
+  """
   def start(program, store, context) do
     %State{
       active_choicepoint: %AL.Choicepoint{
@@ -25,6 +28,9 @@ defmodule AL.JAM do
     |> AL.JAM.Runtime.execute()
   end
 
+  @doc """
+  Given an AL transaction return state, backtrack again in a new transaction to find new answers 
+  """
   def next_solution(state, tx_id, transaction_object) do
     %State{
       state
@@ -40,6 +46,7 @@ defmodule AL.JAM do
     Enum.any?(stack, &match?(%AL.Choicepoint{}, &1))
   end
 
+  # Execute a method call directly
   def run(method_id, call, store, branch, budget, cursor \\ nil, context \\ %{}),
     do: AL.JAM.Runtime.run(method_id, call, store, branch, budget, cursor, context)
 

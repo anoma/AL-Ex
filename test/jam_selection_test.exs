@@ -13,7 +13,7 @@ defmodule AL.JAM.SelectionTest do
 
   defp snapshot(program, store) do
     {code, slots} = AL.JAM.IR.Assembler.compile(program)
-    %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store}
+    %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store}
   end
 
   defp run(program, store, budget \\ 100),
@@ -52,11 +52,14 @@ defmodule AL.JAM.SelectionTest do
     assert selected == original
   end
 
-  test "small budgets suspend at the same original comparison" do
+  test "small budgets stop at the same original comparison" do
     for budget <- [0, 1] do
       store = %{{:"$var", "Value"} => 2}
-      assert {:suspend, original, [], steps} = run(range(), store, budget)
-      assert {:suspend, selected, [], ^steps} = run(Selection.select(range()), store, budget)
+      assert {:budget_exhausted, original, [], steps} = run(range(), store, budget)
+
+      assert {:budget_exhausted, selected, [], ^steps} =
+               run(Selection.select(range()), store, budget)
+
       assert AL.JAM.Frame.pending_goals(selected) == AL.JAM.Frame.pending_goals(original)
 
       assert AL.JAM.resume(selected, AL.Branch.head(), 100) ==

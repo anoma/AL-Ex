@@ -550,7 +550,7 @@ defmodule AL.JAM.IR.Plan do
 
         retain_operation(goal, rest, %{state | generated: generated}, stack)
 
-      {:mutation, :set_class, [object, class]} ->
+      {:set_class, object, class} ->
         established_store =
           if state.stable and is_atom(class) and MapSet.member?(state.generated, object) do
             {store, _classes} = Var.add_direct_class(state.established_store, object, class)
@@ -566,9 +566,6 @@ defmodule AL.JAM.IR.Plan do
 
       {:negate, condition} ->
         expand_negate(condition, rest, body, state, stack)
-
-      {:forall, nil, condition, nil, action} ->
-        expand_map_slot_writes(goal, condition, action, rest, state, stack)
 
       {:primitive, :functor, [term, name, args]} ->
         expand_functor(term, name, args, rest, body, state, stack)
@@ -710,11 +707,11 @@ defmodule AL.JAM.IR.Plan do
   defp dispatch_stable?({:relation, :gensym, [symbol]}, state),
     do: MapSet.member?(state.generated, symbol)
 
-  defp dispatch_stable?({:mutation, :set_class, [object, class]}, state),
+  defp dispatch_stable?({:set_class, object, class}, state),
     do: generated_class(object, state) === {:ok, class}
 
   defp dispatch_stable?(
-         {:mutation, :set_slot, [object, key, _]},
+         {:set_slot, object, key, _},
          state
        )
        when is_atom(object) and is_atom(key) and key not in [:ivars, :dispatch_strategy] do
@@ -855,66 +852,6 @@ defmodule AL.JAM.IR.Plan do
       end
     else
       expand_send(receiver, :get, [key, result], goal, rest, state, stack)
-    end
-  end
-
-  defp expand_map_slot_writes(goal, condition, action, rest, state, stack) do
-    with true <- state.stable,
-         {:ok, slots, object} <- ground_map_slot_writes(condition, action),
-         {:ok, dependency} <- plain_map_get(slots, state.branch) do
-      writes =
-        Enum.map(slots, fn {slot, entry} ->
-          {:send, nil, object, :set_slot, [slot, entry]}
-        end)
-
-      tentative = %{
-        state
-        | dependencies: Map.put(state.dependencies, {:method, slots, :get}, dependency)
-      }
-
-      {paths, tentative} = expand_replacement(Normalize.lower(writes), tentative, stack)
-
-      case paths do
-        [path] ->
-          if direct_slot_writes?(path, length(writes)) do
-            expand_replacement(Program.concat(path, rest), tentative, stack)
-          else
-            retain_operation(goal, rest, state, stack)
-          end
-
-        _ ->
-          retain_operation(goal, rest, state, stack)
-      end
-    else
-      _ -> retain_operation(goal, rest, state, stack)
-    end
-  end
-
-  defp ground_map_slot_writes(condition, action) do
-    with {:operation, {:send, nil, slots, :get, [key, value]}, condition_tail} <-
-           Program.take_next_instruction(condition),
-         :return <- Program.take_next_instruction(condition_tail),
-         {:operation, {:send, nil, object, :set_slot, [^key, ^value]}, action_tail} <-
-           Program.take_next_instruction(action),
-         :return <- Program.take_next_instruction(action_tail),
-         true <-
-           is_atom(object) and is_map(slots) and not is_struct(slots) and
-             map_size(slots) <= 8 and MapSet.size(Var.find_vars(slots)) == 0 do
-      {:ok, slots, object}
-    else
-      _ -> :error
-    end
-  end
-
-  defp direct_slot_writes?(program, 0), do: Program.take_next_instruction(program) == :return
-
-  defp direct_slot_writes?(program, count) do
-    case Program.take_next_instruction(program) do
-      {:operation, {:mutation, :set_slot, [_, _, _]}, rest} ->
-        direct_slot_writes?(rest, count - 1)
-
-      _ ->
-        false
     end
   end
 
@@ -1088,8 +1025,7 @@ defmodule AL.JAM.IR.Plan do
         summary = MethodSummary.infer(body, arguments, state.protected)
         body = summary.program
 
-        if context_free?(body) or
-             (selector == :set_slots and ground_slot_write_scope?(body)) do
+        if context_free?(body) do
           {body, bindings} =
             if summary.determinism == :det and MethodSummary.transparent?(summary) do
               {Normalize.lower([]), Map.merge(bindings, summary.bindings)}
@@ -1279,20 +1215,8 @@ defmodule AL.JAM.IR.Plan do
   defp context_free?(program) do
     not Instruction.contains?(program, :cut) and not Instruction.contains?(program, :next) and
       not Program.any?(program, fn operation ->
-        match?({:forall, nil, _, nil, _}, operation) or
-          Enum.any?(Instruction.regions(operation), fn {_, child} -> not context_free?(child) end)
+        Enum.any?(Instruction.regions(operation), fn {_, child} -> not context_free?(child) end)
       end)
-  end
-
-  defp ground_slot_write_scope?(program) do
-    with {:operation, {:forall, nil, condition, nil, action}, tail} <-
-           Program.take_next_instruction(program),
-         :return <- Program.take_next_instruction(tail),
-         {:ok, _, _} <- ground_map_slot_writes(condition, action) do
-      true
-    else
-      _ -> false
-    end
   end
 
   defp fetch(receiver, selector, branch) do

@@ -8,7 +8,7 @@ defmodule AL.JAM.InlineTest do
     {code, slots} = AL.JAM.IR.Assembler.compile(program)
 
     AL.JAM.resume(
-      %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+      %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store},
       AL.Branch.head(),
       1000
     )

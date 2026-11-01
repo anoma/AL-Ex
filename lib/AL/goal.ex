@@ -48,7 +48,6 @@ defmodule AL.Goal do
           | AL.Goal.Cut.t()
           | AL.Goal.Implies.t()
           | AL.Goal.Or.t()
-          | AL.Goal.Forall.t()
           | AL.Goal.Findall.t()
           | AL.Goal.FindNSols.t()
           | AL.Goal.GetSlots.t()
@@ -258,11 +257,6 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: Or do
     field(:or, [AL.Goal.t()])
     field(:then, [AL.Goal.t()])
-  end
-
-  typedstruct enforce: true, module: Forall do
-    field(:condition, AL.Goal.body())
-    field(:body, AL.Goal.body())
   end
 
   typedstruct enforce: true, module: FindNSols do
@@ -486,7 +480,6 @@ defmodule AL.Goal do
     {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
-    {Forall, :forall, [condition: :goals, body: :goals]},
     {FindNSols, :findnsols, [count: :term, template: :term, result: :term, condition: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
@@ -628,7 +621,6 @@ defmodule AL.Goal do
   def call_form(%Equal{a: a, b: b}), do: {:==, [a, b]}
   def call_form(%CallNextMethod{self: self, args: args}), do: {:call_next_method, [self | args]}
   def call_form(%Not{condition: condition}), do: {:not, [condition]}
-  def call_form(%Forall{condition: condition, body: body}), do: {:forall, [condition, body]}
   def call_form(%Freeze{var: var, goals: goals}), do: {:freeze, [var, goals]}
 
   def call_form(%FindNSols{
@@ -724,9 +716,6 @@ defmodule AL.Goal do
   def lower(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
   def lower(:call_next_method, [self | args]), do: %CallNextMethod{self: self, args: args}
   def lower(:not, [condition]), do: %Not{condition: goals(condition)}
-
-  def lower(:forall, [condition, body]),
-    do: %Forall{condition: goals(condition), body: goals(body)}
 
   def lower(:freeze, [var, body]), do: %Freeze{var: var, goals: goals(body)}
 

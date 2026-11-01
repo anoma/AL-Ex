@@ -45,6 +45,14 @@ defmodule AL.ForallIncrementalTest do
              )
   end
 
+  test "applies each condition binding to a constrained map action", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S(forall {member [left, right] Key} {= Map #{Key => Key}, get Map Key Value, = Value Key}.),
+               branch
+             )
+  end
+
   test "does not export condition or action bindings", %{branch: branch} do
     assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
@@ -71,7 +79,7 @@ defmodule AL.ForallIncrementalTest do
              AL.run(~S(forall {member [1, 2] X} {= X X}.), branch, trace: [:domino])
 
     assert Enum.any?(state.trace.events, fn event ->
-             match?({:collection_begin, _, :forall, _, _}, AL.Trace.payload(event))
+             match?({:method_call, _, _, :forall, _, _}, AL.Trace.payload(event))
            end)
 
     assert is_list(AL.Trace.Derivation.build(state))

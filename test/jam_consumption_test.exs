@@ -141,12 +141,12 @@ defmodule AL.JAM.ConsumptionTest do
     assert is_nil(plan(branch, :repeat, receiver))
   end
 
-  test "emitted scan can suspend inside classification without losing answers", %{branch: branch} do
+  test "emitted scan resumes after budget exhaustion without losing answers", %{branch: branch} do
     compiled = plan(branch, :blanks)
     {_, code, _, _} = AL.JAM.Scan.emit(compiled)
 
     snapshot = %AL.JAM.Frame{
-      id: :test,
+      descriptor: :test,
       code: code,
       slots: {~c" \tx", {:"$var", "Rest"}, nil, nil},
       store: %{}
@@ -155,7 +155,7 @@ defmodule AL.JAM.ConsumptionTest do
     assert collect(AL.JAM.resume(snapshot, branch, 1), [], branch) == [~c"x", ~c"\tx", ~c" \tx"]
   end
 
-  defp collect({:suspend, snapshot, alternatives, _}, choices, branch),
+  defp collect({:budget_exhausted, snapshot, alternatives, _}, choices, branch),
     do: collect(AL.JAM.resume(snapshot, branch, 1), alternatives ++ choices, branch)
 
   defp collect({:answers, store, alternatives, _}, choices, branch),

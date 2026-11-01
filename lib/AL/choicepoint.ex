@@ -14,9 +14,7 @@ defmodule AL.Choicepoint do
 
   @type continuation() ::
           AL.JAM.Frame.t()
-          | :collect_answer
-          | {:collect_resume, map()}
-          | {:forall_next, AL.JAM.Frame.t(), AL.JAM.State.t()}
+          | AL.JAM.Collection.Cursor.t()
   @type parked() :: {term(), tuple(), tuple()}
 
   typedstruct enforce: true do
