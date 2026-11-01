@@ -164,6 +164,8 @@ defmodule AL.ResolutionCache do
   end
 
   def fetch_plan(branch, key, valid?, compute) do
+    key = :erlang.term_to_binary(key, [:deterministic])
+
     case fetch_code(branch, :compiled_plans, key, compute) do
       nil ->
         nil
