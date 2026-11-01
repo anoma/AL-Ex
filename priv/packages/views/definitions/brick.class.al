@@ -4,8 +4,9 @@
 brick >> to_xaml
 | Self Text |
 xaml_tag Self Tag,
-inheritance_chain Self Chain,
-collect_ivar_specs Chain Specs,
+vm_cached_ivar_specs Self Inherited,
+collect_ivar_specs [Self] Own,
+concat Own Inherited Specs,
 index_specs Self Specs ByName,
 map_pairs ByName Pairs,
 properties_xaml Self Pairs Properties,
