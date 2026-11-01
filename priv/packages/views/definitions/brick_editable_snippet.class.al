@@ -21,6 +21,8 @@ brick_editable_snippet >> make_editor
 edit_binding Self text Text,
 edit_binding Self original_text Original,
 edit_binding Self grammar Grammar,
+fold_after_line Self Line,
+edit_binding Self folded Folded,
 new brick_editor #{
   text => Text,
   original_text => Original,
@@ -28,10 +30,15 @@ new brick_editor #{
   font_size => 16,
   is_read_only => false,
   follow_caret => true,
+  fold_after_line => Line,
+  is_folded => Folded,
   vertical_scroll_bar_visibility => "Disabled",
   horizontal_scroll_bar_visibility => "Disabled"
 } Editor,
 set_slot Editor name "snippet_editor".
+
+brick_editable_snippet >> fold_after_line
+| _Self 1 |.
 
 brick_editable_snippet >> make_grid
 | Self Editor Grid |

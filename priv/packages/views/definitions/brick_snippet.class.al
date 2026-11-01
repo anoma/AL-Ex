@@ -44,14 +44,20 @@ above Self Above,
 buttons Self Buttons,
 
 new brick_stack_panel #{children => Above} Heading,
+set_slot Editor grid_row 1,
 new brick_stack_panel #{
   children => Buttons,
+  grid_row => 2,
   orientation => "Horizontal",
   horizontal_alignment => "Left",
   spacing => 1
 } Actions,
-new brick_stack_panel #{
+new brick_row_definition #{height => "Auto"} HeadingRow,
+new brick_row_definition #{height => "*"} EditorRow,
+new brick_row_definition #{height => "Auto"} ActionsRow,
+new brick_grid #{
   children => [Heading, Editor, Actions],
+  row_definitions => [HeadingRow, EditorRow, ActionsRow],
   grid_column => 1,
   margin => "4"
 } Body,

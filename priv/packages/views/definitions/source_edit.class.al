@@ -8,6 +8,7 @@
     #{name => grammar, type => string},
     #{name => revert_action},
     #{name => save_action},
+    #{name => folded, default => true, domain => [false, true]},
     #{name => can_save, domain => [false, true]},
     #{name => error, type => string}
   ]
