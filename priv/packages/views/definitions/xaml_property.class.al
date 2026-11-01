@@ -24,17 +24,14 @@ fail.
 xaml_property >> xaml_name
 | Self Name |
 get_slots Self #{spec => Spec},
-get_slots Spec #{xaml_name => Name}.
-
-xaml_property >> xaml_name
-| Self Name |
-get_slots Self #{owner => Owner, spec => Spec},
-not (get Spec xaml_name _),
-get_slots Spec #{name => Slot},
-atom_string Slot Raw,
-pascal_case Self Raw Property,
-xaml_tag Owner Tag,
-format "~a.~a" [Tag, Property] Name.
+get_slots Spec #{xaml_name => Explicit} -> = Name Explicit ; {
+  get_slots Self #{owner => Owner},
+  get_slots Spec #{name => Slot},
+  atom_string Slot Raw,
+  pascal_case Self Raw Property,
+  xaml_tag Owner Tag,
+  format "~a.~a" [Tag, Property] Name
+}.
 
 xaml_property >> pascal_case
 | Self Raw Name |

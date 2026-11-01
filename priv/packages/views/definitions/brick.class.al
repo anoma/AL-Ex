@@ -35,9 +35,13 @@ call_next_method Self Args Self,
 cut.
 
 brick >> index_specs
-| _Self Specs ByName |
-lambda [Index, Spec, Next] Add {get Spec name Name, put Index Name Spec Next},
-fold_right Specs Add #{} ByName.
+| _Self [] #{} |.
+
+brick >> index_specs
+| Self [Spec . Rest] ByName |
+index_specs Self Rest Tail,
+get Spec name Name,
+put Tail Name Spec ByName.
 
 brick >> init_value
 | Self Class Args Specs Value |
