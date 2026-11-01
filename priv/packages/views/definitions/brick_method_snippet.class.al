@@ -16,6 +16,25 @@ action_button Self delete_action
 delete_confirmation Self Confirmation,
 concat Base [Delete, Confirmation] Buttons.
 
+brick_method_snippet >> make_editor
+| Self Editor |
+call_next_method Self Editor,
+edit_binding Self previous_action Previous,
+edit_binding Self next_action Next,
+set_slots Editor #{
+  before_command => Previous,
+  after_command => Next
+}.
+
+brick_method_snippet >> key_bindings
+| Self Bindings |
+call_next_method Self Base,
+edit_binding Self previous_action Before,
+edit_binding Self next_action After,
+new brick_key_binding #{gesture => "Alt+P", command => Before} Previous,
+new brick_key_binding #{gesture => "Alt+N", command => After} Next,
+concat Base [Previous, Next] Bindings.
+
 brick_method_snippet >> delete_confirmation
 | Self Panel |
 edit_binding Self delete_pending Pending,

@@ -23,6 +23,7 @@ edit_binding Self original_text Original,
 edit_binding Self grammar Grammar,
 fold_after_line Self Line,
 edit_binding Self folded Folded,
+key_bindings Self Bindings,
 new brick_editor #{
   text => Text,
   original_text => Original,
@@ -32,6 +33,8 @@ new brick_editor #{
   follow_caret => true,
   fold_after_line => Line,
   is_folded => Folded,
+  key_bindings => Bindings,
+  navigation_target => true,
   vertical_scroll_bar_visibility => "Disabled",
   horizontal_scroll_bar_visibility => "Disabled"
 } Editor,
@@ -39,6 +42,11 @@ set_slot Editor name "snippet_editor".
 
 brick_editable_snippet >> fold_after_line
 | _Self 1 |.
+
+brick_editable_snippet >> key_bindings
+| Self [Toggle] |
+edit_binding Self fold_action Command,
+new brick_key_binding #{gesture => "Shift+Tab", command => Command} Toggle.
 
 brick_editable_snippet >> make_grid
 | Self Editor Grid |

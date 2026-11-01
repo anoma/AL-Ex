@@ -9,6 +9,7 @@
     #{name => revert_action},
     #{name => save_action},
     #{name => folded, default => true, domain => [false, true]},
+    #{name => fold_action},
     #{name => can_save, domain => [false, true]},
     #{name => error, type => string}
   ]
@@ -21,10 +22,16 @@ get Self source_record Source,
 get_slots Source #{text => Text, grammar => Grammar},
 lambda [] Revert (revert Self),
 lambda [] Save (save Self),
+lambda [] Fold (toggle_fold Self),
 set_slots Self #{
   text => Text, original_text => Text, grammar => Grammar,
-  revert_action => Revert, save_action => Save, can_save => true, error => ""
+  revert_action => Revert, save_action => Save, fold_action => Fold,
+  can_save => true, error => ""
 }.
+
+source_edit >> toggle_fold
+| Self |
+get Self folded true -> set_slot Self folded false ; set_slot Self folded true.
 
 source_edit >> save
 | Self |

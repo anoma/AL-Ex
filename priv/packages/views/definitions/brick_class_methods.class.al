@@ -7,6 +7,7 @@
     #{name => sources, type => observable_list},
     #{name => rows, type => observable_list},
     #{name => edits, type => list},
+    #{name => focus},
     #{name => grid, type => brick_grid}
   ]
 }.
@@ -19,7 +20,14 @@ class_filters Target Filters,
 new observable_list [] Sources,
 new observable_list [] Rows,
 make_grid Self Filters Grid,
-set_slots Self #{filters => Filters, grid => Grid, sources => Sources, rows => Rows, edits => []},
+set_slots Self #{
+  filters => Filters,
+  grid => Grid,
+  sources => Sources,
+  rows => Rows,
+  edits => [],
+  focus => #{}
+},
 forall (member Filters Filter) (subscribe Filter Self),
 refresh Self.
 
@@ -34,7 +42,23 @@ lambda [Source, Row] Make {
 },
 map Records Make Items,
 replace Sources Records,
-replace Rows Items.
+replace Rows Items,
+get Self focus Focus,
+member Items Focus -> pass ; set_slot Self focus #{}.
+
+brick_class_methods >> navigate
+| Self Edit Step |
+adjacent Self Edit Step Row -> set_slot Self focus Row ; pass.
+
+brick_class_methods >> adjacent
+| Self Edit Step Row |
+get Self rows Rows,
+get Rows contents Items,
+at Items Index Current,
+get Current edit Edit,
+= Next (+ Index Step),
+>= Next 0,
+at Items Next Row.
 
 brick_class_methods >> to_xaml
 | Self Text |
@@ -50,6 +74,7 @@ new brick_stack_panel #{
   spacing => 6
 } Bar,
 new brick_slot_binding #{object_id => Self, path => rows} Items,
+new brick_slot_binding #{object_id => Self, path => focus} Focus,
 selection_styles Self Styles,
 new brick_stack_panel #{} RowPanel,
 new brick_table #{
@@ -62,6 +87,7 @@ new brick_table #{
   items_panel => RowPanel,
   items_source => Items,
   row_spacing => 2,
+  navigation_item => Focus,
   show_headers => false,
   styles => Styles
 } Methods,
