@@ -2,14 +2,12 @@
 #{super => xaml_property}.
 
 xaml_binding_property >> xaml_content
-| Self Text |
-slot_value Self Value,
+| Self Value Text |
 isa Value brick,
 to_xaml Value Text.
 
 xaml_binding_property >> xaml_content
-| Self Text |
-slot_value Self Value,
+| Self Value Text |
 not (isa Value brick),
 get_slots Self #{owner => Owner, spec => Spec},
 get_slots Spec #{name => Slot},

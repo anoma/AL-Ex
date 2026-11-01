@@ -2,6 +2,5 @@
 #{super => xaml_property}.
 
 xaml_object_property >> xaml_content
-| Self Text |
-slot_value Self Value,
+| _Self Value Text |
 to_xaml Value Text.

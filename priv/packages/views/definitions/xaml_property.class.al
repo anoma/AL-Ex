@@ -2,31 +2,23 @@
 #{super => value, ivars => [#{name => owner}, #{name => spec}]}.
 
 xaml_property >> to_xaml
-| Self "" |
-not (slot_value Self _).
-
-xaml_property >> to_xaml
 | Self Text |
-slot_value Self _,
+slot_value Self Value -> render Self Value Text ; = Text "".
+
+xaml_property >> render
+| Self Value Text |
 xaml_name Self Name,
-xaml_content Self Content,
+xaml_content Self Value Content,
 format "<~a>~a</~a>" [Name, Content, Name] Text.
 
 xaml_property >> slot_value
 | Self Value |
 get_slots Self #{owner => Owner, spec => Spec},
 get_slots Spec #{name => Slot},
-get Owner Slot Value.
-
-xaml_property >> slot_value
-| Self Value |
-get_slots Self #{owner => Owner, spec => Spec},
-get Spec name Slot,
-not (get Owner Slot _),
-get Spec default Value.
+get Owner Slot Current -> = Value Current ; get Spec default Value.
 
 xaml_property >> xaml_content
-| _Self _Text |
+| _Self _Value _Text |
 fail.
 
 xaml_property >> xaml_name

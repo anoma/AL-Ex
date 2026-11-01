@@ -1,9 +1,8 @@
 @xaml_class_bindings_property
 #{super => xaml_property}.
 
-xaml_class_bindings_property >> to_xaml
-| Self Text |
-slot_value Self Bindings,
+xaml_class_bindings_property >> render
+| Self Bindings Text |
 findall Part Parts {
   get Bindings Name Binding,
   atom_string Name Raw,

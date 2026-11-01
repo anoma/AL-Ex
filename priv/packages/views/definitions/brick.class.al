@@ -8,20 +8,25 @@ inheritance_chain Self Chain,
 collect_ivar_specs Chain Specs,
 index_specs Self Specs ByName,
 map_pairs ByName Pairs,
-findall Spec XamlSpecs {
-  member Pairs [Name, Spec],
-  get Spec xaml _,
-  get Self Name _ -> pass ; get Spec default _
-},
-lambda [Spec, Property] Render {
-  get Spec xaml Renderer,
-  new Renderer #{owner => Self, spec => Spec} View,
-  to_xaml View Property
-},
-map XamlSpecs Render Properties,
+properties_xaml Self Pairs Properties,
 join Properties Body,
 format "<~a>~a</~a>" [Tag, Body, Tag] Text,
 cut.
+
+brick >> properties_xaml
+| _Self [] [] |.
+
+brick >> properties_xaml
+| Self [[Name, Spec] . Rest] Properties |
+{
+  get Spec xaml Renderer,
+  get Self Name Value -> pass ; get Spec default Value
+} -> {
+  new Renderer #{owner => Self, spec => Spec} View,
+  render View Value Property,
+  = Properties [Property . Tail],
+  properties_xaml Self Rest Tail
+} ; properties_xaml Self Rest Properties.
 
 brick >> init
 | Self Args Self |

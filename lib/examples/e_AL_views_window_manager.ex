@@ -131,8 +131,8 @@ defmodule Examples.ALViewsWindowManager do
              data: []
            }
 
-    assert fields.content =~ "<TableView "
-    assert fields.content =~ "Value=\"0,0,0,8\""
+    assert fields.content =~ "<TableView>"
+    assert fields.content =~ "<Setter.Value>0,0,0,8</Setter.Value>"
     fields
   end
 
@@ -143,7 +143,7 @@ defmodule Examples.ALViewsWindowManager do
         "Target" => target
       })["$Views"]
 
-    assert Enum.find(views, &(&1[:title] == "meta"))[:content] =~ "Value=\"0,0,0,8\""
+    assert Enum.find(views, &(&1[:title] == "meta"))[:content] =~ "<Setter.Value>0,0,0,8</Setter.Value>"
     views
   end
 
@@ -161,7 +161,7 @@ defmodule Examples.ALViewsWindowManager do
 
     for {raw, expected} <- names, into: %{} do
       name =
-        evaluate("pascal_case Slot Raw Name.", %{"Slot" => %{class: :xaml_slot}, "Raw" => raw})[
+        evaluate("pascal_case Slot Raw Name.", %{"Slot" => %{class: :xaml_property}, "Raw" => raw})[
           "$Name"
         ]
 
@@ -181,7 +181,7 @@ defmodule Examples.ALViewsWindowManager do
 
     for {raw, expected} <- strings, into: %{} do
       text =
-        evaluate("xml_escape Slot Raw Text.", %{"Slot" => %{class: :xaml_slot}, "Raw" => raw})[
+        evaluate("xml_escape Slot Raw Text.", %{"Slot" => %{class: :xaml_property}, "Raw" => raw})[
           "$Text"
         ]
 
@@ -207,6 +207,31 @@ defmodule Examples.ALViewsWindowManager do
     assert xaml =~ "<TextBlock.Text>&lt;&amp;</TextBlock.Text>"
     refute xaml =~ "TextBlock.Margin"
     xaml
+  end
+
+  example xaml_property_values() do
+    spec = %{name: :value, xaml_name: "Example.Value"}
+
+    for {owner, fields, expected} <- [
+          {%{value: 0}, Map.put(spec, :default, 42), "<Example.Value>0</Example.Value>"},
+          {%{value: false}, spec, "<Example.Value>false</Example.Value>"},
+          {%{value: ""}, spec, "<Example.Value></Example.Value>"},
+          {%{value: "<&"}, spec, "<Example.Value>&lt;&amp;</Example.Value>"},
+          {%{}, Map.put(spec, :default, "fallback"), "<Example.Value>fallback</Example.Value>"},
+          {%{}, spec, ""}
+        ] do
+      values =
+        evaluate(
+          ~S"""
+          new xaml_literal_property #{owner => Owner, spec => Spec} Property.
+          to_xaml Property Xaml.
+          """,
+          %{"Owner" => owner, "Spec" => fields}
+        )
+
+      assert values["$Xaml"] == expected
+      values["$Xaml"]
+    end
   end
 
   example raw_view() do
