@@ -23,6 +23,49 @@ defmodule Examples.ALStorage do
     assert inspect(reason) =~ "requires an atom durable identity"
   end
 
+  example slot_updates_require_a_resolved_receiver() do
+    branch = Examples.Support.branch()
+
+    assert %AL{result: {:atomic, _}} =
+             run(
+               ~S"""
+               @storage_receiver
+               #{super => object, ivars => [#{name => count}]}.
+               vm_set_class storage_first storage_receiver.
+               vm_set_class storage_second storage_receiver.
+               set_slot storage_first count 1.
+               set_slot storage_second count 2.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:aborted, reason}} =
+             run(
+               ~S"""
+               forall (class Receiver storage_receiver) {
+                 set_slot Receiver count 3
+               }.
+               """,
+               branch
+             )
+
+    assert inspect(reason) =~ "requires an atom durable identity"
+
+    assert %AL{result: {:atomic, _}} =
+             run(
+               ~S"""
+               get storage_first count 1.
+               get storage_second count 2.
+               forall {class Receiver storage_receiver, label Receiver} {
+                 set_slot Receiver count 3
+               }.
+               get storage_first count 3.
+               get storage_second count 3.
+               """,
+               branch
+             )
+  end
+
   # Both ivars go through the exact same `set_slot`/`get` calls --
   # `storage: :soa` on `concentration`'s spec is invisible at every call
   # site, only observable via the explicit `slot/4` checks below.
