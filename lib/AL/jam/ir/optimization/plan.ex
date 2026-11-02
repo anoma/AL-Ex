@@ -85,11 +85,12 @@ defmodule AL.JAM.IR.Plan do
     plan =
       if supported?(call) and
            not default_new_receiver_method?(dispatch_receiver, selector, method, branch) do
-        AL.PlanStore.select(
+        AL.PlanStore.select_for_dispatch(
           branch,
           method,
-          &reusable?(&1, call),
-          fn -> compile(call, branch) end
+          [shared_dispatch(method), call.dispatch],
+          &reusable?(&1, call, method),
+          fn -> share_receiver_independent(compile(call, branch), call, method, branch) end
         )
       end
 
@@ -104,9 +105,56 @@ defmodule AL.JAM.IR.Plan do
 
   def select(original, _, _, _, _, _), do: {original, []}
 
-  defp reusable?(implementation, call) do
+  defp reusable?(implementation, call, method) do
+    call =
+      if implementation.requirements.dispatch == shared_dispatch(method),
+        do: %{call | dispatch: shared_dispatch(method)},
+        else: call
+
     Call.satisfies?(call, implementation.requirements) and
       not deferred_inputs_changed?(implementation, call)
+  end
+
+  defp shared_dispatch(method), do: {:shared_method, method}
+
+  defp share_receiver_independent(
+         %Implementation{requirements: %{arguments: [%{} | _] = arguments}} = implementation,
+         call,
+         method,
+         branch
+       ) do
+    {receiver, selector} = target(call)
+
+    if receiver_independent?(method, branch) and
+         Enum.at(arguments, 0) == %{} and
+         not Enum.any?(implementation.deferred_queries, fn {{position, _, _}, _} ->
+           position == 0
+         end) do
+      %Implementation{
+        implementation
+        | requirements: %{implementation.requirements | dispatch: shared_dispatch(method)},
+          dependencies: Map.delete(implementation.dependencies, {:method, receiver, selector})
+      }
+    else
+      implementation
+    end
+  end
+
+  defp share_receiver_independent(implementation, _call, _method, _branch), do: implementation
+
+  defp receiver_independent?(method, branch) do
+    clauses = Compiler.fetch_ir(method, branch)
+
+    clauses != [] and
+      Enum.all?(clauses, fn
+        {:oapply, _, _, [self | arguments], body} when is_list(arguments) ->
+          Var.var?(self) and
+            not MapSet.member?(Var.find_vars({arguments, body}), self) and
+            context_free?(body)
+
+        _ ->
+          false
+      end)
   end
 
   defp deferred_inputs_changed?(implementation, call) do

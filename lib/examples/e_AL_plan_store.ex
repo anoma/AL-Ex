@@ -302,6 +302,77 @@ defmodule Examples.ALPlanStore do
     end)
   end
 
+  example variants_keep_newest_first_order_when_replaced() do
+    with_branch(fn branch ->
+      assert {:atomic, [:third, :second, :first]} =
+               transaction(fn ->
+                 for {variant, code} <- [first: :first, second: :second, third: :third] do
+                   PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                     %Implementation{code: code, requirements: %{variant: variant}}
+                   end)
+                 end
+
+                 Enum.map(PlanStore.implementations(branch, :store_probe), & &1.code)
+               end)
+
+      assert {:atomic, [:replacement, :third, :second]} =
+               transaction(fn ->
+                 PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                   %Implementation{code: :replacement, requirements: %{variant: :first}}
+                 end)
+
+                 Enum.map(PlanStore.implementations(branch, :store_probe), & &1.code)
+               end)
+
+      assert {:atomic, [:newest, :replacement, :second]} =
+               transaction(fn ->
+                 PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                   %Implementation{code: :newest, requirements: %{variant: :third}}
+                 end)
+
+                 Enum.map(PlanStore.implementations(branch, :store_probe), & &1.code)
+               end)
+
+      assert {:atomic, []} =
+               transaction(fn ->
+                 PlanStore.invalidate_method(branch, :store_probe)
+                 PlanStore.implementations(branch, :store_probe)
+               end)
+    end)
+  end
+
+  example deferred_queries_distinguish_variants_with_the_same_requirements() do
+    with_branch(fn branch ->
+      assert {:atomic, [:second, :first]} =
+               transaction(fn ->
+                 for {token, code} <- [{1, :first}, {2, :second}] do
+                   PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                     %Implementation{
+                       code: code,
+                       requirements: %{variant: :shared},
+                       deferred_queries: %{token: token}
+                     }
+                   end)
+                 end
+
+                 Enum.map(PlanStore.implementations(branch, :store_probe), & &1.code)
+               end)
+
+      assert {:atomic, [:replacement, :second]} =
+               transaction(fn ->
+                 PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                   %Implementation{
+                     code: :replacement,
+                     requirements: %{variant: :shared},
+                     deferred_queries: %{token: 1}
+                   }
+                 end)
+
+                 Enum.map(PlanStore.implementations(branch, :store_probe), & &1.code)
+               end)
+    end)
+  end
+
   example implementations_are_branch_local() do
     with_branch(fn branch ->
       with_branch(fn other ->
@@ -371,6 +442,186 @@ defmodule Examples.ALPlanStore do
                    trace: trace
                  )
       end
+    end)
+  end
+
+  example receiver_independent_plans_are_shared_across_durable_objects() do
+    with_branch(fn branch ->
+      assert %AL{result: {:atomic, {%{"$First" => first, "$Second" => second}, _, _}}} =
+               AL.run(
+                 ~S"""
+                 @sharing_probe #{super => object, ivars => [#{name => payload}]}.
+                 sharing_probe >> initial_value
+                 | _Self Value |
+                 member [zero] Value.
+                 sharing_probe >> stored_value
+                 | Self Value |
+                 get Self payload Value.
+                 new sharing_probe First.
+                 new sharing_probe Second.
+                 set_slot First payload first.
+                 set_slot Second payload second.
+                 """,
+                 branch
+               )
+
+      assert {:atomic, {first_plan, second_plan, independent, dependent}} =
+               transaction(fn ->
+                 {:ok, _, independent_method} =
+                   AL.Dispatch.target(first, :initial_value, branch)
+
+                 original = AL.JAM.Compiler.fetch_method(independent_method, branch)
+                 variable = AL.Var.var("Value")
+
+                 {first_plan, _} =
+                   AL.JAM.IR.Plan.select(
+                     original,
+                     first,
+                     :initial_value,
+                     [variable],
+                     independent_method,
+                     branch
+                   )
+
+                 {second_plan, _} =
+                   AL.JAM.IR.Plan.select(
+                     original,
+                     second,
+                     :initial_value,
+                     [variable],
+                     independent_method,
+                     branch
+                   )
+
+                 {:ok, _, dependent_method} = AL.Dispatch.target(first, :stored_value, branch)
+                 original = AL.JAM.Compiler.fetch_method(dependent_method, branch)
+
+                 for receiver <- [first, second] do
+                   AL.JAM.IR.Plan.select(
+                     original,
+                     receiver,
+                     :stored_value,
+                     [variable],
+                     dependent_method,
+                     branch
+                   )
+                 end
+
+                 {first_plan, second_plan, PlanStore.implementations(branch, independent_method),
+                  PlanStore.implementations(branch, dependent_method)}
+               end)
+
+      assert :erts_debug.same(first_plan, second_plan)
+
+      assert Enum.count(independent, fn entry ->
+               match?(%{dispatch: {:shared_method, _}}, entry.requirements)
+             end) == 1
+
+      assert Enum.count(dependent, fn entry ->
+               match?(%{dispatch: _}, entry.requirements)
+             end) == 2
+
+      assert %AL{result: {:atomic, {%{"$FirstValue" => :first, "$SecondValue" => :second}, _, _}}} =
+               AL.run("stored_value First FirstValue, stored_value Second SecondValue.", branch,
+                 bindings: %{"First" => first, "Second" => second}
+               )
+
+      assert %AL{result: {:atomic, _}} =
+               AL.run(
+                 ~S"""
+                 sharing_probe >> initial_value
+                 | _Self Value |
+                 member [one] Value.
+                 """,
+                 branch
+               )
+
+      assert %AL{result: {:atomic, {%{"$FirstValue" => :one, "$SecondValue" => :one}, _, _}}} =
+               AL.run("initial_value First FirstValue, initial_value Second SecondValue.", branch,
+                 bindings: %{"First" => first, "Second" => second}
+               )
+    end)
+  end
+
+  example dispatch_selection_skips_unrelated_receivers() do
+    with_branch(fn branch ->
+      assert {:atomic, :second} =
+               transaction(fn ->
+                 for receiver <- [:first, :second, :third] do
+                   PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                     %Implementation{
+                       code: receiver,
+                       requirements: %{dispatch: {receiver, :probe}, arguments: []}
+                     }
+                   end)
+                 end
+
+                 PlanStore.select_for_dispatch(
+                   branch,
+                   :store_probe,
+                   [{:second, :probe}],
+                   fn entry ->
+                     assert entry.code == :second
+                     true
+                   end,
+                   fn -> flunk("recompiled") end
+                 ).code
+               end)
+
+      assert {:atomic, :replacement} =
+               transaction(fn ->
+                 PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                   %Implementation{
+                     code: :replacement,
+                     requirements: %{dispatch: {:second, :probe}, arguments: []}
+                   }
+                 end)
+
+                 PlanStore.select_for_dispatch(
+                   branch,
+                   :store_probe,
+                   [{:second, :probe}],
+                   fn entry -> entry.code == :replacement end,
+                   fn -> flunk("recompiled") end
+                 ).code
+               end)
+
+      assert {:atomic, :external} =
+               Task.async(fn ->
+                 transaction(fn ->
+                   PlanStore.select(branch, :store_probe, fn _ -> false end, fn ->
+                     %Implementation{
+                       code: :external,
+                       requirements: %{dispatch: {:second, :probe}, arguments: []}
+                     }
+                   end).code
+                 end)
+               end)
+               |> Task.await()
+
+      assert {:atomic, :external} =
+               transaction(fn ->
+                 PlanStore.select_for_dispatch(
+                   branch,
+                   :store_probe,
+                   [{:second, :probe}],
+                   fn entry -> entry.code == :external end,
+                   fn -> flunk("recompiled") end
+                 ).code
+               end)
+
+      assert {:atomic, nil} =
+               transaction(fn ->
+                 PlanStore.invalidate_method(branch, :store_probe)
+
+                 PlanStore.select_for_dispatch(
+                   branch,
+                   :store_probe,
+                   [{:second, :probe}],
+                   fn _ -> true end,
+                   fn -> nil end
+                 )
+               end)
     end)
   end
 end
