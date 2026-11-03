@@ -73,21 +73,11 @@ get Spec name Name.
 
 object >> validate_ivar_domain
 | _Self Spec Value |
-get Spec domain Domain,
-in_domain Value Domain.
-
-object >> validate_ivar_domain
-| _Self Spec _Value |
-not (get Spec domain _).
+get Spec domain Domain -> in_domain Value Domain ; pass.
 
 object >> validate_ivar_type
 | _Self Spec Value |
-get Spec type Type,
-isa Value Type.
-
-object >> validate_ivar_type
-| _Self Spec _Value |
-not (get Spec type _).
+get Spec type Type -> isa Value Type ; pass.
 
 object >> validate_ivar_spec
 | Self Spec Name Value |
@@ -172,11 +162,7 @@ put Self Key Default Updated.
 
 object >> get_optional
 | Self Key Value |
-get Self Key Value.
-
-object >> get_optional
-| Self Key _Value |
-not (get Self Key _).
+not (get Self Key _) -> pass ; get Self Key Value.
 
 object >> retract_existing_facts
 | Self |
@@ -328,6 +314,7 @@ include_durable_slot Partial Name Value Output.
 object >> include_durable_slot
 | Partial Name Value Output |
 ground Value,
+cut,
 vm_map_put Partial Name Value Output.
 
 object >> include_durable_slot
@@ -336,6 +323,7 @@ not (ground Value),
 class Value anonymous_method,
 get Value args Args,
 ground Args,
+cut,
 vm_map_put Partial Name Value Output.
 
 object >> include_durable_slot
