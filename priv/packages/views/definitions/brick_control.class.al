@@ -2,6 +2,17 @@
 #{
   super => brick,
   ivars => [
+    #{
+      name => bring_into_view_on_focus_change,
+      xaml => xaml_literal_property,
+      xaml_name => "ScrollViewer.BringIntoViewOnFocusChange"
+    },
+    #{
+      name => navigation_target,
+      xaml => xaml_literal_property,
+      xaml_name => "editor:Navigation.IsTarget"
+    },
+    #{name => key_bindings, type => list, xaml => xaml_collection_property},
     #{name => name, type => string, xaml => xaml_literal_property},
     #{name => width, xaml => xaml_content_property},
     #{name => height, xaml => xaml_content_property},
@@ -12,6 +23,9 @@
     #{name => vertical_alignment, xaml => xaml_literal_property},
     #{name => clip_to_bounds, xaml => xaml_literal_property},
     #{name => classes, type => string, xaml => xaml_literal_property},
+    #{name => class_bindings, xaml => xaml_class_bindings_property},
+    #{name => is_visible, xaml => xaml_content_property},
+    #{name => is_enabled, xaml => xaml_content_property},
     #{
       default => [],
       element_type => brick_style,

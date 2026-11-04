@@ -9,8 +9,21 @@
       type => list,
       xaml => xaml_collection_property
     },
+    #{
+      name => navigation_item,
+      xaml => xaml_content_property,
+      xaml_name => "editor:Navigation.Item"
+    },
     #{default => 0, name => row_spacing},
+    #{name => auto_scroll_to_selected_item, xaml => xaml_literal_property},
     #{default => true, name => show_headers},
+    #{name => background, xaml => xaml_literal_property},
+    #{name => border_thickness, xaml => xaml_literal_property},
+    #{
+      name => items_panel,
+      type => brick_panel,
+      xaml => xaml_items_panel_template_property
+    },
     #{
       default => #{class => brick_binding, converter => "al:Data.Items"},
       name => items_source,

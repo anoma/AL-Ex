@@ -8,7 +8,7 @@
     #{name => padding, xaml => xaml_literal_property},
     #{name => background, xaml => xaml_literal_property},
     #{name => foreground, xaml => xaml_literal_property},
-    #{name => border_brush, xaml => xaml_literal_property},
+    #{name => border_brush, xaml => xaml_content_property},
     #{name => border_thickness, xaml => xaml_literal_property},
     #{name => font_size, xaml => xaml_literal_property},
     #{name => font_family, xaml => xaml_literal_property}

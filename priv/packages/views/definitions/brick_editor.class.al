@@ -4,15 +4,13 @@
   ivars => [
     #{
       name => text,
-      type => string,
       xaml => xaml_binding_property,
       xaml_name => "editor:Code.Text"
     },
     #{
       default => "",
       name => grammar,
-      type => string,
-      xaml => xaml_literal_property,
+      xaml => xaml_content_property,
       xaml_name => "editor:Code.Grammar"
     },
     #{
@@ -34,8 +32,33 @@
       xaml => xaml_literal_property
     },
     #{name => padding, xaml => xaml_literal_property},
+    #{
+      name => original_text,
+      xaml => xaml_content_property,
+      xaml_name => "editor:Code.OriginalText"
+    },
     #{name => vertical_scroll_bar_visibility, xaml => xaml_literal_property},
     #{name => horizontal_scroll_bar_visibility, xaml => xaml_literal_property},
+    #{
+      name => fold_after_line,
+      xaml => xaml_literal_property,
+      xaml_name => "editor:Code.FoldAfterLine"
+    },
+    #{
+      name => is_folded,
+      xaml => xaml_content_property,
+      xaml_name => "editor:Code.IsFolded"
+    },
+    #{
+      name => before_command,
+      xaml => xaml_content_property,
+      xaml_name => "editor:Code.BeforeCommand"
+    },
+    #{
+      name => after_command,
+      xaml => xaml_content_property,
+      xaml_name => "editor:Code.AfterCommand"
+    },
     #{
       name => follow_caret,
       xaml => xaml_literal_property,

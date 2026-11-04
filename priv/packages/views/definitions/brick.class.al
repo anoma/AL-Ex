@@ -8,9 +8,13 @@ inheritance_chain Self Chain,
 collect_ivar_specs Chain Specs,
 index_specs Self Specs ByName,
 map_pairs ByName Pairs,
-findall Spec XamlSpecs {member Pairs [_Name, Spec], get Spec xaml _},
+findall Spec XamlSpecs {
+  member Pairs [Name, Spec],
+  get Spec xaml _,
+  get Self Name _ -> pass ; get Spec default _
+},
 lambda [Spec, Property] Render {
-  get_slots Spec #{xaml => Renderer},
+  get Spec xaml Renderer,
   new Renderer #{owner => Self, spec => Spec} View,
   to_xaml View Property
 },

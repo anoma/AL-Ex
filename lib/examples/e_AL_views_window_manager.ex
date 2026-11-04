@@ -190,6 +190,25 @@ defmodule Examples.ALViewsWindowManager do
     end
   end
 
+  example inherited_xaml_properties() do
+    values =
+      evaluate(~S"""
+      @xaml_example_base
+      #{super => [value, brick_text_block], ivars => [#{name => font_size, default => 11, xaml => xaml_literal_property}]}.
+      @xaml_example_child
+      #{super => xaml_example_base, ivars => [#{name => font_size, default => 16, xaml => xaml_literal_property}]}.
+      new xaml_example_child #{width => 0, text => "<&"} Brick.
+      to_xaml Brick Xaml.
+      """)
+
+    xaml = values["$Xaml"]
+    assert xaml =~ "<TextBlock.FontSize>16</TextBlock.FontSize>"
+    assert xaml =~ "<TextBlock.Width>0</TextBlock.Width>"
+    assert xaml =~ "<TextBlock.Text>&lt;&amp;</TextBlock.Text>"
+    refute xaml =~ "TextBlock.Margin"
+    xaml
+  end
+
   example raw_view() do
     evaluate(~S(new phlow_raw #{title => "Raw", target => #{value => Open}} View.))["$View"]
   end
