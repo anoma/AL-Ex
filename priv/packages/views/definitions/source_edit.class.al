@@ -67,8 +67,15 @@ set_slots Self #{source_record => Current, text => Text, original_text => Text, 
 source_edit >> refresh
 | Self Source |
 get_slots Self #{source_record => Previous, text => Text},
-get Previous text Baseline,
-= Text Baseline -> {
-  get_slots Source #{text => Updated, grammar => Grammar},
-  set_slots Self #{source_record => Source, text => Updated, original_text => Updated, grammar => Grammar}
-} ; pass.
+= Source Previous -> pass ; {
+  get Previous text Baseline,
+  = Text Baseline -> {
+    get_slots Source #{text => Updated, grammar => Grammar},
+    set_slots Self #{
+      source_record => Source,
+      text => Updated,
+      original_text => Updated,
+      grammar => Grammar
+    }
+  } ; pass
+}.
