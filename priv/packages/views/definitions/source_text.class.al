@@ -22,3 +22,12 @@ source_text >> save_definition
 new effect #{provider => source, operation => save, arguments => [Self, Text, Edit]} Effect,
 on_completion Effect Outcome Finished (save_finished Edit Outcome),
 await Finished.
+
+source_text >> view
+| Self _Builder View |
+lambda [Source] Read {current Self Source},
+new phlow_source #{priority => 10, source => Read, title => "Source"} View.
+
+source_text >> view
+| Self Builder View |
+call_next_method Self Builder View.

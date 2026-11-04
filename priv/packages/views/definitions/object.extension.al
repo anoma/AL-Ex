@@ -5,8 +5,7 @@ new RawBuilder #{target => Self, title => "Raw"} View.
 
 object >> view
 | Self _Builder View |
-class Self Class,
-new phlow_views #{priority => 50, selector => class_view, target => Class, title => "meta"} View.
+code_view Self View.
 
 object >> view
 | Self Builder View |
@@ -21,3 +20,8 @@ new ListBuilder #{
   priority => 30,
   title => "Inheritance"
 } View.
+
+object >> code_view
+| Self View |
+class Self Class,
+new phlow_views #{priority => 50, selector => class_view, target => Class, title => "Code"} View.

@@ -1,30 +1,22 @@
-class >> view
-| Self _Builder View |
-new phlow_views #{priority => 20, selector => class_view, target => Self, title => "Code"} View.
-
-class >> view
-| Self Builder View |
-call_next_method Self Builder View.
-
 class >> class_view
 | Self _Builder View |
 new phlow_class_methods #{priority => 10, target => Self, title => "Methods"} View.
 
 class >> class_view
 | Self _Builder View |
-new phlow_class_source #{
+lambda [Source] Read {definition_source Self Source},
+new phlow_source #{
   priority => 20,
-  source_selector => definition_source,
-  target => Self,
+  source => Read,
   title => "Definition"
 } View.
 
 class >> class_view
 | Self _Builder View |
-new phlow_class_source #{
+lambda [Source] Read {comment_source Self Source},
+new phlow_source #{
   priority => 30,
-  source_selector => comment_source,
-  target => Self,
+  source => Read,
   title => "Comment"
 } View.
 
@@ -84,3 +76,7 @@ format "~a comment" [Self] Label,
 new class_source_text #{
   grammar => "", label => Label, target => Self, text => Text, source_selector => comment_source
 } Source.
+
+class >> code_view
+| Self View |
+new phlow_views #{priority => 20, selector => class_view, target => Self, title => "Code"} View.
