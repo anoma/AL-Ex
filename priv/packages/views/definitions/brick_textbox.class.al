@@ -2,7 +2,7 @@
 #{
   super => brick_control,
   ivars => [
-    #{name => text, type => string, xaml => xaml_binding_property},
+    #{name => text, xaml => xaml_binding_property},
     #{
       default => true,
       domain => [false, true],

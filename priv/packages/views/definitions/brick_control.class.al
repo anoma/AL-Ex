@@ -2,6 +2,12 @@
 #{
   super => brick,
   ivars => [
+    #{name => data_context, xaml => xaml_content_property},
+    #{
+      name => inspection_target,
+      xaml => xaml_content_property,
+      xaml_name => "phlow:InspectionTarget.Target"
+    },
     #{
       name => bring_into_view_on_focus_change,
       xaml => xaml_literal_property,
@@ -25,6 +31,8 @@
     #{name => classes, type => string, xaml => xaml_literal_property},
     #{name => class_bindings, xaml => xaml_class_bindings_property},
     #{name => is_visible, xaml => xaml_content_property},
+    #{name => opacity, xaml => xaml_literal_property},
+    #{name => is_hit_test_visible, xaml => xaml_literal_property},
     #{name => is_enabled, xaml => xaml_content_property},
     #{
       default => [],
