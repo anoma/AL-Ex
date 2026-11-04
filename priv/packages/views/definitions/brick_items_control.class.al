@@ -2,6 +2,7 @@
 #{
   super => brick_control,
   ivars => [
+    #{name => items, type => list, xaml => xaml_collection_property},
     #{name => items_source, xaml => xaml_content_property},
     #{
       name => items_panel,
