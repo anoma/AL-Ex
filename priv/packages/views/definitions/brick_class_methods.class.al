@@ -3,6 +3,7 @@
   super => brick,
   ivars => [
     #{name => target},
+    #{name => package_options, type => list},
     #{name => filters, type => method_filters},
     #{name => sources, type => observable_list},
     #{name => rows, type => observable_list},
@@ -21,6 +22,7 @@ new observable_list [] Rows,
 set_slots Self #{
   sources => Sources,
   rows => Rows,
+  package_options => [],
   edits => [],
   focus => #{}
 },
@@ -132,3 +134,16 @@ map [
   "TableViewRow:selected:pointerover /template/ Border#Border",
   "TableViewRow:selected:pressed /template/ Border#Border"
 ] Make Styles.
+
+brick_class_methods >> package_options
+| Self Source Options |
+get Source owner Owner,
+get Self package_options Choices,
+{member Choices Choice, get_slots Choice #{owner => Owner, options => Options}} -> pass ; {
+  findall Entry Entries {
+    package_candidate Source Package,
+    = Entry #{text => Package, target => Package}
+  },
+  new observable_list Entries Options,
+  set_slot Self package_options [#{owner => Owner, options => Options} . Choices]
+}.

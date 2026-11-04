@@ -42,21 +42,36 @@ brick_snippet >> make_grid
 | Self Editor Grid |
 above Self Above,
 buttons Self Buttons,
+tags Self Tags,
 
 new brick_stack_panel #{children => Above} Heading,
 set_slot Editor grid_row 1,
 new brick_stack_panel #{
   children => Buttons,
-  grid_row => 2,
   orientation => "Horizontal",
   horizontal_alignment => "Left",
   spacing => 1
 } Actions,
+new brick_stack_panel #{
+  children => Tags,
+  grid_column => 1,
+  orientation => "Horizontal",
+  horizontal_alignment => "Right",
+  spacing => 4
+} Metadata,
+new brick_column_definition #{width => "*"} ActionsColumn,
+new brick_column_definition #{width => "Auto"} MetadataColumn,
+new brick_grid #{
+  classes => "actions",
+  children => [Actions, Metadata],
+  column_definitions => [ActionsColumn, MetadataColumn],
+  grid_row => 2
+} Footer,
 new brick_row_definition #{height => "Auto"} HeadingRow,
 new brick_row_definition #{height => "*"} EditorRow,
 new brick_row_definition #{height => "Auto"} ActionsRow,
 new brick_grid #{
-  children => [Heading, Editor, Actions],
+  children => [Heading, Editor, Footer],
   row_definitions => [HeadingRow, EditorRow, ActionsRow],
   grid_column => 1,
   margin => "4"
@@ -65,9 +80,12 @@ new brick_grid #{
 new brick_border #{classes => "indicator"} Indicator,
 new brick_column_definition #{width => 4} MarkerColumn,
 new brick_column_definition #{width => "*"} ContentColumn,
-indicator_styles Self Styles,
+indicator_styles Self Indicators,
+action_styles Self ActionsStyles,
+concat Indicators ActionsStyles Styles,
 
 new brick_grid #{
+  background => "Transparent",
   classes => "snippet",
   children => [Indicator, Body],
   column_definitions => [MarkerColumn, ContentColumn],
@@ -90,3 +108,15 @@ new brick_style #{
   selector => "Grid.snippet:focus-within > Border.indicator",
   setters => [FocusColor]
 } Focus.
+
+brick_snippet >> tags
+| _Self [] |.
+
+brick_snippet >> action_styles
+| _Self [Hidden] |
+new brick_setter #{property => "Opacity", value => 0} Transparent,
+new brick_setter #{property => "IsHitTestVisible", value => false} Inert,
+new brick_style #{
+  selector => "Grid.snippet:not(:pointerover):not(:focus-within) Grid.actions",
+  setters => [Transparent, Inert]
+} Hidden.

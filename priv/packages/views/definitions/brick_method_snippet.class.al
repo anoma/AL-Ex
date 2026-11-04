@@ -52,3 +52,41 @@ new brick_stack_panel #{
   spacing => 3,
   is_visible => Pending
 } Panel.
+
+brick_method_snippet >> tags
+| Self [Package, Scope] |
+package_choice Self Package,
+tag Self "scope" false Scope.
+
+brick_method_snippet >> tag
+| _Self Field Enabled Tag |
+new brick_binding #{converter => "al:Data.Field", converter_parameter => Field} Data,
+new brick_binding #{converter => "al:Data.Field", converter_parameter => "text"} Text,
+new brick_binding #{converter => "al:Data.Target"} Target,
+new brick_tag_button #{
+  data_context => Data,
+  content => Text,
+  inspection_target => Target,
+  is_enabled => Enabled
+} Tag.
+
+brick_method_snippet >> package_choice
+| Self Choice |
+edit_binding Self package_options Items,
+get Self edit Edit,
+new brick_slot_binding #{object_id => Edit, path => package_index, mode => "TwoWay"} Index,
+edit_binding Self can_save CanSave,
+new brick_binding #{converter => "al:Data.Field", converter_parameter => "text"} Text,
+new brick_text_block #{text => Text} Item,
+new brick_binding #{
+  element_name => "package_choice", path => "SelectedItem", converter => "al:Data.Target"
+} Target,
+new brick_tag_combo_box #{
+  items_source => Items,
+  item_template => Item,
+  selected_index => Index,
+  placeholder_text => "Unpackaged",
+  inspection_target => Target,
+  is_enabled => CanSave
+} Choice,
+set_slot Choice name "package_choice".
