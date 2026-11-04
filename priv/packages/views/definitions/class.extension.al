@@ -20,18 +20,27 @@ new phlow_source #{
   title => "Comment"
 } View.
 
-class >> class_filters
-| Self [Filter] |
-new class_up_to_filter #{target => Self} Filter.
-
 class >> method_sources
 | Self Filters Sources |
-reachable_classes [Self] [] Classes,
 findall Source Sources {
-  member Classes Owner,
-  forall (member Filters Filter) (accepts Filter Owner),
-  method_source Owner _Method Source
+  method_source Self _Method Source Side,
+  put Source side Side Candidate,
+  forall (member Filters Filter) (accepts Filter Candidate)
 }.
+
+class >> method_source
+| Self Method Source "instance" |
+reachable_classes [Self] [] Classes,
+member Classes Owner,
+method_source Owner Method Source.
+
+class >> method_source
+| Self Method Source "class" |
+class Self Meta,
+dif Self Meta,
+reachable_classes [Meta] [] Classes,
+member Classes Owner,
+method_source Owner Method Source.
 
 class >> method_source
 | Self Method Source |
@@ -80,3 +89,54 @@ new class_source_text #{
 class >> code_view
 | Self View |
 new phlow_views #{priority => 20, selector => class_view, target => Self, title => "Code"} View.
+
+class >> method_filter
+| Self Filter |
+new class_up_to_filter #{
+  target => Self,
+  side => "instance",
+  title => "Instance",
+  on_by_default => true
+} Filter.
+
+class >> method_filter
+| Self Filter |
+class Self Meta,
+dif Self Meta,
+new class_up_to_filter #{
+  target => Meta,
+  side => "class",
+  title => "Class",
+  on_by_default => true
+} Filter.
+
+class >> method_filter
+| _Self Filter |
+new filter_text #{} Input,
+lambda [Text, Source] Match {
+  get Source selector Selector,
+  atom_string Selector Name,
+  string_codes Name NameCodes,
+  string_codes Text TextCodes,
+  contains NameCodes TextCodes -> pass
+},
+new method_filter #{
+  title => "Selector",
+  input => Input,
+  predicate => Match
+} Filter.
+
+class >> method_filter
+| _Self Filter |
+new filter_text #{} Input,
+lambda [Text, Source] Match {
+  get Source text Contents,
+  string_codes Contents ContentCodes,
+  string_codes Text TextCodes,
+  contains ContentCodes TextCodes -> pass
+},
+new method_filter #{
+  title => "String",
+  input => Input,
+  predicate => Match
+} Filter.

@@ -53,9 +53,12 @@ defmodule Examples.ALClassViews do
       evaluate(
         ~S"""
         new brick_class_methods #{target => Target} Brick.
-        get_slots Brick #{filters => [Filter], sources => Sources}.
+        get_slots Brick #{filters => Filters, sources => Sources}.
+        get Filters contents Active.
+        member Active Instance, get Instance side "instance".
         get Sources contents Before.
-        set_slots Filter #{index => 1}.
+        get Instance input Choice.
+        set_slot Choice value 1.
         get Sources contents After.
         method Target own OwnMethod.
         method class_view_example_parent inherited InheritedMethod.
@@ -63,8 +66,9 @@ defmodule Examples.ALClassViews do
         %{"Target" => target()}
       )
 
-    [own] = values["$Before"]
-    [^own, inherited] = values["$After"]
+    [own, class_side] = values["$Before"]
+    [^own, inherited, ^class_side] = values["$After"]
+    assert class_side.owner == :class_view_example_meta
     assert own.target == values["$OwnMethod"]
     assert inherited.target == values["$InheritedMethod"]
     assert length(inherited.clauses) == 2
@@ -83,7 +87,7 @@ defmodule Examples.ALClassViews do
         %{"Brick" => values["$Brick"], "Sources" => values["$Sources"]}
       )["$Current"]
 
-    [changed, ^inherited] = updated
+    [changed, ^inherited, ^class_side] = updated
     assert changed.target == own.target
     assert changed.text =~ "updated"
     refute changed.text == own.text
@@ -94,22 +98,26 @@ defmodule Examples.ALClassViews do
     values =
       evaluate(
         ~S"""
-        new class_up_to_filter #{target => Target} Filter.
-        get_slots Filter #{classes => Classes, options => Options}.
-        get Options contents Before.
+        new class_up_to_filter #{target => Target, side => "instance", title => "Instance"} Filter.
+        get Filter input Choice.
+        get Choice choices Classes.
         length Classes Count.
         = Last (- Count 1).
         @class_view_example_child #{super => object, metaclass => class_view_example_meta}.
-        set_slots Filter #{index => Last}.
-        findall Class Included {accepts Filter Class}.
-        get Options contents After.
-        new class_up_to_filter #{target => Target} Current.
-        get Current classes CurrentClasses.
+        set_slot Choice value Last.
+        findall Class Included {
+          member Classes Class,
+          accepts Filter #{side => "instance", owner => Class}
+        }.
+        get Choice choices After.
+        new class_up_to_filter #{target => Target, side => "instance", title => "Instance"} Current.
+        get Current input CurrentChoice.
+        get CurrentChoice choices CurrentClasses.
         """,
         %{"Target" => target()}
       )
 
-    assert values["$Before"] == values["$After"]
+    assert values["$Classes"] == values["$After"]
     assert values["$Included"] == values["$Classes"]
     refute :class_view_example_parent in values["$CurrentClasses"]
     %{shown: values["$Classes"], current: values["$CurrentClasses"]}
@@ -124,7 +132,8 @@ defmodule Examples.ALClassViews do
     {sources, rows} =
       timed(
         ~S"""
-        get_slots Brick #{target => Target, filters => Filters}.
+        get_slots Brick #{target => Target, filters => FilterModels}.
+        get FilterModels contents Filters.
         method_sources Target Filters Sources.
         length Sources Count.
         """,
@@ -173,9 +182,12 @@ defmodule Examples.ALClassViews do
       evaluate(
         ~S"""
         new brick_class_methods #{target => Target} View.
-        get_slots View #{filters => [Filter], rows => Rows}.
-        set_slot Filter index 1.
-        get Rows contents [OwnRow, InheritedRow].
+        get_slots View #{filters => Filters, rows => Rows}.
+        get Filters contents Active.
+        member Active Instance, get Instance side "instance".
+        get Instance input Choice.
+        set_slot Choice value 1.
+        get Rows contents [OwnRow, InheritedRow, ClassRow].
         get OwnRow edit Edit.
         get InheritedRow edit InheritedEdit.
         set_slot InheritedEdit text "keep this draft".
@@ -204,7 +216,7 @@ defmodule Examples.ALClassViews do
         %{"Target" => target()}
       )
 
-    assert values["$Remaining"] == [values["$InheritedRow"]]
+    assert values["$Remaining"] == [values["$InheritedRow"], values["$ClassRow"]]
     assert values["$Draft"] == "keep this draft"
     %{remaining: values["$Remaining"], draft: values["$Draft"]}
   end

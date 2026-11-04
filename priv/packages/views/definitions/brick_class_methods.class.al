@@ -3,7 +3,7 @@
   super => brick,
   ivars => [
     #{name => target},
-    #{name => filters, type => list},
+    #{name => filters, type => method_filters},
     #{name => sources, type => observable_list},
     #{name => rows, type => observable_list},
     #{name => edits, type => list},
@@ -16,33 +16,50 @@ brick_class_methods >> init
 | Self Args Self |
 call_next_method Self Args Self,
 get Self target Target,
-class_filters Target Filters,
 new observable_list [] Sources,
 new observable_list [] Rows,
-make_grid Self Filters Grid,
 set_slots Self #{
-  filters => Filters,
-  grid => Grid,
   sources => Sources,
   rows => Rows,
   edits => [],
   focus => #{}
 },
-forall (member Filters Filter) (subscribe Filter Self),
+new method_filters #{target => Target, subscriber => Self} Filters,
+set_slot Self filters Filters,
+make_grid Self Grid,
+set_slot Self grid Grid,
 refresh Self.
 
 brick_class_methods >> refresh
 | Self |
-get_slots Self #{filters => Filters, sources => Sources, rows => Rows, target => Target},
-method_sources Target Filters Records,
-lambda [Source, Row] Make {
+get_slots Self #{
+  target => Target,
+  filters => FilterModels,
+  sources => Sources,
+  rows => Rows
+},
+get FilterModels contents Filters,
+findall Entry Entries {
+  method_source Target _Method Source Side,
+  put Source side Side Candidate,
+  forall (member Filters Filter) (accepts Filter Candidate),
+  = Entry #{source => Source, scope => #{text => Side}}
+},
+lambda [Entry, Row] Make {
+  get_slots Entry #{source => Source, scope => Scope},
   edit_for Self Source Edit,
   get Source target Method,
-  = Row #{edit => Edit, target => Method}
+  = Row #{
+    edit => Edit,
+    scope => Scope,
+    target => Method
+  }
 },
-map Records Make Items,
-replace Sources Records,
-replace Rows Items,
+map Entries Make Items,
+lambda [Entry, Source] Record (get Entry source Source),
+map Entries Record Records,
+get Sources contents Records -> pass ; replace Sources Records,
+get Rows contents Items -> pass ; replace Rows Items,
 get Self focus Focus,
 member Items Focus -> pass ; set_slot Self focus #{}.
 
@@ -66,13 +83,10 @@ get Self grid Grid,
 to_xaml Grid Text.
 
 brick_class_methods >> make_grid
-| Self Filters Grid |
-new brick_stack_panel #{
-  children => Filters,
-  margin => "4,2",
-  orientation => "Horizontal",
-  spacing => 6
-} Bar,
+| Self Grid |
+get Self filters Filters,
+new brick_slot_binding #{object_id => Self, path => filters} Binding,
+bar_brick Filters Binding Bar,
 new brick_slot_binding #{object_id => Self, path => rows} Items,
 new brick_slot_binding #{object_id => Self, path => focus} Focus,
 selection_styles Self Styles,
