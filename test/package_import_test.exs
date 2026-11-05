@@ -86,6 +86,29 @@ defmodule ALPackageImportTest do
            ] = AL.Package.providers(:fixture, branch)
   end
 
+  test "singleton declarations survive package reactivation and source export", %{
+    branch: branch,
+    root: root
+  } do
+    write_bundle(root, :fixture, [])
+    File.mkdir_p!(Path.join(root, "definitions"))
+
+    File.write!(Path.join(root, "definitions/singleton.class.al"), """
+    @singleton
+    \#{super => object, metaclass => object}.
+
+    singleton >> answer
+    | _Self ok |.
+    """)
+
+    assert {:ok, _} = AL.Package.import(root, branch: branch)
+    assert {:ok, _} = AL.Package.import(root, branch: branch)
+    assert {:ok, source} = AL.Package.source_snapshot(:fixture, branch: branch)
+    assert [%{kind: :class, owner: :singleton, metaclass: :object}] = source.documents
+    assert {:ok, _} = AL.Package.export(:fixture, to: root <> "-export", branch: branch)
+    on_exit(fn -> File.rm_rf!(root <> "-export") end)
+  end
+
   test "host discovery builds a catalog before durable registration", %{
     branch: branch,
     root: root
@@ -241,6 +264,90 @@ defmodule ALPackageImportTest do
       )
 
     assert %AL{result: {:atomic, _}} = result
+  end
+
+  test "activation replaces live extensions of an open build with a retained provider", %{
+    branch: branch,
+    root: root
+  } do
+    write_bundle(root, :fixture, [])
+    write_definition(root, :fixture_value)
+    assert {:ok, %{build: build}} = AL.Package.import(root, branch: branch)
+
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
+             AL.run(
+               ~S"""
+               set_slot Build status open.
+
+               class >> live_extension
+               | _Self live |.
+
+               class >> removed_extension
+               | _Self removed |.
+
+               include_method Build class live_extension.
+               include_method Build class removed_extension.
+               method class live_extension Method.
+               """,
+               branch: branch.id,
+               bindings: %{"Build" => build}
+             )
+
+    File.write!(Path.join(root, "definitions/class.extension.al"), """
+    class >> live_extension
+    | _Self published |.
+    """)
+
+    assert {:ok, %{build: updated}} = AL.Package.import(root, branch: branch)
+    assert updated != build
+
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               method class live_extension Method.
+               live_extension fixture_value published.
+               not (method class removed_extension _).
+               new fixture_value Value.
+               value Value ok.
+               """,
+               branch: branch.id,
+               bindings: %{"Method" => bindings["$Method"]}
+             )
+  end
+
+  test "failed startup activation stays pending for the next attempt", %{
+    branch: branch,
+    root: root
+  } do
+    package = Path.join(root, "fixture")
+    write_bundle(package, :configured_fixture, [])
+    write_definition(package, :configured_value)
+
+    previous_channels = Application.fetch_env(:al, :package_channels)
+    previous_environment = Application.fetch_env(:al, :package_environment)
+    Application.put_env(:al, :package_channels, [{:fixture_channel, root}])
+    Application.put_env(:al, :package_environment, [:configured_fixture])
+
+    on_exit(fn ->
+      restore_configuration(:package_channels, previous_channels)
+      restore_configuration(:package_environment, previous_environment)
+    end)
+
+    assert :ok = AL.Package.ensure_configured(branch: branch)
+    build = AL.Package.active_build(:configured_fixture, branch)
+
+    File.write!(Path.join(package, "definitions/class.extension.al"), """
+    class >> new
+    | _Self _Args conflict |.
+    """)
+
+    for _attempt <- 1..2 do
+      assert {:error, {:duplicate_package_method_contribution, :class, [:new]}} =
+               AL.Package.ensure_configured(branch: branch)
+
+      refute AL.Package.configured_current?(branch)
+      assert AL.Package.active_build(:configured_fixture, branch) == build
+    end
   end
 
   test "distinct channel providers can realise the same package build", %{
