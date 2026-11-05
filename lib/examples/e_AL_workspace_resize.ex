@@ -35,7 +35,8 @@ defmodule Examples.ALWorkspaceResize do
       opened =
         evaluate(
           ~S"""
-          new phlow_csharp_forward #{view => "aguil_native", title => "Example", target => "resize-example"} Content.
+          new brick_csharp_forward #{target => "resize-example"} Brick.
+          new phlow_xaml #{title => "Example", brick => Brick} Content.
           new_window Wm #{on => nil, content => Content} [Window] [].
           """,
           branch,
