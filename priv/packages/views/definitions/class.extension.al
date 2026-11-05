@@ -28,44 +28,6 @@ findall Source Sources {
   forall (member Filters Filter) (accepts Filter Candidate)
 }.
 
-class >> method_source
-| Self Method Source "instance" |
-reachable_classes [Self] [] Classes,
-member Classes Owner,
-method_source Owner Method Source.
-
-class >> method_source
-| Self Method Source "class" |
-class Self Meta,
-dif Self Meta,
-reachable_classes [Meta] [] Classes,
-member Classes Owner,
-method_source Owner Method Source.
-
-class >> method_source
-| Self Method Source |
-method Self Selector Method,
-findall Clause Clauses {
-  vm_method_source Method Sequence Text Provenance,
-  = Clause #{provenance => Provenance, sequence => Sequence, text => Text}
-},
-lambda [Tail, Clause, Combined] Body {
-  get Clause text Part,
-  = Tail "" -> = Combined Part ; format "~a~%~%~a" [Part, Tail] Combined
-},
-fold_right Clauses Body "" Text,
-atom_string Self OwnerName,
-atom_string Selector MethodName,
-format "~a >> ~a" [OwnerName, MethodName] Label,
-new method_source_text #{
-  clauses => Clauses,
-  label => Label,
-  owner => Self,
-  selector => Selector,
-  target => Method,
-  text => Text
-} Source.
-
 class >> definition_source
 | Self Source |
 findall Super Supers (super Self Super),
@@ -140,3 +102,41 @@ new method_filter #{
   input => Input,
   predicate => Match
 } Filter.
+
+class >> method_source
+| Self Method Source "instance" |
+reachable_classes [Self] [] Classes,
+member Classes Owner,
+method_source Owner Method Source.
+
+class >> method_source
+| Self Method Source "class" |
+class Self Meta,
+dif Self Meta,
+reachable_classes [Meta] [] Classes,
+member Classes Owner,
+method_source Owner Method Source.
+
+class >> method_source
+| Self Method Source |
+method Self Selector Method,
+findall Clause Clauses {
+  vm_method_source Method Sequence Text Provenance,
+  = Clause #{provenance => Provenance, sequence => Sequence, text => Text}
+},
+lambda [Tail, Clause, Combined] Body {
+  get Clause text Part,
+  = Tail "" -> = Combined Part ; format "~a~%~%~a" [Part, Tail] Combined
+},
+fold_right Clauses Body "" Text,
+atom_string Self OwnerName,
+atom_string Selector MethodName,
+format "~a >> ~a" [OwnerName, MethodName] Label,
+new method_source_text #{
+  clauses => Clauses,
+  label => Label,
+  owner => Self,
+  selector => Selector,
+  target => Method,
+  text => Text
+} Source.
