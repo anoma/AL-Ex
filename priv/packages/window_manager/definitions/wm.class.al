@@ -2,7 +2,11 @@
 #{
   super => object,
   ivars => [
-    #{name => layout, type => layout},
+    #{
+      default => #{class => single_layout, windows => []},
+      name => layout,
+      type => layout
+    },
     #{default => 0, name => curr_id, type => number},
     #{name => visible_extent, type => point},
     #{name => total_extent, type => point},
