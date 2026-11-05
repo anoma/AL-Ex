@@ -25,7 +25,7 @@ defmodule Examples.ALControlFlow do
         branch: Examples.Support.branch()
       )
 
-    assert result.choicepoint_stack == [{:mark, 0}]
+    assert result.search_stack == [{:mark, 0}]
     result
   end
 

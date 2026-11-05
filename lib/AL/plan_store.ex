@@ -255,7 +255,7 @@ defmodule AL.PlanStore do
 
     revision = make_ref()
     :mnesia.write(table, {:implementations, {:method, method}, {revision, id}}, :write)
-    AL.ResolutionCache.invalidate_dispatch(branch)
+    AL.ResolutionCache.delete_dispatch(branch, {:implementation, method, entry.requirements})
     AL.ResolutionCache.store_dispatch(branch, {:implementation_head, method}, {revision, id})
 
     AL.ResolutionCache.store_dispatch(

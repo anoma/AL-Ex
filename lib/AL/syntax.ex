@@ -100,7 +100,6 @@ defmodule AL.Syntax do
              :cut,
              :fail,
              :pass,
-             :vm_source_scope,
              :vm_oapply,
              :vm_set_oapply
            ] ++ @primitives ++ AL.Goal.call_names()
@@ -1065,10 +1064,6 @@ defmodule AL.Syntax do
       goals -> [term(effect), term(outcome), term(future), goals]
     end
   end
-
-  defp call_arguments(:vm_source_scope, [capture_id, block], _start)
-       when goal_body(block),
-       do: [term(capture_id), data_goals(block)]
 
   defp call_arguments(:freeze, [variable, goals], _start),
     do: [term(variable), data_goals(goals)]

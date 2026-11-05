@@ -60,6 +60,43 @@ defmodule AL.JAM.PrimitiveOutputTest do
     assert bindings["$Codes"] == [955, 128_512]
   end
 
+  test "compiled direct outputs omit variables while traced and suspended answers agree", %{
+    branch: branch
+  } do
+    assert %AL{result: {:atomic, {%{"$Atom" => :a}, _, state}}} =
+             AL.run(
+               ~S"text #{class => primitive_output_probe} [97] Atom.",
+               branch,
+               trace: [:vm]
+             )
+
+    assert Enum.any?(state.trace.events, fn
+             %{
+               payload:
+                 {:instruction,
+                  %{instruction: {:primitive_into, index, _, _, _}, registers: slots}}
+             } ->
+               elem(slots, index) == nil
+
+             _ ->
+               false
+           end)
+
+    for trace <- [[], [:vm], [:goals], [:domino]],
+        {source, expected} <- [
+          {~S"text #{class => primitive_output_probe} [97] Result.", :a},
+          {~S"codes #{class => primitive_output_probe} nil Result.", [110, 105, 108]},
+          {~S"delayed #{class => primitive_output_probe} Codes Result.", "a"},
+          {~S"map #{class => primitive_output_probe} [[a, nil]] Result.", %{a: nil}}
+        ] do
+      assert %AL{result: {:atomic, {bindings, _, _}}} = AL.run(source, branch, trace: trace)
+      assert bindings["$Result"] == expected
+    end
+
+    assert %AL{result: {:aborted, _}} =
+             AL.run(~S"text #{class => primitive_output_probe} [97] nil.", branch)
+  end
+
   test "suspended outputs preserve aliases and later bindings", %{branch: branch} do
     assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(

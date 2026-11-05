@@ -25,7 +25,6 @@ defmodule AL.Syntax.Printer do
     :on_completion,
     :lambda,
     :call,
-    :vm_source_scope,
     :vm_set_oapply,
     :comment,
     :cut,
@@ -382,15 +381,6 @@ defmodule AL.Syntax.Printer do
         ],
         context
       )
-
-  defp goal(%Goal.SourceScope{capture_id: capture_id, goals: goals}, indent, context)
-       when is_list(goals),
-       do:
-         applied(
-           :vm_source_scope,
-           [argument(capture_id, indent), goal_group(goals, indent)],
-           context
-         )
 
   defp goal(%Goal.Either{left: left, right: right}, indent, context),
     do: call(:or, [left, right], indent, context)

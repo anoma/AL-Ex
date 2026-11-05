@@ -77,12 +77,50 @@ defmodule AL.FindNSolsTest do
     assert Enum.any?(instructions, &match?({:eq, _, _}, &1))
   end
 
+  test "VM tracing records each resumed bounded answer", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {member [1,2] X}.", branch, trace: [:vm])
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+
+    first_instructions =
+      for %{payload: {:instruction, %{instruction: instruction}}} <- first.trace.events,
+          do: instruction
+
+    second_instructions =
+      for %{payload: {:instruction, %{instruction: instruction}}} <- second.trace.events,
+          do: instruction
+
+    assert Enum.any?(first_instructions, &match?({:collect_n, _, _, _, _}, &1))
+    assert length(second_instructions) > length(first_instructions)
+  end
+
+  test "Domino tracing builds a derivation after resuming a bounded collection", %{
+    branch: branch
+  } do
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {member [1,2] X}.", branch, trace: [:domino])
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+    assert is_list(AL.Trace.Derivation.build(second))
+  end
+
   test "child cuts do not cut the enclosing query", %{branch: branch} do
     assert %AL{result: {:atomic, {%{"$Answers" => [[1], [9]]}, _, _}}} =
              AL.run(
                "findall B Answers {findnsols 1 X B {member [1,2] X, cut} ; = B [9]}.",
                branch
              )
+  end
+
+  test "cut after a batch discards its cursor and newer alternatives", %{branch: branch} do
+    source =
+      "findall [Outer,Batch] Answers {member [a,b] Outer, findnsols 1 X Batch {member [1,2] X}, cut}."
+
+    for trace <- [[], [:vm]] do
+      assert %AL{result: {:atomic, {%{"$Answers" => [[:a, [1]]]}, _, _}}} =
+               AL.run(source, branch, trace: trace)
+    end
   end
 
   test "method calls can backtrack through batches", %{branch: branch} do
@@ -122,8 +160,36 @@ defmodule AL.FindNSolsTest do
     assert %AL{result: {:aborted, _}} = AL.next_solution(second)
   end
 
+  test "effectful method choices resume across bounded batches", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               "number >> choose_batch_value\n| _N X |\nmember [1,2] X,\nvm_set_slot collection_probe value X.",
+               branch
+             )
+
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {choose_batch_value 0 X}.", branch)
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+    assert %AL{result: {:aborted, _}} = AL.next_solution(second)
+  end
+
+  test "answers preceding an effect keep their order within a batch", %{branch: branch} do
+    query =
+      "findnsols 4 X R {member [1,2] X ; {= X 3, vm_set_class collection_order_probe list} ; = X 4}."
+
+    assert %AL{result: {:atomic, {%{"$R" => [1, 2, 3, 4]}, _, _}}} =
+             AL.run(query, branch)
+
+    query =
+      "findall X R {member [1,2] X ; {= X 3, vm_set_class collection_order_probe list} ; = X 4}."
+
+    assert %AL{result: {:atomic, {%{"$R" => [1, 2, 3, 4]}, _, _}}} =
+             AL.run(query, branch)
+  end
+
   test "an effectful batch resumes in the current transaction", %{branch: branch} do
-    for trace <- [[], [:vm]] do
+    for trace <- [[], [:vm], [:domino], [:goals]] do
       assert %AL{result: {:atomic, {%{"$R" => [first_transaction]}, _, first}}} =
                AL.run(
                  "findnsols 1 Tx R {member [1,2] X, vm_set_slot collection_probe value X, vm_transaction_object Tx}.",
@@ -138,6 +204,14 @@ defmodule AL.FindNSolsTest do
 
       assert second_transaction == second.transaction_object
       refute second_transaction == first_transaction
+
+      if trace == [:domino] do
+        assert Enum.any?(second.trace.events, fn event ->
+                 match?({:clause_redo, _}, AL.Trace.payload(event))
+               end)
+
+        assert is_list(AL.Trace.Derivation.build(second))
+      end
     end
   end
 

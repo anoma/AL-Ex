@@ -144,7 +144,7 @@ defmodule Examples.ALJAMCompiler do
     assert bindings["$Object"] == state.transaction_object
     tx = state.tx_id
     assert [[:a, ^tx, first], [:b, ^tx, second]] = bindings["$Rows"]
-    assert first == nil and second == nil
+    assert first == state.transaction_object and second == state.transaction_object
   end
 
   example open_receiver_continuations_run_once() do
@@ -2314,7 +2314,7 @@ defmodule Examples.ALJAMCompiler do
 
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    assert {:atomic, {:ok, store, 2}} =
+    assert {:atomic, {:ok, store, %AL.JAM.Execution{steps: 2}}} =
              :mnesia.transaction(fn ->
                {:ok, _, id} = AL.Dispatch.target([:a, :b], :concat, branch)
                AL.JAM.run(id, [[:a, :b], [:c], {:"$var", "Result"}], %{}, branch, 100)

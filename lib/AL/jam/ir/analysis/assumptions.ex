@@ -4,6 +4,8 @@ defmodule AL.JAM.IR.Assumptions do
   """
 
   alias AL.JAM.IR.Call
+  alias AL.JAM.Operand
+  alias AL.Var
 
   @type property :: :class | :value
   @type object :: %{
@@ -44,34 +46,54 @@ defmodule AL.JAM.IR.Assumptions do
   end
 
   @spec accepts?(t(), Call.t()) :: boolean()
-  def accepts?(arguments, call), do: accepts_arguments?(arguments, call, 0)
+  def accepts?(arguments, call), do: accepts?(arguments, call.arguments, call.slots, call.store)
 
-  defp accepts_arguments?([], _call, _position), do: true
+  @spec accepts?(t(), term(), tuple(), Var.store()) :: boolean()
+  def accepts?([], _arguments, _slots, _store), do: true
 
-  defp accepts_arguments?([requirements | rest], call, position) when map_size(requirements) == 0,
-    do: accepts_arguments?(rest, call, position + 1)
+  def accepts?([requirements | rest], {:cons, _operand, tail}, slots, store)
+      when requirements == %{},
+      do: accepts?(rest, tail, slots, store)
 
-  defp accepts_arguments?([requirements | rest], call, position) do
-    with {:ok, operand} <- Call.argument(call, position) do
-      accepts_object?(requirements, operand, call) and
-        accepts_arguments?(rest, call, position + 1)
-    else
-      _ -> false
+  def accepts?([requirements | rest], {:cons, operand, tail}, slots, store) do
+    accepts_object?(requirements, operand, slots, store) and accepts?(rest, tail, slots, store)
+  end
+
+  def accepts?(requirements, operand, slots, store),
+    do: accepts_values?(requirements, Operand.shallow(operand, slots, store), slots, store)
+
+  defp accepts_values?([], _values, _slots, _store), do: true
+
+  defp accepts_values?([requirements | rest], [_value | tail], slots, store)
+       when requirements == %{},
+       do: accepts_values?(rest, tail, slots, store)
+
+  defp accepts_values?([requirements | rest], [value | tail], slots, store) do
+    accepts_object?(requirements, {:constant, value}, slots, store) and
+      accepts_values?(rest, tail, slots, store)
+  end
+
+  defp accepts_values?(requirements, value, slots, store) do
+    case Var.deref(store, value) do
+      [_ | _] = values -> accepts_values?(requirements, values, slots, store)
+      _ -> Enum.all?(requirements, &(&1 == %{}))
     end
   end
 
-  defp accepts_object?(requirements, operand, call) do
+  defp accepts_object?(requirements, _operand, _slots, _store) when requirements == %{}, do: true
+
+  defp accepts_object?(requirements, operand, slots, store) do
     Enum.all?(requirements, fn
       {:fields, fields} ->
         Enum.all?(fields, fn {field, requirements} ->
-          case Call.field(operand, field, call.slots, call.store) do
-            {:ok, child} -> accepts_object?(requirements, child, call)
+          case Call.field(operand, field, slots, store) do
+            {:ok, child} -> accepts_object?(requirements, child, slots, store)
             :unknown -> false
           end
         end)
 
       {property, value} ->
-        Call.observe(operand, property, call.slots, call.store) === {:ok, value}
+        Call.observe(operand, property, slots, store) === {:ok, value}
     end)
   end
 end

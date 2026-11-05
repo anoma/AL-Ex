@@ -4,50 +4,57 @@ defmodule AL.JAM.Primitive do
   def arguments(operation, operands, slots, store),
     do: AL.JAM.IR.Access.arguments(:primitive, operation, operands, slots, store)
 
-  def output(:string_codes, 0, [_string, codes], store) do
+  def output(:string_codes, 0, codes, store) do
     case code_list(codes, [], store) do
       {:ok, list} -> {:ok, List.to_string(list)}
       _ -> :fallback
     end
   end
 
-  def output(:string_codes, 1, [string, _codes], _store) when is_binary(string) do
+  def output(:string_codes, 1, string, _store) when is_binary(string) do
     if String.valid?(string), do: {:ok, String.to_charlist(string)}, else: :fallback
   end
 
-  def output(:atom_string, 0, [_atom, string], _store) when is_binary(string) do
+  def output(:atom_string, 0, string, _store) when is_binary(string) do
     if String.valid?(string), do: {:ok, String.to_atom(string)}, else: :fallback
   end
 
-  def output(:atom_string, 1, [atom, _string], _store) when is_atom(atom) do
+  def output(:atom_string, 1, atom, _store) when is_atom(atom) do
     {:ok, Atom.to_string(atom)}
   end
 
-  def output(:map_pairs, 0, [_map, pairs], _store) do
+  def output(:map_pairs, 0, pairs, _store) do
     case pairs_map(pairs, %{}) do
       {:ok, map} -> {:ok, map}
       _ -> :fallback
     end
   end
 
-  def output(:map_pairs, 1, [map, _pairs], _store) when is_map(map) and not is_struct(map),
+  def output(:map_pairs, 1, map, _store) when is_map(map) and not is_struct(map),
     do: {:ok, map |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(fn {key, value} -> [key, value] end)}
 
   def output(_, _, _, _), do: :fallback
 
-  def execute(:equal, [a, b], store, _branch),
+  def execute(operation, arguments, store, branch, pending \\ %{})
+
+  def execute(:copy_term, [term, copy, goals], store, branch, pending) do
+    {copied, residual} = AL.Var.Residual.copy(term, store, pending)
+    result(AL.Var.unify_structural([copy, goals], [copied, residual], store, branch))
+  end
+
+  def execute(:equal, [a, b], store, _branch, _pending),
     do: if(a == b, do: {:ok, store}, else: :fail)
 
-  def execute(:variant, [a, b], store, _branch),
+  def execute(:variant, [a, b], store, _branch, _pending),
     do: if(variant_renaming(a, b, {%{}, %{}}), do: {:ok, store}, else: :fail)
 
-  def execute(:atom, [term], store, _branch),
+  def execute(:atom, [term], store, _branch, _pending),
     do: if(is_atom(term), do: {:ok, store}, else: :fail)
 
-  def execute(:functor, [term, name, args], store, branch),
+  def execute(:functor, [term, name, args], store, branch, _pending),
     do: result(AL.Var.add_functor(store, term, name, args, branch))
 
-  def execute(:string_codes, [string, codes], store, branch) do
+  def execute(:string_codes, [string, codes], store, branch, _pending) do
     cond do
       is_binary(string) and String.valid?(string) ->
         result(AL.JAM.Unification.unify(String.to_charlist(string), codes, store, branch))
@@ -64,7 +71,7 @@ defmodule AL.JAM.Primitive do
     end
   end
 
-  def execute(:atom_string, [atom, string], store, branch) do
+  def execute(:atom_string, [atom, string], store, branch, _pending) do
     cond do
       is_atom(atom) ->
         result(AL.Var.unify(Atom.to_string(atom), string, store, branch))
@@ -80,7 +87,7 @@ defmodule AL.JAM.Primitive do
     end
   end
 
-  def execute(:map_pairs, [map, pairs], store, branch) do
+  def execute(:map_pairs, [map, pairs], store, branch, _pending) do
     cond do
       is_struct(map) ->
         :fail
@@ -109,7 +116,7 @@ defmodule AL.JAM.Primitive do
     end
   end
 
-  def execute(:block_goals, [block, goals], store, branch) do
+  def execute(:block_goals, [block, goals], store, branch, _pending) do
     cond do
       AL.Block.block?(block) ->
         result(AL.Var.unify(goals, Tuple.to_list(block), store, branch))
@@ -128,6 +135,9 @@ defmodule AL.JAM.Primitive do
 
   def goal(:block_goals, [block, goals]),
     do: %Goal.OApply{method_id: :block_goals, args: [block, goals]}
+
+  def goal(:copy_term, [term, copy, goals]),
+    do: %Goal.CopyTerm{term: term, copy: copy, goals: goals}
 
   def goal(:map_pairs, [map, pairs]), do: %Goal.OApply{method_id: :map_pairs, args: [map, pairs]}
 

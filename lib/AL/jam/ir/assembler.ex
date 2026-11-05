@@ -70,14 +70,6 @@ defmodule AL.JAM.IR.Assembler do
     {:freeze, Operand.compile(variable, slots), body}
   end
 
-  def instruction({:source_scope, id, source, body}, slots) do
-    id = Operand.compile(id, slots)
-    body = code(body, slots)
-
-    {:source_scope, id, Operand.compile(source, slots),
-     Tuple.insert_at(body, tuple_size(body), {:source_scope_exit, id})}
-  end
-
   def instruction({:next, :jam_cursor, self, args}, slots) do
     case Map.fetch(slots, :jam_cursor) do
       {:ok, index} ->

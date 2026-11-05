@@ -4,6 +4,11 @@ defmodule AL.JAM.Trace do
   def tracing?(trace),
     do: AL.Trace.retained?(trace) or MapSet.size(trace.runtime.tracepoints) > 0
 
+  def semantic_tracing?(trace),
+    do:
+      AL.Trace.enabled?(trace, :domino) or AL.Trace.enabled?(trace, :goals) or
+        MapSet.size(trace.runtime.tracepoints) > 0
+
   def run(trace, fun) do
     if tracing?(trace) do
       previous = Process.put(@key, trace)
@@ -19,31 +24,68 @@ defmodule AL.JAM.Trace do
     end
   end
 
+  def merge_child(child) do
+    {outer, child} = merge_child(Process.get(@key), child)
+    if outer, do: Process.put(@key, outer)
+    child
+  end
+
+  def merge_child(outer, child) do
+    child = if AL.Trace.enabled?(child, :domino), do: finalize(child), else: child
+
+    outer = if outer, do: %AL.Trace{outer | events: child.events ++ outer.events}
+    {outer, %AL.Trace{child | events: []}}
+  end
+
+  def start_child(fun) do
+    outer = Process.get(@key)
+    {result, child} = run(child_trace(outer), fun)
+    {result, merge_child(child)}
+  end
+
+  defp child_trace(outer) do
+    child = AL.Trace.new(outer.flags)
+
+    %AL.Trace{
+      child
+      | runtime: %AL.Trace.Runtime{child.runtime | tracepoints: outer.runtime.tracepoints}
+    }
+  end
+
   def active? do
     {semantic?, _vm?} = enabled_channels()
     semantic?
   end
 
   def enabled_channels do
-    case Process.get(@key) do
-      nil ->
+    case :erlang.get(@key) do
+      :undefined ->
         {false, false}
 
       trace ->
-        semantic =
-          AL.Trace.enabled?(trace, :domino) or AL.Trace.enabled?(trace, :goals) or
-            MapSet.size(trace.runtime.tracepoints) > 0
-
-        {semantic, AL.Trace.enabled?(trace, :vm)}
+        {semantic_tracing?(trace), AL.Trace.enabled?(trace, :vm)}
     end
   end
 
   def instruction(frame, pc, operation, slots) do
     update(fn trace ->
-      event = {:instruction, %{frame: frame, pc: pc, instruction: operation, registers: slots}}
+      event =
+        {:instruction,
+         %{frame: trace_frame(frame), pc: pc, instruction: operation, registers: slots}}
+
       AL.Trace.push(trace, :vm, event)
     end)
   end
+
+  defp trace_frame({:cut_scope, [{:cut, scope} | _], id}),
+    do: {:cut_scope, scope, trace_frame(id)}
+
+  defp trace_frame({:cut_scope, _boundary, id}), do: trace_frame(id)
+
+  defp trace_frame({:implies_scope, _boundary, id}), do: trace_frame(id)
+
+  defp trace_frame({:traced, scope, seq, id}), do: {:traced, scope, seq, trace_frame(id)}
+  defp trace_frame(id), do: id
 
   def dispatch_plan(path, plan) do
     case Process.get(@key) do
@@ -90,22 +132,27 @@ defmodule AL.JAM.Trace do
   def semantic_operation({:integer_arithmetic, _, _, _, _, fallback}),
     do: semantic_operation(fallback)
 
-  def semantic_operation({:local, _, operation}), do: operation
-  def semantic_operation(operation), do: operation
+  def semantic_operation({:try, alternative, live, _target}), do: {:try, alternative, live}
+
+  def semantic_operation(operation), do: AL.JAM.Instruction.general(operation)
 
   def scope_of({:traced, scope, _seq, _id}), do: scope
-  def scope_of({:cut_scope, _ref, id}), do: scope_of(id)
+  def scope_of({:cut_scope, _boundary, id}), do: scope_of(id)
+  def scope_of({:implies_scope, _boundary, id}), do: scope_of(id)
   def scope_of({:root, scope}), do: scope
   def scope_of(_id), do: nil
 
   def parent(id), do: scope_of(id) || 0
 
   def seq_of({:traced, _scope, seq, _id}), do: seq
-  def seq_of({:cut_scope, _ref, id}), do: seq_of(id)
+  def seq_of({:cut_scope, _boundary, id}), do: seq_of(id)
+  def seq_of({:implies_scope, _boundary, id}), do: seq_of(id)
   def seq_of(_id), do: nil
 
   def returned({:traced, scope, _seq, id}), do: {:traced, scope, nil, id}
-  def returned({:cut_scope, ref, id}), do: {:cut_scope, ref, returned(id)}
+  def returned({:cut_scope, boundary, id}), do: {:cut_scope, boundary, returned(id)}
+  def returned({:implies_scope, boundary, id}), do: {:implies_scope, boundary, returned(id)}
+
   def returned(id), do: id
 
   def depth(returns), do: Enum.count(returns, &match?({:trace_exit, _}, &1))
@@ -246,40 +293,27 @@ defmodule AL.JAM.Trace do
   def collection(kind, condition, output, fun) do
     outer = Process.get(@key)
     scope = AL.Scope.fresh()
-    child = AL.Trace.new(outer.flags)
+    {result, inner} = run(child_trace(outer), fn -> fun.(scope) end)
+    inner = finalize(inner)
 
-    Process.put(@key, %AL.Trace{
-      child
-      | runtime: %AL.Trace.Runtime{child.runtime | tracepoints: outer.runtime.tracepoints}
-    })
-
-    try do
-      result = fun.(scope)
-      inner = finalize(Process.get(@key))
-
-      events =
-        if AL.Trace.enabled?(inner, :domino) do
+    events =
+      if AL.Trace.enabled?(inner, :domino) do
+        [
+          %AL.Trace.Event{kind: :domino, payload: {:collection_end, scope}}
+          | inner.events
+        ] ++
           [
-            %AL.Trace.Event{kind: :domino, payload: {:collection_end, scope}}
-            | inner.events
-          ] ++
-            [
-              %AL.Trace.Event{
-                kind: :domino,
-                payload: {:collection_begin, scope, kind, condition, output}
-              }
-            ]
-        else
-          inner.events
-        end
+            %AL.Trace.Event{
+              kind: :domino,
+              payload: {:collection_begin, scope, kind, condition, output}
+            }
+          ]
+      else
+        inner.events
+      end
 
-      Process.put(@key, %AL.Trace{outer | events: events ++ outer.events})
-      result
-    rescue
-      error ->
-        Process.put(@key, outer)
-        reraise error, __STACKTRACE__
-    end
+    Process.put(@key, %AL.Trace{outer | events: events ++ outer.events})
+    result
   end
 
   def solution(scope, store), do: update(&push(&1, {:collection_solution, scope, store}))

@@ -14,7 +14,9 @@ defmodule AL.JAM.Goals do
 
   defp instructions(code, pc, stop, slots) do
     case elem(code, pc) do
-      {:try, alternative, _live} = operation ->
+      operation when elem(operation, 0) == :try ->
+        alternative = elem(operation, 1)
+
         case branch_end(code, alternative) do
           {:ok, left_end, join} when join <= stop ->
             left = instructions(code, pc + 1, left_end, slots)
@@ -59,7 +61,7 @@ defmodule AL.JAM.Goals do
 
   def instruction({:move, _, _}, _), do: %Goal.Pass{}
   def instruction({:jump, _, _}, _), do: %Goal.Pass{}
-  def instruction({:try, _, _}, _), do: %Goal.Pass{}
+  def instruction(operation, _) when elem(operation, 0) == :try, do: %Goal.Pass{}
   def instruction({:get_cons, _, _, _, _}, _), do: %Goal.Pass{}
 
   def instruction({:cursor, _index}, _slots), do: %Goal.Pass{}
@@ -69,6 +71,9 @@ defmodule AL.JAM.Goals do
 
   def instruction({:call_method, method, args}, slots),
     do: %Goal.OApply{method_id: Operand.read(method, slots), args: Operand.read(args, slots)}
+
+  def instruction({:call_method, method, args, _capture}, slots),
+    do: instruction({:call_method, method, args}, slots)
 
   def instruction({:send, _site, object, method, args}, slots),
     do: %Goal.Send{
@@ -97,7 +102,22 @@ defmodule AL.JAM.Goals do
   def instruction({:integer_arithmetic, _, _, _, _, fallback}, slots),
     do: instruction(fallback, slots)
 
-  def instruction({:local, _index, operation}, slots), do: instruction(operation, slots)
+  def instruction({:compare, _, _, _, _} = operation, slots),
+    do: instruction(Instruction.general(operation), slots)
+
+  def instruction({:dif, _, _, _} = operation, slots),
+    do: instruction(Instruction.general(operation), slots)
+
+  def instruction(operation, slots)
+      when elem(operation, 0) in [
+             :eq_into,
+             :unify_structural_into,
+             :map_get_into,
+             :slot_get_into,
+             :map_put_into,
+             :primitive_into
+           ],
+      do: instruction(Instruction.general(operation), slots)
 
   def instruction({:constraint, operation, arguments}, slots),
     do: AL.JAM.Constraint.goal(operation, Enum.map(arguments, &Operand.read(&1, slots)))
@@ -188,22 +208,6 @@ defmodule AL.JAM.Goals do
   def instruction(:cut_scope, _slots), do: %Goal.Pass{}
   def instruction(:cut, _slots), do: %Goal.Cut{}
   def instruction(:pass, _slots), do: %Goal.Pass{}
-
-  def instruction({:source_scope, capture_id, goals, _body}, slots),
-    do: %Goal.SourceScope{
-      capture_id: Operand.read(capture_id, slots),
-      goals: Operand.read(goals, slots)
-    }
-
-  def instruction({:send_as, provider_id, _cursor, call}, slots),
-    do: %Goal.OApply{method_id: provider_id, args: Operand.read(call, slots)}
-
-  def instruction({:copy_term, term, copy, goals}, slots),
-    do: %Goal.CopyTerm{
-      term: Operand.read(term, slots),
-      copy: Operand.read(copy, slots),
-      goals: Operand.read(goals, slots)
-    }
 
   def instruction(:fail, _slots), do: %Goal.Fail{}
 

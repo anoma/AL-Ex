@@ -21,8 +21,8 @@ defmodule AL.JAM.IR.Region do
       {:unify_structural, _, _} ->
         true
 
-      _ ->
-        false
+      operation ->
+        IR.Inference.constant_result(operation) == true
     end)
   end
 

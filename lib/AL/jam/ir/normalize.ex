@@ -85,7 +85,7 @@ defmodule AL.JAM.IR.Normalize do
   def instruction(%Goal.IsVar{term: term}), do: {:is_var, term}
 
   def instruction(%Goal.CopyTerm{term: term, copy: copy, goals: goals}),
-    do: {:copy_term, term, copy, goals}
+    do: {:primitive, :copy_term, [term, copy, goals]}
 
   def instruction(%Goal.GetSlots{object: object, key: key, value: value, store: store}),
     do: {:slot_get, object, key, value, store}
@@ -227,8 +227,9 @@ defmodule AL.JAM.IR.Normalize do
 
   def instruction(%Goal.Cut{}), do: :cut
 
-  def instruction(%Goal.SourceScope{capture_id: id, goals: goals}),
-    do: {:source_scope, id, goals, lower(goals)}
+  def instruction(%Goal.OApply{source_capture: capture, method_id: method, args: args})
+      when not is_nil(capture),
+      do: {:call_method, method, args, capture}
 
   def instruction(%Goal.Either{
         left: %Goal.Compare{op: lop, a: la, b: lb},

@@ -11,12 +11,10 @@ defmodule AL.JAM do
   def start(program, store, context) do
     %State{
       active_choicepoint: %AL.Choicepoint{
-        continuations: [],
         store: store,
-        scope_pointer: 0,
-        source_scopes: []
+        scope_pointer: 0
       },
-      choicepoint_stack: [{:mark, 0}],
+      search_stack: [{:mark, 0}],
       tx_id: context.tx_id,
       transaction_object: context.transaction_object,
       branch: context.branch,
@@ -42,19 +40,19 @@ defmodule AL.JAM do
     |> AL.JAM.Runtime.resume_search()
   end
 
-  def has_potential_solution?(%State{choicepoint_stack: stack}) do
-    Enum.any?(stack, &match?(%AL.Choicepoint{}, &1))
+  def has_potential_solution?(%State{search_stack: stack}) do
+    Enum.any?(stack, &State.search_choice?/1)
   end
 
   # Execute a method call directly
   def run(method_id, call, store, branch, budget, cursor \\ nil, context \\ %{}),
-    do: AL.JAM.Runtime.run(method_id, call, store, branch, budget, cursor, context)
+    do: AL.JAM.Machine.run(method_id, call, store, branch, budget, cursor, context)
 
   defdelegate compile(goals), to: AL.JAM.Compiler, as: :compile_root
 
   def resume(snapshot, branch, budget, context \\ %{}),
-    do: AL.JAM.Runtime.resume(snapshot, branch, budget, context)
+    do: AL.JAM.Machine.resume(snapshot, branch, budget, context)
 
   def collect(snapshot, branch, budget, context \\ %{}, trace_scope \\ nil),
-    do: AL.JAM.Runtime.collect(snapshot, branch, budget, context, trace_scope)
+    do: AL.JAM.Machine.collect(snapshot, branch, budget, context, trace_scope)
 end

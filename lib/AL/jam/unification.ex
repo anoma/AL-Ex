@@ -1,6 +1,9 @@
 defmodule AL.JAM.Unification do
   def unify(left, right, store, branch), do: unify(left, right, store, store, branch)
 
+  def different(left, right, store, _branch) when is_number(left) and is_number(right),
+    do: if(left != right, do: store, else: nil)
+
   def different(left, right, store, branch) do
     case unify(left, right, store, branch) do
       nil -> store

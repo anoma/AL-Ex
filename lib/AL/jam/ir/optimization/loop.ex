@@ -16,9 +16,17 @@ defmodule AL.JAM.IR.Loop do
     dependencies: %{}
   ]
 
+  def index([%AL.JAM.CompiledClause{head: left}, %AL.JAM.CompiledClause{head: right}], index) do
+    case possible(left, right) do
+      nil -> index
+      driver -> Map.put(index || %{literal: nil, list_indices: []}, :loop_driver, driver)
+    end
+  end
+
+  def index(_clauses, index), do: index
+
   def run(
-        {[%AL.JAM.CompiledClause{method: id, head: left}, %AL.JAM.CompiledClause{head: right}],
-         _},
+        {[%AL.JAM.CompiledClause{method: id} | _], %{loop_driver: driver}},
         receiver,
         selector,
         operands,
@@ -27,8 +35,7 @@ defmodule AL.JAM.IR.Loop do
         branch,
         budget
       ) do
-    with driver when is_integer(driver) <- possible(left, right),
-         {:ok, arguments} <- arguments(AL.JAM.Operand.read(operands, slots), store),
+    with {:ok, arguments} <- arguments(AL.JAM.Operand.read(operands, slots), store),
          [_ | _] <- Enum.at([receiver | arguments], driver) do
       receiver_key = if driver == 0, do: [], else: receiver
 

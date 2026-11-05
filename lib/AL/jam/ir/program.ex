@@ -147,32 +147,50 @@ defmodule AL.JAM.IR.Program do
 
   def fuse_instructions(program, key, combine) do
     predecessors =
-      Enum.reduce(program.nodes, %{}, fn {_, node}, counts ->
+      Enum.reduce(program.nodes, %{program.entry => 1}, fn {_, node}, counts ->
         Enum.reduce(successors(node), counts, fn next, counts ->
           Map.update(counts, next, 1, &(&1 + 1))
         end)
       end)
 
-    nodes =
-      Map.new(program.nodes, fn
-        {id, %Node{instruction: instruction, next: next} = node} ->
-          case key.(instruction) do
-            {:ok, value} ->
-              {instructions, next} = matching(program.nodes, next, value, key, predecessors)
+    nodes = fuse_nodes(program.nodes, [program.entry], %{}, predecessors, key, combine)
+    %{program | nodes: nodes}
+  end
 
-              if instructions == [],
-                do: {id, node},
-                else: {id, %Node{instruction: combine.([instruction | instructions]), next: next}}
+  defp fuse_nodes(_nodes, [], fused, _predecessors, _key, _combine), do: fused
 
-            :none ->
-              {id, node}
-          end
+  defp fuse_nodes(nodes, [id | pending], fused, predecessors, key, combine) do
+    if Map.has_key?(fused, id) do
+      fuse_nodes(nodes, pending, fused, predecessors, key, combine)
+    else
+      node =
+        case Map.fetch!(nodes, id) do
+          %Node{instruction: instruction, next: next} = node ->
+            case key.(instruction) do
+              {:ok, value} ->
+                {instructions, next} = matching(nodes, next, value, key, predecessors)
 
-        entry ->
-          entry
-      end)
+                if instructions == [],
+                  do: node,
+                  else: %Node{instruction: combine.([instruction | instructions]), next: next}
 
-    compact(%{program | nodes: nodes})
+              :none ->
+                node
+            end
+
+          node ->
+            node
+        end
+
+      fuse_nodes(
+        nodes,
+        successors(node) ++ pending,
+        Map.put(fused, id, node),
+        predecessors,
+        key,
+        combine
+      )
+    end
   end
 
   defp matching(nodes, id, value, key, predecessors) do
@@ -273,7 +291,7 @@ defmodule AL.JAM.IR.Program do
   defp map_targets(node, _), do: node
 
   def usage(program, slots, observable) do
-    analysis = IR.Dataflow.analyze(program, observable, false)
+    analysis = IR.Dataflow.infer(program, observable, false)
     program |> layout() |> IR.Usage.for_layout(slots, analysis)
   end
 

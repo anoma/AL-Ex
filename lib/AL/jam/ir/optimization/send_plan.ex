@@ -2,7 +2,7 @@ defmodule AL.JAM.IR.SendPlan do
   use TypedStruct
 
   alias AL.JAM.{Compiler, Head, Operand}
-  alias AL.JAM.IR.{Assumptions, Call, Plan}
+  alias AL.JAM.IR.{Assumptions, Plan}
 
   typedstruct do
     field(:key, term())
@@ -24,18 +24,18 @@ defmodule AL.JAM.IR.SendPlan do
     key = if planning?, do: key, else: {:unplanned, key}
     plan = Map.get(targets, key)
 
-    if plan && accepts?(plan.assumptions, receiver, selector, arguments) do
+    if plan && accepts?(plan.assumptions, receiver, arguments) do
       hit(plan, targets, trace?)
     else
       build(targets, key, receiver, selector, arguments, planning?, branch, trace?)
     end
   end
 
-  defp accepts?([], _receiver, _selector, _arguments),
+  defp accepts?([], _receiver, _arguments),
     do: true
 
-  defp accepts?(assumptions, receiver, selector, arguments),
-    do: Assumptions.accepts?(assumptions, Call.new(receiver, selector, arguments))
+  defp accepts?(assumptions, receiver, {:operands, arguments, slots, store}),
+    do: Assumptions.accepts?(assumptions, {:cons, {:constant, receiver}, arguments}, slots, store)
 
   defp build(targets, key, receiver, selector, arguments, planning?, branch, trace?) do
     case AL.Dispatch.target(receiver, selector, branch) do
@@ -51,6 +51,8 @@ defmodule AL.JAM.IR.SendPlan do
 
         frame =
           {:provider, method, AL.Dispatch.provider_cursor(receiver, selector, method, branch)}
+
+        assumptions = if Enum.all?(assumptions, &(&1 == %{})), do: [], else: assumptions
 
         plan = %__MODULE__{
           key: key,

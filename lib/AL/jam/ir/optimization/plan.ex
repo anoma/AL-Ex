@@ -497,7 +497,7 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_join(program, join, state, stack) do
-    analysis = Dataflow.analyze(program, state.protected)
+    analysis = Dataflow.infer(program, state.protected)
 
     case Map.fetch(analysis.before, join) do
       :error ->

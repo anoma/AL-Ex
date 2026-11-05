@@ -9,9 +9,12 @@ defmodule AL.JAM.State do
   # A resolution cursor: Necessary for `call_next_method`
 
   @type stack_entry() ::
-          AL.Choicepoint.t()
+          AL.JAM.Frame.t()
+          | AL.JAM.Collection.Cursor.t()
+          | {:dispatch, list(), tuple(), AL.JAM.Frame.t(), scope() | nil}
+          | {:trace_alternative, term(), term(), term()}
+          | {:trace_fail, term(), term()}
           | {:mark, scope()}
-          | {:method_mark, scope()}
           | {:cut, reference()}
           | :implies_mark
 
@@ -21,9 +24,7 @@ defmodule AL.JAM.State do
   typedstruct enforce: true do
     # Active choicepoint in the program
     field(:active_choicepoint, AL.Choicepoint.t(), enforce: true)
-    # The stack of choicepoints, cuts, markers, etc
-    field(:choicepoint_stack, [stack_entry()], default: [])
-    field(:cut_boundaries, map(), default: %{})
+    field(:search_stack, [stack_entry()], default: [])
     # ID of the transaction for the AL program
     field(:tx_id, non_neg_integer(), enforce: true, default: 0)
     # Object ID for transaction object representing the AL tx 
@@ -53,6 +54,13 @@ defmodule AL.JAM.State do
       default: %{}
     )
   end
+
+  def search_choice?(%AL.JAM.Frame{}), do: true
+  def search_choice?(%AL.JAM.Collection.Cursor{}), do: true
+  def search_choice?({:dispatch, [_ | _], _, _, _}), do: true
+  def search_choice?({:trace_alternative, _, _, %AL.JAM.Frame{}}), do: true
+  def search_choice?({:trace_alternative, _, _, %AL.JAM.Collection.Cursor{}}), do: true
+  def search_choice?(_), do: false
 end
 
 defimpl Inspect, for: AL.JAM.State do

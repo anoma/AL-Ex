@@ -15,7 +15,8 @@ defmodule AL.JAM.Frame do
           # Inner frame
           | {:traced, AL.JAM.State.scope(), non_neg_integer() | nil, descriptor()}
           # Inner frame
-          | {:cut_scope, reference(), descriptor()}
+          | {:cut_scope, [AL.JAM.State.stack_entry()], descriptor()}
+          | {:implies_scope, [AL.JAM.State.stack_entry()] | nil, descriptor()}
           # Specialised
           | {:guarded_region, term(), term(), non_neg_integer(), non_neg_integer()}
           # Else
@@ -36,10 +37,13 @@ defmodule AL.JAM.Frame do
     field(:store, AL.Var.store() | nil, default: nil)
     # Suspended goals
     field(:pending, map(), default: %{})
+    field(:definition_origin, AL.Source.DefinitionOrigin.t() | nil, default: nil)
   end
 
-  def entry(id, {code, slots, store, _variants, _forwarded, head}, returns, pending \\ %{}) do
+  def entry(id, {code, slots, store, _variants, _forwarded, head}, returns, caller \\ nil) do
     frame = frame_descriptor(id, {head, slots})
+    pending = if caller, do: caller.pending, else: %{}
+    origin = if caller, do: caller.definition_origin, else: nil
 
     if tuple_size(code) > 0 and is_tuple(elem(code, 0)) and elem(elem(code, 0), 0) == :cursor do
       {:cursor, index} = elem(code, 0)
@@ -57,7 +61,8 @@ defmodule AL.JAM.Frame do
         slots: put_elem(slots, index, cursor),
         returns: returns,
         store: store,
-        pending: pending
+        pending: pending,
+        definition_origin: origin
       }
     else
       %__MODULE__{
@@ -66,7 +71,8 @@ defmodule AL.JAM.Frame do
         slots: slots,
         returns: returns,
         store: store,
-        pending: pending
+        pending: pending,
+        definition_origin: origin
       }
     end
   end
@@ -83,9 +89,7 @@ defmodule AL.JAM.Frame do
         callee_slots,
         {_, _, outputs},
         destinations,
-        {id, caller_code, pc, caller_slots} = caller,
-        returns,
-        store
+        %__MODULE__{slots: caller_slots, returns: returns, store: store} = caller
       ) do
     transfer =
       Enum.find_value(destinations, fn destination ->
@@ -101,8 +105,7 @@ defmodule AL.JAM.Frame do
 
     case transfer do
       {source, destination, specialized} ->
-        {specialized,
-         [{:return_to, id, caller_code, pc, caller_slots, [{source, destination}]} | returns]}
+        {specialized, [caller_return(caller, [{source, destination}]) | returns]}
 
       nil ->
         {code, keep_return(caller, returns)}
@@ -112,35 +115,22 @@ defmodule AL.JAM.Frame do
   def returning_entry(
         _id,
         {_code, _callee_slots, store, _variants, [_ | _] = forwarded, _head},
-        {caller_id, caller_code, caller_pc, caller_slots},
-        returns,
-        _destinations,
-        _store,
-        _branch
+        %__MODULE__{slots: caller_slots} = caller,
+        _destinations
       ) do
     slots =
       Enum.reduce(forwarded, caller_slots, fn {destination, value}, slots ->
         put_elem(slots, destination, value)
       end)
 
-    %__MODULE__{
-      descriptor: caller_id,
-      code: caller_code,
-      pc: caller_pc,
-      slots: slots,
-      returns: returns,
-      store: store
-    }
+    %__MODULE__{caller | slots: slots, store: store}
   end
 
   def returning_entry(
         id,
         {code, callee_slots, store, variants, [], head},
-        {caller_id, caller_code, caller_pc, caller_slots} = caller,
-        returns,
-        [_ | _] = destinations,
-        store,
-        _branch
+        %__MODULE__{slots: caller_slots, returns: returns, store: store} = caller,
+        [_ | _] = destinations
       )
       when map_size(variants) > 0 do
     transfer =
@@ -160,37 +150,69 @@ defmodule AL.JAM.Frame do
 
             specialized =
               case patch do
-                {:local, index} -> {:local, index, operation}
-                {:send_local, destinations} -> {:send_local, operation, destinations}
-                {:destination, index} -> put_elem(operation, 2, {:destination, index})
+                {:instruction, instruction} ->
+                  instruction
+
+                {:send_local, destinations} ->
+                  {:send_local, operation, destinations}
+
+                {:destination, index} ->
+                  put_elem(operation, 2, {:destination, index})
               end
 
             put_elem(code, pc, specialized)
           end)
 
-        frame =
-          {:return_to, caller_id, caller_code, caller_pc, caller_slots, [{source, destination}]}
+        frame = caller_return(caller, [{source, destination}])
 
-        entry(id, {specialized, callee_slots, store, variants, [], head}, [frame | returns])
+        entry(
+          id,
+          {specialized, callee_slots, store, variants, [], head},
+          [frame | returns],
+          caller
+        )
 
       nil ->
-        entry(id, {code, callee_slots, store, variants, [], head}, keep_return(caller, returns))
+        entry(
+          id,
+          {code, callee_slots, store, variants, [], head},
+          keep_return(caller, returns),
+          caller
+        )
     end
   end
 
-  def returning_entry(id, selected, caller, returns, _destinations, _store, _branch),
-    do: entry(id, selected, keep_return(caller, returns))
+  def returning_entry(id, selected, caller, _destinations),
+    do: entry(id, selected, keep_return(caller, caller.returns), caller)
 
-  def keep_return(caller, [{:return_to, _, _, _, _, [_ | _]} | _] = returns),
-    do: [caller_return(caller) | returns]
+  def keep_return(frame, returns), do: keep_return(frame, frame.pc, returns)
 
-  def keep_return({id, code, pc, _slots} = caller, returns) when pc == tuple_size(code) do
-    if root_progress(id, pc) != nil, do: [caller_return(caller) | returns], else: returns
+  defp keep_return(frame, pc, [{:return_to, _, _, _, _, [_ | _], _} | _] = returns),
+    do: [caller_return(frame, pc, []) | returns]
+
+  defp keep_return(%__MODULE__{descriptor: id, code: code} = frame, pc, returns)
+       when pc == tuple_size(code) do
+    if root_progress(id, pc) != nil, do: [caller_return(frame, pc, []) | returns], else: returns
   end
 
-  def keep_return(caller, returns), do: [caller_return(caller) | returns]
+  defp keep_return(frame, pc, returns), do: [caller_return(frame, pc, []) | returns]
 
-  defp caller_return({id, code, pc, slots}), do: {:return_to, id, code, pc, slots, []}
+  defp caller_return(frame, transfers), do: caller_return(frame, frame.pc, transfers)
+
+  defp caller_return(frame, pc, transfers),
+    do:
+      {:return_to, frame.descriptor, frame.code, pc, frame.slots, transfers,
+       frame.definition_origin}
+
+  def advance(%__MODULE__{} = frame), do: %{frame | pc: frame.pc + 1}
+
+  def return_to(%__MODULE__{} = frame), do: keep_return(frame, frame.pc + 1, frame.returns)
+
+  def suspend(%__MODULE__{} = frame, code),
+    do: {frame.descriptor, code, frame.slots, frame.definition_origin}
+
+  def wake_return({id, code, slots, origin}),
+    do: {:return_to, id, code, 0, slots, [], origin}
 
   def transfer_registers(_callee_slots, caller_slots, []), do: caller_slots
 
@@ -216,7 +238,12 @@ defmodule AL.JAM.Frame do
             :call
 
           destination ->
-            case Instruction.execute({:local, index, operation}, callee_slots, store, branch) do
+            case Instruction.execute(
+                   Instruction.into(operation, index),
+                   callee_slots,
+                   store,
+                   branch
+                 ) do
               {:registers, next_store, next_slots} ->
                 {:registers, next_store, put_elem(slots, destination, elem(next_slots, index))}
 
@@ -232,7 +259,7 @@ defmodule AL.JAM.Frame do
 
   def project_send(_selected, _destinations, _slots, _store, _branch), do: :call
 
-  def send_dnu(id, code, pc, slots, returns, store, pending, object, method, args) do
+  def send_dnu(%__MODULE__{slots: slots, store: store} = current, object, method, args) do
     goal = %Goal.Send{
       object: AL.Var.subst(object, store),
       method: :does_not_understand,
@@ -241,34 +268,7 @@ defmodule AL.JAM.Frame do
 
     {next_code, next_slots} = AL.JAM.IR.Assembler.compile([goal])
 
-    %__MODULE__{
-      descriptor: id,
-      code: next_code,
-      slots: next_slots,
-      returns: keep_return({id, code, pc + 1, slots}, returns),
-      store: store,
-      pending: pending
-    }
-  end
-
-  def return_to(id, code, pc, slots, returns),
-    do: keep_return({id, code, pc + 1, slots}, returns)
-
-  @doc """
-  Merge context suspensions into current frame
-  """
-  def import_pending(snapshot, context) do
-    case Map.get(context, :suspensions, %{}) do
-      suspensions when suspensions == %{} ->
-        snapshot
-
-      suspensions ->
-        %{
-          snapshot
-          | pending:
-              Map.merge(suspensions, snapshot.pending, fn _key, older, newer -> older ++ newer end)
-        }
-    end
+    %__MODULE__{current | code: next_code, pc: 0, slots: next_slots, returns: return_to(current)}
   end
 
   def pending_goals(%__MODULE__{
@@ -283,7 +283,10 @@ defmodule AL.JAM.Frame do
   defp pending_returns([], _slots), do: []
   defp pending_returns([{:trace_exit, _} | returns], slots), do: pending_returns(returns, slots)
 
-  defp pending_returns([{:return_to, id, code, pc, caller_slots, transfers} | returns], slots) do
+  defp pending_returns(
+         [{:return_to, id, code, pc, caller_slots, transfers, _origin} | returns],
+         slots
+       ) do
     slots = transfer_registers(slots, caller_slots, transfers)
 
     pending_goals(%__MODULE__{
@@ -297,16 +300,7 @@ defmodule AL.JAM.Frame do
 
   def with_store(%__MODULE__{} = frame, store), do: %{frame | store: store}
 
-  def without_suspensions(snapshot), do: %{snapshot | pending: %{}}
-
-  def wake_frame({id, code, slots}), do: %__MODULE__{descriptor: id, code: code, slots: slots}
-
-  def pending(%__MODULE__{
-        pending: pending
-      }),
-      do: pending
-
-  def wake_goals({_id, code, slots}), do: Goals.instructions(code, 0, slots)
+  def wake_goals({_id, code, slots, _origin}), do: Goals.instructions(code, 0, slots)
 
   def failed_goal(%__MODULE__{
         code: code,
@@ -315,11 +309,6 @@ defmodule AL.JAM.Frame do
       }),
       do: Goals.instruction(elem(code, pc), slots)
 
-  def snapshot_store(%__MODULE__{
-        store: store
-      }),
-      do: store
-
   def completed_goals(%__MODULE__{
         descriptor: id,
         pc: pc,
@@ -327,7 +316,7 @@ defmodule AL.JAM.Frame do
       }) do
     returns
     |> Enum.reduce(root_progress(id, pc), fn
-      {:return_to, caller, _code, caller_pc, _slots, _transfers}, progress ->
+      {:return_to, caller, _code, caller_pc, _slots, _transfers, _origin}, progress ->
         root_progress(caller, max(caller_pc - 1, 0)) || progress
 
       _, progress ->
@@ -339,5 +328,6 @@ defmodule AL.JAM.Frame do
   defp root_progress({:root, _scope}, pc), do: pc
   defp root_progress({:traced, _scope, _seq, id}, pc), do: root_progress(id, pc)
   defp root_progress({:cut_scope, _scope, id}, pc), do: root_progress(id, pc)
+  defp root_progress({:implies_scope, _boundary, id}, pc), do: root_progress(id, pc)
   defp root_progress(_id, _pc), do: nil
 end

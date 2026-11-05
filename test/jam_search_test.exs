@@ -41,6 +41,23 @@ defmodule AL.JAM.SearchTest do
     assert bindings["$Values"] == [:first, :second, :first]
   end
 
+  test "next_solution resumes alternatives across transactions", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Value" => :first}, _, first}}} =
+             AL.run("member [first, second, third] Value.", branch)
+
+    assert AL.has_potential_solution?(first)
+
+    assert %AL{result: {:atomic, {%{"$Value" => :second}, _, second}}} =
+             AL.next_solution(first)
+
+    assert AL.has_potential_solution?(second)
+
+    assert %AL{result: {:atomic, {%{"$Value" => :third}, _, third}}} =
+             AL.next_solution(second)
+
+    assert %AL{result: {:aborted, _}} = AL.next_solution(third)
+  end
+
   test "unknown elements and structural values still unify", %{branch: branch} do
     assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(

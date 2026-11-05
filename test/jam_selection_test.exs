@@ -55,9 +55,11 @@ defmodule AL.JAM.SelectionTest do
   test "small budgets stop at the same original comparison" do
     for budget <- [0, 1] do
       store = %{{:"$var", "Value"} => 2}
-      assert {:budget_exhausted, original, [], steps} = run(range(), store, budget)
 
-      assert {:budget_exhausted, selected, [], ^steps} =
+      assert {:budget_exhausted, original, %AL.JAM.Execution{choices: [], steps: steps}} =
+               run(range(), store, budget)
+
+      assert {:budget_exhausted, selected, %AL.JAM.Execution{choices: [], steps: ^steps}} =
                run(Selection.select(range()), store, budget)
 
       assert AL.JAM.Frame.pending_goals(selected) == AL.JAM.Frame.pending_goals(original)
@@ -125,4 +127,73 @@ defmodule AL.JAM.SelectionTest do
 
     assert selected_trace.events == original_trace.events
   end
+
+  test "compound operands retain their variables through selection and substitution" do
+    left = {:"$var", "Left"}
+    right = {:"$var", "Right"}
+    renamed = {:"$var", "Renamed"}
+    value = %Goal.Compound{name: :+, args: [left, right]}
+
+    original =
+      Normalize.lower([
+        %Goal.Compare{op: :<=, a: 1, b: value},
+        %Goal.Compare{op: :<, a: value, b: 4},
+        %Goal.Dif{a: 2, b: value}
+      ])
+
+    selected = Selection.select(original)
+    assert Program.variables(selected) == MapSet.new([left, right])
+
+    for replacements <- [%{}, %{left => renamed}, %{left => 1}] do
+      original = Program.subst(original, replacements)
+      selected = Program.subst(selected, replacements)
+      assert Program.variables(selected) == Program.variables(original)
+
+      assert AL.JAM.Frame.pending_goals(snapshot(selected, %{})) ==
+               AL.JAM.Frame.pending_goals(snapshot(original, %{}))
+
+      store = %{left => 1, renamed => 1, right => 2}
+      assert {:ok, ^store, _} = run(selected, store)
+      assert run(selected, store) == run(original, store)
+      assert run(selected, %{}) == run(original, %{})
+    end
+  end
+
+  test "scan exclusions preserve ordered answers when resumed with a small budget" do
+    plan = %AL.JAM.IR.Scan{tests: [{:dif, 32}, {:dif, 10}], suffix: []}
+    {_, code, labels, count} = AL.JAM.Scan.emit(plan)
+    rest = {:"$var", "Rest"}
+    token = {:"$var", "Token"}
+
+    for {input, expected} <- [
+          {~c"ab cd", [{:ab, ~c" cd"}, {:a, ~c"b cd"}]},
+          {~c"a\n", [{:a, ~c"\n"}]},
+          {~c" a", []},
+          {[], []}
+        ],
+        budget <- [0, 1, 2, 1000] do
+      slots =
+        Enum.reduce(labels.locals, :erlang.make_tuple(count, nil), fn index, slots ->
+          put_elem(slots, index, {:"$var", "Local#{index}"})
+        end)
+        |> put_elem(0, input)
+        |> put_elem(1, [])
+        |> put_elem(2, rest)
+        |> put_elem(3, token)
+
+      frame = %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: %{}}
+      result = AL.JAM.resume(frame, AL.Branch.head(), budget)
+      assert scan_answers(result, token, rest) == expected
+    end
+  end
+
+  defp scan_answers({:budget_exhausted, frame, execution}, token, rest),
+    do: scan_answers(AL.JAM.Machine.resume(frame, %{execution | budget: 1000}), token, rest)
+
+  defp scan_answers({:ok, store, execution}, token, rest) do
+    answer = {AL.Var.subst(token, store), AL.Var.subst(rest, store)}
+    [answer | scan_answers(AL.JAM.Machine.retry(execution), token, rest)]
+  end
+
+  defp scan_answers({:failed, _, _}, _token, _rest), do: []
 end

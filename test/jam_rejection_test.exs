@@ -218,6 +218,62 @@ defmodule AL.JAM.RejectionTest do
     end
   end
 
+  test "a condition after a durable action resumes older alternatives", %{branch: branch} do
+    query = ~S"""
+    member [first, second] Choice,
+    vm_set_class condition_boundary_effect list,
+    vm_set_class condition_boundary_effect_two list,
+    (= Choice second -> = Result committed ; = Result otherwise).
+    """
+
+    for trace <- [[], [:vm], [:domino], [:goals]] do
+      assert %AL{result: {:atomic, {%{"$Choice" => :first, "$Result" => :otherwise}, _, first}}} =
+               AL.run(query, branch, trace: trace)
+
+      assert AL.has_potential_solution?(first)
+
+      assert %AL{result: {:atomic, {%{"$Choice" => :second, "$Result" => :committed}, _, second}}} =
+               AL.next_solution(first)
+
+      assert %AL{result: {:aborted, _}} = AL.next_solution(second)
+    end
+  end
+
+  test "failure after a durable action retries alternatives already in the machine", %{
+    branch: branch
+  } do
+    query = ~S"""
+    member [first, second] Choice,
+    vm_set_class retry_action_effect list,
+    = Choice second.
+    """
+
+    for trace <- [[], [:vm], [:domino]] do
+      assert %AL{result: {:atomic, {%{"$Choice" => :second}, _, state}}} =
+               AL.run(query, branch, trace: trace)
+
+      assert %AL{result: {:aborted, _}} = AL.next_solution(state)
+    end
+  end
+
+  test "a condition commits across an action boundary", %{branch: branch} do
+    query = ~S"""
+    {member [first, second] Choice,
+     vm_set_class condition_commit_effect list,
+     = Choice second} -> = Result committed ; = Result otherwise.
+    """
+
+    for trace <- [[], [:vm]] do
+      assert %AL{result: {:atomic, {%{"$Choice" => :second, "$Result" => :committed}, _, state}}} =
+               AL.run(query, branch, trace: trace)
+
+      assert %AL{result: {:aborted, _}} = AL.next_solution(state)
+
+      assert %AL{result: {:atomic, _}} =
+               AL.run("class condition_commit_effect list.", branch)
+    end
+  end
+
   test "method replacement refreshes rejection decisions and keeps duplicate answers", %{
     branch: branch
   } do

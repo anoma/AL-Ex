@@ -62,4 +62,59 @@ defmodule AL.JAM.SendPlanTest do
     assert Enum.any?(plans, fn {path, _} -> path == :cache_hit end)
     assert Enum.any?(plans, fn {_, plan} -> map_size(plan.argument_transfers) > 0 end)
   end
+
+  test "unrestricted cached plans accept changing argument shapes", %{branch: branch} do
+    source = ~S"""
+    object >> unrestricted_plan
+    | _Self Value Value |.
+    findall Result Results {
+      member [1, word, [], #{x => 3}, [4, 5], 1.0] Value,
+      unrestricted_plan object Value Result
+    }.
+    """
+
+    for opts <- [[], [trace: [:vm]], [trace: [:goals]]] do
+      assert %AL{result: {:atomic, {%{"$Results" => [1, :word, [], %{x: 3}, [4, 5], 1.0]}, _, _}}} =
+               AL.run(source, branch, opts)
+    end
+  end
+
+  test "cached guards follow changing receiver fields at the same send site", %{branch: branch} do
+    source = ~S"""
+    @guarded_plan_probe #{super => value}.
+    guarded_plan_probe >> selected_value
+    | Self Output |
+    get Self selected Key,
+    get Self Key Output.
+    findall Output Outputs {
+      member Receivers Receiver,
+      selected_value Receiver Output
+    }.
+    """
+
+    receivers = [
+      %{class: :guarded_plan_probe, selected: :payload, payload: 1},
+      %{class: :guarded_plan_probe, selected: :payload, payload: 2},
+      %{class: :guarded_plan_probe, selected: :alternate, alternate: 3},
+      %{class: :guarded_plan_probe, selected: :absent, payload: 99},
+      %{class: :guarded_plan_probe, selected: :payload, payload: 4}
+    ]
+
+    for trace <- [[], [:vm], [:goals]] do
+      assert %AL{result: {:atomic, {%{"$Outputs" => [1, 2, 3, 4]}, _, state}}} =
+               AL.run(source, branch, bindings: %{"Receivers" => receivers}, trace: trace)
+
+      if trace == [:vm] do
+        assert Enum.any?(state.trace.events, fn
+                 %{payload: {:dispatch, :cache_hit, %{assumptions: assumptions}}} ->
+                   Enum.any?(assumptions, fn requirements ->
+                     Map.has_key?(Map.get(requirements, :fields, %{}), :selected)
+                   end)
+
+                 _ ->
+                   false
+               end)
+      end
+    end
+  end
 end

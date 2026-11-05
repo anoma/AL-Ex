@@ -1,17 +1,17 @@
 defmodule AL.JAM.Collection.Cursor do
   @enforce_keys [:parent, :choices, :count]
-  defstruct [:parent, :choices, :count, :driver]
+  defstruct [:parent, :choices, :count, :trace]
 
   @type t :: %__MODULE__{
           parent: AL.JAM.Frame.t(),
-          choices: list(),
+          choices: [AL.JAM.State.stack_entry()],
           count: pos_integer(),
-          driver: %{choicepoint: AL.Choicepoint.t(), trace: AL.Trace.t()} | nil
+          trace: AL.Trace.t() | nil
         }
 end
 
 defmodule AL.JAM.Collection do
-  alias AL.JAM.{Frame, Goals, Operand}
+  alias AL.JAM.{Frame, Operand}
 
   def collection_store(template, result, slots, store, solutions, branch) do
     template = Operand.resolve(template, slots, store)
@@ -30,31 +30,13 @@ defmodule AL.JAM.Collection do
     end
   end
 
-  def collection_condition(%Frame{
-        code: code,
-        pc: pc,
-        slots: slots
-      }) do
-    condition =
-      case elem(code, pc) do
-        {:collect, _, _, condition} -> condition
-        {:collect_n, _, _, _, condition} -> condition
-        {:negate, condition} -> condition
-      end
-
-    Goals.instructions(condition, 0, slots)
-  end
-
   def collection_continuation(
         %Frame{
-          descriptor: id,
           code: code,
           pc: pc,
           slots: slots,
-          returns: returns,
-          store: store,
-          pending: pending
-        },
+          store: store
+        } = snapshot,
         solutions,
         branch
       ) do
@@ -70,26 +52,11 @@ defmodule AL.JAM.Collection do
           if solutions == [], do: store, else: nil
       end
 
-    case result do
-      {:registers, next_store, next_slots} ->
-        {%Frame{
-           descriptor: id,
-           code: code,
-           pc: pc + 1,
-           slots: next_slots,
-           returns: returns,
-           pending: pending
-         }, next_store}
+    next = %Frame{snapshot | pc: pc + 1, store: nil}
 
-      next_store ->
-        {%Frame{
-           descriptor: id,
-           code: code,
-           pc: pc + 1,
-           slots: slots,
-           returns: returns,
-           pending: pending
-         }, next_store}
+    case result do
+      {:registers, next_store, next_slots} -> {%Frame{next | slots: next_slots}, next_store}
+      next_store -> {next, next_store}
     end
   end
 end

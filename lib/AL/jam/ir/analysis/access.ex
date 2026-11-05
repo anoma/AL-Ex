@@ -20,6 +20,7 @@ defmodule AL.JAM.IR.Access do
   def mode(:direct, name) when name in [:eq, :dif], do: :shallow
   def mode(:type, :atom), do: :shallow
   def mode(:term, :functor), do: :shallow
+  def mode(:primitive, :copy_term), do: :reference
 
   def mode(:primitive, name) when name in [:atom, :atom_string, :string_codes, :functor],
     do: :shallow
@@ -28,6 +29,7 @@ defmodule AL.JAM.IR.Access do
 
   def arguments(kind, name, operands, slots, store) do
     case mode(kind, name) do
+      :reference -> Enum.map(operands, &Operand.read(&1, slots))
       :shallow -> Enum.map(operands, &Operand.shallow(&1, slots, store))
       :deep -> Enum.map(operands, &Operand.resolve(&1, slots, store))
     end
@@ -35,6 +37,7 @@ defmodule AL.JAM.IR.Access do
 
   def resolve(kind, name, operand, slots, store) do
     case mode(kind, name) do
+      :reference -> Operand.read(operand, slots)
       :shallow -> Operand.shallow(operand, slots, store)
       :deep -> Operand.resolve(operand, slots, store)
     end

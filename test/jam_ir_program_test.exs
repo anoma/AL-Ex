@@ -11,16 +11,8 @@ defmodule AL.JAM.IRProgramTest do
     collect(AL.JAM.resume(snapshot, AL.Branch.head(), 1000), [])
   end
 
-  defp collect({:ok, store, _}, choices),
-    do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(choices)]
-
-  defp collect({:answers, store, alternatives, _}, choices),
+  defp collect({:ok, store, %AL.JAM.Execution{choices: alternatives}}, choices),
     do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(alternatives ++ choices)]
-
-  defp collect({:commit, snapshot, alternatives, _}, choices) do
-    [_ | remaining] = Enum.drop_while(alternatives ++ choices, &(&1 != :implies_mark))
-    collect(AL.JAM.resume(snapshot, AL.Branch.head(), 1000), remaining)
-  end
 
   defp collect({:failed, _, _}, choices), do: remaining(choices)
   defp remaining([]), do: []
@@ -140,6 +132,97 @@ defmodule AL.JAM.IRProgramTest do
       ])
 
     assert answers(Program.concat(failing, suffix)) == [:fallback]
+  end
+
+  test "a committed condition discards its alternatives but preserves outer choices" do
+    goals = [
+      %Goal.Or{
+        or: [%Goal.Eq{a: {:"$var", "Output"}, b: :outer}],
+        then: [
+          %Goal.Implies{
+            condition: [
+              %Goal.Or{
+                or: [%Goal.Eq{a: {:"$var", "Choice"}, b: :first}],
+                then: [%Goal.Eq{a: {:"$var", "Choice"}, b: :second}]
+              }
+            ],
+            then: [%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Choice"}}],
+            otherwise: [%Goal.Eq{a: {:"$var", "Output"}, b: :fallback}]
+          }
+        ]
+      }
+    ]
+
+    assert goals |> Normalize.lower() |> answers() == [:outer, :first]
+  end
+
+  test "a cut inside a condition does not restore pruned alternatives at commit" do
+    goals = [
+      %Goal.Or{
+        or: [%Goal.Eq{a: {:"$var", "Choice"}, b: :first}],
+        then: [%Goal.Eq{a: {:"$var", "Choice"}, b: :second}]
+      },
+      %Goal.Implies{
+        condition: [%Goal.Cut{}],
+        then: [%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Choice"}}],
+        otherwise: [%Goal.Eq{a: {:"$var", "Output"}, b: :fallback}]
+      }
+    ]
+
+    assert goals |> Normalize.lower() |> answers() == [:first]
+  end
+
+  test "nested conditional returns do not restore choices removed by a cut" do
+    goals = [
+      %Goal.Or{
+        or: [%Goal.Eq{a: {:"$var", "Choice"}, b: :first}],
+        then: [%Goal.Eq{a: {:"$var", "Choice"}, b: :second}]
+      },
+      %Goal.Implies{
+        condition: [
+          %Goal.Implies{
+            condition: [%Goal.Cut{}],
+            then: [%Goal.Pass{}],
+            otherwise: [%Goal.Fail{}]
+          }
+        ],
+        then: [%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Choice"}}],
+        otherwise: [%Goal.Fail{}]
+      }
+    ]
+
+    program = Normalize.lower(goals)
+    assert answers(program) == [:first]
+
+    {traced, trace} =
+      AL.JAM.Trace.run(AL.Trace.new(MapSet.new([:vm])), fn -> answers(program) end)
+
+    assert traced == [:first]
+    assert trace.events != []
+  end
+
+  test "a scoped cut preserves an enclosing condition's boundary" do
+    goals = [
+      %Goal.Implies{
+        condition: [
+          %Goal.Freeze{
+            var: :ready,
+            goals: [
+              %Goal.Implies{
+                condition: [%Goal.Cut{}],
+                then: [%Goal.Pass{}],
+                otherwise: [%Goal.Fail{}]
+              }
+            ]
+          },
+          %Goal.Or{or: [%Goal.Pass{}], then: [%Goal.Pass{}]}
+        ],
+        then: [%Goal.Eq{a: {:"$var", "Output"}, b: :once}],
+        otherwise: [%Goal.Eq{a: {:"$var", "Output"}, b: :fallback}]
+      }
+    ]
+
+    assert goals |> Normalize.lower() |> answers() == [:once]
   end
 
   test "calls expose continuations" do

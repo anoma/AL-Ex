@@ -26,6 +26,12 @@ defmodule AL.JAM.IR.Inference do
     end
   end
 
+  def constant_result({:compare, op, a, b}) when is_number(a) and is_number(b),
+    do: Var.Bounds.compare_value(%{}, op, a, b, nil) != nil
+
+  def constant_result({:dif, a, b}) when is_number(a) and is_number(b), do: a != b
+  def constant_result(_), do: :unknown
+
   defp infer(:pass, _),
     do: %__MODULE__{determinism: :det, suspension: :never, effect: :pure}
 
@@ -49,8 +55,8 @@ defmodule AL.JAM.IR.Inference do
     end
   end
 
-  defp infer({:compare, _, a, b}, exposed) do
-    if Enum.all?([a, b], &(mode(&1, exposed) == :ground and is_number(&1))),
+  defp infer({:compare, _, a, b}, _) do
+    if is_number(a) and is_number(b),
       do: %__MODULE__{determinism: :semidet, suspension: :never, effect: :pure},
       else: %__MODULE__{effect: :constraint}
   end

@@ -10,6 +10,7 @@ defmodule AL.JAM.IR.Scan do
     :selector,
     :branch,
     :tests,
+    :ranges,
     :reject,
     :dependencies,
     :evidence,
@@ -96,19 +97,12 @@ defmodule AL.JAM.IR.Scan do
         end)
 
       require!(values != [] and length(values) == length(Enum.uniq(values)))
-      low = Enum.min(values)
-      high = Enum.max(values)
-      require!(high - low <= 64)
-
-      tests =
-        [{:>=, low}, {:<=, high}] ++
-          for value <- low..high, value not in values, do: {:dif, value}
 
       %__MODULE__{
         receiver: receiver,
         selector: selector,
         branch: branch,
-        tests: tests,
+        ranges: ranges(values),
         dependencies: state.dependencies,
         reject: [],
         suffix: [],
@@ -119,6 +113,16 @@ defmodule AL.JAM.IR.Scan do
     catch
       :unsupported_scan -> nil
     end
+  end
+
+  defp ranges(values) do
+    values
+    |> Enum.sort()
+    |> Enum.reduce([], fn
+      value, [{low, high} | rest] when value == high + 1 -> [{low, value} | rest]
+      value, ranges -> [{value, value} | ranges]
+    end)
+    |> Enum.reverse()
   end
 
   defp consumption(

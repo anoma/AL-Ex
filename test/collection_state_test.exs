@@ -93,7 +93,7 @@ defmodule AL.CollectionStateTest do
     assert {:ok, 0} = AL.await_effect(effect, branch: branch)
   end
 
-  test "child work is charged on both machine and driver collection paths", %{branch: branch} do
+  test "collection work is charged with and without durable actions", %{branch: branch} do
     assert %AL{result: {:atomic, {_, _, plain}}} = AL.run("count_to 0 1000.", branch)
 
     for source <- [

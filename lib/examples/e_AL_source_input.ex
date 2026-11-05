@@ -547,12 +547,6 @@ defmodule Examples.ALSourceInput do
     assert {:error, %AL.Goal.StorableError{reason: :capture_id}} =
              AL.Goal.validate_storable([:head | capture_id])
 
-    assert :ok ==
-             AL.Goal.validate_storable(%AL.Goal.SourceScope{
-               capture_id: AL.Var.var("trusted_capture"),
-               goals: [%AL.Goal.Eq{a: :ok, b: :ok}]
-             })
-
     branch = Examples.Support.isolated_branch()
     object = fresh_id("source_storage_guard")
 

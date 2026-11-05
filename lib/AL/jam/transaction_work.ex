@@ -34,23 +34,6 @@ defmodule AL.JAM.TransactionWork do
     %{work | action_slot_updates: updates}
   end
 
-  def merge(parent, child) do
-    updates =
-      Map.merge(parent.action_slot_updates, child.action_slot_updates, fn
-        _object, old_slots, new_slots -> Map.merge(old_slots, new_slots)
-      end)
-
-    %__MODULE__{
-      futures: child.futures ++ parent.futures,
-      effects: child.effects ++ parent.effects,
-      waits: child.waits ++ parent.waits,
-      completed_objects: child.completed_objects ++ parent.completed_objects,
-      completed_effects: child.completed_effects ++ parent.completed_effects,
-      deliveries: child.deliveries ++ parent.deliveries,
-      action_slot_updates: updates
-    }
-  end
-
   def finalize(work) do
     {deliveries, _seen} =
       work.deliveries

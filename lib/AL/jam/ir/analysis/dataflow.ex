@@ -27,18 +27,41 @@ defmodule AL.JAM.IR.Dataflow do
   end
 
   def analyze(program, observable \\ MapSet.new(), rewrite \\ true, exposed \\ nil) do
+    state = infer(program, observable, rewrite, exposed)
+    %{state | live: liveness(state, MapSet.delete(observable, {:"$var", "_"}))}
+  end
+
+  def infer(program, observable \\ MapSet.new(), rewrite \\ true, exposed \\ nil) do
     observable = MapSet.delete(observable, {:"$var", "_"})
     initial = %Facts{exposed: exposed || observable}
 
     state = %Analysis{program: program, rewrite: rewrite}
 
     {return_facts, state} = walk(program.entry, nil, initial, state)
-    live = liveness(state, observable)
-    %{state | live: live, return_facts: return_facts}
+    %{state | return_facts: return_facts}
   end
 
   def specialize(program, observable \\ MapSet.new()) do
-    program |> analyze(observable) |> eliminate_dead_bindings()
+    program |> analyze(observable) |> eliminate_dead_bindings() |> fold_constants()
+  end
+
+  defp fold_constants(program) do
+    if AL.JAM.Trace.active?() do
+      program
+    else
+      nodes =
+        Map.new(program.nodes, fn
+          {id, %Node{instruction: operation, next: next} = node} ->
+            if IR.Inference.constant_result(operation) == true,
+              do: {id, {:next, next}},
+              else: {id, node}
+
+          entry ->
+            entry
+        end)
+
+      %{program | nodes: nodes}
+    end
   end
 
   def eliminate_dead_bindings(%Analysis{} = analysis) do

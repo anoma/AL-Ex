@@ -1,19 +1,25 @@
 defmodule AL.JAM.IR.Selection do
   alias AL.JAM.IR.Program
 
-  def select(program), do: Program.fuse_instructions(program, &key/1, &combine/1)
+  def select(program), do: Program.fuse_instructions(program, &key/1, &numeric_tests/1)
+
+  def numeric_tests([first | _] = instructions) do
+    {value, _} = candidate(first)
+
+    tests =
+      Enum.map(instructions, fn instruction ->
+        {^value, test} = candidate(instruction)
+        test
+      end)
+
+    {:numeric_tests, value, tests, instructions}
+  end
 
   defp key(instruction) do
     case candidate(instruction) do
       {value, _test} -> {:ok, value}
       nil -> :none
     end
-  end
-
-  defp combine([first | _] = instructions) do
-    {value, _} = candidate(first)
-    tests = Enum.map(instructions, fn instruction -> elem(candidate(instruction), 1) end)
-    {:numeric_tests, value, tests, instructions}
   end
 
   defp candidate({:compare, op, value, bound})

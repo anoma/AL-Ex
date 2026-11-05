@@ -372,7 +372,7 @@ defmodule AL.Var.Bounds do
 
   defp post_equality(store, a, b, branch) do
     case {affine(store, a), affine(store, b)} do
-      {{:ok, _}, {:ok, _}} -> add_compare(store, :=, a, b, branch)
+      {{:ok, a_aff}, {:ok, b_aff}} -> post_affine_equality(store, a_aff, b_aff, branch)
       _ -> add_product_equality(store, a, b, branch)
     end
   end
@@ -453,6 +453,9 @@ defmodule AL.Var.Bounds do
   # tightens transitively). Collapse to a single value -> bind
   # via AL.Var.bind/4 (so dif/isa still gets checked). nil = infeasible or
   # non-affine side — same backtrack either way at the call site.
+  def compare_value(store, op, a, b, _branch) when is_number(a) and is_number(b),
+    do: if(compare_numbers(op, a, b), do: store, else: nil)
+
   def compare_value(store, op, a, b, branch) do
     case {eval(a, store), eval(b, store)} do
       {x, y} when is_number(x) and is_number(y) ->
@@ -479,15 +482,7 @@ defmodule AL.Var.Bounds do
 
   defp post_compare(store, :=, a, b, branch) do
     with {:ok, a_aff} <- affine(store, a), {:ok, b_aff} <- affine(store, b) do
-      # `a = b` as two simultaneous `<=` propagators (a<=b and b<=a), on the
-      # same worklist fixpoint `< > <= >=` already use — narrowing one side
-      # re-triggers the other, so a fully-determined side collapses the
-      # other to a singleton and auto-binds it (AL.Var.bind, in
-      # apply_domain_ok), the same way `#=` narrows/grounds in CLP(FD).
-      store
-      |> register_propagator(a_aff, b_aff, false)
-      |> register_propagator(b_aff, a_aff, false)
-      |> run_fixpoint(MapSet.new([{a_aff, b_aff, false}, {b_aff, a_aff, false}]), branch)
+      post_affine_equality(store, a_aff, b_aff, branch)
     else
       :error -> nil
     end
@@ -504,6 +499,18 @@ defmodule AL.Var.Bounds do
     else
       :error -> nil
     end
+  end
+
+  defp post_affine_equality(store, a_aff, b_aff, branch) do
+    # `a = b` as two simultaneous `<=` propagators (a<=b and b<=a), on the
+    # same worklist fixpoint `< > <= >=` already use — narrowing one side
+    # re-triggers the other, so a fully-determined side collapses the
+    # other to a singleton and auto-binds it (AL.Var.bind, in
+    # apply_domain_ok), the same way `#=` narrows/grounds in CLP(FD).
+    store
+    |> register_propagator(a_aff, b_aff, false)
+    |> register_propagator(b_aff, a_aff, false)
+    |> run_fixpoint(MapSet.new([{a_aff, b_aff, false}, {b_aff, a_aff, false}]), branch)
   end
 
   @spec floor_divide(AL.Var.store(), term(), term(), term(), AL.Branch.t()) ::
@@ -1080,7 +1087,7 @@ defmodule AL.Var.Bounds do
           v_lo == v_hi ->
             case AL.Var.bind(store, dv, v_lo, branch) do
               nil -> :fail
-              new_store -> {:ok, new_store, props_of(store, dv)}
+              new_store -> {:ok, new_store, []}
             end
 
           true ->

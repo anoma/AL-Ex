@@ -185,13 +185,14 @@ defmodule AL.JAM.Compiler do
     index = AL.ClauseIndex.build(compiled)
 
     index = AL.JAM.IR.Rejection.index(rejections, compiled, index)
+    index = AL.JAM.IR.Loop.index(compiled, index)
 
     planning =
       Enum.any?(compiled, fn %CompiledClause{code: code} ->
         code
         |> Tuple.to_list()
         |> Enum.drop_while(fn
-          {:local, _, {:eq, _, _}} -> true
+          {:eq_into, _, _, _} -> true
           {:integer_arithmetic, _, _, _, _, _} -> true
           {:cursor, _} -> true
           _ -> false
@@ -212,7 +213,17 @@ defmodule AL.JAM.Compiler do
     {compiled, index}
   end
 
-  defp return_patch({:local, index, _operation}), do: {:local, index}
+  defp return_patch(operation)
+       when elem(operation, 0) in [
+              :eq_into,
+              :unify_structural_into,
+              :map_get_into,
+              :slot_get_into,
+              :map_put_into,
+              :primitive_into
+            ],
+       do: {:instruction, AL.JAM.Arithmetic.select(operation)}
+
   defp return_patch({:send_local, _operation, destinations}), do: {:send_local, destinations}
 
   defp return_patch({:collect, _template, {:destination, index}, _condition}),

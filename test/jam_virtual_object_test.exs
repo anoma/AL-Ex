@@ -23,9 +23,7 @@ defmodule AL.JAM.VirtualObjectTest do
     collect(JAM.resume(frame, AL.Branch.head(), 1000), [])
   end
 
-  defp collect({:ok, store, _}, choices), do: [Var.subst(@output, store) | remaining(choices)]
-
-  defp collect({:answers, store, more, _}, choices),
+  defp collect({:ok, store, %AL.JAM.Execution{choices: more}}, choices),
     do: [Var.subst(@output, store) | remaining(more ++ choices)]
 
   defp collect({:failed, _, _}, choices), do: remaining(choices)

@@ -76,7 +76,6 @@ defmodule AL.Goal do
           | AL.Goal.Call.t()
           | AL.Goal.Send.t()
           | AL.Goal.CallNextMethod.t()
-          | AL.Goal.SourceScope.t()
           | AL.Goal.Fail.t()
           | AL.Goal.Pass.t()
           | AL.Goal.Comment.t()
@@ -243,6 +242,7 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: OApply do
     field(:method_id, AL.Var.t())
     field(:args, AL.Var.t())
+    field(:source_capture, term() | nil, default: nil)
   end
 
   typedstruct enforce: true, module: Cut do
@@ -428,11 +428,6 @@ defmodule AL.Goal do
     field(:args, AL.Var.t())
   end
 
-  typedstruct enforce: true, module: SourceScope do
-    field(:capture_id, term())
-    field(:goals, [AL.Goal.t()])
-  end
-
   typedstruct enforce: true, module: CallNextMethod do
     field(:self, AL.Var.t())
     field(:args, AL.Var.t())
@@ -477,7 +472,6 @@ defmodule AL.Goal do
     {MethodSource, :method_source, [object: :term, seq: :term, text: :term, provenance: :term]},
     {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},
-    {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
     {FindNSols, :findnsols, [count: :term, template: :term, result: :term, condition: :goals]},
@@ -658,7 +652,6 @@ defmodule AL.Goal do
   def call_form(%SetOapply{object: object, seq: seq, head: head, body: body}),
     do: {:vm_set_oapply, [object, seq, head, body]}
 
-  def call_form(%SourceScope{capture_id: id, goals: body}), do: {:vm_source_scope, [id, body]}
   def call_form(%Comment{text: text}), do: {:comment, [text]}
 
   def call_form(%Cut{}), do: {:cut, []}
@@ -738,9 +731,6 @@ defmodule AL.Goal do
 
   def lower(:on_completion, [effect, outcome, future, body]),
     do: %OApply{method_id: :on_completion, args: [effect, [outcome], goals(body), future]}
-
-  def lower(:vm_source_scope, [capture_id, body]),
-    do: %SourceScope{capture_id: capture_id, goals: goals(body)}
 
   def lower(:call, [head, body, args]), do: %Call{head: head, body: goals(body), args: args}
 
@@ -840,10 +830,6 @@ defmodule AL.Goal do
   defp store(:term, value), do: do_to_stored(value)
   defp store(:goals, goals) when is_list(goals), do: Enum.map(goals, &do_to_stored/1)
   defp store(:goals, other), do: do_to_stored(other)
-
-  defp invalid_storable(%SourceScope{capture_id: capture_id, goals: goals} = scope) do
-    if AL.Var.var?(capture_id), do: invalid_storable(goals), else: {scope, :concrete_source_scope}
-  end
 
   defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
 

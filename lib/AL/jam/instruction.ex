@@ -22,7 +22,6 @@ defmodule AL.JAM.Instruction do
           | {:retract_method, term(), term(), term()}
           | {:retract_oapply, term(), term()}
           | {:retract_slot, term(), term()}
-          | {:source_scope_exit, term()}
 
   @type t() ::
           :pass
@@ -32,10 +31,12 @@ defmodule AL.JAM.Instruction do
           | {:eq, left :: term(), right :: term()}
           | {:unify_structural, left :: term(), right :: term()}
           | {:dif, left :: term(), right :: term()}
+          | {:dif, input :: register(), bound :: number(), input_side :: :left | :right}
           | {:compare, operator :: atom(), left :: term(), right :: term()}
+          | {:compare, operator :: atom(), input :: register(), bound :: number(),
+             input_side :: :left | :right}
           | {:ground, term()}
           | {:is_var, term()}
-          | {:copy_term, original :: term(), copy :: term(), goals :: term()}
           | {:map_get, map :: term(), key :: term(), value :: term()}
           | {:map_put, map :: term(), key :: term(), value :: term(), result :: term()}
           | {:slot_get, object :: term(), key :: term(), value :: term(), storage :: term()}
@@ -47,15 +48,14 @@ defmodule AL.JAM.Instruction do
           | {:label, site :: term(), value :: term()}
           | {:send, site :: term(), receiver :: term(), selector :: term(), arguments :: term()}
           | {:call_method, method :: term(), arguments :: term()}
+          | {:call_method, method :: term(), arguments :: term(), capture :: term()}
           | {:call, site :: term(), head :: term(), body :: term(), arguments :: term()}
           | {:next, cursor :: term(), receiver :: term(), arguments :: term()}
-          | {:send_as, provider :: term(), cursor :: term(), arguments :: term()}
           | {:collect, template :: term(), result :: term(), condition :: code()}
           | {:collect_n, count :: term(), template :: term(), result :: term(),
              condition :: code()}
           | {:negate, condition :: code()}
           | {:freeze, variable :: term(), body :: code()}
-          | {:source_scope, capture_id :: term(), source :: term(), body :: code()}
           | {:condition, condition :: code(), otherwise :: code()}
           | {:commit, then :: code()}
           | {:move, destination :: register(), source :: term()}
@@ -63,17 +63,99 @@ defmodule AL.JAM.Instruction do
           | {:get_cons, source :: term(), head :: register(), tail :: register(),
              failure :: address()}
           | {:try, alternative :: address(), live :: [register()]}
+          | {:try, alternative :: address(), live :: [register()], target :: address()}
           | {:numeric_tests, value :: term(), tests :: [{atom(), number()}], fallback :: code()}
           | {:integer_arithmetic, operator :: :+ | :- | :*, destination :: register(),
              left :: term(), right :: term(), fallback :: t()}
-          | {:local, destination :: register(), instruction :: t()}
+          | {:eq_into, destination :: register(), source :: term(),
+             destination_side :: :left | :right}
+          | {:unify_structural_into, destination :: register(), source :: term(),
+             destination_side :: :left | :right}
+          | {:map_get_into, destination :: register(), map :: term(), key :: term()}
+          | {:slot_get_into, destination :: register(), object :: term(), key :: term(),
+             storage :: term()}
+          | {:map_put_into, destination :: register(), map :: term(), key :: term(),
+             value :: term()}
+          | {:primitive_into, destination :: register(), name :: atom(), output_position :: 0 | 1,
+             input :: term()}
           | {:send_local, instruction :: t(), destinations :: [register()]}
+
+  @spec into(t(), register()) :: t()
+  def into({:eq, {:register, destination}, source}, destination),
+    do: {:eq_into, destination, source, :left}
+
+  def into({:eq, source, {:register, destination}}, destination),
+    do: {:eq_into, destination, source, :right}
+
+  def into({:unify_structural, {:register, destination}, source}, destination),
+    do: {:unify_structural_into, destination, source, :left}
+
+  def into({:unify_structural, source, {:register, destination}}, destination),
+    do: {:unify_structural_into, destination, source, :right}
+
+  def into({:map_get, map, key, _result}, destination),
+    do: {:map_get_into, destination, map, key}
+
+  def into({:slot_get, object, key, _result, storage}, destination),
+    do: {:slot_get_into, destination, object, key, storage}
+
+  def into({:map_put, map, key, value, _result}, destination),
+    do: {:map_put_into, destination, map, key, value}
+
+  def into({:primitive, name, [{:register, destination}, input]}, destination),
+    do: {:primitive_into, destination, name, 0, input}
+
+  def into({:primitive, name, [input, {:register, destination}]}, destination),
+    do: {:primitive_into, destination, name, 1, input}
+
+  @spec general(t()) :: t()
+  def general({:compare, op, input, bound, :left}),
+    do: {:compare, op, {:register, input}, {:constant, bound}}
+
+  def general({:compare, op, input, bound, :right}),
+    do: {:compare, AL.JAM.Arithmetic.reverse(op), {:constant, bound}, {:register, input}}
+
+  def general({:dif, input, bound, :left}),
+    do: {:dif, {:register, input}, {:constant, bound}}
+
+  def general({:dif, input, bound, :right}),
+    do: {:dif, {:constant, bound}, {:register, input}}
+
+  def general({:eq_into, destination, source, :left}),
+    do: {:eq, {:register, destination}, source}
+
+  def general({:eq_into, destination, source, :right}),
+    do: {:eq, source, {:register, destination}}
+
+  def general({:unify_structural_into, destination, source, :left}),
+    do: {:unify_structural, {:register, destination}, source}
+
+  def general({:unify_structural_into, destination, source, :right}),
+    do: {:unify_structural, source, {:register, destination}}
+
+  def general({:map_get_into, destination, map, key}),
+    do: {:map_get, map, key, {:register, destination}}
+
+  def general({:slot_get_into, destination, object, key, storage}),
+    do: {:slot_get, object, key, {:register, destination}, storage}
+
+  def general({:map_put_into, destination, map, key, value}),
+    do: {:map_put, map, key, value, {:register, destination}}
+
+  def general({:primitive_into, destination, name, 0, input}),
+    do: {:primitive, name, [{:register, destination}, input]}
+
+  def general({:primitive_into, destination, name, 1, input}),
+    do: {:primitive, name, [input, {:register, destination}]}
+
+  def general(instruction), do: instruction
 
   def operands({family, _name, args})
       when family in [:primitive, :constraint, :relation],
       do: args
 
   def operands({:call_method, {:method_identity, _, _}, args}), do: [args]
+  def operands({:call_method, {:method_identity, _, _}, args, _capture}), do: [args]
 
   def operands(instruction) do
     case runtime_action_operands(instruction) do
@@ -88,6 +170,9 @@ defmodule AL.JAM.Instruction do
 
   def map_operands({:call_method, {:method_identity, _, _} = method, args}, fun),
     do: {:call_method, method, fun.(args)}
+
+  def map_operands({:call_method, {:method_identity, _, _} = method, args, capture}, fun),
+    do: {:call_method, method, fun.(args), capture}
 
   def map_operands(instruction, fun) do
     case runtime_action_operands(instruction) do
@@ -129,7 +214,6 @@ defmodule AL.JAM.Instruction do
 
   def runtime_action_operands({:retract_oapply, object, head}), do: {:ok, [object, head]}
   def runtime_action_operands({:retract_slot, object, key}), do: {:ok, [object, key]}
-  def runtime_action_operands({:source_scope_exit, capture_id}), do: {:ok, [capture_id]}
   def runtime_action_operands(_), do: :error
 
   defp operand_positions(instruction) do
@@ -146,10 +230,10 @@ defmodule AL.JAM.Instruction do
       {:collect_n, _, _, _, _} -> [1, 2, 3]
       {:negate, _} -> []
       {:freeze, _, _} -> [1]
-      {:source_scope, _, _, _} -> [1, 2]
+      {:call_method, _, _, _} -> [1, 2]
       {op, _} when op in [:ground, :is_var] -> [1]
       {op, _, _} when op in [:eq, :dif, :unify_structural, :call_method] -> [1, 2]
-      {op, _, _, _} when op in [:map_get, :copy_term] -> [1, 2, 3]
+      {:map_get, _, _, _} -> [1, 2, 3]
       {op, _, _, _, _} when op in [:map_put, :slot_get] -> [1, 2, 3, 4]
     end
   end
@@ -163,9 +247,6 @@ defmodule AL.JAM.Instruction do
     |> map_regions(&Program.map_values(&1, fun))
   end
 
-  def variables({:numeric_tests, value, _tests, fallback}),
-    do: Enum.reduce(fallback, AL.Var.find_vars(value), &MapSet.union(variables(&1), &2))
-
   def variables(instruction) do
     Enum.reduce(regions(instruction), AL.Var.find_vars(operands(instruction)), fn {_, body},
                                                                                   vars ->
@@ -177,7 +258,6 @@ defmodule AL.JAM.Instruction do
   def regions({:collect_n, _, _, _, condition}), do: [condition: condition]
   def regions({:negate, condition}), do: [condition: condition]
   def regions({:freeze, _, goals}), do: [goals: goals]
-  def regions({:source_scope, _, _, body}), do: [body: body]
   def regions(_), do: []
 
   defp map_regions({:collect, template, result, condition}, fun),
@@ -188,9 +268,6 @@ defmodule AL.JAM.Instruction do
 
   defp map_regions({:negate, condition}, fun), do: {:negate, fun.(condition)}
   defp map_regions({:freeze, var, goals}, fun), do: {:freeze, var, fun.(goals)}
-
-  defp map_regions({:source_scope, id, source, body}, fun),
-    do: {:source_scope, id, source, fun.(body)}
 
   defp map_regions(instruction, _fun), do: instruction
 
@@ -220,6 +297,7 @@ defmodule AL.JAM.Instruction do
              :atom_string,
              :atom,
              :functor,
+             :copy_term,
              :map_pairs,
              :block_goals
            ] ->
@@ -231,7 +309,7 @@ defmodule AL.JAM.Instruction do
       {op, _, _} when op in [:eq, :dif, :unify_structural] ->
         true
 
-      {op, _, _, _} when op in [:copy_term, :compare, :map_get] ->
+      {op, _, _, _} when op in [:compare, :map_get] ->
         true
 
       {op, _, _, _, _} when op in [:slot_get, :map_put] ->
@@ -266,12 +344,8 @@ defmodule AL.JAM.Instruction do
       else: slots
   end
 
-  defp primitive_fallback(operation, slots, store, branch) do
-    case execute(operation, slots, store, branch) do
-      {:park, _variables} -> {:continue, store, {operation}}
-      result -> result
-    end
-  end
+  defp fallback(operation, index, slots),
+    do: {:fallback, materialize_local(slots, index), general(operation)}
 
   defp assign_local(index, source, slots, store, branch) do
     value = AL.JAM.IR.Access.resolve(:direct, :eq, source, slots, store)
@@ -299,7 +373,16 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  def execute({:integer_arithmetic, op, destination, a, b, fallback}, slots, store, branch) do
+  def execute(operation, slots, store, branch, pending \\ %{})
+
+  # Apply arithmetic op, fallback otherwise
+  def execute(
+        {:integer_arithmetic, op, destination, a, b, fallback},
+        slots,
+        store,
+        branch,
+        pending
+      ) do
     left = Operand.read(a, slots)
     right = Operand.read(b, slots)
 
@@ -314,78 +397,93 @@ defmodule AL.JAM.Instruction do
       {:registers, store, put_elem(slots, destination, value)}
     else
       AL.JAM.Trace.fallback(fallback, slots)
-      execute(fallback, slots, store, branch)
+      execute(fallback, slots, store, branch, pending)
     end
   end
 
-  def execute({:local, index, {:unify_structural, left, right}}, slots, store, _branch) do
-    source = if left == {:register, index}, do: right, else: left
+  # Structural unification fast-path when one side is a fresh var
+  def execute({:unify_structural_into, index, source, _side}, slots, store, _branch, _pending) do
     {:registers, store, put_elem(slots, index, Operand.resolve(source, slots, store))}
   end
 
-  def execute({:local, index, {:eq, left, right}}, slots, store, branch) do
-    source = if left == {:register, index}, do: right, else: left
-
+  # Constraint equality fast-path
+  def execute({:eq_into, index, source, _side}, slots, store, branch, _pending) do
     case AL.JAM.Arithmetic.integer(source, slots, store) do
       value when is_integer(value) -> {:registers, store, put_elem(slots, index, value)}
       :fallback -> assign_local(index, source, slots, store, branch)
     end
   end
 
-  def execute({:local, index, {:map_get, map, key, _result} = operation}, slots, store, branch) do
+  # Map get fast-path
+  def execute(
+        {:map_get_into, index, map, key} = operation,
+        slots,
+        store,
+        _branch,
+        _pending
+      ) do
     map = Operand.container(map, slots, store)
     key = Operand.resolve(key, slots, store)
 
     if is_map(map) and not is_struct(map) and ground?(key),
-      do: read_local(map, key, index, slots, store),
-      else: execute(operation, slots, store, branch)
+      do: read_into(map, key, index, slots, store),
+      else: fallback(operation, index, slots)
   end
 
+  # Slot get fast path
   def execute(
-        {:local, index, {:slot_get, object, key, _result, _storage} = operation},
+        {:slot_get_into, index, object, key, _storage} = operation,
         slots,
         store,
-        branch
+        _branch,
+        _pending
       ) do
     object = Operand.container(object, slots, store)
     key = Operand.resolve(key, slots, store)
 
     if is_map(object) and not AL.Var.var?(key),
-      do: read_local(object, key, index, slots, store),
-      else: execute(operation, slots, store, branch)
+      do: read_into(object, key, index, slots, store),
+      else: fallback(operation, index, slots)
   end
 
-  def execute({:local, index, {:map_put, map, key, value, _result}}, slots, store, _branch) do
-    map = Operand.resolve(map, slots, store)
-
-    if is_map(map) and not is_struct(map) do
-      value =
-        Map.put(map, Operand.resolve(key, slots, store), Operand.resolve(value, slots, store))
-
-      {:registers, store, put_elem(slots, index, value)}
-    else
-      nil
+  # Map put fast-path
+  def execute(
+        {:map_put_into, index, map, key, value},
+        slots,
+        store,
+        _branch,
+        _pending
+      ) do
+    case updated_map(map, key, value, slots, store) do
+      {:ok, updated} -> {:registers, store, put_elem(slots, index, updated)}
+      :error -> nil
     end
   end
 
-  def execute({:local, index, {:primitive, name, operands} = operation}, slots, store, branch) do
+  def execute(
+        {:primitive_into, index, name, position, input} = operation,
+        slots,
+        store,
+        _branch,
+        _pending
+      ) do
     destination = elem(slots, index)
 
-    if AL.Var.var?(destination) and destination != {:"$var", "_"} and
-         not Map.has_key?(store, destination) do
-      position = Enum.find_index(operands, &(&1 == {:register, index}))
-      arguments = AL.JAM.Primitive.arguments(name, operands, slots, store)
+    if destination == nil or
+         (AL.Var.var?(destination) and destination != {:"$var", "_"} and
+            not Map.has_key?(store, destination)) do
+      input = AL.JAM.IR.Access.resolve(:primitive, name, input, slots, store)
 
-      case AL.JAM.Primitive.output(name, position, arguments, store) do
+      case AL.JAM.Primitive.output(name, position, input, store) do
         {:ok, value} -> {:registers, store, put_elem(slots, index, value)}
-        :fallback -> primitive_fallback(operation, slots, store, branch)
+        :fallback -> fallback(operation, index, slots)
       end
     else
-      primitive_fallback(operation, slots, store, branch)
+      fallback(operation, index, slots)
     end
   end
 
-  def execute({:constraint, operation, arguments}, slots, store, branch) do
+  def execute({:constraint, operation, arguments}, slots, store, branch, _pending) do
     arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
     result = AL.JAM.Constraint.execute(operation, arguments, store, branch)
 
@@ -398,7 +496,7 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  def execute({:label, site, term}, slots, store, branch) do
+  def execute({:label, site, term}, slots, store, branch, _pending) do
     case AL.JAM.Label.plan(Operand.resolve(term, slots, store), store, branch) do
       :done ->
         store
@@ -421,7 +519,7 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  def execute({:relation, operation, arguments}, slots, store, branch) do
+  def execute({:relation, operation, arguments}, slots, store, branch, _pending) do
     arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
 
     case AL.JAM.Relation.execute(operation, arguments, store, branch) do
@@ -440,42 +538,23 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  def execute({:primitive, operation, arguments}, slots, store, branch) do
+  def execute({:primitive, operation, arguments}, slots, store, branch, pending) do
     arguments = AL.JAM.Primitive.arguments(operation, arguments, slots, store)
 
-    case AL.JAM.Primitive.execute(operation, arguments, store, branch) do
+    case AL.JAM.Primitive.execute(operation, arguments, store, branch, pending) do
       {:ok, store} -> store
       :fail -> nil
       {:suspend, variables} -> {:park, variables}
     end
   end
 
-  def execute({:dif, a, b}, slots, store, branch),
-    do:
-      AL.JAM.Unification.different(
-        AL.JAM.IR.Access.resolve(:direct, :dif, a, slots, store),
-        AL.JAM.IR.Access.resolve(:direct, :dif, b, slots, store),
-        store,
-        branch
-      )
-
-  def execute({:compare, op, a, b}, slots, store, branch),
-    do:
-      AL.Var.Bounds.compare_value(
-        store,
-        op,
-        Operand.resolve(a, slots, store),
-        Operand.resolve(b, slots, store),
-        branch
-      )
-
-  def execute({:ground, term}, slots, store, _branch),
+  def execute({:ground, term}, slots, store, _branch, _pending),
     do: if(ground?(Operand.resolve(term, slots, store)), do: store, else: nil)
 
-  def execute({:is_var, term}, slots, store, _branch),
+  def execute({:is_var, term}, slots, store, _branch, _pending),
     do: if(AL.Var.var?(Operand.shallow(term, slots, store)), do: store, else: nil)
 
-  def execute({:map_get, map, key, value}, slots, store, branch) do
+  def execute({:map_get, map, key, value}, slots, store, branch, _pending) do
     map = Operand.container(map, slots, store)
     key = Operand.resolve(key, slots, store)
 
@@ -509,7 +588,7 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  def execute({:unify_structural, left, right}, slots, store, branch) do
+  def execute({:unify_structural, left, right}, slots, store, branch, _pending) do
     AL.Var.unify(
       Operand.resolve(left, slots, store),
       Operand.resolve(right, slots, store),
@@ -518,20 +597,23 @@ defmodule AL.JAM.Instruction do
     )
   end
 
-  def execute({:map_put, map, key, value, result}, slots, store, branch) do
-    map = Operand.resolve(map, slots, store)
+  def execute({:map_put, map, key, value, result}, slots, store, branch, _pending) do
+    case updated_map(map, key, value, slots, store) do
+      {:ok, updated} ->
+        AL.Var.unify(Operand.resolve(result, slots, store), updated, store, branch)
 
-    if is_map(map) and not is_struct(map) do
-      key = Operand.resolve(key, slots, store)
-      value = Operand.resolve(value, slots, store)
-      result = Operand.resolve(result, slots, store)
-      AL.Var.unify(result, Map.put(map, key, value), store, branch)
-    else
-      nil
+      :error ->
+        nil
     end
   end
 
-  def execute({:slot_get, object_operand, key_operand, value, storage}, slots, store, branch) do
+  def execute(
+        {:slot_get, object_operand, key_operand, value, storage},
+        slots,
+        store,
+        branch,
+        pending
+      ) do
     object = Operand.container(object_operand, slots, store)
     key = Operand.resolve(key_operand, slots, store)
 
@@ -541,7 +623,8 @@ defmodule AL.JAM.Instruction do
           {:relation, :slot, [object_operand, key_operand, value, storage]},
           slots,
           store,
-          branch
+          branch,
+          pending
         )
 
       AL.Var.var?(key) ->
@@ -569,11 +652,21 @@ defmodule AL.JAM.Instruction do
     end
   end
 
-  defp read_local(map, key, index, slots, store) do
+  defp updated_map(map, key, value, slots, store) do
+    map = Operand.resolve(map, slots, store)
+
+    if is_map(map) and not is_struct(map),
+      do:
+        {:ok,
+         Map.put(map, Operand.resolve(key, slots, store), Operand.resolve(value, slots, store))},
+      else: :error
+  end
+
+  defp read_into(map, key, index, slots, store) do
     case Map.fetch(map, key) do
       {:ok, value} ->
         case AL.Var.subst(value, store) do
-          {:"$var", "_"} -> {:registers, store, slots}
+          {:"$var", "_"} -> {:registers, store, materialize_local(slots, index)}
           resolved -> {:registers, store, put_elem(slots, index, resolved)}
         end
 

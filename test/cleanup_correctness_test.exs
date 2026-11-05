@@ -91,7 +91,7 @@ defmodule AL.CleanupCorrectnessTest do
     {[%AL.JAM.CompiledClause{locals: locals, code: code}], _} =
       AL.JAM.Compiler.compile([{:oapply, :probe, 0, [output], body}])
 
-    assert {:local, index, {:unify_structural, _, _}} = elem(code, 0)
+    assert {:unify_structural_into, index, _, _} = elem(code, 0)
     refute Enum.any?(locals, fn {slot, _} -> slot == index end)
 
     assert %AL{result: {:atomic, _}} =

@@ -210,8 +210,26 @@ defmodule AL.ResolutionCache do
   def store_dispatch(branch, key, value),
     do: store_local({@dispatch_cache, table(:providers, branch)}, key, value)
 
-  def invalidate_dispatch(branch),
-    do: clear_local({@dispatch_cache, table(:providers, branch)})
+  def dispatch_revision(branch) do
+    case Process.get(@transaction_cache) do
+      nil -> nil
+      cache -> Map.get(cache, {@dispatch_cache, :revision, branch.id}, 0)
+    end
+  end
+
+  def invalidate_dispatch(branch) do
+    if cache = Process.get(@transaction_cache) do
+      cache = Map.delete(cache, {@dispatch_cache, table(:providers, branch)})
+
+      Process.put(
+        @transaction_cache,
+        Map.update(cache, {@dispatch_cache, :revision, branch.id}, 1, &(&1 + 1))
+      )
+    end
+  end
+
+  def delete_dispatch(branch, key),
+    do: delete_local({@dispatch_cache, table(:providers, branch)}, key)
 
   @doc "Caches AL.Object.get_native/2 -- nil (not native) is cached same as a real binding."
   @spec fetch_native(AL.Branch.t(), term(), (-> term())) :: term()
@@ -310,13 +328,13 @@ defmodule AL.ResolutionCache do
   @spec invalidate_providers(AL.Branch.t()) :: :ok
   def invalidate_providers(branch) do
     clear_local(:ivar_storage)
-    clear_local({@dispatch_cache, table(:providers, branch)})
+    invalidate_dispatch(branch)
     clear(table(:providers, branch))
   end
 
   def invalidate_receiver_class(branch, receiver) when is_atom(receiver) do
     clear_local(:ivar_storage)
-    clear_local({@dispatch_cache, table(:providers, branch)})
+    invalidate_dispatch(branch)
     delete(table(:providers, branch), receiver)
   end
 
@@ -347,7 +365,7 @@ defmodule AL.ResolutionCache do
   @doc "Invalidates a method's clauses and cached send plans that may contain them."
   @spec invalidate_oapply_clauses(AL.Branch.t(), term()) :: :ok
   def invalidate_oapply_clauses(branch, method_id) do
-    clear_local({@dispatch_cache, table(:providers, branch)})
+    invalidate_dispatch(branch)
     unless Process.get(@fresh_tables), do: AL.PlanStore.invalidate_method(branch, method_id)
     delete(table(:oapply_clauses, branch), method_id)
     :ok
@@ -356,7 +374,7 @@ defmodule AL.ResolutionCache do
   @doc "Precise, not flush-all: mirrors invalidate_oapply_clauses/2."
   @spec invalidate_native(AL.Branch.t(), term()) :: :ok
   def invalidate_native(branch, method_id) do
-    clear_local({@dispatch_cache, table(:providers, branch)})
+    invalidate_dispatch(branch)
     delete(table(:native, branch), method_id)
     :ok
   end
@@ -371,7 +389,7 @@ defmodule AL.ResolutionCache do
   @spec invalidate_ivar_specs(AL.Branch.t()) :: :ok
   def invalidate_ivar_specs(branch) do
     clear_local(:ivar_storage)
-    clear_local({@dispatch_cache, table(:providers, branch)})
+    invalidate_dispatch(branch)
     clear(table(:ivar_specs, branch))
   end
 

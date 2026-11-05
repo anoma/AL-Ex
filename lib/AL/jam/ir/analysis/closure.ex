@@ -33,9 +33,6 @@ defmodule AL.JAM.IR.Closure do
       %Goal.Freeze{goals: body} ->
         static?(body)
 
-      %Goal.SourceScope{goals: body} ->
-        static?(body)
-
       goal ->
         not match?(%Goal.Compound{}, goal) and Goal.compound?(goal)
     end
