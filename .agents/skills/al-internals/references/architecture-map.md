@@ -71,7 +71,7 @@ Follow one mutation from syntax to replay before changing it:
 1. `AL.Goal.*` defines the runtime shape.
 2. `AL.Syntax` compiles AL source to that goal and `AL.Syntax.Printer` prints it
    back.
-3. `AL.JAM.Compiler` compiles it to a `{:mutation, …}` instruction and
+3. `AL.JAM.Compiler` compiles it to a named instruction such as `{:set_slot, …}` and
    `AL.JAM.Mutation` validates durable values and performs the write.
 4. `AL.Command` records the operation and transaction identity.
 5. `AL.Object` updates or closes the matching projected fact.

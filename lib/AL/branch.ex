@@ -83,6 +83,7 @@ defmodule AL.Branch do
       AL.Object.create_tables(branch)
       AL.SourceStore.create_tables(branch)
       AL.ResolutionCache.create_tables(branch)
+      AL.PlanStore.create_tables(branch)
       if owner?, do: AL.Object.hydrate_since(0, branch)
     end
 
@@ -181,6 +182,7 @@ defmodule AL.Branch do
     AL.SourceStore.copy_prefix(from, branch, command_cutoff)
     AL.Object.create_tables(branch)
     AL.ResolutionCache.create_tables(branch)
+    AL.PlanStore.create_tables(branch)
 
     case projection do
       :replay ->
@@ -213,6 +215,7 @@ defmodule AL.Branch do
     AL.Outbox.stop(branch)
     AL.Object.drop_tables(branch)
     AL.ResolutionCache.drop_tables(branch)
+    AL.PlanStore.drop_tables(branch)
     AL.SourceStore.drop_tables(branch)
     AL.Command.drop_tables(branch)
     :ok

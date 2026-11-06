@@ -1,4 +1,5 @@
 defmodule AL.JAM.IR.Inference do
+  alias AL.JAM.Instruction
   alias AL.{JAM.IR, Var}
 
   defstruct determinism: :unknown,
@@ -8,8 +9,9 @@ defmodule AL.JAM.IR.Inference do
             modes: [],
             access: []
 
-  def operation(%IR{} = operation, exposed) do
-    modes = Enum.map(IR.Access.values(operation), &mode(&1, exposed))
+  def operation(operation, exposed) do
+    modes =
+      Enum.map(Instruction.operands(operation), &mode(&1, exposed))
 
     infer(operation, exposed)
     |> Map.put(:modes, modes)
@@ -24,10 +26,10 @@ defmodule AL.JAM.IR.Inference do
     end
   end
 
-  defp infer(%IR{kind: :direct, name: :pass}, _),
+  defp infer(:pass, _),
     do: %__MODULE__{determinism: :det, suspension: :never, effect: :pure}
 
-  defp infer(%IR{kind: :direct, name: :eq, args: [a, b]}, exposed) do
+  defp infer({:eq, a, b}, exposed) do
     case IR.Binding.infer(a, b, exposed) do
       nil ->
         %__MODULE__{effect: :binding}
@@ -37,7 +39,7 @@ defmodule AL.JAM.IR.Inference do
     end
   end
 
-  defp infer(%IR{kind: :direct, name: :unify_structural, args: [a, b]}, exposed) do
+  defp infer({:unify_structural, a, b}, exposed) do
     case IR.Binding.infer_structural(a, b, exposed) do
       nil ->
         %__MODULE__{effect: :binding}
@@ -47,11 +49,11 @@ defmodule AL.JAM.IR.Inference do
     end
   end
 
-  defp infer(%IR{kind: :compare, args: args}, exposed) do
-    if Enum.all?(args, &(mode(&1, exposed) == :ground and is_number(&1))),
+  defp infer({:compare, _, a, b}, exposed) do
+    if Enum.all?([a, b], &(mode(&1, exposed) == :ground and is_number(&1))),
       do: %__MODULE__{determinism: :semidet, suspension: :never, effect: :pure},
       else: %__MODULE__{effect: :constraint}
   end
 
-  defp infer(operation, _), do: %__MODULE__{effect: IR.effects(operation)}
+  defp infer(operation, _), do: %__MODULE__{effect: Instruction.effects(operation)}
 end

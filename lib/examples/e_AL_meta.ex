@@ -78,7 +78,7 @@ defmodule Examples.ALMeta do
         ~S"""
         vm_set_super forall_test class.
         vm_set_super forall_test behaviour.
-        forall (super forall_test S) (set_slots S #{forall_visited => true}).
+        forall {super forall_test S} {set_slots S #{forall_visited => true}}.
         """,
         branch: Examples.Support.branch()
       )

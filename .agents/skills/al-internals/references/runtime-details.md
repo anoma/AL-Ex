@@ -139,9 +139,9 @@ also starts/stops the Outbox per branch.
   `either`), `AL.JAM.Label` (labelling), `AL.JAM.Format` (`vm_format`) and
   `AL.JAM.Trace` (ports). A goal the compiler cannot express is a compile
   error, never a handoff. The machine yields to the driver only for effects
-  that need transaction state (`:mutation`), collection or `forall` results
+  that need transaction state (named runtime actions such as `:set_slot`), collection or `forall` results
   that need the driver, cuts and commits that reach driver choicepoints,
-  diagnostics, failure, and a spent step budget (`:suspend`, resumed as-is).
+  diagnostics, failure, and a spent step budget (`:budget_exhausted`, resumed as-is).
 - **`AL.JAM.IR.Binding`** — shared compile-time freshness, escape, and safe
   equality propagation rules for inference, dataflow, and region planning.
   Arithmetic is evaluated only when ground; unresolved arithmetic remains a
@@ -475,7 +475,7 @@ also starts/stops the Outbox per branch.
 
 The machine keeps its own choice list of frames plus **boundary markers**:
 
-- `{:jam_cut, ref}` — pushed below a call's alternatives when its clauses
+- `{:cut, ref}` — pushed below a call's alternatives when its clauses
   contain a cut (`:cut_scope`); the frame id carries the same ref, so `cut`
   drops the choice list to that marker. A cut in a `freeze` body opens its own
   scope, so it is local to the frozen goal.
@@ -487,7 +487,7 @@ The machine keeps its own choice list of frames plus **boundary markers**:
 
 When the machine yields, the driver installs the remaining choices as its own
 choicepoints: frames become `%Choicepoint{goals: [{:resume, frame}]}`,
-`{:jam_cut, _}` and `:implies_mark` stay as marks, and trace markers become
+`{:cut, _}` and `:implies_mark` stay as marks, and trace markers become
 `{:mark, scope}`/`{:method_mark, scope}`. A cut whose marker is already on the
 driver stack returns `{:cut, …}` and the driver drops its stack to it.
 

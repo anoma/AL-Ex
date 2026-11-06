@@ -382,9 +382,9 @@ Bench.Language.isolated(fn ->
         clauses =
           Enum.map(rows, fn {:oapply, _, seq, head, body} ->
             forwarding =
-              case AL.JAM.IR.Program.first(AL.JAM.IR.Program.lower(body)) do
-                {:operation, %AL.JAM.IR{kind: :control, name: :next}, rest} ->
-                  AL.JAM.IR.Program.first(rest) == :return
+              case AL.JAM.IR.Program.take_next_instruction(AL.JAM.IR.Normalize.lower(body)) do
+                {:operation, {:next, :jam_cursor, _, _}, rest} ->
+                  AL.JAM.IR.Program.take_next_instruction(rest) == :return
 
                 _ ->
                   false

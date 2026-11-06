@@ -42,6 +42,8 @@ defmodule ALMCPProtocolTest do
              "releaseContext",
              "nextSolution",
              "listBranches",
+             "readObject",
+             "observeCommands",
              "searchDefinitions",
              "findReferences",
              "inspectObject",
@@ -176,6 +178,75 @@ defmodule ALMCPProtocolTest do
     after
       AL.Branch.discard(branch)
     end
+  end
+
+  test "observation retains repeated writes and can recover without its cursor", %{
+    baseline: baseline
+  } do
+    branch = AL.Branch.fork(:tip, baseline)
+    on_exit(fn -> AL.Branch.discard(branch) end)
+
+    result =
+      tool_result("queryAL", %{
+        "source" =>
+          ~S"new object #{name => observation_example} Object, set_slot Object contents [].",
+        "branch" => to_string(branch.id)
+      })
+
+    refute result["isError"]
+    tool_result("releaseContext", %{"context" => result["structuredContent"]["context"]})
+    args = %{"object" => "observation_example", "branch" => to_string(branch.id)}
+    first = tool_result("readObject", args)["structuredContent"]
+    assert "object" in first["classes"]
+    sibling = AL.Branch.fork(:tip, branch)
+    on_exit(fn -> AL.Branch.discard(sibling) end)
+
+    waiting =
+      Task.async(fn ->
+        tool_result("observeCommands", %{
+          "cursors" => %{
+            to_string(branch.id) => first["cursor"],
+            to_string(sibling.id) => first["cursor"]
+          }
+        })
+      end)
+
+    result =
+      tool_result("queryAL", %{
+        "source" =>
+          "set_slot observation_example changes [[add, 0, 1]], set_slot observation_example contents [1], set_slot observation_example changes [[add, 0, 1]], set_slot observation_example contents [1, 1].",
+        "branch" => to_string(branch.id)
+      })
+
+    refute result["isError"]
+
+    {:ok, batches} =
+      AL.MCP.Term.decode(Task.await(waiting, 5_000)["structuredContent"]["batches"])
+
+    next = Enum.find(batches, &(&1.branch == to_string(branch.id)))
+    untouched = Enum.find(batches, &(&1.branch == to_string(sibling.id)))
+    assert untouched.commands == []
+
+    writes =
+      Enum.filter(next.commands, fn command ->
+        match?(
+          {:command, _, _, {:set_slot, {:observation_example, :changes, _, _}}},
+          command
+        )
+      end)
+
+    assert [{:command, a, transaction, operation}, {:command, b, transaction, operation}] = writes
+    assert a < b
+    rebuilt = tool_result("readObject", args)["structuredContent"]
+    {:ok, value} = AL.MCP.Term.decode(rebuilt["value"])
+    assert value.contents == [1, 1]
+    assert rebuilt["cursor"] == next.cursor
+
+    replay =
+      tool_result("observeCommands", %{"cursors" => %{to_string(branch.id) => first["cursor"]}})
+
+    assert AL.MCP.Term.decode(replay["structuredContent"]["batches"]) == {:ok, [next]}
+    tool_result("releaseContext", %{"context" => result["structuredContent"]["context"]})
   end
 
   test "queryAL accepts tagged bindings and retains a source tag", %{baseline: baseline} do

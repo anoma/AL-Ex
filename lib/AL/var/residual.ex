@@ -4,7 +4,7 @@ defmodule AL.Var.Residual do
   def copy(term, store, suspensions) do
     resolved = AL.Var.subst(term, store)
     {variables, goals} = residual_closure(store, suspensions, AL.Var.find_vars(resolved), [])
-    scope = Integer.to_string(AL.fresh_scope())
+    scope = Integer.to_string(AL.Scope.fresh())
     rename = Map.new(variables, &{&1, AL.Var.fresh(&1, scope)})
     {AL.Var.subst(resolved, rename), AL.Var.subst(goals, rename)}
   end
@@ -32,7 +32,7 @@ defmodule AL.Var.Residual do
     suspended =
       suspensions
       |> Map.get(variable, [])
-      |> Enum.flat_map(&AL.JAM.wake_goals/1)
+      |> Enum.flat_map(&AL.JAM.Frame.wake_goals/1)
       |> Enum.map(&as_compound/1)
 
     case AL.Var.constraint_set(store, variable) do

@@ -38,7 +38,14 @@ config :al,
   ]
 
 config :al,
-  edge_providers: [AL.Edge.File, AL.Edge.HTTP, AL.Edge.TCP, AL.Edge.Branch, AL.Edge.Output]
+  edge_providers: [
+    AL.Edge.File,
+    AL.Edge.HTTP,
+    AL.Edge.TCP,
+    AL.Edge.Branch,
+    AL.Edge.Output,
+    AL.Edge.Source
+  ]
 
 config :al, AL.MCP,
   enabled: true,

@@ -1,31 +1,27 @@
 object >> view
 | Self Builder View |
-csharp_forward Builder ForwardBuilder,
-new ForwardBuilder #{view => "aguil_raw", title => "Raw", target => Self} View.
+raw Builder RawBuilder,
+new RawBuilder #{target => Self, title => "Raw"} View.
+
+object >> view
+| Self _Builder View |
+code_view Self View.
 
 object >> view
 | Self Builder View |
 list Builder ListBuilder,
 class Self Class,
-findall Text Rows {method Class _Name Id, vm_method_source Id _Seq Text _Prov},
-new ListBuilder #{
-  title => "meta",
-  priority => 50,
-  row_spacing => 8,
-  items => Rows,
-  columns => [#{title => "Body", element => "editor", grammar => "al"}]
-} View.
-
-object >> view
-| Self Builder View |
-list Builder ListBuilder,
-class Self Class,
-lambda [X, Res] ToEntry {= Res #{text => X, target => X}},
+lambda [X, Res] ToEntry (= Res #{target => X, text => X}),
 reachable_classes [Class] [] InheritanceChain,
 map InheritanceChain ToEntry Entries,
 new ListBuilder #{
-  title => "Inheritance",
-  priority => 30,
+  columns => [#{cell => brick_text, header => "Class"}],
   items => Entries,
-  columns => [#{element => "text", title => "Class"}]
+  priority => 30,
+  title => "Inheritance"
 } View.
+
+object >> code_view
+| Self View |
+class Self Class,
+new phlow_views #{priority => 50, selector => class_view, target => Class, title => "Code"} View.

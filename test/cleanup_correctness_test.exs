@@ -84,7 +84,7 @@ defmodule AL.CleanupCorrectnessTest do
 
     body = [
       %Goal.OApply{method_id: :vm_map_put, args: [%{}, :key, :value, local]},
-      %Goal.Forall{condition: [%Goal.Pass{}], body: [%Goal.Pass{}]},
+      %Goal.Not{condition: [%Goal.Pass{}]},
       %Goal.Eq{a: output, b: local}
     ]
 

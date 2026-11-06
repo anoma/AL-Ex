@@ -1,11 +1,13 @@
 defmodule AL.JAM.IRProgramTest do
+  alias AL.JAM.Instruction
+  alias AL.JAM.IR.Normalize
   use ExUnit.Case, async: true
   alias AL.Goal
   alias AL.JAM.IR
   alias AL.JAM.IR.{Dataflow, Program, Region}
 
   defp answers(program) do
-    snapshot = program |> AL.JAM.compile() |> AL.JAM.with_store(%{})
+    snapshot = program |> AL.JAM.compile() |> AL.JAM.Frame.with_store(%{})
     collect(AL.JAM.resume(snapshot, AL.Branch.head(), 1000), [])
   end
 
@@ -27,6 +29,64 @@ defmodule AL.JAM.IRProgramTest do
   defp remaining([choice | rest]),
     do: collect(AL.JAM.resume(choice, AL.Branch.head(), 1000), rest)
 
+  test "reduce follows graph successors and visits shared nodes once" do
+    program = %Program{
+      entry: 0,
+      nodes: %{
+        0 => %Program.Choice{left: 7, right: 2, join: 5},
+        7 => %Program.Node{instruction: :left, next: 5},
+        2 => %Program.Node{instruction: :right, next: 5},
+        5 => %Program.Node{instruction: :shared, next: 0},
+        9 => %Program.Node{instruction: :unreachable, next: 9}
+      }
+    }
+
+    assert Program.reduce(program, [], fn instruction, seen -> seen ++ [instruction] end) ==
+             [:left, :shared, :right]
+  end
+
+  test "inlined body jumps to its continuation" do
+    body = Normalize.lower([])
+    continuation = Normalize.lower([:pass])
+    program = Program.inline(body, continuation, :method)
+
+    assert AL.JAM.IR.Assembler.emit(program, %{}) == [{:jump, 1, []}, :pass]
+
+    assert Program.reduce(program, [], fn instruction, seen -> [instruction | seen] end) == [
+             :pass
+           ]
+  end
+
+  test "both inlined alternatives reach the caller continuation" do
+    choice = %Goal.Or{
+      or: [%Goal.Eq{a: {:"$var", "Value"}, b: :left}],
+      then: [%Goal.Eq{a: {:"$var", "Value"}, b: :right}]
+    }
+
+    body = Normalize.lower([choice])
+    continuation = Normalize.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
+
+    assert body |> Program.inline(continuation, :method) |> answers() == [:left, :right]
+  end
+
+  test "choice code shares its continuation after both arms" do
+    left = %Goal.Eq{a: {:"$var", "Value"}, b: :left}
+    right = %Goal.Eq{a: {:"$var", "Value"}, b: :right}
+    continuation = %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}
+    goals = [%Goal.Or{or: [left], then: [right]}, continuation]
+    {code, slots} = AL.JAM.IR.Assembler.compile(goals)
+
+    assert {:try, alternative, _live} = elem(code, 0)
+    assert {:jump, join, []} = elem(code, alternative - 1)
+    assert alternative < join
+    assert %Goal.Eq{} = AL.JAM.Goals.instruction(elem(code, join), slots)
+    assert AL.JAM.Goals.instructions(code, 0, slots) == goals
+    assert AL.JAM.Goals.instructions(code, 1, slots) == [left, continuation]
+
+    frame = AL.JAM.compile(goals)
+    assert frame.code == code
+  end
+
   test "ordered alternatives share a continuation and preserve duplicate answers" do
     choice = %Goal.Or{
       or: [%Goal.Eq{a: {:"$var", "Value"}, b: :first}],
@@ -38,15 +98,15 @@ defmodule AL.JAM.IRProgramTest do
       ]
     }
 
-    program = Program.lower([choice, %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
-    assert {:choice, left, right, join} = program.blocks[program.entry].exit
-    assert join in Program.successors(program.blocks[left])
-    assert {:choice, _, _, ^join} = program.blocks[right].exit
+    program = Normalize.lower([choice, %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
+    assert %Program.Choice{left: left, right: right, join: join} = program.nodes[program.entry]
+    assert join in Program.successors(program.nodes[left])
+    assert %Program.Choice{join: ^join} = program.nodes[right]
     assert answers(program) == [:first, :first, :second]
   end
 
   test "an IR value rewrite compiles without returning to the AST" do
-    program = Program.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Input"}}])
+    program = Normalize.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Input"}}])
     program = Program.subst(program, %{{:"$var", "Input"} => :specialized})
     assert answers(program) == [:specialized]
     assert Program.variables(program) == MapSet.new([{:"$var", "Output"}])
@@ -59,7 +119,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "inlined conditional regions keep their own condition return" do
     prefix =
-      Program.lower([
+      Normalize.lower([
         %Goal.Implies{
           condition: [%Goal.Eq{a: {:"$var", "Local"}, b: :chosen}],
           then: [%Goal.Eq{a: {:"$var", "Value"}, b: {:"$var", "Local"}}],
@@ -67,11 +127,11 @@ defmodule AL.JAM.IRProgramTest do
         }
       ])
 
-    suffix = Program.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
+    suffix = Normalize.lower([%Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}])
     assert answers(Program.concat(prefix, suffix)) == [:chosen]
 
     failing =
-      Program.lower([
+      Normalize.lower([
         %Goal.Implies{
           condition: [%Goal.Fail{}],
           then: [%Goal.Fail{}],
@@ -84,40 +144,34 @@ defmodule AL.JAM.IRProgramTest do
 
   test "calls expose continuations" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Send{object: :receiver, method: :selector, args: [{:"$var", "Output"}]},
         %Goal.Atom{term: {:"$var", "Output"}}
       ])
 
-    assert {:call, %IR{kind: :send}, next} = program.blocks[program.entry].exit
-    assert Map.has_key?(program.blocks, next)
-    assert program.blocks[program.entry].failure == :backtrack
-    assert program.blocks[program.entry].suspension == :resume
+    assert %Program.Node{instruction: {:send, nil, _, _, _}, next: next} =
+             program.nodes[program.entry]
+
+    assert Map.has_key?(program.nodes, next)
   end
 
   test "scoped code is a nested IR program and effects are conservative" do
     program =
-      Program.lower([
-        %Goal.Forall{
-          condition: [%Goal.Pass{}],
-          body: [%Goal.Eq{a: {:"$var", "Output"}, b: :value}]
-        },
+      Normalize.lower([
+        %Goal.Not{condition: [%Goal.Eq{a: {:"$var", "Output"}, b: :value}]},
         %Goal.SetClass{object: :object, class: :class}
       ])
 
-    assert {:execute, operation, _} = program.blocks[program.entry].exit
-    assert %Program{} = operation.regions.condition
-    assert %Program{} = operation.regions.body
-    assert IR.effects(operation) == :scoped
-    assert operation.retained_goals == []
-    assert operation.fallback == []
-    assert Program.any?(program, &(IR.effects(&1) == :write))
-    refute Program.any?(program, &(&1.kind == :unsupported))
+    assert %Program.Node{instruction: operation} = program.nodes[program.entry]
+    assert {:negate, %Program{}} = operation
+    assert Instruction.effects(operation) == :scoped
+    assert Program.any?(program, &(Instruction.effects(&1) == :write))
+    assert Program.any?(program, &match?({:set_class, _, _}, &1))
   end
 
   test "equal branch facts reach the join without losing duplicate answers" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.Eq{a: {:"$var", "Tag"}, b: :same}],
           then: [%Goal.Eq{a: {:"$var", "Tag"}, b: :same}]
@@ -128,12 +182,12 @@ defmodule AL.JAM.IRProgramTest do
     optimized = Dataflow.specialize(program, MapSet.new([{:"$var", "Output"}]))
     assert answers(optimized) == [:same, :same]
     refute MapSet.member?(Program.variables(optimized), {:"$var", "Tag"})
-    assert {:choice, _, _, _} = optimized.blocks[optimized.entry].exit
+    assert %Program.Choice{} = optimized.nodes[optimized.entry]
   end
 
   test "conflicting branch facts retain the shared variable" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.Eq{a: {:"$var", "Tag"}, b: :first}],
           then: [%Goal.Eq{a: {:"$var", "Tag"}, b: :second}]
@@ -148,7 +202,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "condition facts do not leak into the otherwise branch" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Implies{
           condition: [%Goal.Eq{a: {:"$var", "Tag"}, b: :wrong}, %Goal.Fail{}],
           then: [%Goal.Eq{a: {:"$var", "Output"}, b: :wrong}],
@@ -164,7 +218,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "caller-visible bindings survive propagation and dead binding elimination" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.Eq{a: {:"$var", "Output"}, b: :first}],
           then: [%Goal.Eq{a: {:"$var", "Output"}, b: :second}]
@@ -179,14 +233,14 @@ defmodule AL.JAM.IRProgramTest do
 
   test "liveness excludes a later fresh definition from a region interface" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: {:"$var", "Dead"}, b: :unused},
         %Goal.Eq{a: {:"$var", "Value"}, b: :used},
         %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}}
       ])
 
-    {:jump, middle} = program.blocks[program.entry].exit
-    {:jump, final} = program.blocks[middle].exit
+    %Program.Node{next: middle} = program.nodes[program.entry]
+    %Program.Node{next: final} = program.nodes[middle]
     analysis = Dataflow.analyze(program, MapSet.new([{:"$var", "Output"}]), false)
     assert MapSet.member?(analysis.live.in[final], {:"$var", "Value"})
     refute MapSet.member?(analysis.live.in[program.entry], {:"$var", "Value"})
@@ -195,7 +249,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "effects on a failed alternative still invalidate dispatch assumptions" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.SetClass{object: :object, class: :class}, %Goal.Fail{}],
           then: [%Goal.Pass{}]
@@ -203,15 +257,15 @@ defmodule AL.JAM.IRProgramTest do
         %Goal.Eq{a: {:"$var", "Output"}, b: :value}
       ])
 
-    {:choice, _, _, join} = program.blocks[program.entry].exit
+    %Program.Choice{join: join} = program.nodes[program.entry]
     analysis = Dataflow.analyze(program, MapSet.new([{:"$var", "Output"}]))
     refute analysis.before[join].stable
-    assert Program.any?(analysis.program, &(IR.effects(&1) == :write))
+    assert Program.any?(analysis.program, &(Instruction.effects(&1) == :write))
   end
 
   test "region compilation removes fresh shape and alias intermediates" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: {:"$var", "Shape"}, b: [:tag, {:"$var", "Input"}]},
         %Goal.Eq{a: {:"$var", "Alias"}, b: {:"$var", "Shape"}},
         %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Alias"}}
@@ -233,7 +287,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "ground arithmetic is evaluated before propagating its result" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: {:"$var", "Sum"}, b: %Goal.Compound{name: :+, args: [2, 3]}},
         %Goal.Eq{a: {:"$var", "Output"}, b: [{:"$var", "Sum"}]}
       ])
@@ -246,7 +300,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "unresolved arithmetic retains its constraint and region boundary" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: {:"$var", "Sum"}, b: %Goal.Compound{name: :+, args: [{:"$var", "Input"}, 3]}},
         %Goal.Eq{a: {:"$var", "Input"}, b: 2},
         %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Sum"}}
@@ -256,11 +310,11 @@ defmodule AL.JAM.IRProgramTest do
     assert answers(optimized) == [5]
     assert MapSet.member?(Program.variables(optimized), {:"$var", "Sum"})
     analysis = Dataflow.analyze(program, MapSet.new([{:"$var", "Output"}]))
-    assert analysis.inference[program.entry][0].suspension == :unknown
+    assert analysis.inference[program.entry].suspension == :unknown
   end
 
   test "inference distinguishes fresh writes from caller-visible unification" do
-    op = IR.operation(:direct, :eq, [{:"$var", "Value"}, 4])
+    op = {:eq, {:"$var", "Value"}, 4}
     fresh = AL.JAM.IR.Inference.operation(op, MapSet.new())
     assert fresh.modes == [:fresh, :ground]
     assert fresh.determinism == :det
@@ -268,14 +322,14 @@ defmodule AL.JAM.IRProgramTest do
     caller = AL.JAM.IR.Inference.operation(op, MapSet.new([{:"$var", "Value"}]))
     assert caller.determinism == :unknown
     assert caller.binding == nil
-    test = AL.JAM.IR.Inference.operation(IR.operation(:compare, :<, [1, 2]), MapSet.new())
+    test = AL.JAM.IR.Inference.operation({:compare, :<, 1, 2}, MapSet.new())
     assert test.determinism == :semidet
     assert test.suspension == :never
   end
 
   test "region compilation preserves a caller's rejecting output and duplicate solutions" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{or: [%Goal.Pass{}], then: [%Goal.Pass{}]},
         %Goal.Eq{a: {:"$var", "Temporary"}, b: [:value]},
         %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Temporary"}}
@@ -370,7 +424,7 @@ defmodule AL.JAM.IRProgramTest do
     }
 
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.Eq{a: {:"$var", "Capture"}, b: 1}],
           then: [%Goal.Eq{a: {:"$var", "Capture"}, b: 2}]
@@ -381,7 +435,7 @@ defmodule AL.JAM.IRProgramTest do
     assert answers(program) == [1, 2]
 
     aliased =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: {:"$var", "Capture"}, b: [{:"$var", "Shared"}, {:"$var", "Shared"}]},
         %Goal.Eq{a: {:"$var", "Output"}, b: [1, 2]},
         call
@@ -391,7 +445,7 @@ defmodule AL.JAM.IRProgramTest do
 
     accepted =
       Program.subst(
-        Program.lower([
+        Normalize.lower([
           %Goal.Eq{a: {:"$var", "Capture"}, b: [{:"$var", "Shared"}, {:"$var", "Shared"}]},
           call
         ]),
@@ -408,12 +462,17 @@ defmodule AL.JAM.IRProgramTest do
     assert {{:call, _, _, {:compiled_callable, {:constant, template}, _, _}, _}} = code
     assert %AL.JAM.Callable.Template{capture_slots: [0, 1]} = template
 
-    assert AL.JAM.pending_goals(%AL.JAM.Frame{id: :test, code: code, slots: slots, store: %{}}) ==
+    assert AL.JAM.Frame.pending_goals(%AL.JAM.Frame{
+             descriptor: :test,
+             code: code,
+             slots: slots,
+             store: %{}
+           }) ==
              [goal]
 
     for value <- [1, [:different, :shape], %{name: :value}] do
       snapshot = %AL.JAM.Frame{
-        id: :test,
+        descriptor: :test,
         code: code,
         slots: slots,
         store: %{{:"$var", "Capture"} => value}
@@ -438,7 +497,7 @@ defmodule AL.JAM.IRProgramTest do
     assert {{:call, _, _, {:register, _}, _}} = code
 
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.Eq{a: {:"$var", "Body"}, b: first}],
           then: [%Goal.Eq{a: {:"$var", "Body"}, b: second}]
@@ -465,7 +524,7 @@ defmodule AL.JAM.IRProgramTest do
 
       assert {:ok, _, _} =
                AL.JAM.resume(
-                 %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+                 %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store},
                  AL.Branch.head(),
                  100
                )
@@ -478,7 +537,7 @@ defmodule AL.JAM.IRProgramTest do
 
     assert {:failed, _, _} =
              AL.JAM.resume(
-               %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store},
+               %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store},
                AL.Branch.head(),
                100
              )
@@ -498,7 +557,7 @@ defmodule AL.JAM.IRProgramTest do
       goal = %Goal.Compound{name: :=, args: [{:"$var", "Argument"}, value]}
 
       snapshot = %AL.JAM.Frame{
-        id: :test,
+        descriptor: :test,
         code: code,
         slots: slots,
         store: %{{:"$var", "Goal"} => goal}
@@ -517,7 +576,7 @@ defmodule AL.JAM.IRProgramTest do
     {code, slots} = AL.JAM.IR.Assembler.compile([selected])
 
     snapshot = %AL.JAM.Frame{
-      id: :test,
+      descriptor: :test,
       code: code,
       slots: slots,
       store: %{{:"$var", "Selector"} => :atom}
@@ -534,14 +593,14 @@ defmodule AL.JAM.IRProgramTest do
     }
 
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Eq{a: {:"$var", "Args"}, b: [{:"$var", "Output"} | {:"$var", "Tail"}]},
         %Goal.Eq{a: {:"$var", "Tail"}, b: [[1, {:"$var", "Shared"}]]},
         call,
         %Goal.Eq{a: {:"$var", "Shared"}, b: 2}
       ])
 
-    assert IR.Inference.operation(IR.lower(call), MapSet.new()).access == [
+    assert IR.Inference.operation(Normalize.instruction(call), MapSet.new()).access == [
              :deep,
              :deep,
              :reference
@@ -552,7 +611,7 @@ defmodule AL.JAM.IRProgramTest do
 
   test "callable matching completes an open argument tail" do
     call = %Goal.Call{head: [:value], body: [], args: [:value | {:"$var", "Output"}]}
-    assert answers(Program.lower([call])) == [[]]
+    assert answers(Normalize.lower([call])) == [[]]
   end
 
   test "callable argument spines follow each backtracking alternative" do
@@ -563,7 +622,7 @@ defmodule AL.JAM.IRProgramTest do
     }
 
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Or{
           or: [%Goal.Eq{a: {:"$var", "Args"}, b: [:first, {:"$var", "Output"}]}],
           then: [%Goal.Eq{a: {:"$var", "Args"}, b: [:second, {:"$var", "Output"}]}]

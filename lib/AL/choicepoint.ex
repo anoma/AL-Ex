@@ -13,8 +13,8 @@ defmodule AL.Choicepoint do
   use TypedStruct
 
   @type continuation() ::
-          {:resume, AL.JAM.Frame.t()}
-          | {:collect_next, AL.JAM.Frame.t(), non_neg_integer(), AL.JAM.State.t()}
+          AL.JAM.Frame.t()
+          | AL.JAM.Collection.Cursor.t()
   @type parked() :: {term(), tuple(), tuple()}
 
   typedstruct enforce: true do

@@ -1,8 +1,7 @@
 @window
 #{
-  super => value,
+  super => object,
   ivars => [
-    #{name => id},
     #{name => position, type => point},
     #{name => extent, type => point},
     #{name => content, type => phlow}
@@ -31,6 +30,7 @@ extends_to_x Self XReach,
 extends_to_y Self YReach,
 new point #{x => XReach, y => YReach} Reaches.
 
-window >> id
-| Self WinId |
-get Self id WinId.
+window >> to_xaml
+| Self Text |
+new brick_window #{target => Self} Brick,
+to_xaml Brick Text.

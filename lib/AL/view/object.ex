@@ -150,7 +150,7 @@ defmodule AL.Object do
   end
 
   defp fresh_wildcard(name),
-    do: AL.Var.fresh(AL.Var.var(name), Integer.to_string(AL.fresh_scope()))
+    do: AL.Var.fresh(AL.Var.var(name), Integer.to_string(AL.Scope.fresh()))
 
   defp select(table, pattern) do
     spec = AL.Mnesia.specification(pattern)

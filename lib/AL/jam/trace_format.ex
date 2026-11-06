@@ -71,9 +71,7 @@ defmodule AL.JAM.Trace.Format do
   defp value({:"$fresh", base, scope}), do: value(base) <> "@#{scope}"
   defp value(term), do: inspect(term, charlists: :as_lists, limit: :infinity)
 
-  def dispatch(path, %{frame: frame, receiver_guard: guard, argument_transfers: transfers}) do
-    guard = if guard == :any, do: "dispatch key", else: inspect(guard)
-
+  def dispatch(path, %{frame: frame, assumptions: assumptions, argument_transfers: transfers}) do
     transfers =
       transfers
       |> Enum.sort()
@@ -90,7 +88,7 @@ defmodule AL.JAM.Trace.Format do
       end)
 
     transfers = if transfers == "", do: "", else: "\n    transfer #{transfers}"
-    "dispatch #{path} -> #{frame(frame)}  guard: #{guard}" <> transfers
+    "dispatch #{path} -> #{frame(frame)}  assumptions: #{inspect(assumptions)}" <> transfers
   end
 
   def dispatch(path, other), do: "dispatch #{path}: #{inspect(other)}"

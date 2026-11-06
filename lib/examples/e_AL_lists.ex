@@ -1,8 +1,8 @@
 defmodule Examples.ALLists do
   @moduledoc """
   I provide list examples for AL: the bootstrap list protocol (hd, tl, concat,
-  reverse, sort, min_by, dedupe, map, fold, flatten, same_length, at, all_dif,
-  label_range) and mapping an anonymous method over a list.
+  reverse, sort, min_by, dedupe, map, fold, flatten, join, same_length, at,
+  all_dif, label_range) and mapping an anonymous method over a list.
   """
 
   use ExExample
@@ -152,18 +152,18 @@ defmodule Examples.ALLists do
     :ok
   end
 
-  example forall_binds_shared_open_elements() do
+  example forall_does_not_bind_shared_open_elements() do
     %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
         = L [A, B].
-        forall (member L C) (= C 7).
+        forall {member L C} {= C 7}.
         """,
         branch: Examples.Support.branch()
       )
 
-    assert Map.get(bindings, "$A") == 7
-    assert Map.get(bindings, "$B") == 7
+    assert AL.Var.var?(Map.get(bindings, "$A"))
+    assert AL.Var.var?(Map.get(bindings, "$B"))
     :ok
   end
 
@@ -171,7 +171,7 @@ defmodule Examples.ALLists do
     %AL{result: {:atomic, {bindings, _constraints, _}}} =
       run(
         ~S"""
-        forall (member [1, 2, 3] N) {= Double (* N 2), <= Double 6}.
+        forall {member [1, 2, 3] N} {= Double (* N 2), <= Double 6}.
         = Done true.
         """,
         branch: Examples.Support.branch()
@@ -262,12 +262,27 @@ defmodule Examples.ALLists do
       run(
         ~S"""
         new anonymous_method #{args => [], body => [(= Next [X . Acc])], head => [Acc, X, Next]} Prepend.
-        fold_right [a, b, c] Prepend [] Out.
+        fold_right [a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t] Prepend [] Out.
         """,
         branch: Examples.Support.branch()
       )
 
-    assert Map.get(bindings, "$Out") == [:a, :b, :c]
+    assert Map.get(bindings, "$Out") == ~w(a b c d e f g h i j k l m n o p q r s t)a
+    :ok
+  end
+
+  example join_concatenates_strings_in_order() do
+    %AL{result: {:atomic, {bindings, _constraints, _}}} =
+      run(
+        ~S"""
+        join ["<", "", "a&b", ">"] Text.
+        join [] Empty.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert Map.get(bindings, "$Text") == "<a&b>"
+    assert Map.get(bindings, "$Empty") == ""
     :ok
   end
 

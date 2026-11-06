@@ -48,8 +48,8 @@ defmodule AL.Definition.Snapshot do
   end
 
   @doc false
-  @spec capture_in_transaction(AL.Branch.t()) :: t()
-  def capture_in_transaction(branch) do
+  @spec capture_in_transaction(AL.Branch.t(), [term()]) :: t()
+  def capture_in_transaction(branch, declared_classes \\ []) do
     bindings =
       AL.Object.scan_open_method_versions(
         AL.Var.var("definition_snapshot_owner"),
@@ -58,7 +58,10 @@ defmodule AL.Definition.Snapshot do
         branch
       )
 
-    %__MODULE__{documents: documents(bindings, branch)}
+    %__MODULE__{
+      documents:
+        documents(bindings, branch, [AL.Var.var("definition_snapshot_class")], declared_classes)
+    }
   end
 
   @spec rendered(t()) :: [{term(), String.t()}]
@@ -68,15 +71,16 @@ defmodule AL.Definition.Snapshot do
     |> Enum.map(fn {owner, document} -> {owner, Document.render(document)} end)
   end
 
-  defp documents(bindings, branch, owners \\ [{:"$var", "definition_snapshot_class"}]) do
+  defp documents(bindings, branch, owners, declared_classes \\ []) do
     class_metaclasses = class_metaclass_closure(branch)
+    declared_classes = MapSet.new(declared_classes)
 
     classes =
       Enum.flat_map(owners, fn owner ->
         AL.Object.scan_class(owner, {:"$var", "definition_snapshot_metaclass"}, branch)
       end)
-      |> Enum.filter(fn {:class, _owner, _seq, meta} ->
-        MapSet.member?(class_metaclasses, meta)
+      |> Enum.filter(fn {:class, owner, _seq, meta} ->
+        MapSet.member?(class_metaclasses, meta) or MapSet.member?(declared_classes, owner)
       end)
       |> Map.new(fn {:class, owner, _seq, meta} -> {owner, meta} end)
 

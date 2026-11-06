@@ -5,6 +5,114 @@ defmodule Examples.ALJAMCompiler do
   defp evaluate(source, options \\ []),
     do: AL.run(source, %AL.Branch{id: Examples.Support.branch()}, options)
 
+  example named_goal_operands_preserve_constraints_calls_and_alternatives() do
+    source = ~S"""
+    findall [Tag, Pair, Left] Rows {
+      = Args [X, Y],
+      call [A, B] {
+        in_domain A [1, 2],
+        in_domain B [1, 2],
+        all_dif [A, B],
+        label A,
+        label B
+      } Args,
+      = Receiver #{left => X, right => Y},
+      = Selector get,
+      send Receiver Selector [left, Left],
+      = Pair (pair X Y),
+      = Tag first ; = Tag second
+    }.
+    """
+
+    expected = [
+      [:first, %AL.Goal.Compound{name: :pair, args: [1, 2]}, 1],
+      [:second, %AL.Goal.Compound{name: :pair, args: [1, 2]}, 1],
+      [:first, %AL.Goal.Compound{name: :pair, args: [2, 1]}, 2],
+      [:second, %AL.Goal.Compound{name: :pair, args: [2, 1]}, 2]
+    ]
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source, options)
+      assert bindings["$Rows"] == expected
+    end
+  end
+
+  example instruction_rewrites_preserve_scoped_bindings() do
+    source = ~S"""
+    @jam_instruction_probe #{super => value}.
+
+    jam_instruction_probe >> choose
+    | _Self Input Output |
+    dif Input forbidden,
+    = Temporary #{value => Input},
+    get Temporary value Selected,
+    {= Tag first} ; {{= Tag first} ; {= Tag second}},
+    = Output [Tag, Selected].
+
+    findall Output Rows {
+      choose #{class => jam_instruction_probe} Input Output,
+      = Input accepted
+    }.
+    findall Output Rejected {
+      choose #{class => jam_instruction_probe} Input Output,
+      = Input forbidden
+    }.
+    findall [Input, Values] Nested {
+      member [a, b] Input,
+      findall Output Values {choose #{class => jam_instruction_probe} Input Output}
+    }.
+    """
+
+    rows = fn value -> [[:first, value], [:first, value], [:second, value]] end
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source, options)
+      assert bindings["$Rows"] == rows.(:accepted)
+      assert bindings["$Rejected"] == []
+      assert bindings["$Nested"] == [[:a, rows.(:a)], [:b, rows.(:b)]]
+    end
+  end
+
+  example alternative_bindings_reach_the_same_send() do
+    source = ~S"""
+    @jam_node_probe #{super => value}.
+
+    jam_node_probe >> choose
+    | Self X Output |
+    {= X 1} ; {{= X 2} ; {= X 1}},
+    describe Self X Output.
+
+    jam_node_probe >> describe
+    | _Self 1 one |.
+
+    jam_node_probe >> describe
+    | _Self 2 two |.
+
+    findall [X, Output] Rows {
+      choose #{class => jam_node_probe} X Output
+    }.
+    findall X Selected {
+      choose #{class => jam_node_probe} X two
+    }.
+    findall [X, Output] Constrained {
+      dif X 1,
+      choose #{class => jam_node_probe} X Output
+    }.
+    findall [X, Output] Recovered {
+      {= X 9, fail} ; {= X 2},
+      describe #{class => jam_node_probe} X Output
+    }.
+    """
+
+    for options <- [[], [trace: [:domino, :vm]]] do
+      assert %AL{result: {:atomic, {bindings, _, _}}} = evaluate(source, options)
+      assert bindings["$Rows"] == [[1, :one], [2, :two], [1, :one]]
+      assert bindings["$Selected"] == [2]
+      assert bindings["$Constrained"] == [[2, :two]]
+      assert bindings["$Recovered"] == [[2, :two]]
+    end
+  end
+
   example transaction_context_survives_calls_mutations_and_collections() do
     source = ~S"""
     @jam_context_probe #{super => object, ivars => [#{name => touched}]}.
@@ -877,7 +985,7 @@ defmodule Examples.ALJAMCompiler do
     assert Enum.sort(actual["$Woken"]) == [1, 3]
   end
 
-  example forall_templates_keep_choicepoints_and_suspensions_per_solution() do
+  example forall_templates_test_each_action_and_suspension_per_solution() do
     source = ~S"""
     @jam_forall_template #{super => value}.
 
@@ -908,7 +1016,7 @@ defmodule Examples.ALJAMCompiler do
       "$_Self" => {:"$var", "_Self"},
       "$Value" => {:"$var", "Value"},
       "$Key" => {:"$var", "Key"},
-      "$Result" => [:yes, :yes, :yes, :yes],
+      "$Result" => [:yes],
       "$Map" => {:"$var", "Map"},
       "$Number" => {:"$var", "Number"},
       "$Color" => {:"$var", "Color"},
@@ -919,10 +1027,10 @@ defmodule Examples.ALJAMCompiler do
 
     %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
     assert actual == expected
-    assert actual["$Result"] == [:yes, :yes, :yes, :yes]
+    assert actual["$Result"] == [:yes]
   end
 
-  example native_forall_preserves_shared_elements_body_choices_and_empty_search() do
+  example native_forall_tests_actions_without_exporting_bindings() do
     source = ~S"""
     @jam_forall_probe #{super => value}.
 
@@ -943,38 +1051,24 @@ defmodule Examples.ALJAMCompiler do
     = Values [A, B],
     fill Self Values,
     bind_shared Self Shared,
-    ground Shared,
-    = Shared 9,
     forall {fail} {fail},
     forall {member [1, 2, 3] N} {= Double (* N 2), <= Double 6},
     forall {in_domain N [1, 2], member [1, 2] N} {in_domain N [1, 2]},
     forall {member [1, 2] N} {forall {member [N] M} {= M N}},
     not {forall {member [1, 2, 3] N} {< N 3}},
     findall yes Choices {choose Self},
-    = Result [Values, A, B, Choices].
+    = Result [Values, A, B, Shared, Choices].
 
     exercise #{class => jam_forall_probe} Result.
     """
 
-    expected = %{
-      "$Self" => {:"$var", "Self"},
-      "$_Self" => {:"$var", "_Self"},
-      "$Value" => {:"$var", "Value"},
-      "$M" => {:"$var", "M"},
-      "$Values" => {:"$var", "Values"},
-      "$N" => {:"$var", "N"},
-      "$Result" => [~c"\a\a", 7, 7, [:yes, :yes, :yes, :yes]],
-      "$Item" => {:"$var", "Item"},
-      "$A" => {:"$var", "A"},
-      "$B" => {:"$var", "B"},
-      "$Shared" => {:"$var", "Shared"},
-      "$Choices" => {:"$var", "Choices"},
-      "$Double" => {:"$var", "Double"}
-    }
-
     %AL{result: {:atomic, {actual, _, _}}} = evaluate(source)
-    assert actual == expected
-    assert actual["$Result"] == [[7, 7], 7, 7, [:yes, :yes, :yes, :yes]]
+    [values, a, b, shared, choices] = actual["$Result"]
+    assert values == [a, b]
+    assert AL.Var.var?(a)
+    assert AL.Var.var?(b)
+    assert AL.Var.var?(shared)
+    assert choices == [:yes]
   end
 
   example native_forall_runs_durable_updates_in_solution_order() do

@@ -59,6 +59,18 @@ defmodule AL.Var do
   @spec fresh(variable(), String.t()) :: variable()
   def fresh(base, scope), do: {:"$fresh", base, scope}
 
+  def standardize_apart(term) do
+    rename =
+      term
+      |> find_vars()
+      |> MapSet.delete({:"$var", "_"})
+      |> Map.new(fn variable ->
+        {variable, fresh({:"$var", "_G"}, Integer.to_string(AL.Scope.fresh()))}
+      end)
+
+    subst(term, rename)
+  end
+
   @spec deref(store(), t()) :: t()
   defdelegate deref(store, variable), to: AL.Var.Store
 
@@ -1149,7 +1161,7 @@ defmodule AL.Var do
       variables
       |> Enum.sort()
       |> Map.new(fn variable ->
-        {variable, fresh({:"$var", "_G"}, Integer.to_string(AL.fresh_scope()))}
+        {variable, fresh({:"$var", "_G"}, Integer.to_string(AL.Scope.fresh()))}
       end)
 
     rewrite = fn variable -> Map.get(renaming, variable, variable) end

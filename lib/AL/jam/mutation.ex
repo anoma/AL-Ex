@@ -2,13 +2,13 @@ defmodule AL.JAM.Mutation do
   require AL.Block
   alias AL.Goal
 
-  def execute(:source_scope_enter, [capture_id, goals], state),
+  def execute({:source_scope_enter, capture_id, goals}, state),
     do: AL.Source.enter_scope(state, capture_id, goals)
 
-  def execute(:source_scope_exit, [capture_id], state),
+  def execute({:source_scope_exit, capture_id}, state),
     do: AL.Source.exit_scope(state, capture_id)
 
-  def execute(:await, [target], state) do
+  def execute({:await, target}, state) do
     unless is_atom(target) and AL.Dispatch.instance_of?(target, :completion, state.branch) do
       raise ArgumentError, "await requires a completion object, got: #{inspect(target)}"
     end
@@ -17,19 +17,19 @@ defmodule AL.JAM.Mutation do
     track_work(state, :waits, target)
   end
 
-  def execute(:send_elixir, [pid, message], state) do
+  def execute({:send_elixir, pid, message}, state) do
     AL.Command.send_elixir(state.tx_id, pid, message, state.branch)
     track_work(state, :deliveries, {:send, pid, message})
   end
 
-  def execute(:emit_effect, [effect, provider, operation, arguments], state) do
+  def execute({:emit_effect, effect, provider, operation, arguments}, state) do
     AL.Edge.request(state.tx_id, effect, provider, operation, arguments, state.branch)
     track_work(state, :deliveries, {:effect, effect, provider, operation, arguments})
   end
 
-  def execute(:set_class, [object, _], state) when is_map(object), do: state
+  def execute({:set_class, object, _}, state) when is_map(object), do: state
 
-  def execute(:set_class, [o, c], state) do
+  def execute({:set_class, o, c}, state) do
     existing = direct_classes(o, state.branch)
 
     cond do
@@ -61,7 +61,7 @@ defmodule AL.JAM.Mutation do
     end
   end
 
-  def execute(:assert_valid_clause_self, [class, head], state) do
+  def execute({:assert_valid_clause_self, class, head}, state) do
     case head do
       [self_pattern | _] ->
         if generative_value_class?(class, state.branch) and is_atom(self_pattern) and
@@ -80,17 +80,17 @@ defmodule AL.JAM.Mutation do
     end
   end
 
-  def execute(:set_super, [object, _], state) when is_map(object), do: state
-  def execute(:set_super, [o, s], state), do: write(state, :set_super, [o, s])
+  def execute({:set_super, object, _}, state) when is_map(object), do: state
+  def execute({:set_super, o, s}, state), do: write(state, :set_super, [o, s])
 
-  def execute(:set_method, [object, _, _], state) when is_map(object), do: state
+  def execute({:set_method, object, _, _}, state) when is_map(object), do: state
 
-  def execute(:set_method, [o, n, id], state),
+  def execute({:set_method, o, n, id}, state),
     do: write(state, :set_method, [o, n, id])
 
-  def execute(:set_oapply, [object, _, _, _], state) when is_map(object), do: state
+  def execute({:set_oapply, object, _, _, _}, state) when is_map(object), do: state
 
-  def execute(:set_oapply, [o, seq_pattern, h, b], state) do
+  def execute({:set_oapply, o, seq_pattern, h, b}, state) do
     seq =
       case seq_pattern do
         :next -> AL.Object.next_oapply_seq(o, state.branch)
@@ -100,16 +100,16 @@ defmodule AL.JAM.Mutation do
     write(state, :set_oapply, [o, seq, h, store_body(b)])
   end
 
-  def execute(:set_slot, [object, _, _], state) when is_map(object), do: state
+  def execute({:set_slot, object, _, _}, state) when is_map(object), do: state
 
-  def execute(:set_slot, [o, k, v], state) do
+  def execute({:set_slot, o, k, v}, state) do
     store = AL.Dispatch.ivar_storage(o, k, state.branch)
     state = write(state, :set_slot, [o, k, v, store])
 
     after_set_slot(state, o, k, v)
   end
 
-  def execute(:slot_batch, [writes], state) do
+  def execute({:slot_batch, writes}, state) do
     {state, pending} =
       Enum.reduce(writes, {state, []}, fn {object, key, value}, {state, pending} ->
         if batchable_aos_write?(object, key, value, state.branch) and
@@ -120,7 +120,7 @@ defmodule AL.JAM.Mutation do
           {state, [{object, key, value, time} | pending]}
         else
           flush_aos_writes(pending, state.branch)
-          {execute(:set_slot, [object, key, value], state), []}
+          {execute({:set_slot, object, key, value}, state), []}
         end
       end)
 
@@ -128,29 +128,29 @@ defmodule AL.JAM.Mutation do
     state
   end
 
-  def execute(:retract_class, [object, _], state) when is_map(object), do: state
+  def execute({:retract_class, object, _}, state) when is_map(object), do: state
 
-  def execute(:retract_class, [o, c], state),
+  def execute({:retract_class, o, c}, state),
     do: write(state, :retract_class, [o, c])
 
-  def execute(:retract_super, [object, _], state) when is_map(object), do: state
+  def execute({:retract_super, object, _}, state) when is_map(object), do: state
 
-  def execute(:retract_super, [o, s], state),
+  def execute({:retract_super, o, s}, state),
     do: write(state, :retract_super, [o, s])
 
-  def execute(:retract_method, [object, _, _], state) when is_map(object), do: state
+  def execute({:retract_method, object, _, _}, state) when is_map(object), do: state
 
-  def execute(:retract_method, [o, n, id], state),
+  def execute({:retract_method, o, n, id}, state),
     do: write(state, :retract_method, [o, n, id])
 
-  def execute(:retract_oapply, [object, _], state) when is_map(object), do: state
+  def execute({:retract_oapply, object, _}, state) when is_map(object), do: state
 
-  def execute(:retract_oapply, [o, h], state),
+  def execute({:retract_oapply, o, h}, state),
     do: write(state, :retract_oapply, [o, h])
 
-  def execute(:retract_slot, [object, _], state) when is_map(object), do: state
+  def execute({:retract_slot, object, _}, state) when is_map(object), do: state
 
-  def execute(:retract_slot, [o, k], state) do
+  def execute({:retract_slot, o, k}, state) do
     store = AL.Dispatch.ivar_storage(o, k, state.branch)
     state = write(state, :retract_slot, [o, k, store])
 
@@ -200,13 +200,13 @@ defmodule AL.JAM.Mutation do
     AL.Goal.StorableError -> false
   end
 
-  def goal(:await, [target]), do: %Goal.Await{target: target}
+  def goal({:await, target}), do: %Goal.Await{target: target}
 
-  def goal(:source_scope_exit, [_capture_id]), do: %Goal.Pass{}
+  def goal({:source_scope_exit, _capture_id}), do: %Goal.Pass{}
 
-  def goal(:send_elixir, [pid, message]), do: %Goal.SendElixir{pid: pid, message: message}
+  def goal({:send_elixir, pid, message}), do: %Goal.SendElixir{pid: pid, message: message}
 
-  def goal(:emit_effect, [effect, provider, operation, arguments]),
+  def goal({:emit_effect, effect, provider, operation, arguments}),
     do: %Goal.EmitEffect{
       effect: effect,
       provider: provider,
@@ -214,34 +214,34 @@ defmodule AL.JAM.Mutation do
       arguments: arguments
     }
 
-  def goal(:set_class, [object, class]), do: %Goal.SetClass{object: object, class: class}
+  def goal({:set_class, object, class}), do: %Goal.SetClass{object: object, class: class}
 
-  def goal(:set_super, [object, super]), do: %Goal.SetSuper{object: object, super: super}
+  def goal({:set_super, object, super}), do: %Goal.SetSuper{object: object, super: super}
 
-  def goal(:set_method, [object, name, id]),
+  def goal({:set_method, object, name, id}),
     do: %Goal.SetMethod{object: object, name: name, id: id}
 
-  def goal(:set_oapply, [object, seq, head, body]),
+  def goal({:set_oapply, object, seq, head, body}),
     do: %Goal.SetOapply{object: object, seq: seq, head: head, body: body}
 
-  def goal(:set_slot, [object, key, value]),
+  def goal({:set_slot, object, key, value}),
     do: %Goal.SetSlot{object: object, key: key, value: value}
 
-  def goal(:slot_batch, [[{object, key, value} | _]]),
+  def goal({:slot_batch, [{object, key, value} | _]}),
     do: %Goal.SetSlot{object: object, key: key, value: value}
 
-  def goal(:retract_class, [object, class]), do: %Goal.RetractClass{object: object, class: class}
+  def goal({:retract_class, object, class}), do: %Goal.RetractClass{object: object, class: class}
 
-  def goal(:retract_super, [object, super]), do: %Goal.RetractSuper{object: object, super: super}
+  def goal({:retract_super, object, super}), do: %Goal.RetractSuper{object: object, super: super}
 
-  def goal(:retract_method, [object, name, id]),
+  def goal({:retract_method, object, name, id}),
     do: %Goal.RetractMethod{object: object, name: name, id: id}
 
-  def goal(:retract_oapply, [object, head]), do: %Goal.RetractOapply{object: object, head: head}
+  def goal({:retract_oapply, object, head}), do: %Goal.RetractOapply{object: object, head: head}
 
-  def goal(:retract_slot, [object, key]), do: %Goal.RetractSlot{object: object, key: key}
+  def goal({:retract_slot, object, key}), do: %Goal.RetractSlot{object: object, key: key}
 
-  def goal(:assert_valid_clause_self, [class, head]),
+  def goal({:assert_valid_clause_self, class, head}),
     do: %Goal.AssertValidClauseSelf{class: class, head: head}
 
   @tx_stamped [
@@ -320,14 +320,17 @@ defmodule AL.JAM.Mutation do
   end
 
   defp store_body(body) when AL.Block.is_block(body), do: store_body(Tuple.to_list(body))
-  defp store_body(body) when is_list(body), do: Enum.map(body, &AL.Goal.to_stored/1)
+
+  defp store_body(body) when is_list(body),
+    do: body |> Goal.goals() |> Enum.map(&Goal.to_stored/1)
+
   defp store_body(body), do: body
 
   defp generative_value_class?(class, branch),
     do: AL.Object.scan_super(class, :value, branch) != []
 
   defp direct_classes(o, branch) do
-    scope = AL.fresh_scope()
+    scope = AL.Scope.fresh()
 
     for {:class, _o, _seq, class} <-
           AL.Object.scan_class(

@@ -178,7 +178,7 @@ defmodule Examples.ALSource do
     text = AL.Source.body_source(stored)
 
     case AL.Syntax.parse("o >> m\n| |\n" <> text <> "\n.") do
-      {:ok, %{program: [_clear, %AL.Goal.Compound{args: [_, _, _, body]}]}} ->
+      {:ok, %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod, args: [_, _, _, body]}]}} ->
         Enum.map(body, &(&1 |> lowered() |> AL.Goal.to_stored()))
 
       {:error, _reason} ->
@@ -251,8 +251,7 @@ defmodule Examples.ALSource do
        {:"$var", "Arguments"}},
       {:compare, :>, {:"$var", "X"}, 1},
       {:not, [{:get_class, {:"$var", "O"}, :thing}]},
-      {:findall, {:"$var", "X"}, [{:get_class, {:"$var", "X"}, :thing}], {:"$var", "Xs"}},
-      {:forall, [{:get_class, {:"$var", "X"}, :thing}], [{:=, {:"$var", "X"}, 1}]}
+      {:findall, {:"$var", "X"}, [{:get_class, {:"$var", "X"}, :thing}], {:"$var", "Xs"}}
     ]
   end
 end

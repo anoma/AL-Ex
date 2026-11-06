@@ -21,7 +21,7 @@ defmodule Bench.ScanRegion do
 
               result =
                 AL.JAM.resume(
-                  %AL.JAM.Frame{id: id, code: code, slots: slots, store: %{}},
+                  %AL.JAM.Frame{descriptor: id, code: code, slots: slots, store: %{}},
                   plan.branch,
                   1_000_000
                 )
@@ -45,7 +45,7 @@ defmodule Bench.ScanRegion do
 
   defp collect({:failed, _, _}, choices, branch, demand), do: remaining(choices, branch, demand)
 
-  defp collect({:suspend, snapshot, alternatives, _}, choices, branch, demand),
+  defp collect({:budget_exhausted, snapshot, alternatives, _}, choices, branch, demand),
     do:
       collect(AL.JAM.resume(snapshot, branch, 1_000_000), alternatives ++ choices, branch, demand)
 

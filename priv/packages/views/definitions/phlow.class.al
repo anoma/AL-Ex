@@ -1,7 +1,7 @@
 @phlow
 #{
   super => value,
-  ivars => [#{default => 100, name => priority, type => number}, #{name => title}, #{name => view}]
+  ivars => [#{default => 100, name => priority, type => number}, #{name => title}]
 }.
 
 phlow >> to_map

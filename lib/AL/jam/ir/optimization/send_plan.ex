@@ -1,48 +1,70 @@
 defmodule AL.JAM.IR.SendPlan do
+  use TypedStruct
+
   alias AL.JAM.{Compiler, Head, Operand}
-  alias AL.JAM.IR.Plan
+  alias AL.JAM.IR.{Assumptions, Call, Plan}
 
-  defstruct [:key, :receiver_guard, :frame, :compiled]
+  typedstruct do
+    field(:key, term())
+    field(:assumptions, Assumptions.t())
+    field(:frame, term())
+    field(:compiled, term())
+  end
 
-  def resolve(targets, key, receiver, selector, operands, planning?, branch, trace?) do
+  def resolve(
+        targets,
+        key,
+        receiver,
+        selector,
+        arguments,
+        planning?,
+        branch,
+        trace?
+      ) do
     key = if planning?, do: key, else: {:unplanned, key}
+    plan = Map.get(targets, key)
 
-    case Map.get(targets, key) do
-      %__MODULE__{receiver_guard: :any} = plan ->
-        hit(plan, targets, trace?)
+    if plan && accepts?(plan.assumptions, receiver, selector, arguments) do
+      hit(plan, targets, trace?)
+    else
+      build(targets, key, receiver, selector, arguments, planning?, branch, trace?)
+    end
+  end
 
-      %__MODULE__{receiver_guard: {:exact, ^receiver}} = plan ->
-        hit(plan, targets, trace?)
+  defp accepts?([], _receiver, _selector, _arguments),
+    do: true
 
-      _ ->
-        case AL.Dispatch.target(receiver, selector, branch) do
-          {:ok, _, method} ->
-            original = Compiler.fetch_method(method, branch)
+  defp accepts?(assumptions, receiver, selector, arguments),
+    do: Assumptions.accepts?(assumptions, Call.new(receiver, selector, arguments))
 
-            compiled =
-              if planning?,
-                do: Plan.select(original, receiver, selector, operands, method, branch),
-                else: original
+  defp build(targets, key, receiver, selector, arguments, planning?, branch, trace?) do
+    case AL.Dispatch.target(receiver, selector, branch) do
+      {:ok, _, method} ->
+        original = Compiler.fetch_method(method, branch)
 
-            guard = if compiled === original, do: :any, else: {:exact, receiver}
+        {compiled, assumptions} =
+          if planning? do
+            Plan.select(original, receiver, selector, arguments, method, branch)
+          else
+            {original, []}
+          end
 
-            frame =
-              {:provider, method, AL.Dispatch.provider_cursor(receiver, selector, method, branch)}
+        frame =
+          {:provider, method, AL.Dispatch.provider_cursor(receiver, selector, method, branch)}
 
-            plan = %__MODULE__{
-              key: key,
-              receiver_guard: guard,
-              frame: frame,
-              compiled: compiled
-            }
+        plan = %__MODULE__{
+          key: key,
+          assumptions: assumptions,
+          frame: frame,
+          compiled: compiled
+        }
 
-            if trace?, do: AL.JAM.Trace.dispatch_plan(:resolved, plan)
-            {:ok, frame, plan.compiled, Map.put(targets, key, plan)}
+        if trace?, do: AL.JAM.Trace.dispatch_plan(:resolved, plan)
+        {:ok, frame, plan.compiled, Map.put(targets, key, plan)}
 
-          other ->
-            if trace?, do: AL.JAM.Trace.dispatch_plan(:fallback, %{result: other})
-            other
-        end
+      other ->
+        if trace?, do: AL.JAM.Trace.dispatch_plan(:fallback, %{result: other})
+        other
     end
   end
 

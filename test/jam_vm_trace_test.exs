@@ -73,7 +73,7 @@ defmodule AL.JAM.VMTraceTest do
 
     assert Enum.any?(
              state.trace.events,
-             &match?(%{payload: {:instruction, %{instruction: {:branch, _, _}}}}, &1)
+             &match?(%{payload: {:instruction, %{instruction: {:try, _, _}}}}, &1)
            )
 
     assert %AL{result: {:aborted, reason}} = AL.run("fail.", branch, trace: [:vm])

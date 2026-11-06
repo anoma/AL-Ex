@@ -1,5 +1,5 @@
 defmodule AL.JAM.IR.MethodSummary do
-  alias AL.JAM.IR.{Dataflow, Inference, Program, Region}
+  alias AL.JAM.IR.{Dataflow, Inference, Program}
 
   defstruct [
     :program,
@@ -15,15 +15,12 @@ defmodule AL.JAM.IR.MethodSummary do
   def infer(program, arguments, exposed) do
     observable = MapSet.union(exposed, AL.Var.find_vars(arguments))
 
-    analysis =
-      program
-      |> Region.combine_blocks()
-      |> Dataflow.analyze(observable, true, exposed)
+    analysis = Dataflow.analyze(program, observable, true, exposed)
 
     program = Dataflow.eliminate_dead_bindings(analysis)
-    facts = for {_, block} <- analysis.inference, {_, fact} <- block, do: fact
+    facts = Map.values(analysis.inference)
     linear = not Program.branching?(program)
-    failure = Enum.any?(program.blocks, fn {_, block} -> block.exit == :fail end)
+    failure = Enum.any?(program.nodes, fn {_, node} -> node == :fail end)
 
     %__MODULE__{
       program: program,

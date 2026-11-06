@@ -196,6 +196,28 @@ defmodule AL.JAM.RejectionTest do
              AL.run("committed \#{class => rejection_probe} [].", branch)
   end
 
+  test "cut after a driver effect keeps older search alternatives", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               rejection_probe >> cut_after_effect
+               | _Self Choice |
+               vm_set_class cut_boundary_effect list,
+               member [a,b] Choice,
+               cut.
+               """,
+               branch
+             )
+
+    query =
+      "findall [Outer,Inner] Answers {member [1,2] Outer, cut_after_effect \#{class => rejection_probe} Inner}."
+
+    for trace <- [[], [:vm]] do
+      assert %AL{result: {:atomic, {%{"$Answers" => [[1, :a], [2, :a]]}, _, _}}} =
+               AL.run(query, branch, trace: trace)
+    end
+  end
+
   test "method replacement refreshes rejection decisions and keeps duplicate answers", %{
     branch: branch
   } do

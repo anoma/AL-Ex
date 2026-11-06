@@ -1,289 +1,322 @@
 defmodule AL.JAM.IR.Program do
+  alias AL.JAM.Instruction
   alias AL.Var
   alias AL.JAM.IR
+  use TypedStruct
 
-  defmodule Block do
-    defstruct [:id, operations: [], exit: :return, failure: :backtrack, suspension: :resume]
+  @type id() :: non_neg_integer()
+
+  typedstruct module: Node do
+    field(:instruction, Instruction.t(), enforce: true)
+    field(:next, non_neg_integer(), enforce: true)
   end
 
-  defstruct entry: 0, blocks: %{}
-
-  def lower(%__MODULE__{} = program), do: program
-
-  def lower(goals) when is_list(goals) do
-    {entry, {blocks, _}} = lower_goals(goals, 0, {%{0 => %Block{id: 0}}, 1})
-    %__MODULE__{entry: entry, blocks: blocks}
+  typedstruct module: Choice do
+    field(:left, non_neg_integer(), enforce: true)
+    field(:right, non_neg_integer(), enforce: true)
+    field(:join, non_neg_integer(), enforce: true)
   end
 
-  def lower_clauses(clauses) do
-    Enum.map(clauses, fn {:oapply, id, seq, head, body} ->
-      {:oapply, id, seq, head, lower(body)}
-    end)
+  typedstruct module: Condition do
+    field(:condition, non_neg_integer(), enforce: true)
+    field(:then, non_neg_integer(), enforce: true)
+    field(:otherwise, non_neg_integer(), enforce: true)
+    field(:join, non_neg_integer(), enforce: true)
   end
 
-  defp lower_goals(goals, next, state) do
-    Enum.reduce(Enum.reverse(goals), {next, state}, &lower_goal/2)
+  @type graph_node() ::
+          Node.t()
+          | Choice.t()
+          | Condition.t()
+          | :return
+          | :fail
+          | :yield
+          | {:next, id()}
+          | {:jump, id(), term()}
+
+  typedstruct do
+    field(:entry, id(), default: 0)
+    field(:nodes, %{id() => graph_node()}, default: %{})
   end
 
-  defp lower_goal(goal, {next, state}) do
-    operation = IR.lower(goal)
+  def take_next_instruction(%__MODULE__{entry: entry, nodes: nodes} = program) do
+    case Map.fetch!(nodes, entry) do
+      %Node{instruction: instruction, next: next} ->
+        {:operation, instruction, %{program | entry: next}}
 
-    case operation do
-      %IR{kind: :branch, args: [left, right]} ->
-        {left, state} = lower_goals(left, next, state)
-        {right, state} = lower_goals(right, next, state)
-        insert([], {:choice, left, right, next}, state)
+      {:next, next} ->
+        take_next_instruction(%{program | entry: next})
 
-      %IR{kind: :condition, args: [condition, yes, no]} ->
-        {condition_return, state} = insert([], :yield, state)
-        {condition, state} = lower_goals(condition, condition_return, state)
-        {yes, state} = lower_goals(yes, next, state)
-        {no, state} = lower_goals(no, next, state)
-        insert([], {:condition, condition, yes, no, next}, state)
+      {:jump, _, _} = jump ->
+        {:control, jump}
 
-      %IR{kind: kind} when kind in [:send, :invoke] ->
-        insert([], {:call, operation, next}, state)
+      terminal when terminal in [:return, :fail] ->
+        terminal
 
-      %IR{kind: :scope} ->
-        operation = %{
-          operation
-          | regions: Map.new(operation.regions, fn {k, v} -> {k, lower(v)} end)
-        }
-
-        insert([], {:execute, operation, next}, state)
-
-      %IR{kind: :direct, name: :fail} ->
-        insert([], :fail, state)
-
-      %IR{kind: :unsupported} ->
-        insert([], {:execute, operation, next}, state)
-
-      _ ->
-        insert([operation], {:jump, next}, state)
+      control ->
+        {:control, control}
     end
   end
 
-  defp insert(operations, exit, {blocks, id}),
-    do: {id, {Map.put(blocks, id, %Block{id: id, operations: operations, exit: exit}), id + 1}}
-
-  def first(%__MODULE__{entry: entry, blocks: blocks} = program) do
-    block = Map.fetch!(blocks, entry)
-
-    case block do
-      %Block{operations: [operation | rest]} ->
-        next = %{program | blocks: Map.put(blocks, entry, %{block | operations: rest})}
-        {:operation, operation, next}
-
-      %Block{exit: {:jump, next}} ->
-        first(%{program | entry: next})
-
-      %Block{exit: {kind, operation, next}} when kind in [:call, :execute] ->
-        {:operation, operation, %{program | entry: next}}
-
-      %Block{exit: :return} ->
-        :return
-
-      %Block{exit: :fail} ->
-        :fail
-
-      _ ->
-        {:control, block}
-    end
-  end
-
-  def prepend(operation, program), do: concat(lower([operation]), program)
+  def prepend(instruction, program), do: concat(IR.Normalize.lower([instruction]), program)
 
   def concat(left, right) do
-    offset = Enum.max(Map.keys(left.blocks)) + 1
+    offset = Enum.max(Map.keys(left.nodes)) + 1
     right = rebase(right, offset)
 
-    blocks =
-      Map.new(left.blocks, fn {id, block} ->
-        exit = if block.exit == :return, do: {:jump, right.entry}, else: block.exit
-        {id, %{block | exit: exit}}
+    nodes =
+      Map.new(left.nodes, fn {id, node} ->
+        {id, if(node == :return, do: {:next, right.entry}, else: node)}
       end)
 
-    %{left | blocks: Map.merge(blocks, right.blocks)}
+    %{left | nodes: Map.merge(nodes, right.nodes)}
+  end
+
+  def inline(left, right, method_id) do
+    offset = Enum.max(Map.keys(left.nodes)) + 1
+    right = rebase(right, offset)
+    exit = Enum.max(Map.keys(right.nodes)) + 1
+
+    nodes =
+      Map.new(left.nodes, fn {id, node} ->
+        {id, if(node == :return, do: {:next, exit}, else: node)}
+      end)
+
+    %{
+      left
+      | nodes: nodes |> Map.merge(right.nodes) |> Map.put(exit, {:jump, right.entry, method_id})
+    }
   end
 
   defp rebase(program, offset) do
-    blocks =
-      Map.new(program.blocks, fn {id, block} ->
-        {id + offset, %{block | id: id + offset, exit: map_targets(block.exit, &(&1 + offset))}}
+    nodes =
+      Map.new(program.nodes, fn {id, node} ->
+        {id + offset, map_targets(node, &(&1 + offset))}
       end)
 
-    %{program | entry: program.entry + offset, blocks: blocks}
+    %{program | entry: program.entry + offset, nodes: nodes}
   end
 
   def before(program, join) do
-    program = put_in(program.blocks[join], %Block{id: join})
+    program = put_in(program.nodes[join], :return)
     compact(program)
   end
 
   def continuation(program, entry), do: compact(%{program | entry: entry})
-  def compact(program), do: %{program | blocks: Map.take(program.blocks, reachable(program))}
+
+  def compact(program) do
+    ids = program |> reachable() |> MapSet.to_list()
+    %{program | nodes: Map.take(program.nodes, ids)}
+  end
 
   def branching?(program) do
     Enum.any?(reachable(program), fn id ->
-      case program.blocks[id].exit do
-        {:choice, _, _, _} -> true
-        {:condition, _, _, _, _} -> true
-        _ -> false
-      end
+      match?(%Choice{}, program.nodes[id]) or match?(%Condition{}, program.nodes[id])
     end)
   end
 
-  def map_values(program, fun) do
-    blocks =
-      Map.new(program.blocks, fn {id, block} ->
-        operations = Enum.map(block.operations, &IR.map_values(&1, fun))
+  def map_instructions(program, fun) do
+    nodes =
+      Map.new(program.nodes, fn
+        {id, %Node{instruction: instruction} = node} ->
+          {id, %{node | instruction: fun.(instruction)}}
 
-        exit =
-          case block.exit do
-            {kind, operation, next} when kind in [:call, :execute] ->
-              {kind, IR.map_values(operation, fun), next}
-
-            exit ->
-              exit
-          end
-
-        {id, %{block | operations: operations, exit: exit}}
+        entry ->
+          entry
       end)
 
-    %{program | blocks: blocks}
+    %{program | nodes: nodes}
   end
 
+  def map_values(program, fun), do: map_instructions(program, &Instruction.map_values(&1, fun))
   def subst(program, bindings), do: map_values(program, &Var.subst(&1, bindings))
 
-  def variables(program) do
-    reduce(program, MapSet.new(), fn operation, vars ->
-      MapSet.union(vars, IR.variables(operation))
-    end)
+  def replace_instruction(program, id, instructions) do
+    %Node{next: next} = Map.fetch!(program.nodes, id)
+    offset = Enum.max(Map.keys(program.nodes)) + 1
+    replacement = instructions |> IR.Normalize.lower() |> rebase(offset)
+
+    nodes =
+      Map.new(replacement.nodes, fn {id, node} ->
+        {id, if(node == :return, do: {:next, next}, else: node)}
+      end)
+
+    nodes = Map.merge(program.nodes, nodes)
+    %{program | nodes: Map.put(nodes, id, {:next, replacement.entry})}
   end
 
-  def any?(program, predicate),
-    do: reduce(program, false, fn operation, found -> found or predicate.(operation) end)
+  def fuse_instructions(program, key, combine) do
+    predecessors =
+      Enum.reduce(program.nodes, %{}, fn {_, node}, counts ->
+        Enum.reduce(successors(node), counts, fn next, counts ->
+          Map.update(counts, next, 1, &(&1 + 1))
+        end)
+      end)
 
-  def reduce(program, acc, fun) do
-    Enum.reduce(reachable(program), acc, fn id, acc ->
-      block = Map.fetch!(program.blocks, id)
-      acc = Enum.reduce(block.operations, acc, fun)
+    nodes =
+      Map.new(program.nodes, fn
+        {id, %Node{instruction: instruction, next: next} = node} ->
+          case key.(instruction) do
+            {:ok, value} ->
+              {instructions, next} = matching(program.nodes, next, value, key, predecessors)
 
-      case block.exit do
-        {kind, operation, _} when kind in [:call, :execute] -> fun.(operation, acc)
-        _ -> acc
-      end
-    end)
+              if instructions == [],
+                do: {id, node},
+                else: {id, %Node{instruction: combine.([instruction | instructions]), next: next}}
+
+            :none ->
+              {id, node}
+          end
+
+        entry ->
+          entry
+      end)
+
+    compact(%{program | nodes: nodes})
   end
 
-  def reachable(program),
-    do: visit([program.entry], program.blocks, MapSet.new()) |> MapSet.to_list() |> Enum.sort()
+  defp matching(nodes, id, value, key, predecessors) do
+    case Map.fetch!(nodes, id) do
+      {:next, next} ->
+        if predecessors[id] == 1,
+          do: matching(nodes, next, value, key, predecessors),
+          else: {[], id}
 
-  defp visit([], _, seen), do: seen
+      %Node{instruction: instruction, next: next} ->
+        if predecessors[id] == 1 and key.(instruction) === {:ok, value} do
+          {rest, next} = matching(nodes, next, value, key, predecessors)
+          {[instruction | rest], next}
+        else
+          {[], id}
+        end
 
-  defp visit([id | rest], blocks, seen) do
-    if MapSet.member?(seen, id),
-      do: visit(rest, blocks, seen),
-      else: visit(successors(Map.fetch!(blocks, id)) ++ rest, blocks, MapSet.put(seen, id))
-  end
-
-  def successors(%Block{exit: exit}) do
-    case exit do
-      {:jump, next} -> [next]
-      {kind, _, next} when kind in [:call, :execute] -> [next]
-      {:choice, left, right, next} -> [left, right, next]
-      {:condition, condition, yes, no, next} -> [condition, yes, no, next]
-      _ -> []
+      _ ->
+        {[], id}
     end
   end
 
-  defp map_targets({:jump, next}, fun), do: {:jump, fun.(next)}
+  def variables(program),
+    do:
+      reduce(program, MapSet.new(), fn instruction, vars ->
+        MapSet.union(vars, Instruction.variables(instruction))
+      end)
 
-  defp map_targets({kind, op, next}, fun) when kind in [:call, :execute],
-    do: {kind, op, fun.(next)}
+  def any?(program, predicate),
+    do: reduce(program, false, fn instruction, found -> found or predicate.(instruction) end)
 
-  defp map_targets({:choice, left, right, next}, fun),
-    do: {:choice, fun.(left), fun.(right), fun.(next)}
+  def reduce(program, acc, fun) do
+    reduce_nodes(program.nodes, [program.entry], MapSet.new(), acc, fun)
+  end
 
-  defp map_targets({:condition, condition, yes, no, next}, fun),
-    do: {:condition, fun.(condition), fun.(yes), fun.(no), fun.(next)}
+  defp reduce_nodes(_nodes, [], _visited, acc, _fun), do: acc
 
-  defp map_targets(exit, _), do: exit
+  defp reduce_nodes(nodes, [id | pending], visited, acc, fun) do
+    if MapSet.member?(visited, id) do
+      reduce_nodes(nodes, pending, visited, acc, fun)
+    else
+      node = Map.fetch!(nodes, id)
+      visited = MapSet.put(visited, id)
 
-  def emit(program, slots), do: emit_from(program, program.entry, nil, slots, :code)
+      acc =
+        case node do
+          %Node{instruction: instruction} -> fun.(instruction, acc)
+          _ -> acc
+        end
+
+      reduce_nodes(nodes, successors(node) ++ pending, visited, acc, fun)
+    end
+  end
+
+  def reachable(program),
+    do: collect_reachable(program.nodes, [program.entry], MapSet.new())
+
+  defp collect_reachable(_nodes, [], visited), do: visited
+
+  defp collect_reachable(nodes, [id | pending], visited) do
+    if MapSet.member?(visited, id) do
+      collect_reachable(nodes, pending, visited)
+    else
+      node = Map.fetch!(nodes, id)
+      pending = successors(node) ++ pending
+      visited = MapSet.put(visited, id)
+
+      collect_reachable(nodes, pending, visited)
+    end
+  end
+
+  def successors(%Node{next: next}), do: [next]
+  def successors({:next, next}), do: [next]
+  def successors({:jump, next, _}), do: [next]
+  def successors(%Choice{left: left, right: right, join: join}), do: [left, right, join]
+
+  def successors(%Condition{condition: condition, then: yes, otherwise: no, join: join}),
+    do: [condition, yes, no, join]
+
+  def successors(_), do: []
+
+  defp map_targets(%Node{next: next} = node, fun), do: %{node | next: fun.(next)}
+  defp map_targets({:next, next}, fun), do: {:next, fun.(next)}
+  defp map_targets({:jump, next, id}, fun), do: {:jump, fun.(next), id}
+
+  defp map_targets(%Choice{} = node, fun),
+    do: %{node | left: fun.(node.left), right: fun.(node.right), join: fun.(node.join)}
+
+  defp map_targets(%Condition{} = node, fun),
+    do: %{
+      node
+      | condition: fun.(node.condition),
+        then: fun.(node.then),
+        otherwise: fun.(node.otherwise),
+        join: fun.(node.join)
+    }
+
+  defp map_targets(node, _), do: node
 
   def usage(program, slots, observable) do
     analysis = IR.Dataflow.analyze(program, observable, false)
-    emit_from(program, program.entry, nil, Map.put(slots, :jam_analysis, analysis), :usage)
+    program |> layout() |> IR.Usage.for_layout(slots, analysis)
   end
 
-  defp emit_from(_program, stop, stop, _slots, _mode), do: []
+  def layout(program), do: layout_from(program, program.entry)
 
-  defp emit_from(program, id, stop, slots, mode) do
-    block = Map.fetch!(program.blocks, id)
+  defp layout_from(program, id) do
+    case Map.fetch!(program.nodes, id) do
+      terminal when terminal in [:return, :yield] ->
+        []
 
-    operations =
-      block.operations
-      |> Enum.with_index()
-      |> Enum.map(fn {operation, index} -> emit_operation(operation, slots, mode, id, index) end)
+      :fail ->
+        [:fail]
 
-    tail =
-      case block.exit do
-        :return ->
-          []
+      {:next, next} ->
+        layout_from(program, next)
 
-        :yield ->
-          []
+      {:jump, next, _} ->
+        label = make_ref()
+        [{:jump, label}, {:label, label} | layout_from(program, next)]
 
-        :fail ->
-          [if(mode == :code, do: :fail, else: %IR.Usage{})]
+      %Node{instruction: instruction, next: next} ->
+        [{:instruction, id, instruction} | layout_from(program, next)]
 
-        {:jump, next} ->
-          emit_from(program, next, stop, slots, mode)
+      %Choice{left: left, right: right, join: join} ->
+        right_label = make_ref()
+        join_label = make_ref()
+        left_items = arm(program, left, join)
+        right_items = arm(program, right, join)
 
-        {kind, operation, next} when kind in [:call, :execute] ->
-          [
-            emit_operation(operation, slots, mode, id, :exit)
-            | emit_from(program, next, stop, slots, mode)
-          ]
+        [{:try, right_label} | left_items] ++
+          [{:jump, join_label}, {:label, right_label} | right_items] ++
+          [{:label, join_label} | layout_from(program, join)]
 
-        {:choice, left, right, next} ->
-          left = emit_from(program, left, next, slots, mode) |> List.to_tuple()
-          right = emit_from(program, right, next, slots, mode) |> List.to_tuple()
-          [emit_control(:branch, left, right, mode) | emit_from(program, next, stop, slots, mode)]
-
-        {:condition, condition, yes, no, next} ->
-          yes = emit_from(program, yes, next, slots, mode) |> List.to_tuple()
-
-          condition =
-            (emit_from(program, condition, nil, slots, mode) ++
-               [if(mode == :code, do: {:commit, yes}, else: merge_usage(yes))])
-            |> List.to_tuple()
-
-          no = emit_from(program, no, next, slots, mode) |> List.to_tuple()
-
-          [
-            emit_control(:condition, condition, no, mode)
-            | emit_from(program, next, stop, slots, mode)
-          ]
-      end
-
-    operations ++ tail
+      %Condition{condition: condition, then: yes, otherwise: no, join: join} ->
+        [
+          {:condition, layout_from(program, condition), arm(program, yes, join),
+           arm(program, no, join)}
+          | layout_from(program, join)
+        ]
+    end
   end
 
-  defp emit_operation(operation, slots, :code, _id, _index),
-    do: IR.Emit.operation(operation, slots)
-
-  defp emit_operation(operation, slots, :usage, id, index) do
-    inference = get_in(slots.jam_analysis.inference, [id, index])
-    operation |> IR.Usage.operation(inference) |> IR.Usage.registers(slots)
+  defp arm(program, entry, join) do
+    program |> continuation(entry) |> before(join) |> layout_from(entry)
   end
-
-  defp emit_control(kind, left, right, :code), do: {kind, left, right}
-
-  defp emit_control(_kind, left, right, :usage),
-    do: IR.Usage.merge(merge_usage(left), merge_usage(right))
-
-  defp merge_usage(code),
-    do: code |> Tuple.to_list() |> Enum.reduce(%IR.Usage{}, &IR.Usage.merge/2)
 end

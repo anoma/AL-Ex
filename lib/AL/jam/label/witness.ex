@@ -120,7 +120,7 @@ defmodule AL.JAM.Label.Witness do
   end
 
   defp exact_classes(branch) do
-    scope = AL.fresh_scope()
+    scope = AL.Scope.fresh()
 
     declared =
       AL.Object.scan_class(

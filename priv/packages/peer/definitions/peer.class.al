@@ -117,5 +117,5 @@ peer >> stop
 get Self listener Listener,
 close Listener _,
 get Self connections Connections,
-forall (member Connections Socket) (close Socket _),
+forall {member Connections Socket} {close Socket _},
 set_slot Self status stopping.
