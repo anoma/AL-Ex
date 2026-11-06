@@ -44,7 +44,7 @@ get FilterModels contents Filters,
 findall Entry Entries {
   method_source Target _Method Source Side,
   put Source side Side Candidate,
-  forall (member Filters Filter) (accepts Filter Candidate),
+  forall {member Filters Filter} {accepts Filter Candidate},
   = Entry #{source => Source, scope => #{text => Side}}
 },
 lambda [Entry, Row] Make {

@@ -9,7 +9,7 @@ method_filters >> init
 get Args target Target,
 findall Filter Available {method_filter Target Filter},
 set_slots Self #{target => Target, available => Available, subscriber => none},
-forall (member Available Filter) {
+forall {member Available Filter} {
   lambda [] Add (add_filter Self Filter),
   lambda [] Remove (remove_filter Self Filter),
   set_slots Filter #{add_action => Add, remove_action => Remove}
@@ -27,9 +27,9 @@ method_filters >> set_slot
 cut,
 get Self available Available,
 all_dif Items,
-forall (member Items Filter) (member Available Filter),
+forall {member Items Filter} {member Available Filter},
 call_next_method Self contents Items,
-forall (member Available Filter) {
+forall {member Available Filter} {
   member Items Filter -> {
     subscribe Filter Self,
     set_slot Filter can_add false

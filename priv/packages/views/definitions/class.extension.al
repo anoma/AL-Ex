@@ -25,7 +25,7 @@ class >> method_sources
 findall Source Sources {
   method_source Self _Method Source Side,
   put Source side Side Candidate,
-  forall (member Filters Filter) (accepts Filter Candidate)
+  forall {member Filters Filter} {accepts Filter Candidate}
 }.
 
 class >> definition_source

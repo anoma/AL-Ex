@@ -19,7 +19,7 @@ get_slots Self #{owner => Owner, selector => Selector, target => Method},
 method Owner Selector Method,
 get_slots Document #{header => nil, methods => Methods},
 dif Methods [],
-forall (member Methods Entry) (get_slots Entry #{owner => Owner, selector => Selector}),
+forall {member Methods Entry} {get_slots Entry #{owner => Owner, selector => Selector}},
 call_next_method Self Document.
 
 method_source_text >> delete
@@ -29,7 +29,7 @@ method Owner Selector Method,
 vm_retract_method Owner Selector Method,
 {method OtherOwner _OtherSelector Method, label OtherOwner} -> pass ; {
   findall Head Heads (clause Method Head _Body),
-  forall (member Heads Head) (vm_retract_oapply Method Head),
+  forall {member Heads Head} {vm_retract_oapply Method Head},
   vm_retract_class Method behaviour
 }.
 
@@ -66,7 +66,7 @@ get_slots Self #{owner => Owner, selector => Selector, target => Method},
 method Owner Selector Method,
 package_candidate Self Package,
 findall Build Builds {active_package package_manager _Other Build, adds_method Build Owner Selector},
-forall (member Builds Build) {
+forall {member Builds Build} {
   set_slot Build status open,
   added_methods Build Methods,
   findall Entry Retained {member Methods Entry, dif Entry [Owner, Selector]},
