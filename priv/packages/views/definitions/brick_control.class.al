@@ -24,7 +24,7 @@
     #{name => height, xaml => xaml_content_property},
     #{name => min_width, xaml => xaml_literal_property},
     #{name => min_height, xaml => xaml_literal_property},
-    #{name => margin, xaml => xaml_literal_property},
+    #{name => margin, xaml => xaml_content_property},
     #{name => horizontal_alignment, xaml => xaml_literal_property},
     #{name => vertical_alignment, xaml => xaml_literal_property},
     #{name => clip_to_bounds, xaml => xaml_literal_property},
