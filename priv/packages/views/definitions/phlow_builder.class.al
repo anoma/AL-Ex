@@ -10,5 +10,5 @@ phlow_builder >> raw
 phlow_builder >> list
 | _Self phlow_clist |.
 
-phlow_builder >> csharp_forward
-| _Self phlow_csharp_forward |.
+phlow_builder >> explicit
+| _Self phlow_xaml |.
