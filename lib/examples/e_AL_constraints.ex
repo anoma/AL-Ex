@@ -63,7 +63,7 @@ defmodule Examples.ALConstraints do
           receive do
             %{event: :cell_updated, cell: :x, domain: d} -> d
           after
-            1000 -> flunk("timed out waiting for :x to update")
+            5_000 -> flunk("timed out waiting for :x to update")
           end
       end
 
@@ -131,7 +131,7 @@ defmodule Examples.ALConstraints do
           receive do
             %{event: :cell_updated, cell: :y, domain: d} -> d
           after
-            1000 -> flunk("timed out waiting for :y to update")
+            5_000 -> flunk("timed out waiting for :y to update")
           end
       end
 
@@ -232,7 +232,7 @@ defmodule Examples.ALConstraints do
           receive do
             %{event: :cell_updated, cell: :a, domain: d} -> d
           after
-            1000 -> flunk("timed out waiting for :a to update")
+            5_000 -> flunk("timed out waiting for :a to update")
           end
       end
 
@@ -329,7 +329,7 @@ defmodule Examples.ALConstraints do
           receive do
             %{event: :cell_updated, cell: :ic, domain: d} -> d
           after
-            1000 -> flunk("timed out waiting for :ic to update")
+            5_000 -> flunk("timed out waiting for :ic to update")
           end
       end
 

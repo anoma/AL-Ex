@@ -104,6 +104,56 @@ defmodule AL.JAM.RejectionTest do
     assert bindings["$Kinds"] == [:list]
   end
 
+  test "binary prefixes retain ordered alternatives, open modes and tracing", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               rejection_probe >> prefix
+               | _Self Input Rest one |
+               vm_text_concat "λ" Rest Input.
+               rejection_probe >> prefix
+               | _Self Input Rest two |
+               vm_text_code Input 128512 Rest.
+               rejection_probe >> prefix
+               | _Self Input Rest three |
+               vm_text_concat "λ😀" Rest Input.
+               rejection_probe >> prefix
+               | _Self Input Rest one |
+               vm_text_concat "λ" Rest Input.
+               """,
+               branch
+             )
+
+    for trace <- [[], [:vm], [:goals], [:domino]] do
+      assert %AL{result: {:atomic, {bindings, _, _}}} =
+               AL.run(
+                 ~S"""
+                 findall [Rest, Kind] Answers {prefix #{class => rejection_probe} "λ😀!" Rest Kind}.
+                 findall [Input, Kind] Generated {prefix #{class => rejection_probe} Input "!" Kind}.
+                 """,
+                 branch,
+                 trace: trace
+               )
+
+      assert bindings["$Answers"] == [["😀!", :one], ["!", :three], ["😀!", :one]]
+      assert bindings["$Generated"] == [["λ!", :one], ["😀!", :two], ["λ😀!", :three], ["λ!", :one]]
+    end
+
+    assert {:atomic, [_one, _three, _duplicate]} =
+             :mnesia.transaction(fn ->
+               receiver = %{class: :rejection_probe}
+               {:ok, _, id} = AL.Dispatch.target(receiver, :prefix, branch)
+               {clauses, index} = AL.JAM.Compiler.fetch_method(id, branch)
+
+               AL.JAM.IR.Rejection.select(
+                 clauses,
+                 index.rejections,
+                 [receiver, "λ😀!", nil, nil],
+                 %{}
+               )
+             end)
+  end
+
   test "open arguments retain constraint-producing alternatives in order", %{branch: branch} do
     assert %AL{result: {:atomic, {bindings, _, _}}} =
              AL.run(
@@ -114,6 +164,54 @@ defmodule AL.JAM.RejectionTest do
              )
 
     assert bindings["$Kinds"] == [:list, :open]
+  end
+
+  test "sequence prefix tests preserve binary, list, and open inputs", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               rejection_probe >> sequence
+               | _Self Input Rest one |
+               = Input ["λ" . Rest].
+               rejection_probe >> sequence
+               | _Self Input Rest two |
+               = ["😀" . Rest] Input.
+               rejection_probe >> sequence
+               | _Self Input Rest three |
+               = ["λ", "😀" . Rest] Input.
+               """,
+               branch
+             )
+
+    for trace <- [[], [:goals], [:vm]], input <- ["λ😀!", ["λ", "😀", "!"], ["λ" | "😀!"]] do
+      assert %AL{result: {:atomic, {bindings, %{}, _}}} =
+               AL.run(
+                 ~S"""
+                 findall Kind Answers {sequence #{class => rejection_probe} Input _ Kind},
+                 findall [Text, Kind] Generated {sequence #{class => rejection_probe} Text "!" Kind}.
+                 """,
+                 branch,
+                 bindings: %{"Input" => input},
+                 trace: trace
+               )
+
+      assert bindings["$Answers"] == [:one, :three]
+      assert bindings["$Generated"] == [["λ!", :one], ["😀!", :two], ["λ😀!", :three]]
+    end
+
+    assert {:atomic, [_one, _three]} =
+             :mnesia.transaction(fn ->
+               receiver = %{class: :rejection_probe}
+               {:ok, _, id} = AL.Dispatch.target(receiver, :sequence, branch)
+               {clauses, index} = AL.JAM.Compiler.fetch_method(id, branch)
+
+               AL.JAM.IR.Rejection.select(
+                 clauses,
+                 index.rejections,
+                 [receiver, "λ😀!", nil, nil],
+                 %{}
+               )
+             end)
   end
 
   test "durable classes and unknown map classes remain runtime relations", %{branch: branch} do
@@ -132,6 +230,88 @@ defmodule AL.JAM.RejectionTest do
 
     assert bindings["$Kinds"] == [:atom, :list]
     assert bindings["$Class"] == :list
+  end
+
+  test "leading mode guards inside callables reject impossible alternatives", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               rejection_probe >> mode
+               | _Self Input Kind |
+               call [Input] {not {var Input}} [Input],
+               = Kind bound.
+               rejection_probe >> mode
+               | _Self Input Kind |
+               call [Input] {var Input} [Input],
+               = Kind open.
+               rejection_probe >> mode
+               | _Self Input Kind |
+               not {var Input},
+               = Kind bound.
+               """,
+               branch
+             )
+
+    assert {:atomic, [1]} =
+             :mnesia.transaction(fn ->
+               receiver = %{class: :rejection_probe}
+               {:ok, _, id} = AL.Dispatch.target(receiver, :mode, branch)
+               {clauses, index} = AL.JAM.Compiler.fetch_method(id, branch)
+
+               AL.JAM.IR.Rejection.select(
+                 clauses,
+                 index.rejections,
+                 [receiver, {:"$var", "Input"}, {:"$var", "Kind"}],
+                 %{}
+               )
+               |> Enum.map(& &1.sequence)
+             end)
+
+    for trace <- [[], [:goals], [:vm], [:domino]] do
+      assert %AL{result: {:atomic, {bindings, _, _}}} =
+               AL.run(
+                 ~S"""
+                 findall Kind Open {mode #{class => rejection_probe} Input Kind},
+                 findall Kind Bound {mode #{class => rejection_probe} "x" Kind}.
+                 """,
+                 branch,
+                 trace: trace
+               )
+
+      assert bindings["$Open"] == [:open]
+      assert bindings["$Bound"] == [:bound, :bound]
+    end
+  end
+
+  test "head matching may bind an argument before a nonvar guard", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               rejection_probe >> alias_mode
+               | _Self Input Input bound |
+               not {var Input}.
+               rejection_probe >> alias_mode
+               | _Self _Input _Other fallback |.
+               rejection_probe >> structured_mode
+               | _Self Input [_] bound |
+               not {var Input}.
+               rejection_probe >> structured_mode
+               | _Self _Input _Other fallback |.
+               """,
+               branch
+             )
+
+    assert %AL{result: {:atomic, {bindings, _, _}}} =
+             AL.run(
+               ~S"""
+               findall Kind Aliased {alias_mode #{class => rejection_probe} Input 1 Kind},
+               findall Kind Structured {structured_mode #{class => rejection_probe} Input Input Kind}.
+               """,
+               branch
+             )
+
+    assert bindings["$Aliased"] == [:bound, :fallback]
+    assert bindings["$Structured"] == [:bound, :fallback]
   end
 
   test "body failure remains failure when all rejection tests fail", %{branch: branch} do

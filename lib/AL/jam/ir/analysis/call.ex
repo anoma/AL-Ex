@@ -103,7 +103,6 @@ defmodule AL.JAM.IR.Call do
          else: (_ -> :unknown)
   end
 
-  defp observe_property({:cons, _, _}, :class, _slots, _store), do: {:ok, :list}
   defp observe_property({:cons, _, _}, _property, _slots, _store), do: :unknown
   defp observe_property({:tuple, _}, _property, _slots, _store), do: :unknown
   defp observe_property({:destination, _}, _property, _slots, _store), do: :unknown
@@ -130,6 +129,14 @@ defmodule AL.JAM.IR.Call do
   defp property(value, :class, store) when is_map(value) do
     with {:ok, fields} <- value_fields(value),
          do: known_class(Var.deref(store, Map.get(fields, :class, :map)))
+  end
+
+  defp property(value, :class, store) when is_list(value) do
+    value = Var.subst(value, store)
+
+    if is_list(value) and AL.Term.text_pattern?(value),
+      do: :unknown,
+      else: known_class(Dispatch.structural_class(value))
   end
 
   defp property(value, property, store) do

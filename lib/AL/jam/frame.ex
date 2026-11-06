@@ -17,8 +17,6 @@ defmodule AL.JAM.Frame do
           # Inner frame
           | {:cut_scope, [AL.JAM.State.stack_entry()], descriptor()}
           | {:implies_scope, [AL.JAM.State.stack_entry()] | nil, descriptor()}
-          # Specialised
-          | {:guarded_region, term(), term(), non_neg_integer(), non_neg_integer()}
           # Else
           | atom()
 
@@ -83,34 +81,6 @@ defmodule AL.JAM.Frame do
     do: {:provider, method, nil, head}
 
   def frame_descriptor(id, _head), do: id
-
-  def region_return(
-        code,
-        callee_slots,
-        {_, _, outputs},
-        destinations,
-        %__MODULE__{slots: caller_slots, returns: returns, store: store} = caller
-      ) do
-    transfer =
-      Enum.find_value(destinations, fn destination ->
-        variable = elem(caller_slots, destination)
-
-        if AL.Var.var?(variable) and variable != {:"$var", "_"} and
-             not Map.has_key?(store, variable) do
-          Enum.find_value(outputs, fn {source, specialized} ->
-            if elem(callee_slots, source) == variable, do: {source, destination, specialized}
-          end)
-        end
-      end)
-
-    case transfer do
-      {source, destination, specialized} ->
-        {specialized, [caller_return(caller, [{source, destination}]) | returns]}
-
-      nil ->
-        {code, keep_return(caller, returns)}
-    end
-  end
 
   def returning_entry(
         _id,

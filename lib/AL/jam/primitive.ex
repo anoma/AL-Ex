@@ -37,6 +37,10 @@ defmodule AL.JAM.Primitive do
 
   def execute(operation, arguments, store, branch, pending \\ %{})
 
+  def execute(operation, arguments, store, branch, _pending)
+      when operation in [:vm_text_concat, :vm_text_code, :vm_text_length, :vm_text_join],
+      do: AL.JAM.Text.execute(operation, arguments, store, branch)
+
   def execute(:copy_term, [term, copy, goals], store, branch, pending) do
     {copied, residual} = AL.Var.Residual.copy(term, store, pending)
     result(AL.Var.unify_structural([copy, goals], [copied, residual], store, branch))
@@ -81,6 +85,12 @@ defmodule AL.JAM.Primitive do
 
       AL.Var.var?(atom) and AL.Var.var?(string) ->
         {:suspend, [atom, string]}
+
+      AL.Var.var?(atom) and is_list(string) ->
+        case MapSet.to_list(AL.Var.find_vars(string)) do
+          [] -> :fail
+          variables -> {:suspend, [atom | variables]}
+        end
 
       true ->
         :fail
@@ -135,6 +145,10 @@ defmodule AL.JAM.Primitive do
 
   def goal(:block_goals, [block, goals]),
     do: %Goal.OApply{method_id: :block_goals, args: [block, goals]}
+
+  def goal(operation, arguments)
+      when operation in [:vm_text_concat, :vm_text_code, :vm_text_length, :vm_text_join],
+      do: %Goal.OApply{method_id: operation, args: arguments}
 
   def goal(:copy_term, [term, copy, goals]),
     do: %Goal.CopyTerm{term: term, copy: copy, goals: goals}

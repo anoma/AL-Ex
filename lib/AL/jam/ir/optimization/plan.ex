@@ -388,7 +388,7 @@ defmodule AL.JAM.IR.Plan do
     do: Call.derive(call, position, property, field_path)
 
   defp within_value_budget?(value)
-       when is_atom(value) or is_number(value) or is_binary(value),
+       when is_atom(value) or is_number(value),
        do: true
 
   defp within_value_budget?(value),
@@ -672,6 +672,11 @@ defmodule AL.JAM.IR.Plan do
   defp specialization_inputs({:map_get, _object, key, _value}),
     do: [key]
 
+  defp specialization_inputs({:primitive, name, arguments}) when name in [:atom, :functor],
+    do: arguments
+
+  defp specialization_inputs({:primitive, _, _}), do: []
+
   defp specialization_inputs(operation),
     do: if(Instruction.scoped?(operation), do: [], else: IR.Access.values(operation))
 
@@ -792,7 +797,12 @@ defmodule AL.JAM.IR.Plan do
   end
 
   defp expand_class(object, class, rest, body, state, stack) do
-    known = AL.Dispatch.structural_class(object)
+    object = Var.subst(object, %{})
+
+    known =
+      if is_list(object) and AL.Term.text_pattern?(object),
+        do: nil,
+        else: AL.Dispatch.structural_class(object)
 
     cond do
       state.stable and Var.var?(class) and class != {:"$var", "_"} and
@@ -1215,12 +1225,19 @@ defmodule AL.JAM.IR.Plan do
       Var.var?(value) ->
         bind_local(value, Var.subst(head, bindings), bindings, protected)
 
-      match?([_ | _], head) and match?([_ | _], value) ->
-        [h | t] = head
-        [v | r] = value
+      head in [[], ""] and value in [[], ""] ->
+        {:ok, bindings}
 
-        with {:ok, bindings} <- match(h, v, bindings, protected),
-             do: match(t, r, bindings, protected)
+      (is_list(head) and (is_list(value) or is_binary(value))) or
+          (is_binary(head) and is_list(value)) ->
+        with {:ok, h, t} <- AL.Term.uncons(head),
+             {:ok, v, r} <- AL.Term.uncons(value),
+             {:ok, bindings} <- match(h, v, bindings, protected) do
+          match(t, r, bindings, protected)
+        else
+          :error -> :impossible
+          other -> other
+        end
 
       is_map(head) and is_map(value) and Map.keys(head) == Map.keys(value) ->
         Enum.reduce_while(head, {:ok, bindings}, fn {key, h}, {:ok, bindings} ->

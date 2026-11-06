@@ -198,7 +198,7 @@ defmodule Examples.ALStrings do
            ]
   end
 
-  example an_unpinned_receiver_also_reads_concat_as_a_list() do
+  example an_unpinned_receiver_explores_list_and_string_constructions() do
     %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
@@ -208,7 +208,17 @@ defmodule Examples.ALStrings do
       )
 
     assert Enum.sort(Map.get(bindings, "$Splits")) ==
-             Enum.sort([[[], "ab"], ["", "ab"], ["a", "b"], ["ab", ""]])
+             Enum.sort([
+               [[], "ab"],
+               [["a"], "b"],
+               [["a", "b"], ""],
+               ["", "ab"],
+               ["a", "b"],
+               ["a", "b"],
+               ["ab", ""],
+               ["ab", ""],
+               ["ab", ""]
+             ])
   end
 
   example split_separates_a_string_at_each_separator() do

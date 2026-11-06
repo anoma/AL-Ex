@@ -248,6 +248,10 @@ defmodule AL.JAM.IR.Normalize do
   def instruction(%Goal.OApply{method_id: :map_pairs, args: [map, pairs]}),
     do: {:primitive, :map_pairs, [map, pairs]}
 
+  def instruction(%Goal.OApply{method_id: method, args: args})
+      when method in [:vm_text_concat, :vm_text_code, :vm_text_length, :vm_text_join],
+      do: {:primitive, method, args}
+
   def instruction(%Goal.OApply{method_id: :block_goals, args: [block, goals]}),
     do: {:primitive, :block_goals, [block, goals]}
 

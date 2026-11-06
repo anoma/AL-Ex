@@ -73,10 +73,12 @@ defmodule AL.JAM.PrimitiveOutputTest do
     assert Enum.any?(state.trace.events, fn
              %{
                payload:
-                 {:instruction,
-                  %{instruction: {:primitive_into, index, _, _, _}, registers: slots}}
+                 {:instruction, %{instruction: {:primitive_into, _, arguments}, registers: slots}}
              } ->
-               elem(slots, index) == nil
+               Enum.any?(arguments, fn
+                 {:destination, index} -> elem(slots, index) == nil
+                 _ -> false
+               end)
 
              _ ->
                false

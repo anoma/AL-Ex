@@ -4,6 +4,7 @@ Run from the repository root:
 
 ```sh
 mix run --no-start bench/parse_file.exs
+mix run --no-start bench/parsing.exs
 mix run --no-start bench/bnf.exs
 ```
 
@@ -11,6 +12,7 @@ mix run --no-start bench/bnf.exs
 |---|---|---|
 | Parse file with AL.Syntax | Tokenize and parse `fixtures/point.al` using the native source reader | Full parsed result remains identical |
 | Parse file with AL grammar | Execute `parse al_grammar (program Items) Source` through AL, including transaction overhead | AST matches the native reader after normalizing variable representation and method reconsult directives |
+| Binary grammar scaling | Parse short/long symbols, parse and generate Unicode string literals, and parse 1/4/16 class definitions | Exact strings and symbols; program ASTs checked against the native reader |
 | Generate complete BNF | Extract grammar rules, find reachable rules, and render the BNF for `al_grammar`'s `program` rule | Exact text matches `lib/AL/syntax.bnf` |
 
 The default parsing fixture is a 172-byte class declaration with two methods.
@@ -38,6 +40,559 @@ Compare runs on the same machine with the same fixture and sample count.
 Reductions are generally steadier than wall time. These workloads replace the
 JAM instruction microbenchmarks; existing application examples such as
 Fibonacci and Sudoku remain available separately.
+
+## Binary sequence grammars
+
+```sh
+ELIXIR_ERL_OPTIONS='+S 1:1 +t 4000000' BENCH_JSON=/tmp/parsing.json mix run --no-start bench/parsing.exs
+```
+
+Strings match ordinary head/tail patterns. For example, `[Char . Rest]`
+matches `"λhello"` with `Char = "λ"` and `Rest = "hello"`. Matching decodes one
+UTF-8 codepoint and keeps the remainder binary. Empty strings match `[]`.
+Open character patterns become binaries when their tails resolve to binaries;
+ordinary proper lists retain their representation.
+
+DCG character and literal patterns compile to ordinary unification. Character
+classifiers use binary literals. Text capture and generation use recursive
+relations with a binary empty tail; literal prefixes attach directly to open tails.
+There is no grammar scan compiler, executor, or guarded-region continuation.
+
+`bench/parsing.exs` checks parsing and generation, Unicode and escapes, whitespace,
+and increasing source sizes. `bench/consumption.exs` checks first and all answers
+for recursive sequence consumption. Both use isolated stores and verify outputs.
+
+### Initial sequence correction measurements
+
+Two runs of each version, in alternating order, used one BEAM scheduler, three
+warmups and 15 checked samples per workload. The table gives the range of the
+two run medians in milliseconds. The original version is the saved parser from
+before the binary migration, including its original optimizations.
+
+| Workload | Original character lists | Binary sequences |
+|---|---:|---:|
+| Parse 16 definitions | 58.75–62.41 | 84.58–88.23 |
+| Parse 128-character symbol | 1.14–1.20 | 0.88–1.16 |
+| Generate 128-character symbol | 1.10–1.12 | 1.04–1.10 |
+| Parse quoted Unicode, 256 characters | 3.20–3.67 | 3.08–5.45 |
+| Format 1,024 literal characters | 8.34–8.34 | 7.62–8.70 |
+
+The 16-definition parse used approximately 11.27 million reductions versus
+11.40 million originally. Its elapsed-time regression remains; fewer reductions
+do not establish that binary matching makes the whole parser faster.
+
+The removed binary scan implementation used about 7.47 million reductions for
+16 definitions and 14,545 for the long symbol, versus 11.27 million and 122,714
+with ordinary sequence matching. Removing it sacrifices those specialized
+shortcuts. No equivalent recognizer or scan executor replaces it.
+
+Partial string construction also exposed duplicate suspension subscriptions.
+A waking execution now removes its other subscriptions. Binary substitution
+assembles resolved character chains once, using binary fragments internally,
+while keeping ordinary proper lists as lists.
+
+## Printing, formatting, and string-operation comparison
+
+These measurements describe the incomplete literal-generation path. The
+completed correction and its measurements are recorded below.
+
+```sh
+ERL_FLAGS='+S 1:1 +SDcpu 1 +SDio 1' BENCH_SAMPLES=21 \
+  BENCH_JSON=/tmp/text-operations.json mix run --no-start bench/text_operations.exs
+```
+
+The same harness ran against the saved original character-list implementation
+and the current binary sequence implementation, in current/original/original/current
+order. Each run used an isolated store, one BEAM scheduler, warmup calls, and
+21 checked samples per workload. Inputs and query parsing were outside timing;
+AL workloads include transaction overhead. Printing measures text production,
+not terminal I/O. Printed terms were parsed back and checked for equivalence;
+all 17 output hashes also matched across all four runs.
+
+Ranges below are the two run medians, in milliseconds. These comparisons cover
+the binary migration and subsequent correction together, not just the final
+removal of the scan machinery.
+
+| Workload | Original character lists, ms | Current binary sequences, ms |
+|---|---:|---:|
+| format short mixed template | 0.828–0.847 | 2.250–2.423 |
+| format 3584-byte argument | 0.720–0.724 | 0.534–0.553 |
+| format six nested wrappers | 1.588–1.615 | 1.219–1.222 |
+| format 16 large arguments | 2.128–4.046 | 1.122–1.136 |
+| format 1024 literal codepoints | 7.000–7.137 | 8.726–8.911 |
+| print quoted Unicode 256 codepoints | 4.514–4.712 | 2.411–2.419 |
+| print quoted escapes 256 codepoints | 5.578–5.640 | 2.471–2.474 |
+| print list of 64 integers | 16.992–17.987 | 1,194.754–1,259.971 |
+| print list of eight maps | 25.669–29.290 | 148.750–156.820 |
+| concat two 3584-byte strings | 325.944–341.940 | 0.087–0.215 |
+| length 1536 codepoints | 4.009–4.869 | 0.094–0.298 |
+| split 16 Unicode fields | 10.190–13.960 | 4.556–5.533 |
+| join 16 fields through split | 2.662–5.901 | 1.184–1.449 |
+| map 100 integer pairs | 1.842–2.087 | 1.064–1.072 |
+| fibonacci forward 12 | 2.047–5.666 | 2.223–2.256 |
+| fibonacci backward 144 | 10.152–10.570 | 7.610–7.868 |
+| native printer eight maps | 0.067–0.072 | 0.027–0.028 |
+
+The strongest gains are in concatenation, codepoint counting, quoted-string
+output, and insertion of existing strings into format templates. Integer and
+structured-term printing have substantial regressions. Printing integers 1–64
+increases from about 2.60 million to 109.35 million reductions, a 42-fold
+increase in work, and takes roughly 70 times longer.
+
+Smaller wall-time changes need caution. The native printer source and its 3,989
+reductions are identical in both versions, yet its timings differ. Forward
+Fibonacci also has noisy timings and approximately unchanged work; backward
+Fibonacci uses 1.19 million reductions in both versions. List mapping increases
+from 79,153 to 169,736 reductions despite its lower observed elapsed time.
+Those control results do not establish general VM speedups.
+
+### Printing diagnosis
+
+Separate checked probes used 11 warm samples per version:
+
+| Workload | Original, ms | Current, ms |
+|---|---:|---:|
+| print integer 7 | 0.531 | 0.919 |
+| print integer 42 | 0.936 | 1.949 |
+| print integer 64 | 0.675 | 2.711 |
+| print integer 128 | 1.067 | 2.067 |
+| print 64 copies of integer 1 | 6.465 | 37.719 |
+| print 64 copies of atom a | 15.973 | 47.823 |
+| print integer list 1..8 | 1.408 | 10.490 |
+| print integer list 1..16 | 3.656 | 22.880 |
+| print integer list 1..32 | 9.136 | 127.380 |
+| format short all-string template | 1.670 | 1.940 |
+
+A separate `eprof` run of printing integers 1–32 identified 3,442 calls that
+suspend binary text operations. The machine checked pending goals 15,154 times,
+visiting 1,214,116 suspension entries. The original profile had no suspension
+calls for this workload. These are instrumented call counts, not timings to
+compare with the uninstrumented medians.
+
+The grammar's `char` pattern uses ordinary head/tail unification, but literal
+terminals still compile to `vm_text_concat`. During generation, a known literal
+prefix with an unknown output tail suspends. Accumulated pending goals are
+polled by the instruction loop. The original list representation could attach
+characters directly to an open tail. The digit relation also changed from an
+arithmetic constraint to ten concrete alternatives, adding search during number
+generation. These remaining paths are a documented regression; this benchmark
+pass makes no runtime changes.
+
+## Completed binary generation
+
+Literal grammar terminals now translate to ordinary head/tail unification when
+the rule is defined. Both static terminals and dynamic literal patterns can
+attach to open tails. Quoted-string generation uses the same recursive character
+relation as parsing; the separate `escaped_fragments` assembly path is removed.
+Known integers derive their digits with remainder and integer division. Open
+numbers retain the accumulating relation, constraints, and digit overrides.
+
+The existing clause rejection check also recognizes a known first character in
+an ordinary sequence-unification pattern. It remains conservative for open and
+list inputs. This replaces the filtering lost when terminal bodies stopped
+using `vm_text_concat`; it adds no instruction or grammar scanner.
+
+For printing integers 1–32, the post-correction profile records no suspension
+creation or readiness checks, versus 3,442 suspensions and 1,214,116 pending-entry
+checks before the fix. The full isolated suite finishes with 1,297 tests and the
+same two pre-existing diagnostic failures:
+`unmatched_clause_body_names_the_actual_call` and
+`native_failed_unification_preserves_constraint_diagnostics`.
+
+### Repeated comparison against the original character-list implementation
+
+The same checked harness ran in original/corrected/corrected/original order,
+using private stores, one scheduler, and 21 timed samples per workload. These
+ranges are the two run medians in milliseconds. Every output hash matches across
+all four runs. The reductions column is corrected work divided by original work;
+below 1 means fewer BEAM reductions. Neither reductions nor wall time alone is
+a complete allocation or CPU-cost measurement.
+
+| Workload | Original, ms | Corrected, ms | Reductions ratio |
+|---|---:|---:|---:|
+| format short mixed template | 0.827–0.848 | 0.871–1.200 | 0.88× |
+| format 3584-byte argument | 0.759–0.860 | 0.528–0.840 | 0.68× |
+| format six nested wrappers | 1.644–1.728 | 1.246–1.291 | 0.47× |
+| format 16 large arguments | 2.187–2.189 | 1.118–1.189 | 0.22× |
+| format 1024 literal codepoints | 7.090–7.228 | 8.281–8.992 | 0.40× |
+| print quoted Unicode 256 codepoints | 4.453–4.599 | 1.538–1.571 | 0.28× |
+| print quoted escapes 256 codepoints | 4.987–6.028 | 1.733–1.744 | 0.29× |
+| print list of 64 integers | 18.063–22.524 | 7.497–12.210 | 0.33× |
+| print list of eight maps | 41.532–42.553 | 15.208–24.308 | 0.95× |
+| concat two 3584-byte strings | 341.721–348.707 | 0.142–0.309 | 0.00× |
+| length 1536 codepoints | 4.168–10.356 | 0.210–0.331 | 0.01× |
+| split 16 Unicode fields | 7.291–14.065 | 1.542–3.102 | 0.32× |
+| join 16 fields through split | 5.494–8.913 | 3.489–4.669 | 0.36× |
+| map 100 integer pairs | 1.258–2.526 | 0.774–1.329 | 2.12× |
+| fibonacci forward 12 | 7.224–7.676 | 3.660–7.777 | 1.04× |
+| fibonacci backward 144 | 10.569–10.595 | 10.048–10.281 | 1.00× |
+| native printer eight maps | 0.068–0.068 | 0.045–0.081 | 1.00× |
+
+The severe printing regression is removed. Integer-list printing now uses about
+857,000 reductions versus 2.60 million originally and 109.35 million in the
+incomplete correction. Quoted-string printing uses about 71–72% fewer reductions.
+The mixed-map printer's work changes much less; its elapsed-time improvement
+should not be generalized into a uniform VM speedup. Native-printer timings vary
+despite identical code and work. List mapping still does about twice the original
+work, an outstanding result from the wider migration.
+
+The parser cross-check used two runs per version with 15 checked samples:
+
+| Workload | Original, ms | Corrected, ms |
+|---|---:|---:|
+| 16 definitions | 60.679–62.755 | 89.339–93.225 |
+| parse symbol128 | 2.960–2.972 | 1.788–2.286 |
+| generate symbol128 | 1.179–2.412 | 1.096–1.806 |
+| parse quoted256 | 3.104–4.684 | 2.823–3.145 |
+| format literal1024 | 7.323–8.966 | 7.429–8.092 |
+
+The 16-definition parse still regresses: approximately 11.83 million reductions
+versus 11.39 million originally, and 89–93 ms versus 61–63 ms. Literal-heavy
+formatting also has no demonstrated speedup. Those limits remain visible; the
+printing gains do not establish that the entire binary migration is faster.
+
+## Parser regression attribution after binary generation
+
+The original character-list baseline includes `AL.JAM.Scan`. Disabling only
+its runtime entry, while retaining ordinary loop optimization, changes the
+16-definition result substantially. Two runs in reversed order, with 15 checked
+samples per run, measured:
+
+| Implementation | Median ranges, ms | Mean reductions, approximately |
+|---|---:|---:|
+| Original, including scan optimization | 54.6–61.0 | 11.39 million |
+| Original, scan entry disabled | 147.9–155.3 | 48.75 million |
+| Binary correction before this follow-up | 89.0–101.5 | 11.83 million |
+
+This separates the removed optimizer's contribution from the migration as a
+whole. It does not isolate binary representation from every grammar change.
+The binary implementation is substantially cheaper than the original ordinary
+execution path, but still slower than the original optimized path.
+
+A separate allocation profile of the same input measured about 44.4 MB of heap
+allocation per original optimized parse and 96.3 MB per binary parse. These are
+allocated heap words converted to bytes, not peak live memory or total binary
+storage. Prepared frames rise from 8,019 to 26,450; with the old scan entry
+disabled the original prepares 20,219. A separate GC-traced run measured mean
+collection intervals of 11.1 ms originally and 18.4 ms after migration. GC
+explains part of the elapsed-time gap, not all of it.
+
+Function profiling records fewer substitution-walk calls after migration
+(98,363 to 74,767), while clause-head matching rises from 44,562 to 122,323.
+The main evidence points to additional ordinary calls, alternatives and bindings;
+it does not identify repeated binary materialization as the main bottleneck.
+Profiling overhead means function timings are not subdivisions of normal runtime.
+
+A temporary full-literal-prefix rejection experiment reduced parser reductions
+by only about 0.1%, with no convincing timing benefit. It was not retained.
+
+The retained runtime change extends the existing direct numeric disequality
+comparison to two binary values. Previously, character exclusions and binary
+progress checks entered general unification despite having fully known operands.
+Mixed binary/list comparisons and open variables still use relational unification.
+No instruction, primitive, scanner, or grammar rule was added.
+
+A separate changed/control/control/changed comparison, again with 15 checked
+samples per workload and fresh isolated stores, measured:
+
+| Workload | Control reductions | Binary comparison reductions | Change |
+|---|---:|---:|---:|
+| 16 definitions | 11.82 million | 11.30 million | −4.4% |
+| Parse symbol128 | 122,715 | 102,128 | −16.8% |
+| Generate symbol128 | 96,232 | 78,847 | −18.1% |
+| Parse quoted256 | 348,725 | 329,443 | −5.5% |
+| Format literal1024 | 857,877 | 810,936 | −5.5% |
+
+Full-parser median times were 87.9–91.6 ms for control and 91.1–93.1 ms with the
+change: no demonstrated whole-parser speedup. Symbol parsing measured 2.22–2.81 ms
+versus 0.816–0.845 ms, but elapsed times elsewhere were noisy. The consistent
+claim is reduced work, not a general timing improvement. All benchmark answers
+matched their expected values. The retained implementation passes 57 focused
+sequence, grammar, text, rejection, and constraint tests, including tracing,
+deferred disequality and binary/list equivalence.
+
+Raw measurements and temporary profiling/experiment scripts are in
+`/tmp/al-parser-correction/`. The checked workloads are also represented in
+`bench/parsing.exs`; `bench/parse_allocation_profile.exs` and
+`bench/parse_gc_profile.exs` provide the underlying profiling methods.
+
+
+
+## Binary scan optimization restoration
+
+The restored optimizer recognizes deterministic longest-first character
+consumption and text accumulation from loaded AL definitions. Character rules
+use binary head/tail patterns, binary disequalities and finite character domains.
+Execution consumes UTF-8 with BEAM binary matching and keeps binary remainders.
+It adds no AL primitive or JAM instruction and changes no bootstrap grammar.
+
+The generated alternatives use ordinary `get_cons`, `try`, `jump`, equality and
+return handling. `Machine` accepts a prepared compiled clause and enters it
+through `Frame.returning_entry`. There is no guarded-region descriptor, special
+resume dispatch, or separate output-transfer helper. The two restored modules
+contain 519 lines, plus the small optimizer/entry integration.
+
+Only completed, deterministic longest-first searches qualify. Their shorter
+prefix choices were already established by consuming the input. Generation,
+bound/constrained text outputs, pending suspensions, tracing, effects, duplicate
+classifier alternatives, dynamic recursive selectors and unsupported rule shapes
+retain ordinary execution. Cache dependencies include the root, recursive method
+and classifier/provider definitions. Source-edit tests cover invalidation and
+choices already established before an edit. Shortest-first and escape-processing
+relations are not replaced by eager scanning.
+
+This is a partial restoration: the original character-list optimizer also fused
+surrounding symbol-recognition provider logic and inferred rejection tests. Those
+parts have not been restored here. The timing comparison therefore still includes
+a difference in optimization coverage, not only string representation.
+
+### Verification and timings
+
+An initial optimizer-on/off/off/on comparison used 21 checked samples per
+workload, fresh stores and one scheduler. Full parsing measured 65.5–69.4 ms with
+the optimizer versus 98.4–102.7 ms without it. Two reruns of the original optimized
+character-list implementation measured 59.3–62.8 ms.
+
+The broad text suite exposed unnecessary eligibility checks for unrelated string
+methods: splitting used about 8% more reductions. Restricting candidate shapes
+removed that penalty. A final on/off/on comparison, again with 21 samples, gave:
+
+| Workload | Disabled median, ms | Restored medians, ms | Reduction change |
+|---|---:|---:|---:|
+| 16 definitions | 90.133 | 63.936–66.560 | -28.1% |
+| parse symbol128 | 0.802 | 0.293–0.935 | -87.6% |
+| generate symbol128 | 1.048 | 1.051–1.055 | -0.2% |
+| parse quoted256 | 3.077 | 3.291–3.527 | +1.5% |
+| format literal1024 | 7.871 | 0.454–1.198 | -96.5% |
+
+The final full parse uses about 8.12 million reductions versus 11.30 million
+without the optimizer. The original optimized version uses about 11.40 million,
+but remains slightly faster in elapsed time. This does not establish that the
+binary migration has met its performance target.
+
+The separate text/printing suite measured:
+
+| Workload | Disabled median, ms | Restored medians, ms | Reduction change |
+|---|---:|---:|---:|
+| format short mixed template | 0.852 | 1.171–1.229 | -12.3% |
+| format 3584-byte argument | 0.794 | 0.447–0.692 | -37.1% |
+| format six nested wrappers | 1.282 | 1.088–1.101 | -32.5% |
+| format 16 large arguments | 1.133 | 1.120–1.123 | -16.3% |
+| format 1024 literal codepoints | 8.819 | 0.438–0.449 | -96.6% |
+| print quoted Unicode 256 codepoints | 1.597 | 1.508–2.563 | +0.1% |
+| print quoted escapes 256 codepoints | 1.762 | 1.736–1.772 | +0.4% |
+| print list of 64 integers | 8.966 | 6.946–17.850 | +0.2% |
+| print list of eight maps | 12.388 | 15.961–29.600 | +1.4% |
+| concat two 3584-byte strings | 0.135 | 0.499–0.648 | +0.2% |
+| length 1536 codepoints | 0.354 | 0.307–0.547 | +0.1% |
+| split 16 Unicode fields | 2.172 | 2.135–3.227 | +0.1% |
+| join 16 fields through split | 5.666 | 4.235–5.612 | +0.3% |
+| map 100 integer pairs | 1.538 | 1.041–1.764 | +0.6% |
+| fibonacci forward 12 | 7.299 | 4.371–6.799 | +0.4% |
+| fibonacci backward 144 | 8.228 | 10.553–10.804 | +0.7% |
+| native printer eight maps | 0.038 | 0.080–0.102 | +0.0% |
+
+Every text output hash matches. Host timing is noisy even for the unchanged native
+printer, so the small-workload wall-time variations should not be interpreted as
+uniform speedups or regressions. Quoted parsing still has approximately 1.5% more
+reductions; map printing approximately 1.4% more. Unrelated splitting is back to
+about 0.1% overhead. These remaining costs are visible rather than hidden in the
+larger parser gain.
+
+Before the final eligibility narrowing, heap-allocation profiling measured
+73.84 MB per restored parse versus 96.19 MB with the optimizer disabled. Prepared
+frames fell from 26,450 to 18,235. The original optimized implementation measured
+44.4 MB and 8,019 frames. These are allocated heap bytes, not peak live memory.
+The remaining preparation includes 2,854 symbol frames and 1,730 integer frames,
+versus 837 and 418 in the original. This is concrete evidence for investigating
+the surrounding recognition logic before attributing the residual gap to binary
+matching itself.
+
+The isolated full suite ran 1,304 tests with the same two known diagnostic
+failures. After the eligibility refinement and an additional dynamic-selector
+regression case, all 35 focused scan, consumption, grammar and sequence tests
+passed. They cover Unicode boundaries, malformed suffixes, generation fallback,
+aliases, constraints, duplicates, effects, source edits, tracing and resumption
+across exhausted budgets. No shared store was reset.
+
+Raw results, the optimizer-off control, and profiling scripts are under
+`/tmp/al-scan-restoration/`. The main reproducible workload suites remain
+`bench/parsing.exs` and `bench/text_operations.exs`.
+
+
+## Early grammar rejection after binary migration
+
+The negative integer rule now matches the minus sign before establishing its
+arithmetic constraints. Clause rejection reuses the existing callable-inlining
+analysis, so leading tests inside grammar `where` blocks are visible. It also
+recognizes `not {var X}` for heads made entirely of distinct variables; heads
+that can bind or alias an argument retain normal execution. This removes
+printing-only alternatives from open-number parsing without changing number
+syntax or adding scanner rules. A mask retaining every clause returns the
+existing candidate list.
+
+The 16-definition fixture contains no numeric literals. Previously its failed
+number interpretations nevertheless performed 2,595 `require_integer/2` calls
+and 20,760 `Bounds.domain_of/2` calls. The corrected allocation profile records
+neither call. Integer frames fall from 1,730 to 640, and separate `natural`
+frames from 2,595 to zero. Symbol frames remain 2,854: repeated symbol validation
+has not been completely eliminated or replaced by the old broad scan optimizer.
+
+Sequential isolated before/after comparisons used one scheduler, 21 checked
+samples per workload and both orderings. The final parser run used 31 samples.
+The control loads the saved pre-change grammar and rejection module into its
+own VM; it does not mutate the checkout or use the shared store.
+
+| 16-definition parse | Before | After |
+|---|---:|---:|
+| BEAM reductions | 8.13 million | 5.58 million (-31%) |
+| Prepared frames | 18,235 | 14,550 (-20%) |
+| Heap bytes allocated | 73.84 MB | 49.07 MB (-34%) |
+
+The frame and allocation profiles precede the final candidate-list reuse tweak.
+Allocation is total heap allocation, not peak live memory or binary storage.
+The original optimized character-list implementation allocated about 44.4 MB.
+
+Ablations measured 5.75 million reductions with only the grammar reorder and
+7.95 million with only the rejection changes. Most of the benefit therefore
+comes from avoiding arithmetic work on impossible negative-number parses.
+
+Before medians were 65.4–65.6 ms. After medians were 53.7 and 70.1 ms, with the
+final run at 62.0 ms. Batch CPU measurements were also variable: before
+85–106 ms/parse, after 54–130 ms, and original character-list 83–103 ms. These
+VM-wide CPU samples include background work and are not a clean attribution to
+the parser. The evidence establishes less work and allocation; it does not
+establish a stable elapsed-time percentage or a consistent lead over the
+original parser.
+
+All 17 text-suite output hashes match. Integer-list printing uses about 4.4%
+fewer reductions and map-list printing 9.7% fewer. Most other workloads remain
+within 0.8%, but quoted Unicode printing is +1.6%, join-through-split +4.5%, and
+forward Fibonacci +1.3% in the final run. Earlier measurements of those same
+changed paths were -0.3%, +1.7%, and +1.3%, respectively. Small-workload timings
+vary substantially, including unchanged native printing; no uniform speedup is
+claimed for the broader suite.
+
+All 51 focused tests pass, including an explicit check that mode rejection is
+exercised, head aliasing, integer prefix order, constrained generation, digit
+overrides and tracing. The full suite before the final candidate-list reuse
+change ran 1,308 tests with the same two known diagnostic failures:
+`unmatched_clause_body_names_the_actual_call` and
+`native_failed_unification_preserves_constraint_diagnostics`.
+Raw measurements, snapshots and isolated comparison scripts are in
+`/tmp/al-grammar-rejection/`.
+
+
+## Leading-call rejection experiment
+
+A conservative prototype propagated leading argument tests through calls on a
+known receiver. It used existing loaded method IR, recorded method and
+`does_not_understand` dependencies, stopped at effects and unsupported operations,
+and retained normal tracing. Nested alternatives combined rejection conditions;
+open arguments and possible head aliasing limited which tests could propagate.
+It added no machine instruction or grammar-specific recognition rule.
+
+Two isolated control/experiment runs in each order used 21 checked samples and
+one scheduler. The five parser/text workloads retained their expected answers.
+
+| Workload | Control reductions | Prototype reductions |
+|---|---:|---:|
+| 16 definitions | 5.588–5.590 million | 5.760–5.768 million (+3.1%) |
+| Generate 128-character symbol | 78,812–78,829 | 82,069–82,203 (+4.2%) |
+
+Prepared parser frames fell only from 14,550 to 14,390. The removed frames were
+`spaced_exprs`; integer and symbol frame counts did not improve. In 545 calls,
+the new tests rejected the last candidate. Existing selection still attempts a
+matching rejected clause when no retained clause matches, preserving body
+failure versus missing-method behavior and the failure explanation. Additional
+rejection tests therefore did not remove those executions.
+
+Wall-clock medians were too variable to establish a timing improvement: control
+74–117 ms and prototype 90–94 ms for 16 definitions. The extra work and small
+frame reduction did not justify the added analysis. The prototype was removed,
+restoring all three runtime files byte-for-byte to their starting snapshots.
+The earlier grammar reorder and direct mode-rejection improvements remain.
+No full correctness claim is made for the discarded prototype. Source snapshots,
+prototype files, frame counters and comparison results are retained under
+`/tmp/al-leading-rejection/`.
+
+## Rejected-call failure experiment
+
+A prototype gave clause selection an explicit `{:rejected, matched_clause}`
+result, distinct from no matching head. The machine could backtrack immediately
+when another executable choice existed. Terminal failures still executed the
+original clause for precise failure reporting; semantic tracing and pending
+suspensions also retained normal execution. No instruction was added.
+
+An alternating control/prototype/prototype/control comparison used isolated
+stores, one scheduler, and 21 checked samples per workload. For 16 definitions,
+control runs used 5.582–5.587 million reductions and prototype runs used
+5.509–5.524 million, a reduction of about 1.2–1.4%. Wall-clock medians ranged
+from 83–115 ms for controls and 59–106 ms for the prototype, too variable to
+establish a timing improvement. The five workloads returned their expected
+answers, and all 51 existing focused tests passed.
+
+Loading the discarded leading-call analysis only in a benchmark process, on top
+of this prototype, lowered parser reductions to 5.351 million (about 4.2% below
+control). It still increased symbol-generation reductions from about 78,818 to
+82,082 (+4.1%). This combined run checked benchmark answers, not the full
+correctness of the discarded analysis.
+
+Calls through the instrumented `Frame.entry/4` fell from 14,550 to 13,652 with
+the failure change alone: 865 `digit` entries and 33 `class_marker` entries were
+removed. The combined experiment reached 13,492, removing another 160
+`spaced_exprs` entries. These counters do not count entries constructed directly
+by the tail-call path.
+
+The explicit-result prototype added 46 machine lines and needed a separate
+check of whether backtracking would discard the failure, retaining ordinary
+execution otherwise. The small work reduction did not deliver the intended
+architectural simplification. Both edited runtime files were restored
+byte-for-byte; the leading-call analysis was never restored to the checkout.
+The earlier successful grammar and rejection fixes remain. Snapshots,
+prototype sources, checked measurements and frame counters are under
+`/tmp/al-rejected-call/`.
+
+## Grammar pattern classification clauses
+
+The experiment split `grammar >> pattern_kind` into separate clauses for open
+variables, atoms, and bound non-atoms. The atom clause retained priority for
+`known_text` and `unknown_text`. The bound non-atom clause retained the existing
+class and compound tests. These cannot all be made disjoint by clause shape alone:
+`class Pattern string` can bind an unknown class in a classed map, and the
+generic call interpretation overlaps special compounds. No cuts were added.
+
+The change concerns grammar rule construction. `pattern_goal` calls
+`pattern_kind` while `rule_goals` constructs a rule's executable body; warmed
+parsing runs the already constructed bodies.
+
+Before/after/after/before runs used fresh isolated stores, one scheduler, and
+21 checked samples per workload. All output hashes matched across versions,
+including constructed goal terms after normalizing variable names.
+
+| Workload | Before reductions | After reductions | Change |
+|---|---:|---:|---:|
+| Classify 96 mixed patterns | 150,450 | 154,512 | +2.7% |
+| Construct goals for 96 mixed patterns | 265,137 | 280,224 | +5.7% |
+| Parse 16 definitions | 5.556 million | 5.570 million | +0.24% |
+
+Elapsed medians for classification were 0.772–1.013 ms before and
+0.813–1.495 ms after; goal construction was 2.410–4.446 ms before and
+5.335–6.935 ms after. Parser medians were 71.692–78.520 ms before and
+99.928–119.044 ms after, with broad individual-sample variation. This is a
+clause-structure refactor with a measured increase in rule-construction work,
+not a parser speedup.
+
+The 19 focused tests passed, including new checks for complete answer sets,
+open patterns, open class slots, incompatible requested kinds, argument aliases,
+and tracing. The full suite ran 1,310 tests with the same two known diagnostic
+failures: `unmatched_clause_body_names_the_actual_call` and
+`native_failed_unification_preserves_constraint_diagnostics`. Raw measurements,
+the comparison script and the original bootstrap are in `/tmp/al-pattern-kind/`.
+
+The clause split was reverted after the measured increase in construction work.
+The original conditional chain is restored; the behavior tests and benchmark
+findings are retained.
 
 ## Atom growth
 
@@ -128,40 +683,6 @@ store reads in `AL.Var`, and occurs/groundness list traversal. They do not count
 all map operations across the runtime, successful retained bindings, or heap
 allocations. Timings of this instrumented run are not meaningful.
 
-On the point fixture after consumption-region compilation, before direct output forwarding:
-
-| Counter per parse | Count |
-|---|---:|
-| Variable dereference requests | 8,030 |
-| Requests using one / two store lookups | 7,966 / 64 |
-| Maximum observed dereference depth | 2 |
-| Instrumented direct store reads in `AL.Var` | 11,115 |
-| Attempted binding writes | 1,302 |
-| Binding writes to variables minted as clause-frame locals | 894 |
-| Fresh clause-frame locals | 1,278 |
-| Largest store observed before a binding write | 620 entries |
-| Substitution term visits, separate substitution profile | 3,072 |
-| Occurs/groundness list-cell visits | 17,633 |
-
-Of those list-cell visits, 8,008 occur at consumption-region equality exits,
-1,545 at symbol-region exits, 6,431 at ordinary JAM equalities, and 1,649
-elsewhere. The loops execute with registers but still bind output variables
-through general unification. `send_local` and `returning_entry` already support
-some direct outputs; at the time of this profile, region entry used a plain return continuation.
-This suggests extending output forwarding and preserving proven freshness and
-groundness across call boundaries before replacing the variable store.
-
-Local allocation origin does not prove non-escape: those 894 writes are
-candidates for analysis, not 894 safely removable writes. Consumption admission
-only proves a prefix and stopping element, so it does not prove the untouched
-suffix ground or free of the output variable. Occurs checks must remain unless
-stronger compiler/runtime facts justify elision.
-
-A separate five-parse `eprof` run attributed approximately 18.7% of exclusive
-instrumented time to `AL.Var`, including 1.9% to `scan_list`. Helper map/enum
-work and GC are not attributed to that module. These percentages are diagnostic,
-not uninstrumented wall-time fractions or evidence of a twofold speedup.
-
 ## Parser region profile
 
 ```sh
@@ -218,248 +739,21 @@ and their stored source bodies. Runtime samples are observations, not compiler
 proofs. It automatically identifies clauses whose entire body is `next`.
 Instrumentation timings are not performance measurements.
 
-### Point fixture findings
-
-The 172-byte fixture executes 1,413 sends: 1,289 have literal selectors in JAM;
-124 use register selectors. Of the observed receivers, 1,320 are
-`#{class => al_grammar}`, 89 are lists, and four are the class atom
-`al_grammar`. Only 112 send instructions have a literal receiver operand.
-These facts distinguish already-fixed selectors from receiver information that
-would have to be propagated or guarded across a larger region.
-
-Source-attributed resumed alternatives total 460:
-
-| Family | Resumed | Interpretation |
-|---|---:|---|
-| `blanks` stop / `zero_or_more` stop | 125 / 105 | Relational prefix/termination choices; preserve unless invocation and continuation facts rule them out |
-| `map_syntax`, `block_syntax`, `string_syntax` expression fallback | 25 / 25 / 24 | Bodies contain only `next`; provider forwarding can become control-flow edges, while preserving the grammar alternatives reached |
-| `integer` alternative | 55 | Positive/negative recognition or generation; input-mode and character tests can specialize selection |
-| `symbol` alternatives | 57 | Numeric/atom/variable interpretation with inherited recognition and rejection tests; mixed semantic search and implementation traversal |
-| Other grammar alternatives | 44 | Delimiters, collection structure, optional forms, and expression forms; not established as removable |
-
-The 74 forwarding resumes are not 74 proven removable logical choices. Their
-extra provider frames are the removable layer. Conversely, a stop alternative
-is not necessarily viable: earlier profiling found 34 `blanks` resumes failing
-immediately on equality. Those require invocation-level alias facts before
-pruning, not a blanket commitment to greedy consumption.
-
-### One concrete recursive path
-
-The first `point` token follows 40 sends, from `declaration -> symbol` until
-the subsequent `declaration -> gap` send. It first attempts integer recognition,
-then scans the token and checks `variable_name` for `point`, `poin`, `poi`, `po`,
-and `p`. All share lowercase `p`. It scans again through the other inherited
-symbol alternative, checks `unless(variable_name(point))`, and checks
-`unless(integer_name(point))`. These checks invoke `within`, `match_pattern`,
-`sequence`, and argument-list `concat` along the way.
-
-The relevant source is `priv/programs/bootstrap.al`: repetition at lines
-1201–1208, symbol recognition at 1369–1381, number classification at 1461–1483,
-and variable classification at 1487–1495. `within` is at 1193–1195 and
-`match_pattern` at 1155–1177. The trace JSON supplies the expanded clause bodies
-created by those source rules.
-
-### Residual region design
-
-The proposed first target is the connected symbol-recognition region for a
-guarded finite ground character-list input and a fresh unconstrained output.
-Guard receiver/provider definitions and retain the generic relation for other
-modes, constrained outputs, or invalidated assumptions.
-
-1. Classify the first character once. For `p`, reject the numeric and variable
-   interpretation paths using facts derived from their AL definitions.
-2. Traverse the symbol characters with input-tail and output-span registers.
-   Keep the required character exclusions. Strict one-element consumption of
-   an acyclic ground list proves progress, replacing repeated progress checks.
-3. Preserve stop/resume states for shorter prefixes in the original order.
-   Retain all distinct valid outputs and duplicate answers required by source.
-4. Materialize and bind an atom at an answer boundary. On continuation failure,
-   resume at the next prefix without redispatching the grammar wrappers.
-
-This targets one guarded region entry in place of that 40-send invocation,
-not one instruction and not a measured speedup. Atom conversion, required
-matching, and backtracking remain. Sharing recognition across provider branches
-requires proofs of purity, freshness, answer order, and preserved failures;
-moving arithmetic or binding operations past a guard is not automatically safe.
-All facts must come from AL IR and primitive contracts, not grammar names in JAM.
-
-The current planner has concrete blockers: `Plan.match/4` rejects an expansion
-when any head action remains unknown; `Plan.boundary/4` marks the rest of a path
-unstable after any retained operation; and recursive method identities are
-normally excluded by the expansion stack. It needs residual structural head
-operations, explicit value/mode facts across safe operations, and recursive
-region entry/exit edges. Replacing structural matching with ordinary `=` would
-be incorrect because `=` can evaluate arithmetic.
-
-No whole-parser target of a few hundred sends is established by this trace.
-The testable first target is the 40-send invocation, with equivalent ordered
-answers under backtracking and a reduction count that falls along with sends.
-
-## Compiled symbol regions
+## Binary text
 
 ```sh
-ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_SAMPLES=31 mix run --no-start bench/symbol_region.exs
-ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_SAMPLES=31 BENCH_COMPARE_REGIONS=true mix run --no-start bench/parse_file.exs
+ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_SAMPLES=11 BENCH_JSON=/tmp/binary-text.json mix run --no-start bench/binary_text.exs
 ```
 
-`IR.Scan.compile(receiver, selector, branch)` derives a narrow prefix-scan
-region from loaded IR. The benchmark supplies only the entry receiver and
-selector. The pass checks recursive argument relationships, one-cell
-consumption, character exclusions, stop-clause order, conversions, and inherited
-classification/rejection paths. No grammar selector names occur in the pass.
-`Plan.compile_ir/2` returns an `Implementation` with residual IR in `code`, before
-register allocation or instruction selection. Unsupported source shapes retain
-ordinary dispatch.
+Measures concatenation, codepoint length, splitting, formatting, nested formatting,
+symbol parsing and parsing the point fixture. Inputs and expected answers are
+prepared outside timing. Each sample checks its result. To compare revisions,
+run this same script in each checkout with an isolated store; startup and query
+parsing are excluded from the measurements.
 
-The inferred classify/scan/ordered-answer/bind blocks now lower to ordinary JAM
-execution. Generic `move`, `get_cons`, `jump`, and `try` instructions provide raw
-value-register assignment, list-cell decomposition with a failure edge,
-backedges with parallel register transfers, and ordered alternatives preserving
-the live registers and store. Existing numeric tests, conversions, unification,
-and returns execute the remaining operations. `IR.Code.assemble/1` resolves
-block labels. Code is shared across invocations; input lists, output variables,
-and scratch registers live in invocation slots.
-
-Entry checks require finite ground Unicode character lists, distinct fresh
-outputs, no pending suspensions, and untraced execution. Unsupported cases use
-the original relation. The loop and answer conversion count instructions and
-survive budget suspension. Each consumed prefix saves an answer continuation;
-backtracking returns `point`, `poin`, `poi`, `po`, `p`, with the corresponding
-unconsumed input tails. It does not commit to the longest answer.
-
-The source guard includes the root dispatch target, provider ordering and
-clauses, helper definitions, and relevant classifier class facts. A caller may
-change source after an answer and then fail: saved answer continuations check
-guards after invalidation and execute the captured original post-scan calls
-when assumptions no longer hold. They preserve changed tail bindings and
-ordered duplicate answers. Guard validation is cached within the transaction
-using a small plan token; normal resolution-cache invalidation clears it.
-
-The symbol benchmark checks 53 inputs against region-disabled execution for
-both first and ordered all-answer results. Its former hand-written scan model
-has been removed; its direct execution helper now runs emitted JAM. For timing,
-both paths execute the same AL query, conversions, output handling and
-transaction bookkeeping. The baseline temporarily replaces only region entry
-with fallback in the isolated benchmark process and restores the module
-immediately afterward. No production optimization switch or legacy executor is
-added. Module-redefinition warnings in comparison runs are expected.
-
-One 31-sample run with one BEAM scheduler measured:
-
-| Query | Regions disabled: reductions / median ms | Regions enabled: reductions / median ms |
-|---|---:|---:|
-| Symbol, first answer | 78,706 / 1.781 | 35,033 / 0.947 |
-| Symbol, all five answers | 116,245 / 2.095 | 38,114 / 0.947 |
-| Parse the 172-byte point file | 1,174,967 / 18.208 | 817,703 / 11.982 |
-
-The whole parse uses about 30% fewer reductions in this comparison. These
-sequential timing samples do not establish a wall-clock improvement: an earlier
-pre-integration run was already 11.46 ms. Timings remain sensitive to host load. These integrated measurements include plan
-lookup and source validation, unlike the earlier benchmark-only model's
-756/1,933 reduction execution-cost estimates.
-
-Three repeatable instrumented parses recorded 936 sends (previously 1,413),
-1,305 ordinary prepared entries (previously 2,006), 16 region entries, and 47
-saved region alternatives. Head matches fell from 2,798 to 2,114, prepared
-ordinary register slots from 10,554 to 6,746, and fresh ordinary locals from
-2,412 to 1,452. The ordinary counters exclude region slots/alternatives, which
-are reported separately; this is not evidence that all search has vanished.
-The first point-token region contains no internal wrapper sends under valid
-guards. This is a specialized source-shape family, not a general optimizer for
-arbitrary recursive regions.
-
-## Recursive consumption regions
-
-```sh
-ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_JSON=/tmp/consumption.json mix run --no-start bench/parse_region_comparison.exs
-```
-
-This compares symbol regions alone (`before`) with symbol plus consumption
-regions (`after`). The default eight alternating batches give 160 measured parses per variant.
-Both variants are compiled once, with warmup, module loading, collection, and
-answer checks outside timing. `BENCH_ROUNDS` and `BENCH_BATCH` control sample counts.
-The isolated benchmark replaces the consumption entry clause in memory and
-restores the original module afterward. It checks identical complete results.
-
-The compiler recognizes ordered consume/recurse/stop clauses and an optional
-one-element entry wrapper from their IR. A pure consumer must have distinct
-integer literal cases; duplicate cases and effects reject the region. Current
-instruction selection supports literal sets spanning at most 65 integers,
-using existing numeric tests. Entry proves the consumed prefix and its stopping
-element; it does not traverse the untouched suffix. Open or constrained modes
-that lack these proofs retain ordinary execution. Source dependencies guard
-cached plans. Saved stop answers preserve longest-first backtracking.
-
-On the point fixture, sends fell from 936 to 687, ordinary prepared entries
-from 1,305 to 972, and head matches from 2,114 to 1,108. There are 115 region
-entries and 183 saved region alternatives, including the existing symbol
-regions. These explicit alternatives still represent necessary prefix answers.
-
-An alternating run measured 821,830 versus 717,942 mean reductions (12.6% fewer).
-Median times were 14.187 versus 14.979 ms, with substantial batch variation:
-this does not establish a wall-clock speedup. The reduction and send-count
-improvements should not be presented as an elapsed-time improvement.
-
-## Direct region outputs
-
-```sh
-ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_JSON=/tmp/outputs.json mix run --no-start bench/parse_region_comparison.exs outputs
-```
-
-This alternates identical regions with generic output binding (`before`) and
-compiler-proven direct output returns (`after`). Both variants keep all region
-optimizations enabled. Only benchmark-process code is replaced; the original
-module is restored afterward.
-
-Region emission now supplies precompiled return variants that write the rest
-value into a region register. A `send_local` destination with a still-fresh
-runtime variable can select that variant and the existing register-transfer
-return frame. Other outputs retain ordinary unification. Saved alternatives
-retain the return frame, so each answer transfers into the appropriate caller
-snapshot. Symbol regions specialize both their normal and invalidated-source
-suffix exits. This does not eliminate initial local-variable allocation.
-
-Three identical point-fixture binding profiles recorded 1,197 attempted writes
-(previously 1,302) and 11,399 occurs/groundness list-cell visits (previously
-17,633). Consumption-region visits dropped from 8,008 to 2,258; symbol-region
-visits from 1,545 to 1,061. Ordinary equality visits remained 6,431.
-
-Thirty alternating samples per variant measured 716,437 versus 690,201 mean
-reductions (3.7% fewer). Median time was 14.078 versus 16.216 ms: this run does
-not demonstrate a wall-clock improvement, despite eliminating the targeted work.
-
-### Investigating the output-return timing regression
-
-```sh
-ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_ROUNDS=100 BENCH_BATCH=1 BENCH_JSON=/tmp/output-pairs.json mix run --no-start bench/parse_region_comparison.exs outputs-interleaved
-```
-
-This loads one benchmark-only module with a process-local switch and alternates
-individual parses in AB/BA order. Both paths pay for the switch. There is no
-per-pair module loading or compilation, and both paths are warmed first.
-Results report paired round changes as well as marginal medians. For batches
-larger than one, each pair compares the two within-round median times.
-
-Two independent 100-pair runs found median paired changes of -0.734 ms (-4.5%)
-and -0.272 ms (-2.0%), with direct outputs faster in 64 and 56 pairs respectively.
-The earlier 15% marginal-median regression was not stable under these controls.
-The first run illustrates why pairing matters: its separate overall medians
-were 18.242 and 18.726 ms, even though the median within-pair change favored
-direct outputs. The repeat's separate medians were 19.600 and 18.869 ms.
-
-Mean VM CPU time favored different variants between runs (20.0/20.7 ms, then
-20.55/19.87 ms); it includes other VM processes and has millisecond resolution.
-Observed end-of-parse heap sizes and minor-GC counters did not increase with
-direct outputs. End heap size is not allocated words, and the minor-GC counter
-can reset on major GC, so these are diagnostic indicators only.
-
-Set `BENCH_FUNCTION_PROFILE=/tmp/output-functions` with this mode to collect
-separate 20-parse `eprof` reports after timing. Selection/transfer functions had
-small exclusive costs in that profile, with 79 extra map-enumeration protocol
-calls per parse. Shared helper costs cannot be completely attributed from this
-flat profile. Binding writes and occurs-check traversal still fall as reported
-above. Evidence supports a modest benefit, not a large speedup or a proven
-15% CPU regression. No runtime changes were made during this investigation.
+Text grammars now consume UTF-8 binaries. The character-list symbol scanner and
+its comparison harness have been removed. The generic list recurrence optimizer remains available for ordinary list relations. Earlier parser profiles below describe the workloads at the
+revisions where they were collected.
 
 ## Lookup, invalidation, and GC investigation
 
@@ -629,40 +923,6 @@ The unmodified runtime's 60-sample `parse_file.exs` run measured 8.646 ms
 median and 574,592 mean reductions, with complete AST equivalence to
 `AL.Syntax`. Use the paired results above to attribute the improvement.
 
-## Temporary register initialization
-
-The compiler now omits fresh logical-variable initialization when a local's
-first use is an eligible register write. Earlier reads, nested control-flow
-uses, tracing, and `forall` remain conservative. Local equality materializes a
-variable on demand for wildcard or unresolved-arithmetic cases. Scan-region
-scratch registers start empty; relational conversion and suffix outputs still
-receive variables.
-
-The binding probe observed 2,065 → 1,833 fresh-variable creations per point
-parse, a reduction of 232 (11.2%). Of these, 208 were scan scratch initializers
-and 24 were clause locals (1,278 → 1,254). Binding writes stayed at 1,197.
-This removes setup allocations; it does not yet eliminate binding-map updates.
-
-```sh
-ELIXIR_ERL_OPTIONS='+S 1:1' mix run --no-start bench/parse_local_comparison.exs
-```
-
-The benchmark compiles both initializer lists into diagnostic metadata and
-alternates which list each invocation uses, including callable and scan-region
-entry. Both modes execute the same optimized instructions and use unchanged
-heap settings. Its control restores eliminated variable initializers, not the
-old scan initializer's intermediate list construction. It restores loaded
-modules afterward and verifies complete parse answers.
-
-A 100-pair run measured 8.6245 ms with initializers versus 8.6230 ms with them
-elided, with 50/100 wins and a median paired change of +0.10%. Mean reductions
-were 577,780 versus 576,062. There is no demonstrated wall-time improvement.
-The remaining binding profile attributes 248 writes to primitives and 566 to
-head matching, making direct primitive outputs a more promising follow-up than
-further initializer-only changes.
-The full isolated suite passed 925 tests, including earlier variable reads,
-wildcard assignment, aliasing, alternatives, and unresolved arithmetic.
-
 ## Direct primitive outputs
 
 String/code, atom/string, and map/pair conversions can now write a result
@@ -735,82 +995,6 @@ The allocation evidence favors inspecting tuple reconstruction during head
 matching, register setup, and VM frame/continuation execution. Fresh-variable
 objects themselves account for only 1.3%; fewer variable creations alone were
 never a large enough allocation-volume target for a twofold speedup.
-
-## Remaining send-chain investigation
-
-Rerun `parse_boundary_profile.exs` to include `symbol_runs` and
-`scan_admission` in its JSON. The point fixture still performs 687 sends;
-three warm samples agree exactly and preserve the complete parse answer.
-`symbol_runs` partitions contiguous trace runs beginning with a `symbol` send
-from outside its scan/classification helper family and ending at the next send
-from outside that family. Runs are checked for overlap. This is source-reviewed
-send-path accounting, not a CPU profile or an instrumented call tree.
-
-| Path | Invocations | Sends |
-|---|---:|---:|
-| Uppercase variables (`Self`, `Sum`, `X`, `Y`) | 13 | 278 |
-| Constrained selectors (`get` three times, `=`, `+`) | 5 | 144 |
-| Already single-send symbol attempts | 16 | 16 |
-| End-of-input symbol attempt | 1 | 5 |
-| Everything outside these runs | — | 244 |
-
-The two expensive families account for 422/687 sends (61.4%). A `Self` token
-uses 26 sends, including numeric recognition that fails, its character scan,
-and `variable_name -> within -> sequence -> match_pattern -> concat ->
-zero_or_more(code)` over its converted character list. Numeric-name rejection
-then goes through `unless -> match_pattern -> concat -> integer_name`.
-
-The admission probe confirms two distinct gaps. All 13 uppercase inputs have
-fresh outputs, but the existing scan plan's prefix rejection sends them to
-generic execution. The five selector inputs have constrained outputs and fail
-the region's fresh-output admission condition before prefix classification.
-The current region therefore covers the simple atom-result mode but misses
-variable construction and constrained result checking.
-
-A concrete next experiment is to extend the source-derived region plan with
-explicit classification/result alternatives and guarded result unification.
-The original scan can establish the character facts now rediscovered through
-conversion and `within`; result construction can retain the original provider
-order and `(var Name)` versus atom distinctions. Prefix answers, aliases,
-constraints, open/generation modes, and mutation invalidation must remain valid.
-These facts must be inferred from method IR, not grammar names embedded in JAM.
-
-If each of these 18 invocations could run as one send boundary, the idealized
-count would be 283 sends rather than 687. This is a count opportunity, not a
-speed prediction: scanning, conversion, construction, and genuine alternative
-answers still have to execute. No twofold wall-time improvement has been
-demonstrated by this investigation, and no runtime optimization was added.
-
-## Constrained scan results
-
-```sh
-ELIXIR_ERL_OPTIONS='+S 1:1' BENCH_JSON=/tmp/scan-comparison.json mix run --no-start bench/parse_scan_comparison.exs
-```
-
-The scan region now admits bound atoms and constrained output variables,
-using the existing result unification. Rest must still be fresh and distinct
-from the output. Open inputs and unsupported result shapes retain generic
-execution. No grammar-specific instruction was added.
-
-The comparison alternates fresh-only and extended admission in one loaded
-module, warms both modes, and checks every complete parse answer. Across 100
-pairs, the final guard measured 8.4255 ms versus 7.649 ms median, winning 92
-pairs with a median paired improvement of 10.07%. Mean reductions fell from
-574,927 to 468,959 (18.4%). Heap size was effectively unchanged; this is not
-an allocated-byte measurement. An earlier run measured 8.1905 versus 7.4315 ms.
-
-Boundary profiling reports 548 sends instead of 687 and 174 resumed
-alternatives instead of 210. Three warm samples agree. The five constrained
-selector paths now use five sends instead of 144. The 13 uppercase-variable
-paths remain generic.
-
-An uppercase-result prototype preserved ordinary prefix answers but did not
-preserve all pending provider alternatives under mutation, so it was removed.
-After the first constructed variable answer, changing its classifier to fail
-can activate the later raw-atom alternative for every prefix. Guarding only
-the saved answer suffix cannot reproduce that behavior. A regression test
-checks these answers against traced execution. Supporting this mode requires
-retaining those pending provider continuations as part of the region design.
 
 ## Successor call comparison
 

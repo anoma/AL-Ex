@@ -1,12 +1,26 @@
 defmodule AL.JAM.Collection.Cursor do
   @enforce_keys [:parent, :choices, :count]
-  defstruct [:parent, :choices, :count, :trace]
+  defstruct [:parent, :choices, :count, :trace, :search, resumed?: true]
 
   @type t :: %__MODULE__{
           parent: AL.JAM.Frame.t(),
           choices: [AL.JAM.State.stack_entry()],
-          count: pos_integer(),
-          trace: AL.Trace.t() | nil
+          count: pos_integer() | nil,
+          trace: AL.Trace.t() | nil,
+          search: AL.JAM.Collection.Search.t() | nil,
+          resumed?: boolean()
+        }
+end
+
+defmodule AL.JAM.Collection.Search do
+  @enforce_keys [:frame, :solutions, :scope, :limit]
+  defstruct [:frame, :solutions, :scope, :limit]
+
+  @type t :: %__MODULE__{
+          frame: AL.JAM.Frame.t() | AL.JAM.Collection.Cursor.t() | nil,
+          solutions: [AL.Var.store()],
+          scope: term(),
+          limit: :all | 1 | {:batch, pos_integer()}
         }
 end
 

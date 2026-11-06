@@ -90,7 +90,24 @@ defmodule Examples.ALDCG do
     assert bindings["$Generated"] == "aaa"
   end
 
-  example grammar_rules_compose_using_the_remaining_codes() do
+  example symbol_rules_translate_characters_in_both_directions() do
+    %AL{result: {:atomic, {bindings, _, _}}} =
+      run(
+        ~S"""
+        @translated_letters #{super => lisp_syntax, metaclass => grammar}.
+        defrule translated_letters (symbol_char "a") ["A"].
+        defrule translated_letters (symbol_char Code) [next].
+        findall Word Words {parse translated_letters (symbol Word) "A"}.
+        parse translated_letters (symbol a) Text.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Words"] == [:a, :A]
+    assert bindings["$Text"] == "A"
+  end
+
+  example grammar_rules_compose_using_the_remaining_binary() do
     %AL{result: {:atomic, {bindings, _constraints, _state}}} =
       run(
         ~S"""
@@ -105,14 +122,14 @@ defmodule Examples.ALDCG do
         parse dashed_pairs (pair Parsed) "a-b".
         parse dashed_pairs (pair [b, a]) Generated.
         new dashed_pairs Reader.
-        pair Reader [97, 45, 98, 33] Remainder [a, b].
+        pair Reader "a-b!" Remainder [a, b].
         """,
         branch: Examples.Support.branch()
       )
 
     assert bindings["$Parsed"] == [:a, :b]
     assert bindings["$Generated"] == "b-a"
-    assert bindings["$Remainder"] == [33]
+    assert bindings["$Remainder"] == "!"
   end
 
   example phrase_runs_a_grammar_over_any_list() do
@@ -122,7 +139,7 @@ defmodule Examples.ALDCG do
         @sum_tokens
         #{super => syntax, metaclass => grammar}.
 
-        defrule sum_tokens (operand Number) [code Number, where [Number] {isa Number number}].
+        defrule sum_tokens (operand Number) [token Number, where [Number] {isa Number number}].
         defrule sum_tokens (sum [Left, Right]) [operand Left, [plus], operand Right].
 
         phrase sum_tokens (sum Sum) [1, plus, 2].
@@ -151,15 +168,15 @@ defmodule Examples.ALDCG do
         #{super => syntax, metaclass => grammar}.
 
         defrule tree_pass (node #{num => Number})
-          [code Number, where [Number] {isa Number number}].
-        defrule tree_pass (node #{ref => Name}) [code Name, where [Name] {atom Name}].
+          [token Number, where [Number] {isa Number number}].
+        defrule tree_pass (node #{ref => Name}) [token Name, where [Name] {atom Name}].
         defrule tree_pass (node Tree)
-          [code Form, where [Form, Op, Args] {functor Form Op Args}, within [Op . Args] [form Tree]].
+          [token Form, where [Form, Op, Args] {functor Form Op Args}, within [Op . Args] [form Tree]].
 
         defrule tree_pass (form #{op => sub, args => [#{num => 0}, Arg]})
           [[neg], node Arg].
         defrule tree_pass (form #{op => Op, args => Args})
-          [code Op, where [Op] {dif Op neg}, nodes Args].
+          [token Op, where [Op] {dif Op neg}, nodes Args].
 
         defrule tree_pass (nodes []) [].
         defrule tree_pass (nodes [Node . Nodes]) [node Node, nodes Nodes].
@@ -416,6 +433,23 @@ defmodule Examples.ALDCG do
     assert bindings["$Listed"] == [:a, "b c"]
     assert bindings["$Generated"] == inspect(decoded)
     assert bindings["$GeneratedList"] == listed
+  end
+
+  example quoted_strings_preserve_unicode_and_binary_remainders() do
+    %AL{result: {:atomic, {bindings, _constraints, _state}}} =
+      run(
+        ~S"""
+        new string_syntax Grammar,
+        expr Grammar Source Rest Text,
+        parse string_syntax (expr Text) Printed.
+        """,
+        branch: Examples.Support.branch(),
+        bindings: %{"Source" => ~S("héλ😀\n"tail)}
+      )
+
+    assert bindings["$Text"] == "héλ😀\n"
+    assert bindings["$Rest"] == "tail"
+    assert bindings["$Printed"] == ~S("héλ😀\n")
   end
 
   example the_declaration_reader_reads_declarations_as_the_al_reader_does() do

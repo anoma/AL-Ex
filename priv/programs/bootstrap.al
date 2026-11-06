@@ -486,8 +486,8 @@ get Self outcome Outcome.
 
 new class #{
   ivars => [#{name => effect}, #{name => head}, #{name => goals}, #{name => status},
-            #{name => wait_transaction}, #{name => outcome},
-            #{name => requested_by}, #{name => completed_by}],
+    #{name => wait_transaction}, #{name => outcome},
+    #{name => requested_by}, #{name => completed_by}],
   name => future_transaction,
   super => completion
 } _.
@@ -498,16 +498,16 @@ get_slots Args #{effect => Effect, goals => Goals, head => Head, status => waiti
 get Effect completion_transaction WaitTransaction,
 vm_transaction_object RequestedBy,
 set_slots Self #{effect => Effect, goals => Goals, head => Head,
-                 requested_by => RequestedBy, status => waiting,
-                 wait_transaction => WaitTransaction}.
+  requested_by => RequestedBy, status => waiting,
+  wait_transaction => WaitTransaction}.
 
 future_transaction >> init
 | Self Args Self |
 get_slots Args #{effect => Effect, goals => Goals, head => Head, status => ready},
 vm_transaction_object RequestedBy,
 set_slots Self #{effect => Effect, goals => Goals, head => Head,
-                 requested_by => RequestedBy, status => ready,
-                 wait_transaction => none}.
+  requested_by => RequestedBy, status => ready,
+  wait_transaction => none}.
 
 future_transaction >> run
 | Self |
@@ -689,32 +689,47 @@ new class #{ivars => [], name => string, super => value} _.
 
 string >> concat
 | Self Other Whole |
-string_codes Whole WholeCodes,
-string_codes Self SelfCodes,
-string_codes Other OtherCodes,
-concat SelfCodes OtherCodes WholeCodes.
+vm_text_concat Self Other Whole.
 
 string >> length
 | Self N |
-string_codes Self Codes,
-isa Codes list,
-length Codes N.
+vm_text_length Self N.
+
+string >> uncons
+| Self Char Rest |
+vm_text_code Self Code Rest,
+vm_text_code Char Code "".
+
+string >> empty
+| _Self "" |.
+
+list >> empty
+| _Self [] |.
+
+string >> contains
+| Self Part |
+vm_text_concat _Prefix Suffix Self,
+vm_text_concat Part _Rest Suffix.
 
 string >> split
-| Self Separator Parts |
-string_codes Separator SeparatorCodes,
-ground Self,
-string_codes Self Codes,
-split Codes SeparatorCodes PartCodes,
-strings_codes Parts PartCodes.
+| Self Separator [Self] |
+= Separator [_ . _Rest],
+not {contains Self Separator}.
 
 string >> split
-| Self Separator Parts |
-string_codes Separator SeparatorCodes,
-not (ground Self),
-strings_codes Parts PartCodes,
-split Codes SeparatorCodes PartCodes,
-string_codes Self Codes.
+| Self Separator [Part . Parts] |
+= Separator [_ . _Rest],
+vm_text_concat Part Separated Self,
+vm_text_concat Separator Rest Separated,
+vm_text_concat Part Separator ThroughSeparator,
+vm_text_concat BeforeLast Last ThroughSeparator,
+= Last [_ . ""],
+not {contains BeforeLast Separator},
+split Rest Separator Parts.
+
+list >> join_text
+| Self Text |
+vm_text_join Self Text.
 
 number >> factorial
 | 1 1 |.
@@ -868,14 +883,6 @@ concat Part [Separator . Separators] ThroughSeparator,
 concat BeforeLast [_Last] ThroughSeparator,
 not (contains BeforeLast [Separator . Separators]),
 split Rest [Separator . Separators] Parts.
-
-list >> strings_codes
-| [] [] |.
-
-list >> strings_codes
-| [String . Strings] [Codes . Rest] |
-string_codes String Codes,
-strings_codes Strings Rest.
 
 vm_set_method list member list_member.
 vm_set_class list_member behaviour.
@@ -1214,41 +1221,123 @@ syntax >> init
 syntax >> word
 | Self Input Rest Word |
 atom_string Word Text,
-string_codes Text [First . More],
-word_code Self Input After First,
-zero_or_more Self After Rest word_code More.
+text Self Input Rest word_char word_char Text.
 
-syntax >> word_code
-| _Self [Code . Rest] Rest Code |
->= Code 97,
-<= Code 122.
+syntax >> word_char
+| _Self [Char . Rest] Rest Char |
+in_domain Char [
+  "a",
+  "b",
+  "c",
+  "d",
+  "e",
+  "f",
+  "g",
+  "h",
+  "i",
+  "j",
+  "k",
+  "l",
+  "m",
+  "n",
+  "o",
+  "p",
+  "q",
+  "r",
+  "s",
+  "t",
+  "u",
+  "v",
+  "w",
+  "x",
+  "y",
+  "z"
+].
 
 syntax >> variable_word
 | Self Input Rest Name |
-string_codes Name [First . More],
-variable_start_code Self Input After First,
-zero_or_more Self After Rest variable_code More.
+text Self Input Rest variable_start_char variable_char Name.
 
-syntax >> variable_start_code
-| _Self [Code . Rest] Rest Code |
->= Code 65,
-<= Code 90.
+syntax >> variable_start_char
+| _Self [Char . Rest] Rest Char |
+in_domain Char [
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "I",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "O",
+  "P",
+  "Q",
+  "R",
+  "S",
+  "T",
+  "U",
+  "V",
+  "W",
+  "X",
+  "Y",
+  "Z",
+  "_"
+].
 
-syntax >> variable_start_code
-| _Self [95 . Rest] Rest 95 |.
+syntax >> variable_char
+| Self Input Rest Char |
+word_char Self Input Rest Char.
 
-syntax >> variable_code
-| Self Input Rest Code |
-word_code Self Input Rest Code.
+syntax >> variable_char
+| Self Input Rest Char |
+variable_start_char Self Input Rest Char.
 
-syntax >> variable_code
-| Self Input Rest Code |
-variable_start_code Self Input Rest Code.
+syntax >> variable_char
+| _Self [Char . Rest] Rest Char |
+in_domain Char ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"].
 
-syntax >> variable_code
-| _Self [Code . Rest] Rest Code |
->= Code 48,
-<= Code 57.
+syntax >> text
+| Self Input Rest First More [Char . Text] |
+send Self First [Input, After, Char],
+text_rest Self After Rest More Text.
+
+syntax >> text_rest
+| Self Input Rest Pattern [Char . Text] |
+send Self Pattern [Input, After, Char],
+dif Input After,
+text_rest Self After Rest Pattern Text.
+
+syntax >> text_rest
+| _Self Rest Rest _Pattern "" |.
+
+syntax >> delimited_text
+| Self Input Rest Terminator Pattern Text |
+text_prefix Self Input After Pattern Text,
+literal Self Terminator After Rest.
+
+syntax >> text_prefix
+| _Self Rest Rest _Pattern "" |.
+
+syntax >> text_prefix
+| Self Input Rest Pattern [Char . Text] |
+send Self Pattern [Input, After, Char],
+text_prefix Self After Rest Pattern Text.
+
+syntax >> consume
+| Self Input Rest Pattern |
+not {var Input},
+send Self Pattern [Input, After, _],
+dif Input After,
+consume Self After Rest Pattern.
+
+syntax >> consume
+| _Self Rest Rest _Pattern |.
 
 syntax >> match_pattern
 | Self Pattern Input Rest |
@@ -1263,8 +1352,7 @@ concat Pattern Rest Input.
 syntax >> match_pattern
 | Self Pattern Input Rest |
 class Pattern string,
-string_codes Pattern Codes,
-match_pattern Self Codes Input Rest.
+literal Self Pattern Input Rest.
 
 syntax >> match_pattern
 | Self Pattern Input Rest |
@@ -1273,8 +1361,18 @@ atom Rule,
 concat [Input, Rest] Args CallArgs,
 send Self Rule CallArgs.
 
-syntax >> code
-| _Self [Code . Rest] Rest Code |.
+syntax >> literal
+| _Self "" Rest Rest |.
+
+syntax >> literal
+| Self [Char . Chars] [Char . Input] Rest |
+literal Self Chars Input Rest.
+
+syntax >> char
+| _Self [Char . Rest] Rest Char |.
+
+syntax >> token
+| _Self [Token . Rest] Rest Token |.
 
 syntax >> known_text
 | _Self Input Input |
@@ -1289,8 +1387,9 @@ syntax >> unless
 not {match_pattern Self Pattern Rest _}.
 
 syntax >> within
-| Self Rest Rest Codes Patterns |
-sequence Self Patterns Codes [].
+| Self Rest Rest Input Patterns |
+sequence Self Patterns Input End,
+empty Input End.
 
 syntax >> where
 | _Self Rest Rest Args Goals |
@@ -1315,7 +1414,9 @@ sequence Self Patterns After Rest.
 
 grammar >> phrase
 | Self Pattern Input |
-phrase Self Pattern Input [].
+new Self Receiver,
+match_pattern Receiver Pattern Input Rest,
+empty Input Rest.
 
 grammar >> phrase
 | Self Pattern Input Rest |
@@ -1324,15 +1425,7 @@ match_pattern Receiver Pattern Input Rest.
 
 grammar >> parse
 | Self Pattern Text |
-not {var Text},
-string_codes Text Codes,
-phrase Self Pattern Codes.
-
-grammar >> parse
-| Self Pattern Text |
-var Text,
-phrase Self Pattern Codes,
-string_codes Text Codes.
+phrase Self Pattern Text "".
 
 grammar >> translate
 | Self Target Pattern Text Translated |
@@ -1342,32 +1435,16 @@ parse Target Pattern Translated.
 grammar >> defrule
 | Self RuleName Patterns |
 atom RuleName,
-rule_goals_first Self Grammar Patterns [] Input Rest Body,
+rule_goals Self Grammar Patterns [] Input Rest Body,
 defmethod Self RuleName [Grammar, Input, Rest] Body.
 
 grammar >> defrule
 | Self Head Patterns |
 functor Head RuleName Args,
 atom RuleName,
-rule_goals_first Self Grammar Patterns Args Input Rest Body,
+rule_goals Self Grammar Patterns Args Input Rest Body,
 concat [Grammar, Input, Rest] Args MethodHead,
 defmethod Self RuleName MethodHead Body.
-
-grammar >> rule_goals_first
-| Self Grammar Patterns Args Input Rest Body |
-{= Patterns [Literal . More], ground Literal, first_literal Self Literal Tokens} ->
-{concat Tokens After Input, rule_goals Self Grammar More Args After Rest Body} ;
-rule_goals Self Grammar Patterns Args Input Rest Body.
-
-grammar >> first_literal
-| _Self Text Tokens |
-class Text string,
-string_codes Text Tokens.
-
-grammar >> first_literal
-| _Self Tokens Tokens |
-class Tokens list,
-ground Tokens.
 
 grammar >> rule_goals
 | _Self _Grammar [] _Args Rest Rest [] |.
@@ -1384,7 +1461,15 @@ kind_goal Self Kind Grammar Pattern Args Input Rest Goal.
 
 grammar >> pattern_kind
 | _Self Pattern Kind |
-var Pattern -> = Kind open ; == Pattern known_text -> = Kind known ; == Pattern unknown_text -> = Kind unknown ; atom Pattern -> = Kind name ; class Pattern string -> = Kind text ; class Pattern list -> = Kind tokens ; functor Pattern where [_, _] -> = Kind where ; functor Pattern code [_] -> = Kind code ; = Kind call.
+var Pattern -> = Kind open ;
+== Pattern known_text -> = Kind known ;
+== Pattern unknown_text -> = Kind unknown ;
+atom Pattern -> = Kind name ;
+class Pattern string -> = Kind text ;
+class Pattern list -> = Kind tokens ;
+functor Pattern where [_, _] -> = Kind where ;
+functor Pattern char [_] -> = Kind char ;
+= Kind call.
 
 grammar >> kind_goal
 | _Self open Grammar Pattern _Args Input Rest Goal |
@@ -1392,8 +1477,7 @@ functor Goal match_pattern [Grammar, Pattern, Input, Rest].
 
 grammar >> kind_goal
 | _Self text _Grammar Text _Args Input Rest Goal |
-string_codes Text Codes,
-concat Codes Rest Expected,
+literal #{class => syntax} Text Expected Rest,
 functor Goal = [Input, Expected].
 
 grammar >> kind_goal
@@ -1420,9 +1504,9 @@ block_goals Block Goals,
 functor Goal call [Vars, Goals, Vars].
 
 grammar >> kind_goal
-| _Self code _Grammar Pattern _Args Input Rest Goal |
-functor Pattern code [Code],
-functor Goal = [Input, [Code . Rest]].
+| _Self char _Grammar Pattern _Args Input Rest Goal |
+functor Pattern char [Char],
+functor Goal = [Input, [Char . Rest]].
 
 grammar >> kind_goal
 | Self name Grammar Name Args Input Rest Goal |
@@ -1460,24 +1544,20 @@ defrule lisp_syntax (expr Symbol) [symbol Symbol].
 defrule lisp_syntax (expr Term) ["(", blanks, form Term, blanks, ")"].
 
 defrule lisp_syntax (form Term)
-  [where [Term, Head, Args] {functor Term Head Args}, symbol Head, spaced_exprs Args].
+[where [Term, Head, Args] {functor Term Head Args}, symbol Head, spaced_exprs Args].
 
 defrule lisp_syntax (spaced_exprs []) [].
 defrule lisp_syntax (spaced_exprs [Expr . Exprs]) [gap, expr Expr, spaced_exprs Exprs].
 
 defrule lisp_syntax (symbol Symbol)
-  [known_text,
-   symbol_code First,
-   zero_or_more symbol_code More,
-   where [Symbol, First, More] {atom_string Symbol Text, string_codes Text [First . More]}].
+[where [Symbol] {var Symbol}, text symbol_char symbol_char Text,
+  where [Symbol, Text] {atom_string Symbol Text}].
 defrule lisp_syntax (symbol Symbol)
-  [unknown_text,
-   where [Symbol, First, More] {atom_string Symbol Text, string_codes Text [First . More]},
-   symbol_code First,
-   zero_or_more symbol_code More].
-defrule lisp_syntax (symbol_code Code)
-  [code Code,
-   where [Code] {dif Code 32, dif Code 9, dif Code 10, dif Code 13, dif Code 40, dif Code 41}].
+[where [Symbol, Text] {atom Symbol, atom_string Symbol Text},
+  text symbol_char symbol_char Text].
+defrule lisp_syntax (symbol_char Char)
+[char Char,
+  where [Char] {dif Char " ", dif Char "\t", dif Char "\n", dif Char "\r", dif Char "(", dif Char ")"}].
 
 @tag_syntax #{super => lisp_syntax, metaclass => grammar}.
 
@@ -1487,75 +1567,78 @@ defrule tag_syntax (expr Term) [next].
 defrule tag_syntax (form Items) ["list", spaced_exprs Items].
 defrule tag_syntax (form [First . Rest]) ["list*", gap, expr First, spaced_tail Rest].
 defrule tag_syntax (form Map)
-  [known_text, "map", tagged_entries Entries, where [Map, Entries] {map_pairs Map Entries}].
+[known_text, "map", tagged_entries Entries, where [Map, Entries] {map_pairs Map Entries}].
 defrule tag_syntax (form Map)
-  [unknown_text, where [Map, Entries] {map_pairs Map Entries}, "map", tagged_entries Entries].
+[unknown_text, where [Map, Entries] {map_pairs Map Entries}, "map", tagged_entries Entries].
 defrule tag_syntax (form Term)
-  [where [Term, Head] {functor Term Head _, dif Head list, dif Head 'list*', dif Head map},
-   next].
+[where [Term, Head] {functor Term Head _, dif Head list, dif Head 'list*', dif Head map},
+  next].
 
 defrule tag_syntax (spaced_tail Tail) [gap, expr Tail].
 defrule tag_syntax (spaced_tail [Expr . Rest]) [gap, expr Expr, spaced_tail Rest].
 
 defrule tag_syntax (tagged_entries []) [].
 defrule tag_syntax (tagged_entries [[Key, Value] . More])
-  [gap, "(", blanks, expr Key, gap, expr Value, blanks, ")", tagged_entries More].
+[gap, "(", blanks, expr Key, gap, expr Value, blanks, ")", tagged_entries More].
 
 @list_syntax #{super => lisp_syntax, metaclass => grammar}.
 
-defrule list_syntax (expr []) ["[", blanks, "]"].
-defrule list_syntax (expr [First . More]) ["[", blanks, expr First, list_rest More, blanks, "]"].
+defrule list_syntax (expr List)
+["[", where [List] {class List list, = List []}, blanks, "]"].
+defrule list_syntax (expr List)
+["[", where [List, First, More] {class List list, = List [First . More]},
+  blanks, expr First, list_rest More, blanks, "]"].
 defrule list_syntax (expr Term) [next].
 
 defrule list_syntax (list_rest []) [].
 defrule list_syntax (list_rest [Expr . More]) [blanks, ",", pad, expr Expr, list_rest More].
 defrule list_syntax (list_rest Tail) [pad, ".", pad, expr Tail].
 
-defrule list_syntax (symbol_code Code)
-  [next, where [Code] {dif Code 44, dif Code 46, dif Code 91, dif Code 93}].
+defrule list_syntax (symbol_char Char)
+[next, where [Char] {dif Char ",", dif Char ".", dif Char "[", dif Char "]"}].
 
 @block_syntax #{super => lisp_syntax, metaclass => grammar}.
 
 defrule block_syntax (expr Block)
-  [known_text, "{", blanks, block_goals Goals, blanks, "}",
-   where [Block, Goals] {block_goals Block Goals}].
+[known_text, "{", blanks, block_goals Goals, blanks, "}",
+  where [Block, Goals] {block_goals Block Goals}].
 defrule block_syntax (expr Block)
-  [unknown_text, where [Block, Goals] {block_goals Block Goals},
-   "{", blanks, block_goals Goals, blanks, "}"].
+[unknown_text, where [Block, Goals] {block_goals Block Goals},
+  "{", blanks, block_goals Goals, blanks, "}"].
 defrule block_syntax (expr Term) [next].
 
 defrule block_syntax (block_goals []) [].
 defrule block_syntax (block_goals [First . More]) [goal First, goal_rest More].
 
 defrule block_syntax (goal Goal)
-  [where [Goal, Head, Args] {functor Goal Head Args},
-   symbol Head,
-   spaced_exprs Args,
-   where [Goal] {not {functor Goal var [Name], isa Name string}}].
+[where [Goal, Head, Args] {functor Goal Head Args},
+  symbol Head,
+  spaced_exprs Args,
+  where [Goal] {not {functor Goal var [Name], isa Name string}}].
 defrule block_syntax (goal_rest []) [].
 defrule block_syntax (goal_rest [Goal . More]) [blanks, ",", pad, goal Goal, goal_rest More].
 
-defrule block_syntax (symbol_code Code)
-  [next, where [Code] {dif Code 44, dif Code 123, dif Code 125}].
+defrule block_syntax (symbol_char Char)
+[next, where [Char] {dif Char ",", dif Char "{", dif Char "}"}].
 
 @map_syntax #{super => block_syntax, metaclass => grammar}.
 
 defrule map_syntax (expr Map)
-  [known_text,
-   "\#{",
-   blanks,
-   map_entries Entries,
-   blanks,
-   "}",
-   where [Map, Entries] {map_pairs Map Entries}].
+[known_text,
+  "\#{",
+  blanks,
+  map_entries Entries,
+  blanks,
+  "}",
+  where [Map, Entries] {map_pairs Map Entries}].
 defrule map_syntax (expr Map)
-  [unknown_text,
-   where [Map, Entries] {map_pairs Map Entries},
-   "\#{",
-   blanks,
-   map_entries Entries,
-   blanks,
-   "}"].
+[unknown_text,
+  where [Map, Entries] {map_pairs Map Entries},
+  "\#{",
+  blanks,
+  map_entries Entries,
+  blanks,
+  "}"].
 defrule map_syntax (expr Term) [next].
 
 defrule map_syntax (map_entries []) [].
@@ -1567,75 +1650,84 @@ defrule map_syntax (entry [Key, Value]) [expr Key, pad, "=>", pad, expr Value].
 @number_syntax #{super => lisp_syntax, metaclass => grammar}.
 
 defrule number_syntax (symbol Number)
-  [where [Number] {isa Number number}, integer Number].
+[where [Number] {isa Number number}, integer Number].
 defrule number_syntax (symbol Atom) [next Atom, unless (integer_name Atom)].
 
 defrule number_syntax (integer_name Name)
-  [where [Name, Codes] {atom Name, atom_string Name Text, string_codes Text Codes},
-   within Codes [integer _]].
+[where [Name, Text] {atom Name, atom_string Name Text}, within Text [integer _]].
 
 defrule number_syntax (integer Number) [natural Number].
 defrule number_syntax (integer Number)
-  [where [Number, Magnitude] {= Number (- 0 Magnitude), >= Magnitude 1},
-   "-",
-   natural Magnitude].
+["-",
+  where [Number, Magnitude] {= Number (- 0 Magnitude), >= Magnitude 1},
+  natural Magnitude].
 defrule number_syntax (natural 0) ["0"].
 defrule number_syntax (natural Number)
-  [digit Digit, where [Digit] {>= Digit 1}, digits Digit Number].
+[where [Number] {var Number}, digit Digit,
+  where [Digit] {>= Digit 1}, digits Digit Number].
+defrule number_syntax (natural Number)
+[where [Number] {not {var Number}, >= Number 1, <= Number 9}, digit Number].
+defrule number_syntax (natural Number)
+[where [Number, Prefix, Digit] {
+  not {var Number}, >= Number 10,
+  = Digit (rem Number 10), = Prefix (/ Number 10)
+}, natural Prefix, digit Digit].
 defrule number_syntax (digits Number Number) [].
 defrule number_syntax (digits Acc Number)
-  [digit Digit,
-   where [Acc, Digit, Next, Number] {= Next (+ (* Acc 10) Digit), <= Next Number},
-   digits Next Number].
-defrule number_syntax (digit Digit)
-  [code Code, where [Code, Digit] {>= Code 48, <= Code 57, = Digit (- Code 48)}].
+[digit Digit,
+  where [Acc, Digit, Next, Number] {= Next (+ (* Acc 10) Digit), <= Next Number},
+  digits Next Number].
+defrule number_syntax (digit 0) ["0"].
+defrule number_syntax (digit 1) ["1"].
+defrule number_syntax (digit 2) ["2"].
+defrule number_syntax (digit 3) ["3"].
+defrule number_syntax (digit 4) ["4"].
+defrule number_syntax (digit 5) ["5"].
+defrule number_syntax (digit 6) ["6"].
+defrule number_syntax (digit 7) ["7"].
+defrule number_syntax (digit 8) ["8"].
+defrule number_syntax (digit 9) ["9"].
 
 @variable_syntax #{super => lisp_syntax, metaclass => grammar}.
 
 defrule variable_syntax (symbol (var Name))
-  [known_text,
-   variable_start_code First,
-   zero_or_more symbol_code More,
-   where [Name, First, More] {string_codes Name [First . More]}].
-defrule variable_syntax (symbol (var Name))
-  [unknown_text,
-   where [Name, First, More] {string_codes Name [First . More]},
-   variable_start_code First,
-   zero_or_more symbol_code More].
+[text variable_start_char symbol_char Name].
 defrule variable_syntax (symbol Term)
-  [known_text, unless variable_start, next Term].
+[known_text, unless variable_start, next Term].
 defrule variable_syntax (symbol Term)
-  [unknown_text, next Term, unless (variable_name Term)].
+[unknown_text, next Term, unless (variable_name Term)].
 
 defrule variable_syntax (variable_name Name)
-  [where [Name, Codes] {atom Name, atom_string Name Text, string_codes Text Codes},
-   within Codes [variable_start, zero_or_more code _]].
+[where [Name, Text] {atom Name, atom_string Name Text},
+  within Text [variable_start, consume char]].
 
-defrule variable_syntax variable_start
-  [code Code, where [Code] {{>= Code 65, <= Code 90} ; = Code 95}].
+defrule variable_syntax variable_start [variable_start_char _].
 
 @string_syntax #{super => lisp_syntax, metaclass => grammar}.
 
-defrule string_syntax (expr String)
-  [known_text, "\"", characters Codes, "\"", where [String, Codes] {string_codes String Codes}].
-defrule string_syntax (expr String)
-  [unknown_text, where [String, Codes] {string_codes String Codes}, "\"", characters Codes, "\""].
+defrule string_syntax (expr String) ["\"", quoted_string String].
 defrule string_syntax (expr Term) [next].
 
-defrule string_syntax (characters []) [].
-defrule string_syntax (characters [Code . Codes]) [character Code, characters Codes].
+defrule string_syntax (quoted_string String)
+[known_text, delimited_text "\"" character String].
+defrule string_syntax (quoted_string String)
+[unknown_text, characters String, "\""].
 
-defrule string_syntax (character 34) ["\\\""].
-defrule string_syntax (character 92) ["\\\\"].
-defrule string_syntax (character 10) ["\\n"].
-defrule string_syntax (character 9) ["\\t"].
-defrule string_syntax (character 13) ["\\r"].
-defrule string_syntax (character 35) ["\\#"].
-defrule string_syntax (character 35) ["#", unless "{"].
-defrule string_syntax (character Code)
-  [code Code, where [Code] {dif Code 34, dif Code 92, dif Code 35}].
+string_syntax >> characters
+| Self Input Rest Text |
+text_prefix Self Input Rest character Text.
 
-defrule string_syntax (symbol_code Code) [next, where [Code] {dif Code 34}].
+defrule string_syntax (character "\"") ["\\\""].
+defrule string_syntax (character "\\") ["\\\\"].
+defrule string_syntax (character "\n") ["\\n"].
+defrule string_syntax (character "\t") ["\\t"].
+defrule string_syntax (character "\r") ["\\r"].
+defrule string_syntax (character "#") ["\\#"].
+defrule string_syntax (character "#") ["#", unless "{"].
+defrule string_syntax (character Char)
+[char Char, where [Char] {dif Char "\"", dif Char "\\", dif Char "#"}].
+
+defrule string_syntax (symbol_char Char) [next, where [Char] {dif Char "\""}].
 
 @term_syntax #{
   super => [map_syntax, list_syntax, number_syntax, variable_syntax, string_syntax],
@@ -1672,8 +1764,8 @@ new effect #{
 
 string >> format
 | Self Args Text |
-parse format_syntax (template Args Codes []) Self,
-string_codes Text Codes.
+parse format_syntax (template Args Fragments []) Self,
+join_text Fragments Text.
 
 string >> format
 | Self Args |
@@ -1681,52 +1773,51 @@ format Self Args Text,
 print Text.
 
 defrule format_syntax (template [] Tail Tail) [].
-defrule format_syntax (template Args [Code . Output] Tail)
-  [code Code, where [Code] {dif Code 126}, template Args Output Tail].
-defrule format_syntax (template Args [126 . Output] Tail)
-  ["~~", template Args Output Tail].
-defrule format_syntax (template Args [10 . Output] Tail)
-  ["~%", template Args Output Tail].
-defrule format_syntax (template [Value . Args] Output Tail)
-  ["~a", where [Value, Output, More] {
-    print_object Value Text,
-    string_codes Text Codes,
-    concat Codes More Output
-  }, template Args More Tail].
+defrule format_syntax (template Args [Text . Output] Tail)
+[text literal_char literal_char Text, unless (literal_char _), template Args Output Tail].
+defrule format_syntax (template Args ["~" . Output] Tail)
+["~~", template Args Output Tail].
+defrule format_syntax (template Args ["\n" . Output] Tail)
+["~%", template Args Output Tail].
+defrule format_syntax (template [Value . Args] [Text . Output] Tail)
+["~a", where [Value, Text] {print_object Value Text}, template Args Output Tail].
+
+defrule format_syntax (literal_char Char)
+[char Char, where [Char] {dif Char "~"}].
 
 @declaration_syntax #{super => lisp_syntax, metaclass => grammar}.
 
 defrule declaration_syntax (declaration (defclass Name Metaclass Super Ivars Categories))
-  [known_text,
-   class_marker,
-   symbol Name,
-   gap,
-   options Options,
-   blanks,
-   ".",
-   where [Options, Pairs] {map_pairs Options Pairs},
-   within Pairs [class_entries Metaclass Super Ivars Categories]].
+[known_text,
+  class_marker,
+  symbol Name,
+  gap,
+  options Options,
+  blanks,
+  ".",
+  where [Options, Pairs] {map_pairs Options Pairs},
+  within Pairs [class_entries Metaclass Super Ivars Categories]].
 defrule declaration_syntax (declaration (defclass Name Metaclass Super Ivars Categories))
-  [unknown_text,
-   where [Options, Pairs] {map_pairs Options Pairs},
-   within Pairs [class_entries Metaclass Super Ivars Categories],
-   class_marker,
-   symbol Name,
-   gap,
-   options Options,
-   blanks,
-   "."].
+[unknown_text,
+  where [Options, Pairs] {map_pairs Options Pairs},
+  within Pairs [class_entries Metaclass Super Ivars Categories],
+  class_marker,
+  symbol Name,
+  gap,
+  options Options,
+  blanks,
+  "."].
 defrule declaration_syntax (declaration (extend_class Name Supers))
-  ["@+", symbol Name, gap, extension_options Supers, blanks, "."].
+["@+", symbol Name, gap, extension_options Supers, blanks, "."].
 
 defrule declaration_syntax class_marker ["@", known_text, unless "+"].
 defrule declaration_syntax class_marker ["@", unknown_text].
 
 defrule declaration_syntax (class_entries Metaclass Super Ivars Categories)
-  [optional categories Categories [],
-   optional ivars Ivars [],
-   optional metaclass Metaclass class,
-   [[super, Super]]].
+[optional categories Categories [],
+  optional ivars Ivars [],
+  optional metaclass Metaclass class,
+  [[super, Super]]].
 
 defrule declaration_syntax (optional _Key Default Default) [].
 defrule declaration_syntax (optional Key Value _Default) [[[Key, Value]]].
@@ -1734,14 +1825,14 @@ defrule declaration_syntax (optional Key Value _Default) [[[Key, Value]]].
 defrule declaration_syntax (options Options) [expr Options, where [Options] {class Options map}].
 
 defrule declaration_syntax (extension_options Supers)
-  [expr #{super => Supers}, where [Supers] {class Supers list}].
+[expr #{super => Supers}, where [Supers] {class Supers list}].
 defrule declaration_syntax (extension_options [Super])
-  [expr #{super => Super}, where [Super] {not (class Super list)}].
+[expr #{super => Super}, where [Super] {not (class Super list)}].
 
 @method_syntax #{super => block_syntax, metaclass => grammar}.
 
 defrule method_syntax (clause (defmethod Owner Selector Head Body))
-  [symbol Owner, gap, ">>", gap, symbol Selector, line, "|", head Head, "|", body Body, blanks, "."].
+[symbol Owner, gap, ">>", gap, symbol Selector, line, "|", head Head, "|", body Body, blanks, "."].
 
 defrule method_syntax (head []) [gap].
 defrule method_syntax (head [Arg . Args]) [gap, expr Arg, head_rest Args, gap].
@@ -1757,7 +1848,7 @@ defrule method_syntax (body_rest [Goal . Goals]) [blanks, ",", line, goal Goal, 
 defrule method_syntax line [unknown_text, "\n"].
 defrule method_syntax line [known_text, blanks].
 
-defrule method_syntax (symbol_code Code) [next, where [Code] {dif Code 124}].
+defrule method_syntax (symbol_char Char) [next, where [Char] {dif Char "|"}].
 
 @al_grammar
 #{super => [method_syntax, declaration_syntax, term_syntax], metaclass => grammar}.

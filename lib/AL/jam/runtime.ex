@@ -104,6 +104,18 @@ defmodule AL.JAM.Runtime do
     %{state | active_choicepoint: %{state.active_choicepoint | store: nil}}
   end
 
+  @doc false
+  def preserve_failure(execution, nil, _alternative), do: execution
+  def preserve_failure(%{state: nil} = execution, _current, _alternative), do: execution
+
+  def preserve_failure(execution, current, alternative) do
+    if Frame.completed_goals(current) > Frame.completed_goals(alternative) do
+      %{execution | state: backtrack_from_failed_frame(execution.state, current, execution.steps)}
+    else
+      execution
+    end
+  end
+
   defp backtrack_from_failed_frame(state, snapshot, steps) do
     choice = state.active_choicepoint
 

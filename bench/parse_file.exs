@@ -1,5 +1,4 @@
 Code.require_file("language_support.exs", __DIR__)
-Code.require_file("support/scan_region.exs", __DIR__)
 
 Bench.Language.isolated(fn ->
   path =
@@ -32,7 +31,7 @@ Bench.Language.isolated(fn ->
 
   IO.puts("File: #{path} (#{byte_size(source)} bytes); file read and runtime startup excluded")
 
-  results = [
+  [
     Bench.Language.measure(
       "parse file with AL.Syntax",
       fn -> AL.Syntax.parse(source) end,
@@ -45,22 +44,4 @@ Bench.Language.isolated(fn ->
         do: raise("grammar output differs from the reader")
     end)
   ]
-
-  if System.get_env("BENCH_COMPARE_REGIONS") == "true" do
-    baseline =
-      Bench.RegionComparison.without_regions(fn ->
-        Bench.Language.measure(
-          "parse file without regions",
-          fn -> AL.eval(program) end,
-          fn result ->
-            if Bench.Language.bindings(result)["$Items"] != expected,
-              do: raise("baseline grammar output differs from the reader")
-          end
-        )
-      end)
-
-    results ++ [baseline]
-  else
-    results
-  end
 end)

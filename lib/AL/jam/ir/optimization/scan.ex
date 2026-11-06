@@ -1,119 +1,222 @@
 defmodule AL.JAM.IR.Scan do
   alias AL.JAM.Instruction
   alias AL.JAM.IR.Normalize
-  alias AL.{Goal, Var}
-  alias AL.PlanStore.Implementation
+  alias AL.Var
   alias AL.JAM.IR.{Call, Plan, Program}
 
-  defstruct [
-    :receiver,
-    :selector,
-    :branch,
-    :tests,
-    :ranges,
-    :reject,
-    :dependencies,
-    :evidence,
-    :mode,
-    :minimum,
-    :suffix
-  ]
+  defstruct [:receiver, :selector, :branch, :ranges, :first_ranges, :dependencies, :minimum]
 
-  def compile(receiver, selector, branch) do
-    try do
-      require!(MapSet.size(Var.find_vars(receiver)) == 0)
-
-      root =
-        case AL.Dispatch.target(receiver, selector, branch) do
-          {:ok, _, id} -> id
-          _ -> unsupported()
-        end
-
-      cursor = AL.Dispatch.provider_cursor(receiver, selector, root, branch)
-      {^selector, providers} = cursor
-      ids = [root | Enum.map(providers, &elem(&1, 1))]
-
-      state = %{
-        receiver: receiver,
-        branch: branch,
-        dependencies: %{
-          {:method, receiver, selector} =>
-            {root, AL.JAM.Clauses.cached_scan_clauses(root, branch)}
-        },
-        evidence: [],
-        suffix: []
-      }
-
-      {definitions, state} = Enum.map_reduce(ids, state, &definition/2)
-      {tests, implementation, state} = base(List.last(definitions), state)
-      {reject, state} = wrappers(Enum.drop(definitions, -1), state)
-      rows = Enum.map(ids, &{&1, AL.JAM.Clauses.cached_scan_clauses(&1, branch)})
-
-      dependencies =
-        implementation.dependencies
-        |> Map.merge(state.dependencies)
-        |> Map.put({:providers, {receiver, selector, root}}, {cursor, rows})
-
-      %__MODULE__{
-        receiver: receiver,
-        selector: selector,
-        branch: branch,
-        tests: tests,
-        reject: reject,
-        dependencies: dependencies,
-        mode: :ground_characters_fresh_rest,
-        minimum: 1,
-        suffix: state.suffix,
-        evidence: Enum.reverse(state.evidence)
-      }
-    catch
-      :unsupported_scan -> nil
-    end
-  end
-
-  def compile_consumption(receiver, selector, branch) do
+  def compile_consumption(receiver, selector, branch, parameters \\ []) do
     try do
       require!(MapSet.size(Var.find_vars(receiver)) == 0)
       state = %{receiver: receiver, branch: branch, dependencies: %{}}
       {rows, state} = fetch(selector, state)
-      {step, repeat, minimum} = consumption(rows, selector)
+      {step, repeat, minimum} = consumption(rows, selector, parameters)
       {recursive, state} = fetch(repeat, state)
-      require!(consumption(recursive, repeat) == {step, repeat, 0})
-      {leaves, state} = fetch(step, state)
-
-      values =
-        Enum.map(leaves, fn
-          {[self, input, rest], [{:eq, input, [value | rest]}]}
-          when is_integer(value) ->
-            require!(distinct_vars?([self, input, rest]))
-            value
-
-          {[self, [value | rest], rest], []} when is_integer(value) ->
-            require!(distinct_vars?([self, rest]))
-            value
-
-          _ ->
-            unsupported()
-        end)
-
-      require!(values != [] and length(values) == length(Enum.uniq(values)))
+      require!(consumption(recursive, repeat, parameters) == {step, repeat, 0})
+      {ranges, state} = consumer(step, parameters, state)
 
       %__MODULE__{
         receiver: receiver,
         selector: selector,
         branch: branch,
-        ranges: ranges(values),
+        ranges: ranges,
         dependencies: state.dependencies,
-        reject: [],
-        suffix: [],
-        mode: :integer_prefix_fresh_rest,
-        minimum: minimum,
-        evidence: [{:consume, step, repeat, values}]
+        minimum: minimum
       }
     catch
       :unsupported_scan -> nil
     end
   end
+
+  def compile_text(receiver, selector, branch, [first_step, more_step])
+      when is_atom(first_step) and is_atom(more_step) do
+    try do
+      require!(MapSet.size(Var.find_vars(receiver)) == 0)
+      state = %{receiver: receiver, branch: branch, dependencies: %{}}
+      {rows, state} = fetch(selector, state)
+      repeat = text_entry(rows)
+      {rows, state} = fetch(repeat, state)
+      require!(text_repeat?(rows, repeat))
+      {first_ranges, state} = character_consumer(first_step, state)
+
+      {ranges, state} =
+        if first_step == more_step,
+          do: {first_ranges, state},
+          else: character_consumer(more_step, state)
+
+      %__MODULE__{
+        receiver: receiver,
+        selector: selector,
+        branch: branch,
+        ranges: ranges,
+        first_ranges: first_ranges,
+        dependencies: state.dependencies,
+        minimum: 1
+      }
+    catch
+      :unsupported_scan -> nil
+    end
+  end
+
+  def compile_text(_, _, _, _), do: nil
+
+  defp text_entry([
+         {[self, input, rest, first, more, [char | text]],
+          [
+            {:send, nil, self, first, [input, after_one, char]},
+            {:send, nil, self, repeat, [after_one, rest, more, text]}
+          ]}
+       ]) do
+    require!(distinct_vars?([self, input, rest, first, more, char, text, after_one]))
+    repeat
+  end
+
+  defp text_entry(_), do: unsupported()
+
+  defp text_repeat?(
+         [
+           {[self, input, rest, pattern, [char | text]],
+            [
+              {:send, nil, self, pattern, [input, after_one, char]},
+              {:dif, input, after_one},
+              {:send, nil, self, selector, [after_one, rest, pattern, text]}
+            ]},
+           {[s, tail, tail, p, ""], []}
+         ],
+         selector
+       ),
+       do:
+         distinct_vars?([self, input, rest, pattern, char, text, after_one]) and
+           distinct_vars?([s, tail, p])
+
+  defp text_repeat?(_, _), do: false
+
+  defp character_consumer(step, state) do
+    call = Call.new(state.receiver, step, Enum.map(["Input", "Rest", "Char"], &Var.var/1))
+    implementation = Plan.compile_ir(call, state.branch)
+    require!(implementation != nil and Call.satisfies?(call, implementation.requirements))
+
+    ranges =
+      Enum.flat_map(implementation.code, fn {:oapply, _, _, head, body} ->
+        character_ranges(head, operations(body, Var.find_vars(head)))
+      end)
+      |> Enum.sort()
+
+    require!(ranges != [])
+
+    require!(
+      Enum.all?(
+        Enum.chunk_every(ranges, 2, 1, :discard),
+        fn [{_, high}, {low, _}] -> high < low end
+      )
+    )
+
+    {ranges, %{state | dependencies: Map.merge(state.dependencies, implementation.dependencies)}}
+  end
+
+  defp consumer(step, [], state) do
+    {leaves, state} = fetch(step, state)
+    values = Enum.map(leaves, &literal/1)
+    require!(values != [] and length(values) == length(Enum.uniq(values)))
+    {ranges(values), state}
+  end
+
+  defp consumer(step, [_], state) do
+    {ranges, state} = character_consumer(step, state)
+    {ranges, state}
+  end
+
+  defp character_ranges([self, input, rest, char], [{:eq, input, [char | rest]} | tests]) do
+    require!(distinct_vars?([self, input, rest]))
+    character_ranges([self, [char | rest], rest, char], tests)
+  end
+
+  defp character_ranges([self, [char | rest], rest, char], tests) do
+    require!(distinct_vars?([self, rest]))
+
+    initial =
+      if Var.var?(char) do
+        require!(distinct_vars?([self, rest, char]))
+        [{0, 0xD7FF}, {0xE000, 0x10FFFF}]
+      else
+        code = codepoint(char)
+        [{code, code}]
+      end
+
+    Enum.reduce(tests, initial, &restrict(&2, &1, char))
+  end
+
+  defp character_ranges(_, _), do: unsupported()
+
+  defp restrict(ranges, {:dif, char, <<bound::utf8>>}, char), do: exclude(ranges, bound)
+  defp restrict(ranges, {:dif, <<bound::utf8>>, char}, char), do: exclude(ranges, bound)
+
+  defp restrict(ranges, {:constraint, :in_domain, [char, values]}, char) when is_list(values) do
+    values
+    |> Enum.map(&codepoint/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.filter(fn value ->
+      Enum.any?(ranges, fn {lo, hi} -> value >= lo and value <= hi end)
+    end)
+    |> ranges()
+  end
+
+  defp restrict(_, _, _), do: unsupported()
+
+  defp exclude(ranges, bound) do
+    Enum.flat_map(ranges, fn {low, high} ->
+      [{low, min(high, bound - 1)}, {max(low, bound + 1), high}]
+      |> Enum.filter(fn {a, b} -> a <= b end)
+    end)
+  end
+
+  defp codepoint(<<value::utf8>>), do: value
+  defp codepoint(_), do: unsupported()
+
+  defp consumption(rows, selector, []), do: consumption(rows, selector)
+
+  defp consumption(
+         [
+           {[self, input, rest, pattern],
+            [
+              guard,
+              {:send, nil, self, pattern, [input, after_one, code]},
+              {:dif, input, after_one},
+              {:send, nil, self, selector, [after_one, rest, pattern]}
+            ]},
+           {[base_self, tail, tail, base_pattern], []}
+         ],
+         selector,
+         [step]
+       )
+       when is_atom(step) do
+    require!(distinct_vars?([self, input, rest, pattern, after_one, code]))
+    require!(distinct_vars?([base_self, tail, base_pattern]) and not_var?(guard, input))
+    {step, selector, 0}
+  end
+
+  defp consumption(_, _, _), do: unsupported()
+
+  defp literal(
+         {[self, input, rest], [{:primitive, :vm_text_concat, [<<value::utf8>>, rest, input]}]}
+       ) do
+    require!(distinct_vars?([self, input, rest]))
+    value
+  end
+
+  defp literal({[self, input, rest], [{:eq, input, [<<value::utf8>> | rest]}]}) do
+    require!(distinct_vars?([self, input, rest]))
+    value
+  end
+
+  defp literal({[self, [<<value::utf8>> | rest], rest], []}) do
+    require!(distinct_vars?([self, rest]))
+    value
+  end
+
+  defp literal(_), do: unsupported()
 
   defp ranges(values) do
     values
@@ -147,7 +250,7 @@ defmodule AL.JAM.IR.Scan do
            {[s, i, r],
             [
               {:is_var, i},
-              {:eq, i, [_ | r]}
+              generate
             ]},
            {[self, input, rest],
             [
@@ -158,16 +261,19 @@ defmodule AL.JAM.IR.Scan do
          ],
          _
        ) do
-    require!(distinct_vars?([s, i, r]))
+    require!(distinct_vars?([s, i, r]) and generates?(generate, i, r))
     require!(distinct_vars?([self, input, rest, after_one]) and not_var?(guard, input))
     {step, repeat, 1}
   end
 
   defp consumption(_, _), do: unsupported()
 
-  def valid?(%__MODULE__{} = scan, branch) do
-    scan.branch == branch and Implementation.valid_dependencies?(scan.dependencies, branch)
-  end
+  defp generates?({:eq, input, [_ | rest]}, input, rest), do: true
+
+  defp generates?({:primitive, :vm_text_concat, [text, rest, input]}, input, rest),
+    do: is_binary(text)
+
+  defp generates?(_, _, _), do: false
 
   defp definition(id, state) do
     rows = AL.JAM.Compiler.fetch_ir(id, state.branch)
@@ -177,7 +283,7 @@ defmodule AL.JAM.IR.Scan do
      end), state}
   end
 
-  defp fetch(selector, state) do
+  defp fetch(selector, state) when is_atom(selector) do
     case AL.Dispatch.target(state.receiver, selector, state.branch) do
       {:ok, _, id} ->
         state =
@@ -193,6 +299,8 @@ defmodule AL.JAM.IR.Scan do
         unsupported()
     end
   end
+
+  defp fetch(_, _), do: unsupported()
 
   defp operations(program, exposed \\ MapSet.new()) do
     case Program.take_next_instruction(program) do
@@ -217,438 +325,16 @@ defmodule AL.JAM.IR.Scan do
       {:operation, operation, rest} ->
         [operation | operations(rest, MapSet.union(exposed, Instruction.variables(operation)))]
 
-      {:control, %Program.Choice{left: left, right: right, join: join}} ->
-        l = operations(Program.before(Program.continuation(program, left), join))
-        r = operations(Program.before(Program.continuation(program, right), join))
-        [{:branch, l, r} | operations(Program.continuation(program, join))]
-
       _ ->
         unsupported()
     end
   end
-
-  defp base(
-         [
-           {[self, input, rest, output],
-            [
-              guard,
-              {:send, nil, self, step, [input, after_first, first]},
-              {:send, nil, self, repeat, [after_first, rest, step, more]},
-              {:primitive, :atom_string, [output, text]},
-              {:primitive, :string_codes, [text, [first | more]]}
-            ]},
-           {[_, other_input, _, _], [{:is_var, other_input} | _]}
-         ],
-         state
-       ) do
-    require!(distinct_vars?([self, input, rest, output, after_first, first, more, text]))
-    require!(not_var?(guard, input))
-    state = repetition(repeat, state)
-
-    implementation =
-      case Plan.compile_ir(Call.new(state.receiver, step), state.branch) do
-        nil -> unsupported()
-        result -> result
-      end
-
-    tests = step_tests(implementation.code)
-    {tests, implementation, evidence(state, {:scan, step, repeat, :longest_first})}
-  end
-
-  defp base(_, _), do: unsupported()
 
   defp not_var?({:negate, program}, input) do
     operations(program) == [{:is_var, input}]
   end
 
   defp not_var?(_, _), do: false
-
-  defp repetition(selector, state) do
-    {rows, state} = fetch(selector, state)
-
-    case rows do
-      [
-        {[self, input, rest, pattern, [value | values]],
-         [
-           {:send, nil, self, pattern, [input, after_one, value]},
-           {:dif, input, after_one},
-           {:send, nil, self, ^selector, [after_one, rest, pattern, values]}
-         ]},
-        {[base_self, tail, tail, base_pattern, []], []}
-      ] ->
-        require!(distinct_vars?([self, input, rest, pattern, value, values, after_one]))
-        require!(distinct_vars?([base_self, tail, base_pattern]))
-        state
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp step_tests([{:oapply, _, _, [self, input, rest, character], body}]) do
-    require!(distinct_vars?([self, input, rest, character]))
-
-    case operations(body, MapSet.new([self, input, rest, character])) do
-      [{:eq, ^input, [^character | ^rest]} | operations] ->
-        require!(operations != [])
-
-        Enum.map(operations, fn
-          {:dif, ^character, value} when is_integer(value) ->
-            {:dif, value}
-
-          _ ->
-            unsupported()
-        end)
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp step_tests(_), do: unsupported()
-
-  defp wrappers(rows, state) do
-    Enum.map_reduce(rows, state, fn clauses, state ->
-      case bound_input_clauses(clauses) do
-        [
-          {[self, input, _rest, %Goal.Compound{}], [{:send, nil, self, first, [input | _]} | _]},
-          {[fallback_self, fallback_input, fallback_rest, value],
-           [
-             {:send, nil, fallback_self, negator, [fallback_input, after_check, check]},
-             {:next, :jam_cursor, fallback_self, [after_check, fallback_rest, value]}
-           ]}
-        ]
-        when is_atom(check) ->
-          require!(
-            distinct_vars?([fallback_self, fallback_input, after_check, fallback_rest, value])
-          )
-
-          {first_paths, state} = first_tests(first, state, [])
-          {check_paths, state} = first_tests(check, state, [])
-          state = lookahead(negator, state) |> then(&no_collection_class(check, &1))
-          tests = first_paths ++ check_paths
-          {tests, evidence(state, {:reject, check, tests})}
-
-        [
-          {[self, input, rest, value],
-           [
-             {:relation, :isa, [value, :number]},
-             {:send, nil, self, recognizer, [input, rest, value]}
-           ]},
-          fallback
-        ] ->
-          require!(distinct_vars?([self, input, rest, value]))
-          {checker, state} = negative(fallback, state)
-          {checked, state} = checker(checker, state)
-          require!(checked == recognizer)
-          {tests, state} = first_tests(recognizer, state, [])
-          {tests, evidence(state, {:reject, recognizer, tests})}
-
-        [
-          {[self, input, rest, %Goal.Compound{args: [value]}],
-           [
-             {:next, :jam_cursor, self, [input, after_next, value]},
-             {:send, nil, self, check, [after_next, rest, value]}
-           ]},
-          fallback
-        ] ->
-          require!(distinct_vars?([self, input, rest, value, after_next]))
-          {negative_check, state} = negative(fallback, state)
-          require!(negative_check == check)
-          {recognizer, state} = checker(check, state)
-          {tests, state} = first_tests(recognizer, state, [])
-          {tests, evidence(state, {:reject, recognizer, tests})}
-
-        _ ->
-          unsupported()
-      end
-    end)
-  end
-
-  defp bound_input_clauses(clauses) do
-    Enum.flat_map(clauses, fn
-      {[_self, input | _], [{:is_var, input} | _]} ->
-        []
-
-      {[_self, input | _] = head, [guard | rest] = body} ->
-        [{head, if(not_var?(guard, input), do: rest, else: body)}]
-
-      clause ->
-        [clause]
-    end)
-  end
-
-  defp lookahead(selector, state) do
-    {rows, state} = fetch(selector, state)
-
-    case rows do
-      [
-        {[self, tail, tail, pattern], [{:negate, condition}]}
-      ] ->
-        require!(distinct_vars?([self, tail, pattern]))
-
-        case operations(condition) do
-          [{:send, nil, ^self, matcher, [^pattern, ^tail, ignored]}] ->
-            require!(distinct_vars?([self, tail, pattern, ignored]))
-            matcher(matcher, state)
-
-          _ ->
-            unsupported()
-        end
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp negative(
-         {[self, input, rest, value],
-          [
-            {:next, :jam_cursor, self, [input, after_next, value]},
-            {:send, nil, self, negator,
-             [after_next, rest, %Goal.Compound{name: check, args: [value]}]}
-          ]},
-         state
-       ) do
-    require!(distinct_vars?([self, input, rest, value, after_next]))
-    {rows, state} = fetch(negator, state)
-
-    case rows do
-      [
-        {[s, tail, tail, pattern], [{:negate, condition}]}
-      ] ->
-        require!(distinct_vars?([s, tail, pattern]))
-
-        case operations(condition) do
-          [{:send, nil, ^s, matcher, [^pattern, ^tail, ignored]}] ->
-            require!(distinct_vars?([s, tail, pattern, ignored]))
-            state = %{state | suffix: [{negator, check} | state.suffix]}
-            {check, matcher(matcher, state)}
-
-          _ ->
-            unsupported()
-        end
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp negative(_, _), do: unsupported()
-
-  defp checker(selector, state) do
-    {rows, state} = fetch(selector, state)
-
-    case rows do
-      [
-        {[self, input, rest, value],
-         [
-           {:primitive, :atom, [value]},
-           {:primitive, :atom_string, [value, text]},
-           {:primitive, :string_codes, [text, codes]},
-           {:send, nil, self, within, [input, rest, codes, [pattern | _]]}
-         ]}
-      ] ->
-        require!(distinct_vars?([self, input, rest, value, text, codes]))
-
-        {recognizer, arity} =
-          case pattern do
-            %Goal.Compound{name: name, args: args} ->
-              require!(proper?(args) and Enum.all?(args, &Var.var?/1))
-              {name, length(args)}
-
-            name when is_atom(name) ->
-              require!(not Var.var?(name))
-              {name, 0}
-
-            _ ->
-              unsupported()
-          end
-
-        require!(arity in [0, 1])
-        state = if is_atom(pattern), do: no_collection_class(pattern, state), else: state
-        {recognizer, within(within, state)}
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp within(selector, state) do
-    {rows, state} = fetch(selector, state)
-
-    case rows do
-      [
-        {[self, tail, tail, codes, patterns],
-         [
-           {:send, nil, self, sequence, [patterns, codes, []]}
-         ]}
-      ] ->
-        require!(distinct_vars?([self, tail, codes, patterns]))
-        sequence(sequence, state)
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp sequence(selector, state) do
-    {rows, state} = fetch(selector, state)
-
-    case rows do
-      [
-        {[base_self, [], tail, tail], []},
-        {[self, [pattern | patterns], input, rest],
-         [
-           {:send, nil, self, matcher, [pattern, input, after_one]},
-           {:send, nil, self, ^selector, [patterns, after_one, rest]}
-         ]}
-      ] ->
-        require!(distinct_vars?([base_self, tail]))
-        require!(distinct_vars?([self, pattern, patterns, input, rest, after_one]))
-        matcher(matcher, state)
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp matcher(selector, state) do
-    {rows, state} = fetch(selector, state)
-
-    case rows do
-      [
-        {[s, p, i, r], [{:primitive, :atom, [p]}, {:send, nil, s, p, [i, r]}]},
-        {[_s2, p2, _i2, _r2], [{:relation, :class, [p2, :list]} | _]},
-        {[_s3, p3, _i3, _r3], [{:relation, :class, [p3, :string]} | _]},
-        {[s4, p4, i4, r4],
-         [
-           {:primitive, :functor, [p4, rule, args]},
-           {:primitive, :atom, [rule]},
-           {:send, nil, [i4, r4], append, [args, call_args]},
-           {:send, nil, s4, rule, call_args}
-         ]}
-      ] ->
-        require!(distinct_vars?([s, p, i, r]))
-        require!(distinct_vars?([s4, p4, i4, r4, rule, args, call_args]))
-        append(append, state)
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp append(selector, state) do
-    {:ok, _, id} = AL.Dispatch.target([], selector, state.branch)
-    rows = AL.JAM.Compiler.fetch_ir(id, state.branch)
-
-    case Enum.map(rows, fn {:oapply, _, _, h, b} -> {h, operations(b)} end) do
-      [
-        {[[], base_tail, base_tail], []},
-        {[[head | tail], other, [head | output]],
-         [
-           {:send, nil, tail, ^selector, [other, output]}
-         ]}
-      ] ->
-        require!(Var.var?(base_tail))
-        require!(distinct_vars?([head, tail, other, output]))
-
-        put_in(
-          state.dependencies[{:method, [], selector}],
-          {id, AL.JAM.Clauses.cached_scan_clauses(id, state.branch)}
-        )
-
-      _ ->
-        unsupported()
-    end
-  end
-
-  defp first_tests(selector, state, stack) do
-    require!(selector not in stack)
-    {rows, state} = fetch(selector, state)
-
-    Enum.reduce(rows, {[], state}, fn {head, body}, {paths, state} ->
-      case head do
-        [_self, [code | _], _rest | _] when is_integer(code) ->
-          {paths ++ [[{:eq, code}]], state}
-
-        [_self, [code | _], _rest | _] ->
-          require!(Var.var?(code))
-          tests = tests(body, code, [[]])
-          require!(tests != [] and Enum.all?(tests, &(&1 != [])))
-          {paths ++ tests, state}
-
-        [self, input, _rest | _] ->
-          require!(Var.var?(input))
-
-          body =
-            Enum.map(
-              body,
-              &map_operation(&1, fn v -> if v == self, do: state.receiver, else: v end)
-            )
-
-          {tests, state} = seek(body, input, state, [selector | stack])
-          {paths ++ tests, state}
-
-        _ ->
-          unsupported()
-      end
-    end)
-  end
-
-  defp map_operation({:branch, left, right}, fun),
-    do:
-      {:branch, Enum.map(left, &map_operation(&1, fun)), Enum.map(right, &map_operation(&1, fun))}
-
-  defp map_operation(operation, fun), do: Instruction.map_values(operation, fun)
-
-  defp seek([{:eq, input, [code | _]} | rest], input, state, _) do
-    tests = if is_integer(code), do: [[{:eq, code}]], else: tests(rest, code, [[]])
-    require!(tests != [] and Enum.all?(tests, &(&1 != [])))
-    {tests, state}
-  end
-
-  defp seek(
-         [{:send, nil, receiver, selector, [input | _]} | _],
-         input,
-         %{receiver: receiver} = state,
-         stack
-       ),
-       do: first_tests(selector, state, stack)
-
-  defp seek([{:eq, _, _} | rest], input, state, stack),
-    do: seek(rest, input, state, stack)
-
-  defp seek([{:compare, _, _, _} | rest], input, state, stack),
-    do: seek(rest, input, state, stack)
-
-  defp seek(_, _, _, _), do: unsupported()
-
-  defp tests([], _, paths), do: paths
-
-  defp tests([{:compare, op, code, bound} | rest], code, paths)
-       when is_integer(bound),
-       do: tests(rest, code, Enum.map(paths, &(&1 ++ [{op, bound}])))
-
-  defp tests([{:eq, code, bound} | rest], code, paths)
-       when is_integer(bound),
-       do: tests(rest, code, Enum.map(paths, &(&1 ++ [{:eq, bound}])))
-
-  defp tests([{:branch, left, right} | rest], code, paths),
-    do: tests(left ++ rest, code, paths) ++ tests(right ++ rest, code, paths)
-
-  defp tests([{:eq, _, _} | rest], code, paths), do: tests(rest, code, paths)
-  defp tests(_, _, _), do: unsupported()
-
-  defp no_collection_class(pattern, state) do
-    Enum.reduce([:list, :string], state, fn class, state ->
-      rows = AL.Object.scan_class(pattern, class, state.branch)
-      require!(rows == [])
-      put_in(state.dependencies[{:class, {pattern, class}}], rows)
-    end)
-  end
-
-  defp evidence(state, value), do: %{state | evidence: [value | state.evidence]}
 
   defp distinct_vars?(terms),
     do:

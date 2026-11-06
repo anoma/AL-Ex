@@ -200,7 +200,6 @@ defmodule Bench.InstructionProfile do
 
   defp context({:provider, _, {selector, _}, _}), do: "method:#{selector}"
   defp context({:provider, method, _, _}), do: "method:#{method}"
-  defp context({:guarded_region, _, {_, plan, _}, _, _}), do: "scan:#{plan.selector}"
   defp context({:cut_scope, _, descriptor}), do: context(descriptor)
   defp context({:implies_scope, _, descriptor}), do: context(descriptor)
   defp context({:traced, _, _, descriptor}), do: context(descriptor)

@@ -160,30 +160,34 @@ defmodule AL.JAM.SelectionTest do
   end
 
   test "scan exclusions preserve ordered answers when resumed with a small budget" do
-    plan = %AL.JAM.IR.Scan{tests: [{:dif, 32}, {:dif, 10}], suffix: []}
-    {_, code, labels, count} = AL.JAM.Scan.emit(plan)
     rest = {:"$var", "Rest"}
     token = {:"$var", "Token"}
 
     for {input, expected} <- [
-          {~c"ab cd", [{:ab, ~c" cd"}, {:a, ~c"b cd"}]},
-          {~c"a\n", [{:a, ~c"\n"}]},
-          {~c" a", []},
-          {[], []}
+          {"ab cd", [{:ab, " cd"}, {:a, "b cd"}]},
+          {"a\n", [{:a, "\n"}]},
+          {" a", []},
+          {"", []}
         ],
         budget <- [0, 1, 2, 1000] do
-      slots =
-        Enum.reduce(labels.locals, :erlang.make_tuple(count, nil), fn index, slots ->
-          put_elem(slots, index, {:"$var", "Local#{index}"})
-        end)
-        |> put_elem(0, input)
-        |> put_elem(1, [])
-        |> put_elem(2, rest)
-        |> put_elem(3, token)
+      frame =
+        AL.JAM.Compiler.compile_root([
+          %AL.Goal.Send{
+            object: %{class: :lisp_syntax},
+            method: :symbol,
+            args: [input, rest, token]
+          }
+        ])
 
-      frame = %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: %{}}
-      result = AL.JAM.resume(frame, AL.Branch.head(), budget)
-      assert scan_answers(result, token, rest) == expected
+      frame = %{frame | store: %{}}
+
+      assert {:atomic, ^expected} =
+               :mnesia.transaction(fn ->
+                 AL.ResolutionCache.with_transaction_cache(fn ->
+                   result = AL.JAM.resume(frame, AL.Branch.head(), budget)
+                   scan_answers(result, token, rest)
+                 end)
+               end)
     end
   end
 

@@ -76,8 +76,7 @@ defmodule AL.JAM.Instruction do
              storage :: term()}
           | {:map_put_into, destination :: register(), map :: term(), key :: term(),
              value :: term()}
-          | {:primitive_into, destination :: register(), name :: atom(), output_position :: 0 | 1,
-             input :: term()}
+          | {:primitive_into, name :: atom(), arguments :: [term()]}
           | {:send_local, instruction :: t(), destinations :: [register()]}
 
   @spec into(t(), register()) :: t()
@@ -102,11 +101,13 @@ defmodule AL.JAM.Instruction do
   def into({:map_put, map, key, value, _result}, destination),
     do: {:map_put_into, destination, map, key, value}
 
-  def into({:primitive, name, [{:register, destination}, input]}, destination),
-    do: {:primitive_into, destination, name, 0, input}
-
-  def into({:primitive, name, [input, {:register, destination}]}, destination),
-    do: {:primitive_into, destination, name, 1, input}
+  def into({:primitive, name, arguments}, destination) do
+    {:primitive_into, name,
+     Enum.map(arguments, fn
+       {:register, ^destination} -> {:destination, destination}
+       operand -> operand
+     end)}
+  end
 
   @spec general(t()) :: t()
   def general({:compare, op, input, bound, :left}),
@@ -142,11 +143,13 @@ defmodule AL.JAM.Instruction do
   def general({:map_put_into, destination, map, key, value}),
     do: {:map_put, map, key, value, {:register, destination}}
 
-  def general({:primitive_into, destination, name, 0, input}),
-    do: {:primitive, name, [{:register, destination}, input]}
-
-  def general({:primitive_into, destination, name, 1, input}),
-    do: {:primitive, name, [input, {:register, destination}]}
+  def general({:primitive_into, name, arguments}) do
+    {:primitive, name,
+     Enum.map(arguments, fn
+       {:destination, index} -> {:register, index}
+       operand -> operand
+     end)}
+  end
 
   def general(instruction), do: instruction
 
@@ -292,6 +295,10 @@ defmodule AL.JAM.Instruction do
       {:primitive, name, _}
       when name in [
              :variant,
+             :vm_text_concat,
+             :vm_text_code,
+             :vm_text_length,
+             :vm_text_join,
              :equal,
              :string_codes,
              :atom_string,
@@ -461,27 +468,60 @@ defmodule AL.JAM.Instruction do
   end
 
   def execute(
-        {:primitive_into, index, name, position, input} = operation,
+        {:primitive_into, :vm_text_concat, [prefix, {:destination, index}, input]} = operation,
         slots,
         store,
         _branch,
         _pending
       ) do
-    destination = elem(slots, index)
+    prefix = Operand.shallow(prefix, slots, store)
+    input = Operand.shallow(input, slots, store)
 
-    if destination == nil or
-         (AL.Var.var?(destination) and destination != {:"$var", "_"} and
-            not Map.has_key?(store, destination)) do
-      input = AL.JAM.IR.Access.resolve(:primitive, name, input, slots, store)
-
-      case AL.JAM.Primitive.output(name, position, input, store) do
-        {:ok, value} -> {:registers, store, put_elem(slots, index, value)}
-        :fallback -> fallback(operation, index, slots)
-      end
-    else
-      fallback(operation, index, slots)
+    case AL.JAM.Text.match_prefix(prefix, input) do
+      {:ok, rest} -> {:registers, store, put_elem(slots, index, rest)}
+      :fail -> nil
+      :fallback -> fallback(operation, index, slots)
     end
   end
+
+  def execute(
+        {:primitive_into, :vm_text_code, [input, {:destination, code}, {:destination, rest}]} =
+          operation,
+        slots,
+        store,
+        _branch,
+        _pending
+      ) do
+    case Operand.shallow(input, slots, store) do
+      <<head::utf8, tail::binary>> ->
+        {:registers, store, slots |> put_elem(code, head) |> put_elem(rest, tail)}
+
+      value when is_binary(value) ->
+        nil
+
+      _ ->
+        {:fallback, slots |> materialize_local(code) |> materialize_local(rest),
+         general(operation)}
+    end
+  end
+
+  def execute(
+        {:primitive_into, name, [{:destination, index}, input]} = operation,
+        slots,
+        store,
+        _branch,
+        _pending
+      ),
+      do: primitive_output(operation, name, 0, index, input, slots, store)
+
+  def execute(
+        {:primitive_into, name, [input, {:destination, index}]} = operation,
+        slots,
+        store,
+        _branch,
+        _pending
+      ),
+      do: primitive_output(operation, name, 1, index, input, slots, store)
 
   def execute({:constraint, operation, arguments}, slots, store, branch, _pending) do
     arguments = Enum.map(arguments, &Operand.resolve(&1, slots, store))
@@ -545,6 +585,7 @@ defmodule AL.JAM.Instruction do
       {:ok, store} -> store
       :fail -> nil
       {:suspend, variables} -> {:park, variables}
+      {:stores, stores} -> {:stores, stores}
     end
   end
 
@@ -660,6 +701,23 @@ defmodule AL.JAM.Instruction do
         {:ok,
          Map.put(map, Operand.resolve(key, slots, store), Operand.resolve(value, slots, store))},
       else: :error
+  end
+
+  defp primitive_output(operation, name, position, index, input, slots, store) do
+    destination = elem(slots, index)
+
+    if destination == nil or
+         (AL.Var.var?(destination) and destination != {:"$var", "_"} and
+            not Map.has_key?(store, destination)) do
+      input = AL.JAM.IR.Access.resolve(:primitive, name, input, slots, store)
+
+      case AL.JAM.Primitive.output(name, position, input, store) do
+        {:ok, value} -> {:registers, store, put_elem(slots, index, value)}
+        :fallback -> fallback(operation, index, slots)
+      end
+    else
+      fallback(operation, index, slots)
+    end
   end
 
   defp read_into(map, key, index, slots, store) do

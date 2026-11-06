@@ -60,20 +60,31 @@ defmodule AL.JAM.LoopTest do
   end
 
   test "inlining discovers a differently arranged recursive protocol", %{branch: branch} do
-    receiver = %{class: :bnf_syntax}
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               @loop_token_probe #{super => syntax}.
+               loop_token_probe >> name_char
+               | _Self [Code . Rest] Rest Code |
+               {>= Code 97, <= Code 122} ; {>= Code 48, <= Code 57} ; = Code 95.
+               """,
+               branch
+             )
+
+    receiver = %{class: :loop_token_probe}
 
     plan =
       compile(branch, receiver, :zero_or_more, [
         {:"$var", "Input"},
         {:"$var", "Rest"},
-        :name_code,
+        :name_char,
         {:"$var", "Values"}
       ])
 
     assert %Loop{} = plan
 
     for values <- [[], ~c"abc_09", ~c"another_name"] do
-      call = [receiver, {:"$var", "Input"}, {:"$var", "Rest"}, :name_code, values]
+      call = [receiver, {:"$var", "Input"}, {:"$var", "Rest"}, :name_char, values]
       assert {:ok, store, _} = Loop.apply(plan, call, %{}, branch, 100)
 
       assert AL.Var.subst({:"$var", "Input"}, store) ==

@@ -291,29 +291,12 @@ defmodule AL.JAM.Trace do
   def collection_end(scope), do: update(&push(&1, {:collection_end, scope}))
 
   def collection(kind, condition, output, fun) do
-    outer = Process.get(@key)
     scope = AL.Scope.fresh()
-    {result, inner} = run(child_trace(outer), fn -> fun.(scope) end)
-    inner = finalize(inner)
 
-    events =
-      if AL.Trace.enabled?(inner, :domino) do
-        [
-          %AL.Trace.Event{kind: :domino, payload: {:collection_end, scope}}
-          | inner.events
-        ] ++
-          [
-            %AL.Trace.Event{
-              kind: :domino,
-              payload: {:collection_begin, scope, kind, condition, output}
-            }
-          ]
-      else
-        inner.events
-      end
-
-    Process.put(@key, %AL.Trace{outer | events: events ++ outer.events})
-    result
+    start_child(fn ->
+      collection_begin(scope, kind, condition, output)
+      fun.(scope)
+    end)
   end
 
   def solution(scope, store), do: update(&push(&1, {:collection_solution, scope, store}))

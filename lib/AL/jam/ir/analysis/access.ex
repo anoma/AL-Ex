@@ -22,8 +22,14 @@ defmodule AL.JAM.IR.Access do
   def mode(:term, :functor), do: :shallow
   def mode(:primitive, :copy_term), do: :reference
 
-  def mode(:primitive, name) when name in [:atom, :atom_string, :string_codes, :functor],
-    do: :shallow
+  def mode(:primitive, name)
+      when name in [
+             :atom,
+             :string_codes,
+             :functor,
+             :vm_text_join
+           ],
+      do: :shallow
 
   def mode(_, _), do: :deep
 

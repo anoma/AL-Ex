@@ -95,7 +95,7 @@ defmodule AL.JAM.ChoiceTest do
     output = elem(frame.slots, 1)
     observed = {:"$var", "Observed"}
     wake = {:test, {{:eq, {:register, 0}, {:register, 1}}}, {observed, output}, nil}
-    frame = %{frame | pending: %{output => [wake]}}
+    frame = %{frame | pending: AL.JAM.Suspension.park(%{}, [output], [wake])}
 
     results = outcomes(Machine.resume(frame, AL.Branch.head(), 100))
     stores = for {:ok, store, _} <- results, do: store
