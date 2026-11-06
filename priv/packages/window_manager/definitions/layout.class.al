@@ -1,41 +1,36 @@
 @layout
-#{super => value, ivars => [#{name => windows}]}.
+#{super => object, ivars => [#{name => windows, type => observable_list}]}.
 
 layout >> extent
 | Self Ext |
-get Self windows [],
-new point #{} Ext.
+get Self windows List,
+get List contents [],
+new point #{} Ext,
+cut.
 
 layout >> extent
 | Self Ext |
-get Self windows Windows,
+get Self windows List,
+get List contents Windows,
 max_by Windows extends_to_x MaxWindowX,
 max_by Windows extends_to_y MaxWindowY,
 extends_to_y MaxWindowY ExtentY,
 extends_to_x MaxWindowX ExtentX,
 new point #{x => ExtentX, y => ExtentY} Ext.
 
-layout >> close
-| _Self _Wm _Request _NewLayout |
-fail.
-
-layout >> placement_changes
-| Self Prev ChangedWindows RemovedWindows |
-get Self windows CurrWindows,
-get Prev windows PrevWindows,
-findall Window ChangedWindows {member CurrWindows Window, not (member PrevWindows Window)},
-map CurrWindows id CurrIds,
-findall Window RemovedWindows {member PrevWindows Window, id Window WinId, not (member CurrIds WinId)}.
-
-layout >> place_window
-| _Self _Wm _Request _NewLayout |
-fail.
-
-layout >> resize
-| _Self _Wm _NewLayout |
-fail.
-
 layout >> to_xaml
-| _Self Text |
-new brick_workspace #{} Brick,
+| Self Text |
+brick Self Brick,
 to_xaml Brick Text.
+
+layout >> init
+| Self Fields Self |
+get Fields windows _Windows -> = WithWindows Fields ; {
+  new observable_list [] Windows,
+  put Fields windows Windows WithWindows
+},
+call_next_method Self WithWindows Self.
+
+layout >> brick
+| Self Brick |
+new brick_workspace #{target => Self} Brick.

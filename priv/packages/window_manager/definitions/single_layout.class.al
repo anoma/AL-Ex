@@ -2,22 +2,17 @@
 #{super => layout}.
 
 single_layout >> place_window
-| Self Wm Request NewLayout |
-get Request id Id,
+| Self Wm Request Self |
 get Request content Content,
-class Self Class,
 new point #{} Origin,
 visible_extent Wm Ext,
-new window #{content => Content, id => Id, extent => Ext, position => Origin} Window,
-new Class #{windows => [Window]} NewLayout.
+new window #{content => Content, extent => Ext, position => Origin} Window,
+get Self windows Windows,
+replace Windows [Window].
 
 single_layout >> resize
-| Self _Wm Self |
-get Self windows [].
-
-single_layout >> resize
-| Self Wm NewLayout |
-get Self windows [Window],
+| Self Wm Self |
 visible_extent Wm Visible,
-put Window extent Visible ResizedWindow,
-put Self windows [ResizedWindow] NewLayout.
+get Self windows Windows,
+get Windows contents Items,
+forall (member Items Window) (set_slot Window extent Visible).
