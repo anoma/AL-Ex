@@ -1,0 +1,4 @@
+*.ex text eol=lf
+*.exs text eol=lf
+*.al text eol=lf
+*.sh text eol=lf

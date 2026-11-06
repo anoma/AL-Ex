@@ -42,10 +42,14 @@ defmodule Examples.ALTransactionPrograms do
       assert bindings["$Source"] =~ "set_slot program_created_object answer 42."
       assert AL.TransactionProgram.installed?(:transaction_program_fixture)
 
+      invocation = make_ref()
+
       assert :ok =
                AL.TransactionProgram.ensure(:transaction_program_fixture, fn ->
-                 flunk("ran twice")
+                 send(self(), invocation)
                end)
+
+      refute_received ^invocation
 
       assert {:atomic, _} = AL.TransactionProgram.uninstall(:transaction_program_fixture)
       refute AL.TransactionProgram.installed?(:transaction_program_fixture)

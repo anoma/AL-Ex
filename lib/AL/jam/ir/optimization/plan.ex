@@ -1029,8 +1029,8 @@ defmodule AL.JAM.IR.Plan do
 
   defp ground_slot_write_scope?(program) do
     with {:operation,
-          %IR{kind: :scope, name: :forall, regions: %{condition: condition, body: action}},
-          tail} <- Program.first(program),
+          %IR{kind: :scope, name: :forall, regions: %{condition: condition, body: action}}, tail} <-
+           Program.first(program),
          :return <- Program.first(tail),
          {:ok, _, _} <- ground_map_slot_writes(condition, action) do
       true

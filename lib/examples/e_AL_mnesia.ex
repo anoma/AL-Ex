@@ -39,6 +39,10 @@ defmodule Examples.ALMnesia do
     directory =
       Path.join(System.tmp_dir!(), "al_mnesia_example_#{System.unique_integer([:positive])}")
 
+    File.mkdir_p!(directory)
+    script = Path.join(directory, "example.exs")
+    File.write!(script, expression)
+
     paths = Enum.flat_map(:code.get_path(), fn path -> ["-pa", to_string(path)] end)
 
     name =
@@ -48,7 +52,7 @@ defmodule Examples.ALMnesia do
       {output, status} =
         System.cmd(
           System.find_executable("elixir"),
-          paths ++ name ++ ["-e", expression],
+          paths ++ name ++ [script],
           env: [
             {"AL_MNESIA_DIR", directory},
             {"AL_MNESIA_DISTRIBUTED", "true"},

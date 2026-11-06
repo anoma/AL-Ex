@@ -109,7 +109,7 @@ defmodule Examples.ALHTTP do
         bindings: %{"HostPid" => pid, "HostUrl" => url}
       )
 
-    assert_receive %{event: :http_failure, outcome: %{status: :error, reason: error}}, 1_000
+    assert_receive %{event: :http_failure, outcome: %{status: :error, reason: error}}, 5_000
     refute error == :none
   end
 

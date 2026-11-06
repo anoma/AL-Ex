@@ -94,8 +94,7 @@ defmodule AL.JAM.IR.Dataflow do
       |> Enum.with_index()
       |> Enum.map_reduce({facts, MapSet.new(), MapSet.new(), %{}, %{}}, fn {op, index},
                                                                            {facts, uses, defs,
-                                                                            removable,
-                                                                            inferred} ->
+                                                                            removable, inferred} ->
         {op, next, defined, inference} = transfer(op, facts, state.rewrite)
         reads = MapSet.difference(variables(op), defined)
         uses = MapSet.union(uses, MapSet.difference(reads, defs))

@@ -665,8 +665,7 @@ defmodule Examples.ALSourceInput do
       assert length(history) == 2
 
       assert {:oapply, ^method_id, ^old_clause_seq, _old_row_seq, ^old_command_t, closed_at,
-              ^old_head,
-              _old_body} =
+              ^old_head, _old_body} =
                Enum.find(history, fn
                  {:oapply, ^method_id, _seq, _row_seq, ^old_command_t, _tx_to, _head, _body} ->
                    true
@@ -678,8 +677,7 @@ defmodule Examples.ALSourceInput do
       assert is_integer(closed_at)
 
       assert {:oapply, ^method_id, ^current_clause_seq, _new_row_seq, ^current_command_t, :open,
-              _new_head,
-              _new_body} =
+              _new_head, _new_body} =
                Enum.find(history, fn
                  {:oapply, ^method_id, _seq, _row_seq, ^current_command_t, :open, _head, _body} ->
                    true
