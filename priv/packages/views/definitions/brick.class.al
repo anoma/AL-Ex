@@ -14,21 +14,6 @@ join Properties Body,
 format "<~a>~a</~a>" [Tag, Body, Tag] Text,
 cut.
 
-brick >> properties_xaml
-| _Self [] [] |.
-
-brick >> properties_xaml
-| Self [[Name, Spec] . Rest] Properties |
-{
-  get Spec xaml Renderer,
-  get Self Name Value -> pass ; get Spec default Value
-} -> {
-  new Renderer #{owner => Self, spec => Spec} View,
-  render View Value Property,
-  = Properties [Property . Tail],
-  properties_xaml Self Rest Tail
-} ; properties_xaml Self Rest Properties.
-
 brick >> init
 | Self Args Self |
 call_next_method Self Args Self,
@@ -87,3 +72,18 @@ brick >> elements_are
 | Self [Element . Rest] Type |
 isa Element Type,
 freeze Rest (elements_are Self Rest Type).
+
+brick >> properties_xaml
+| _Self [] [] |.
+
+brick >> properties_xaml
+| Self [[Name, Spec] . Rest] Properties |
+{
+  get Spec xaml Renderer,
+  get Self Name Value -> pass ; get Spec default Value
+} -> {
+  new Renderer #{owner => Self, spec => Spec} View,
+  render View Value Property,
+  = Properties [Property . Tail],
+  properties_xaml Self Rest Tail
+} ; properties_xaml Self Rest Properties.

@@ -27,8 +27,8 @@
     },
     #{name => font_size, xaml => xaml_literal_property},
     #{
-      name => font_family,
       default => "Fira Code,avares://Aguil/Assets/Fonts#Fira Code",
+      name => font_family,
       xaml => xaml_literal_property
     },
     #{name => padding, xaml => xaml_literal_property},

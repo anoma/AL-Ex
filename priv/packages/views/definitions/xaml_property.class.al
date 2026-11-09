@@ -5,12 +5,6 @@ xaml_property >> to_xaml
 | Self Text |
 slot_value Self Value -> render Self Value Text ; = Text "".
 
-xaml_property >> render
-| Self Value Text |
-xaml_name Self Name,
-xaml_content Self Value Content,
-format "<~a>~a</~a>" [Name, Content, Name] Text.
-
 xaml_property >> slot_value
 | Self Value |
 get_slots Self #{owner => Owner, spec => Spec},
@@ -115,3 +109,9 @@ xaml_property >> xml_entity
 
 xaml_property >> xml_entity
 | _Self 13 "&#13;" |.
+
+xaml_property >> render
+| Self Value Text |
+xaml_name Self Name,
+xaml_content Self Value Content,
+format "<~a>~a</~a>" [Name, Content, Name] Text.
