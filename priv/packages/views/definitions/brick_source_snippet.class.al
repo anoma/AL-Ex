@@ -7,7 +7,8 @@
 brick_source_snippet >> init
 | Self Args Self |
 get Args source_record Source,
-new source_edit #{source_record => Source, folded => false} Edit,
+new snippet_fold #{folded => false} Fold,
+new source_edit #{source_record => Source, folds => [Fold]} Edit,
 put Args edit Edit Fields,
 call_next_method Self Fields Self.
 

@@ -8,7 +8,7 @@
     #{name => grammar, type => string},
     #{name => revert_action},
     #{name => save_action},
-    #{default => true, domain => [false, true], name => folded},
+    #{name => folds, type => list},
     #{name => fold_action},
     #{domain => [false, true], name => can_save},
     #{name => error, type => string}
@@ -17,7 +17,10 @@
 
 source_edit >> init
 | Self Args Self |
-call_next_method Self Args Self,
+new snippet_fold #{} Default,
+get Args folds [Default] Folds,
+put Args folds Folds Fields,
+call_next_method Self Fields Self,
 get Self source_record Source,
 get_slots Source #{text => Text, grammar => Grammar},
 lambda [] Revert (revert Self),
@@ -31,7 +34,23 @@ set_slots Self #{
 
 source_edit >> toggle_fold
 | Self |
-get Self folded true -> set_slot Self folded false ; set_slot Self folded true.
+get Self folds Folds,
+lambda [Fold, UpdatedFold] Toggle {
+  get Fold folded true -> put Fold folded false UpdatedFold ; put Fold folded true UpdatedFold
+},
+map Folds Toggle Updated,
+set_slot Self folds Updated.
+
+source_edit >> set_slot
+| Self Key Value |
+call_next_method Self Key Value,
+member [text, folds] Key -> {
+  get_slots Self #{text => Text, folds => Folds} -> {
+    lambda [Fold, UpdatedFold] Refresh {refresh Fold Text UpdatedFold},
+    map Folds Refresh Updated,
+    call_next_method Self folds Updated
+  } ; pass
+} ; pass.
 
 source_edit >> save
 | Self |

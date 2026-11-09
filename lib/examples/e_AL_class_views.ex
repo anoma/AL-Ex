@@ -177,6 +177,30 @@ defmodule Examples.ALClassViews do
     %{draft: values["$Draft"], reverted: values["$Reverted"]}
   end
 
+  example folding_data() do
+    values =
+      evaluate(~S"""
+      new source_text #{target => object, label => "Folds", text => "a\nbc"} Source.
+      new editor_fold #{start => 0, end => 1, title => "Fixed", folded => false} Fixed.
+      new snippet_fold #{} Tail.
+      new source_edit #{source_record => Source, folds => [Fixed, Tail]} Edit.
+      get Edit folds Before.
+      set_slot Edit folds [Fixed, Tail].
+      get Edit folds Assigned.
+      toggle_fold Edit.
+      set_slots Edit #{text => "😀a\r\nbody"}.
+      get Edit folds After.
+      """)
+
+    assert values["$Assigned"] == values["$Before"]
+    [fixed, tail] = values["$Before"]
+    [updated_fixed, updated_tail] = values["$After"]
+    assert %{start: 1, end: 4} = tail
+    assert updated_fixed == %{fixed | folded: true}
+    assert updated_tail == %{tail | start: 3, end: 9, folded: false}
+    %{before: values["$Before"], after: values["$After"]}
+  end
+
   example delete_method() do
     values =
       evaluate(
