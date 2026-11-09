@@ -101,6 +101,10 @@ defmodule AL.JAM.Mutation do
   def execute({:set_slot, object, _, _}, state, _origin, _bindings) when is_map(object), do: state
 
   def execute({:set_slot, o, k, v}, state, _origin, _bindings) do
+    unless is_atom(o) do
+      raise ArgumentError, "set_slot requires an atom durable identity, got: #{inspect(o)}"
+    end
+
     store = AL.Dispatch.ivar_storage(o, k, state.branch)
     state = write(state, :set_slot, [o, k, v, store])
 
