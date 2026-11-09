@@ -15,4 +15,4 @@ single_layout >> resize
 visible_extent Wm Visible,
 get Self windows Windows,
 get Windows contents Items,
-forall (member Items Window) (set_slot Window extent Visible).
+forall {member Items Window} {set_slot Window extent Visible}.
