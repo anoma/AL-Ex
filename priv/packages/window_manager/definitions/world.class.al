@@ -5,7 +5,7 @@ world >> context_menu
 | Self Wm Menu |
 findall Item Items {
   window_entry Self Label View,
-  lambda [] Open (new_window Wm #{content => View} _ _),
+  lambda [] Open (new_window Wm #{content => View}),
   new brick_menu_item #{header => Label, command => Open} Item
 },
 new brick_context_menu #{items => Items} Menu.
@@ -23,4 +23,4 @@ world >> new_workspace
 | Self Visible Wm |
 new wm #{visible_extent => Visible} Wm,
 window_entry Self "REPL" View,
-new_window Wm #{content => View} _ _.
+new_window Wm #{content => View}.

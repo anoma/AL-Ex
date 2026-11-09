@@ -3,6 +3,7 @@
   super => brick_control,
   ivars => [
     #{name => content, xaml => xaml_content_property},
+    #{name => content_template, xaml => xaml_static_property},
     #{name => horizontal_content_alignment, xaml => xaml_literal_property},
     #{name => vertical_content_alignment, xaml => xaml_literal_property},
     #{name => padding, xaml => xaml_literal_property},

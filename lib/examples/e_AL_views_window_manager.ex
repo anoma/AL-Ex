@@ -17,27 +17,25 @@ defmodule Examples.ALViewsWindowManager do
   end
 
   example empty_window_manager() do
-    evaluate(
-      ~S"""
-      new point #{} Total.
-      new single_layout #{windows => []} Layout.
-      new wm #{layout => Layout, visible_extent => Visible, total_extent => Total} Wm.
-      """,
-      %{"Visible" => point(800, 600)}
-    )["$Wm"]
+    evaluate(~S(new wm #{visible_extent => Visible} Wm.), %{"Visible" => point(800, 600)})[
+      "$Wm"
+    ]
   end
 
   example resized_window_manager() do
     wm = empty_window_manager()
 
     values =
-      evaluate("viewport_changed Wm Updated Changed Removed.", %{
-        "Wm" => wm,
-        "Updated" => point(1200, 900)
-      })
+      evaluate(
+        "viewport_changed Wm Updated, get Wm visible_extent Actual, get Wm layout Layout, get Layout windows Windows, get Windows contents Contents.",
+        %{
+          "Wm" => wm,
+          "Updated" => point(1200, 900)
+        }
+      )
 
-    assert values["$Changed"] == []
-    assert values["$Removed"] == []
+    assert values["$Actual"] == values["$Updated"]
+    assert values["$Contents"] == []
     wm
   end
 
