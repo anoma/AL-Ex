@@ -31,8 +31,9 @@ defmodule AL do
   Executes AL source text in one transaction.
 
   `bindings:` supplies initial values for named AL variables. `branch:` selects
-  a branch, and `trace:` selects retained trace families. The returned `%AL{}`
-  contains the transaction's result and its explicitly awaited completions.
+  a branch, and `trace:` selects retained trace families. `failure: :bare`
+  returns a failure without its trace and leaves it unrecorded. The returned
+  `%AL{}` contains the transaction's result and its explicitly awaited completions.
   `wait_timeout:` limits each wait in milliseconds (default 5,000) or is `:infinity`.
   A child's failure or timeout leaves its parent's committed result intact.
   """

@@ -3,13 +3,14 @@ defmodule AL.Runner.Driver do
 
   # Evaluate the AL program
   def eval_program(program, initial_store, branch, opts, source) do
-    Keyword.validate!(opts, [:trace, :run, :caused_by, :transaction_object])
+    Keyword.validate!(opts, [:trace, :run, :caused_by, :transaction_object, :failure])
 
     store = initial_store || AL.Var.empty_store()
     input_vars = observable_vars(program)
     trace_flags = AL.Trace.flags_from_options!(opts)
     lineage = Map.new(Keyword.take(opts, [:run, :caused_by]))
     reserved_transaction = Keyword.get(opts, :transaction_object)
+    failure_mode = Keyword.get(opts, :failure, :recorded)
 
     result =
       :mnesia.transaction(fn ->
@@ -31,7 +32,7 @@ defmodule AL.Runner.Driver do
             })
 
           if result.active_choicepoint.store == nil do
-            :mnesia.abort(AL.Diagnostics.format_failure(result))
+            :mnesia.abort(AL.Diagnostics.format_failure(result, failure_mode))
           else
             if map_size(source_refs) > 0, do: AL.Source.validate_provenance(result)
 
@@ -63,6 +64,9 @@ defmodule AL.Runner.Driver do
 
     case result do
       {:atomic, _} ->
+        result
+
+      {:aborted, _failure} when failure_mode == :bare ->
         result
 
       {:aborted, reason} ->
