@@ -57,7 +57,7 @@ defmodule ALMCPProtocolTest do
     tools_by_name = Map.new(tools, &{&1["name"], &1})
 
     assert tools_by_name["evaluate"]["inputSchema"]["properties"] |> Map.keys() |> Enum.sort() ==
-             ["expression", "maxLength"]
+             ["context", "expression", "maxLength"]
 
     assert "context" in tools_by_name["queryAL"]["outputSchema"]["required"]
 
@@ -130,8 +130,9 @@ defmodule ALMCPProtocolTest do
         assert is_binary(context)
 
         inspection = %{
+          "context" => context,
           "expression" =>
-            "state = AL.MCP.Contexts.resolve(#{inspect(context)})\n{state.__struct__, state.branch.id, AL.Var.subst(AL.Var.var(\"Choice\"), state.active_choicepoint.store)}"
+            "{context.__struct__, context.branch.id, AL.Var.subst(AL.Var.var(\"Choice\"), context.active_choicepoint.store)}"
         }
 
         expected = inspect({AL.JAM.State, branch.id, :first})
@@ -167,8 +168,8 @@ defmodule ALMCPProtocolTest do
 
         failure_state =
           tool_result("evaluate", %{
-            "expression" =>
-              "AL.MCP.Contexts.resolve(#{inspect(exhausted["structuredContent"]["context"])}).active_choicepoint.store == nil"
+            "context" => exhausted["structuredContent"]["context"],
+            "expression" => "context.active_choicepoint.store == nil"
           })
 
         assert failure_state["content"] == [%{"type" => "text", "text" => "true"}]
@@ -234,6 +235,32 @@ defmodule ALMCPProtocolTest do
              tool_result("releaseContext", %{"context" => context})["structuredContent"]
 
     assert tool_result("hasPotentialSolution", %{"context" => context})["isError"]
+  end
+
+  test "evaluate preserves sharing in retained states", %{baseline: baseline} do
+    result =
+      tool_result("evaluate", %{
+        "expression" => """
+        %AL{result: {:atomic, {_, _, state}}} = AL.run("= Answer 42.", #{inspect(baseline)})
+        shared = Enum.reduce(1..18, [:payload], fn _, term -> [term, term] end)
+        %{state | post_commit_work: %{shared: shared, owner: self()}}
+        """
+      })
+
+    refute result["isError"]
+    context = result["structuredContent"]["context"]
+
+    inspection =
+      tool_result("evaluate", %{
+        "context" => context,
+        "expression" => """
+        [left, right] = context.post_commit_work.shared
+        self() == context.post_commit_work.owner and :erts_debug.same(left, right)
+        """
+      })
+
+    assert inspection["content"] == [%{"type" => "text", "text" => "true"}]
+    tool_result("releaseContext", %{"context" => context})
   end
 
   test "potential solutions do not advance execution or promise a successful alternative", %{
@@ -315,7 +342,7 @@ defmodule ALMCPProtocolTest do
            }
 
     copy =
-      tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.resolve(#{inspect(context)})"})
+      tool_result("evaluate", %{"context" => context, "expression" => "context"})
 
     retained = copy["structuredContent"]["context"]
     assert copy["structuredContent"]["hasPotentialSolution"] == false
@@ -323,13 +350,14 @@ defmodule ALMCPProtocolTest do
     refute retained == context
 
     released =
-      tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.release(#{inspect(context)})"})
+      tool_result("releaseContext", %{"context" => context})
 
     refute released["isError"]
 
     missing =
       tool_result("evaluate", %{
-        "expression" => "AL.MCP.Contexts.resolve(#{inspect(context)})\nraise \"must not run\""
+        "context" => context,
+        "expression" => "raise \"must not run\""
       })
 
     assert missing["isError"]
@@ -345,15 +373,15 @@ defmodule ALMCPProtocolTest do
     end
 
     refute tool_result("evaluate", %{
-             "expression" =>
-               "is_struct(AL.MCP.Contexts.resolve(#{inspect(retained)}), AL.JAM.State)"
+             "context" => retained,
+             "expression" => "is_struct(context, AL.JAM.State)"
            })["isError"]
 
     :ok = Supervisor.terminate_child(AL.MCP, AL.MCP.Contexts)
     {:ok, _pid} = Supervisor.restart_child(AL.MCP, AL.MCP.Contexts)
 
     restarted =
-      tool_result("evaluate", %{"expression" => "AL.MCP.Contexts.resolve(#{inspect(retained)})"})
+      tool_result("evaluate", %{"context" => retained, "expression" => "context"})
 
     assert restarted["isError"]
 
@@ -370,8 +398,8 @@ defmodule ALMCPProtocolTest do
 
       inspected =
         tool_result("evaluate", %{
-          "expression" =>
-            "is_struct(AL.MCP.Contexts.resolve(#{inspect(failed["structuredContent"]["context"])}), AL.JAM.State)"
+          "context" => failed["structuredContent"]["context"],
+          "expression" => "is_struct(context, AL.JAM.State)"
         })
 
       assert inspected["content"] == [%{"type" => "text", "text" => "true"}]

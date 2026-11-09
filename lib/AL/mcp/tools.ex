@@ -81,13 +81,17 @@ defmodule AL.MCP.Tools do
       "name" => "evaluate",
       "title" => "Evaluate Elixir",
       "description" =>
-        "Evaluates Elixir inside the live AL owner node. Resolve returned context IDs with AL.MCP.Contexts.resolve(id), for example AL.MCP.Contexts.resolve(id) |> AL.next_solution(). AL results return bindings, constraints, and another context ID. Release unused IDs with releaseContext. It can mutate runtime state; prefer semantic tools for ordinary inspection and evaluateSource for AL definitions.",
+        "Evaluates Elixir inside the live AL owner node. Pass a context ID to bind its AL state as context, for example AL.next_solution(context). AL results return bindings, constraints, and another context ID. Release unused IDs with releaseContext. It can mutate runtime state; prefer semantic tools for ordinary inspection and evaluateSource for AL definitions.",
       "inputSchema" =>
         object_schema(
           %{
             "expression" => %{
               "type" => "string",
               "description" => "Elixir expression to evaluate"
+            },
+            "context" => %{
+              "type" => "string",
+              "description" => "Retained AL context ID to bind as context"
             },
             "maxLength" => max_length_schema()
           },
@@ -507,8 +511,11 @@ defmodule AL.MCP.Tools do
     with {:ok, expression} <- required_string(arguments, "expression"),
          {:ok, max_length} <- max_length(arguments) do
       try do
-        {result, _binding} = Code.eval_string(@evaluation_prelude <> expression, [], file: "mcp")
-        evaluation_result(result, max_length)
+        AL.MCP.Contexts.run(arguments["context"], fn context, id ->
+          bindings = if context, do: [context: context], else: []
+          {result, _} = Code.eval_string(@evaluation_prelude <> expression, bindings, file: "mcp")
+          {evaluation_result(result, id, max_length), state(result)}
+        end)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
       catch
@@ -521,21 +528,23 @@ defmodule AL.MCP.Tools do
 
   defp evaluation_result(
          %AL{result: {:atomic, {_, _, %AL.JAM.State{branch: branch}}}} = result,
+         id,
          max_length
        ),
-       do: query_source_result(result, branch, max_length)
+       do: query_source_result(result, branch, id, max_length)
 
   defp evaluation_result(
          %AL{result: {:aborted, %{state: %AL.JAM.State{branch: branch}}}} = result,
+         id,
          max_length
        ),
-       do: query_source_result(result, branch, max_length)
+       do: query_source_result(result, branch, id, max_length)
 
-  defp evaluation_result(%AL.JAM.State{} = context, max_length) do
+  defp evaluation_result(%AL.JAM.State{} = context, id, max_length) do
     tooling_result(
       {:ok,
        %{
-         "context" => AL.MCP.Contexts.retain(context),
+         "context" => id,
          "hasPotentialSolution" => AL.has_potential_solution?(context),
          "branch" => to_string(context.branch.id)
        }},
@@ -543,16 +552,17 @@ defmodule AL.MCP.Tools do
     )
   end
 
-  defp evaluation_result(result, max_length), do: success(inspect_term(result, max_length))
+  defp evaluation_result(result, _id, max_length), do: success(inspect_term(result, max_length))
 
   defp evaluate_source(arguments) do
     with {:ok, source} <- required_string(arguments, "source"),
          {:ok, branch} <- resolve_branch(Map.get(arguments, "branch")),
          {:ok, max_length} <- max_length(arguments) do
       try do
-        source
-        |> AL.run(branch)
-        |> source_result(branch, max_length)
+        AL.MCP.Contexts.run(fn _context, id ->
+          result = AL.run(source, branch)
+          {source_result(result, branch, id, max_length), state(result)}
+        end)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
       catch
@@ -570,9 +580,10 @@ defmodule AL.MCP.Tools do
          {:ok, source_tag} <- source_tag(Map.get(arguments, "sourceTag")),
          {:ok, max_length} <- max_length(arguments) do
       try do
-        source
-        |> AL.run(branch, bindings: bindings, source_tag: source_tag)
-        |> query_source_result(branch, max_length)
+        AL.MCP.Contexts.run(fn _context, id ->
+          result = AL.run(source, branch, bindings: bindings, source_tag: source_tag)
+          {query_source_result(result, branch, id, max_length), state(result)}
+        end)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
       catch
@@ -603,11 +614,17 @@ defmodule AL.MCP.Tools do
   defp source_tag(_), do: {:error, "sourceTag must be a string of at most 64 bytes"}
 
   defp has_potential_solution(arguments) do
-    with {:ok, context} <- resolve_context(arguments) do
-      tooling_result(
-        {:ok, %{"hasPotentialSolution" => AL.has_potential_solution?(context)}},
-        @default_max_length
-      )
+    with {:ok, id} <- required_string(arguments, "context") do
+      try do
+        potential =
+          AL.MCP.Contexts.run(id, fn context, _id ->
+            {AL.has_potential_solution?(context), nil}
+          end)
+
+        tooling_result({:ok, %{"hasPotentialSolution" => potential}}, @default_max_length)
+      rescue
+        exception in ArgumentError -> failure(Exception.message(exception))
+      end
     else
       {:error, message} -> failure(message)
     end
@@ -624,11 +641,12 @@ defmodule AL.MCP.Tools do
 
   defp next_solution(arguments) do
     with {:ok, max_length} <- max_length(arguments),
-         {:ok, context} <- resolve_context(arguments) do
+         {:ok, id} <- required_string(arguments, "context") do
       try do
-        context
-        |> AL.next_solution()
-        |> query_source_result(context.branch, max_length)
+        AL.MCP.Contexts.run(id, fn context, id ->
+          result = AL.next_solution(context)
+          {query_source_result(result, context.branch, id, max_length), state(result)}
+        end)
       rescue
         exception -> failure(Exception.format(:error, exception, __STACKTRACE__), max_length)
       catch
@@ -636,16 +654,6 @@ defmodule AL.MCP.Tools do
       end
     else
       {:error, message} -> failure(message)
-    end
-  end
-
-  defp resolve_context(arguments) do
-    with {:ok, id} <- required_string(arguments, "context") do
-      try do
-        {:ok, AL.MCP.Contexts.resolve(id)}
-      rescue
-        exception in ArgumentError -> {:error, Exception.message(exception)}
-      end
     end
   end
 
@@ -823,10 +831,11 @@ defmodule AL.MCP.Tools do
            children: children
          },
          branch,
+         id,
          max_length
        ) do
     result =
-      transaction_summary("committed", branch, state)
+      transaction_summary("committed", branch, state, id)
       |> Map.merge(AL.MCP.Term.encode_bindings(bindings, constraints))
       |> Map.put("children", Enum.map(children, &outcome_summary/1))
 
@@ -836,12 +845,12 @@ defmodule AL.MCP.Tools do
     |> success(result)
   end
 
-  defp query_source_result(%AL{result: {:aborted, reason}}, branch, max_length) do
+  defp query_source_result(%AL{result: {:aborted, reason}}, branch, id, max_length) do
     state = if is_map(reason), do: Map.get(reason, :state), else: nil
     encoded_reason = reason |> failure_reason() |> AL.MCP.Term.encode()
 
     result =
-      transaction_summary("failed", branch, state)
+      transaction_summary("failed", branch, state, id)
       |> Map.put("bindings", [])
       |> Map.put("constraints", [])
       |> Map.put("reason", encoded_reason)
@@ -851,7 +860,7 @@ defmodule AL.MCP.Tools do
     |> failure(max_length, result)
   end
 
-  defp query_source_result({:error, reason}, branch, max_length) do
+  defp query_source_result({:error, reason}, branch, _id, max_length) do
     text = Exception.message(reason)
 
     failure(text, max_length, %{
@@ -865,7 +874,7 @@ defmodule AL.MCP.Tools do
     })
   end
 
-  defp query_source_result(other, branch, max_length) do
+  defp query_source_result(other, branch, _id, max_length) do
     failure("Unexpected AL result: #{inspect_term(other, max_length)}", max_length, %{
       "status" => "error",
       "branch" => to_string(branch.id),
@@ -886,9 +895,10 @@ defmodule AL.MCP.Tools do
            children: children
          },
          branch,
+         id,
          max_length
        ) do
-    summary = transaction_summary("committed", branch, state)
+    summary = transaction_summary("committed", branch, state, id)
 
     text =
       "Committed #{summary["transactionId"]}\nContext: #{summary["context"]}\nPotential solution: #{summary["hasPotentialSolution"]}\nBindings: #{inspect_term(bindings, max_length)}\nConstraints: #{inspect_term(constraints, max_length)}"
@@ -902,9 +912,9 @@ defmodule AL.MCP.Tools do
     success(text, result)
   end
 
-  defp source_result(%AL{result: {:aborted, reason}}, branch, max_length) do
+  defp source_result(%AL{result: {:aborted, reason}}, branch, id, max_length) do
     state = if is_map(reason), do: Map.get(reason, :state), else: nil
-    summary = transaction_summary("failed", branch, state)
+    summary = transaction_summary("failed", branch, state, id)
     reason = if is_map(reason), do: Map.delete(reason, :state), else: reason
 
     text =
@@ -913,7 +923,7 @@ defmodule AL.MCP.Tools do
     failure(text, max_length, Map.put(summary, "reason", inspect_term(reason, max_length)))
   end
 
-  defp source_result({:error, reason}, branch, max_length) do
+  defp source_result({:error, reason}, branch, _id, max_length) do
     text = Exception.message(reason)
 
     failure(text, max_length, %{
@@ -925,7 +935,7 @@ defmodule AL.MCP.Tools do
     })
   end
 
-  defp source_result(other, branch, max_length) do
+  defp source_result(other, branch, _id, max_length) do
     failure("Unexpected AL result: #{inspect_term(other, max_length)}", max_length, %{
       "status" => "error",
       "branch" => to_string(branch.id),
@@ -948,18 +958,18 @@ defmodule AL.MCP.Tools do
     }
   end
 
-  defp transaction_summary(status, branch, %AL.JAM.State{} = state) do
+  defp transaction_summary(status, branch, %AL.JAM.State{} = state, id) do
     %{
       "status" => status,
       "branch" => to_string(branch.id),
       "transactionId" => format_id(state.transaction_object),
       "commandTransaction" => state.tx_id,
-      "context" => AL.MCP.Contexts.retain(state),
+      "context" => id,
       "hasPotentialSolution" => AL.has_potential_solution?(state)
     }
   end
 
-  defp transaction_summary(status, branch, _state) do
+  defp transaction_summary(status, branch, _state, _id) do
     %{
       "status" => status,
       "branch" => to_string(branch.id),
@@ -968,6 +978,11 @@ defmodule AL.MCP.Tools do
       "context" => nil
     }
   end
+
+  defp state(%AL{result: {:atomic, {_, _, %AL.JAM.State{} = state}}}), do: state
+  defp state(%AL{result: {:aborted, %{state: %AL.JAM.State{} = state}}}), do: state
+  defp state(%AL.JAM.State{} = state), do: state
+  defp state(_), do: nil
 
   defp resolve_branch(nil), do: {:ok, AL.Branch.head()}
 
