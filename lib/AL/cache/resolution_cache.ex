@@ -95,6 +95,9 @@ defmodule AL.ResolutionCache do
   end
 
   @spec fetch_providers(AL.Branch.t(), tuple(), (-> term())) :: term()
+  def fetch_providers(_branch, {_receiver, selector}, compute) when not is_atom(selector),
+    do: compute.()
+
   def fetch_providers(branch, {receiver, selector}, compute) do
     table = table(:providers, branch)
     local? = new_receiver?(branch, receiver)

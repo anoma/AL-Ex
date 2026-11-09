@@ -46,6 +46,23 @@ defmodule AL.ProviderInvalidationTest do
     rows
   end
 
+  test "lambda selectors do not accumulate in provider groups", %{branch: branch} do
+    for captured <- 1..20 do
+      assert %AL{result: {:atomic, {bindings, _, _}}} =
+               AL.run(
+                 "lambda [X, Y] F {= Y Captured}, map [1, 2, 3] F Values.",
+                 branch: branch,
+                 bindings: %{"Captured" => captured}
+               )
+
+      assert bindings["$Values"] == List.duplicate(captured, 3)
+    end
+
+    for {:providers, _, selectors} <- cache({:instance, :number}, branch),
+        selector <- Map.keys(selectors),
+        do: assert(is_atom(selector))
+  end
+
   test "transaction recording preserves unrelated receiver groups and selectors", %{
     branch: branch
   } do

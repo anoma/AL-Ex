@@ -302,6 +302,33 @@ defmodule Examples.ALPlanStore do
     end)
   end
 
+  example missing_implementations_do_not_exclude_another_reader() do
+    with_branch(fn branch ->
+      parent = self()
+
+      readers =
+        for _ <- 1..2 do
+          Task.async(fn ->
+            transaction(fn ->
+              assert PlanStore.fetch(branch, :store_probe, %{}, fn -> nil end) == nil
+              send(parent, {:reading, self()})
+
+              receive do
+                :release -> :ok
+              end
+            end)
+          end)
+        end
+
+      try do
+        for _ <- readers, do: assert_receive({:reading, _}, 5_000)
+      after
+        for reader <- readers, do: send(reader.pid, :release)
+        for reader <- readers, do: assert({:atomic, :ok} = Task.await(reader))
+      end
+    end)
+  end
+
   example variants_keep_newest_first_order_when_replaced() do
     with_branch(fn branch ->
       assert {:atomic, [:third, :second, :first]} =
