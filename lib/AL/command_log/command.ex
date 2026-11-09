@@ -195,12 +195,15 @@ defmodule AL.Command do
        preference (`config/dev.exs` etc.), loaded before boot.
     2. The `AL_MNESIA_DIR` env var — no config file needed at all, e.g.
        `AL_MNESIA_DIR=/tmp/my-store mix test`.
-    3. `.mnesiastore/` in the host's cwd, the default.
+    3. The default in the host's cwd: `.mnesiastore/` for the shared owner
+       `al@127.0.0.1`, `.mnesiastore-<node>/` for any other owner, since a
+       Mnesia schema belongs to the node name that created it.
   """
   @spec mnesia_dir() :: String.t()
   def mnesia_dir(),
     do:
-      Application.get_env(:al, :mnesia_dir) || System.get_env("AL_MNESIA_DIR") || ".mnesiastore/"
+      Application.get_env(:al, :mnesia_dir) || System.get_env("AL_MNESIA_DIR") ||
+        owner_dir(owner_node())
 
   @doc """
   A joining process's own local Mnesia directory — distinct from
@@ -214,15 +217,20 @@ defmodule AL.Command do
 
   @owner_node :"al@127.0.0.1"
 
+  defp owner_dir(@owner_node), do: ".mnesiastore/"
+  defp owner_dir(owner), do: ".mnesiastore-#{owner}/"
+
   # Whether this process joins the distributed-Erlang dance in
   # `become_or_join_owner/0` at all. Defaults to true; set the
   # `AL_MNESIA_DISTRIBUTED=false` env var to skip it and just become a local,
   # non-distributed owner instead — for a CI runner with no epmd/hostname
   # resolution to share a store with anyone else, not for normal local dev
   # (that's exactly what lets a `mix test` run, a live `iex -S mix`, and
-  # `bin/livebook` share one store — see `setup/0`).
-  @spec distributed?() :: boolean()
-  defp distributed?(), do: System.get_env("AL_MNESIA_DISTRIBUTED") != "false"
+  # `bin/livebook` share one store — see `setup/0`). A short-named node never
+  # joins: distributed Erlang can't connect it to the long-named owner.
+  @spec shares_store?() :: boolean()
+  defp shares_store?(),
+    do: System.get_env("AL_MNESIA_DISTRIBUTED") != "false" and :net_kernel.longnames() != false
 
   @doc "The durable owner selected during setup, including an already named local node."
   @spec owner_node() :: node()
@@ -230,7 +238,7 @@ defmodule AL.Command do
     do:
       :persistent_term.get(
         {__MODULE__, :owner_node},
-        if(distributed?(), do: @owner_node, else: node())
+        if(shares_store?(), do: @owner_node, else: node())
       )
 
   @doc """
@@ -293,7 +301,7 @@ defmodule AL.Command do
   @spec become_or_join_owner() :: :owner | :joined
   defp become_or_join_owner() do
     cond do
-      not distributed?() ->
+      not shares_store?() ->
         :owner
 
       node() == @owner_node ->
