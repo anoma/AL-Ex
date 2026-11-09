@@ -113,4 +113,26 @@ defmodule AL.JAM.NewPlanTest do
     assert ordinary["$Result"] == traced["$Result"]
     assert ordinary_constraints == traced_constraints
   end
+
+  test "ivar guards preserve constraints and optional lookup alternatives", %{branch: branch} do
+    source = ~S"""
+    findall [Key, Value] Entries {get_optional #{a => 1, b => 2} Key Value}.
+    get_optional #{a => 1} missing Missing, = Missing still_open.
+    not (get_optional #{a => 1} a 2).
+    validate_ivar_type object #{type => number} Typed, = Typed 7.
+    validate_ivar_domain object #{domain => [a, b]} Choice.
+    findall Choice Choices {label Choice}.
+    include_durable_slot #{} count 7 Slots.
+    lambda [Value] Callback {= Value 7}.
+    include_durable_slot Slots callback Callback _WithCallback.
+    """
+
+    assert %AL{result: {:atomic, {bindings, _, state}}} = AL.run(source, branch)
+    assert Enum.sort(bindings["$Entries"]) == [[:a, 1], [:b, 2]]
+    assert bindings["$Missing"] == :still_open
+    assert bindings["$Typed"] == 7
+    assert Enum.sort(bindings["$Choices"]) == [:a, :b]
+    assert bindings["$Slots"] == %{count: 7}
+    refute AL.has_potential_solution?(state)
+  end
 end
