@@ -18,7 +18,7 @@ defmodule AL.Diagnostics do
       state: %AL.JAM.State{
         state
         | trace: %AL.Trace{state.trace | events: raw_tail},
-          choicepoint_stack: []
+          search_stack: []
       }
     }
   end

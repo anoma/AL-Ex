@@ -195,6 +195,31 @@ defmodule AL.JAM.LoopTest do
     assert map_size(state.active_choicepoint.store) < 10
   end
 
+  test "method edits can move the list argument of an optimized loop", %{branch: branch} do
+    assert {:atomic, %{"$Output" => [10, 99]}} =
+             :mnesia.transaction(fn ->
+               AL.ResolutionCache.with_transaction_cache(fn ->
+                 assert {:atomic, {%{"$Output" => [10, 99]}, _, _}} = copy(branch, [10], [99])
+
+                 {:ok, parsed} =
+                   AL.Syntax.parse(~S"""
+                   loop_probe >> copy
+                   | _Self Tail [] Tail |.
+                   loop_probe >> copy
+                   | Self Tail [Value . Values] [Value . Rest] |
+                   accept Self Value,
+                   copy Self Tail Values Rest.
+                   """)
+
+                 assert {:atomic, _} = AL.eval(parsed.program, nil, branch)
+
+                 assert {:atomic, {bindings, %{}, state}} = copy(branch, [99], [10])
+                 assert map_size(state.active_choicepoint.store) < 10
+                 bindings
+               end)
+             end)
+  end
+
   test "base-clause restrictions are not discarded", %{branch: branch} do
     %AL{result: {:atomic, _}} =
       AL.run(

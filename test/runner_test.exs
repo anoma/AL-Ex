@@ -34,7 +34,7 @@ defmodule AL.RunnerTest do
     assert {:atomic, {%{"$Effect" => effect}, _, state}} =
              receipt = AL.eval(parsed.program, nil, branch)
 
-    assert state.waits == [effect]
+    assert state.post_commit_work.waits == [effect]
     refute_receive {:requested, _, _, _}, 30
 
     caller = Task.async(fn -> AL.post_commit(receipt) end)
@@ -125,7 +125,7 @@ defmodule AL.RunnerTest do
              {bindings["$B"], {:ok, 2}}
            ]
 
-    assert length(state.waits) == 2
+    assert length(state.post_commit_work.waits) == 2
   end
 
   test "printing finishes before the runner returns", %{branch: branch} do

@@ -1,4 +1,6 @@
 defmodule AL.JAM.Registers do
+  alias AL.JAM.Instruction
+
   def specialize(code, locals, usage) do
     preserved = Enum.reduce(usage, MapSet.new(), &MapSet.union(&1.preserves, &2))
     fresh = MapSet.difference(MapSet.new(locals, &elem(&1, 0)), preserved)
@@ -31,11 +33,14 @@ defmodule AL.JAM.Registers do
     end
   end
 
-  defp writes_first?({:local, index, {name, _, _}}, index)
-       when name in [:eq, :unify_structural],
+  defp writes_first?({name, index, _, _}, index)
+       when name in [:eq_into, :unify_structural_into, :map_get_into],
        do: true
 
-  defp writes_first?({:local, index, {:map_put, _, _, _, _}}, index), do: true
+  defp writes_first?({name, index, _, _, _}, index)
+       when name in [:map_put_into, :slot_get_into, :primitive_into],
+       do: true
+
   defp writes_first?({:collect, _, {:destination, index}, _}, index), do: true
   defp writes_first?(_, _), do: false
 
@@ -82,7 +87,7 @@ defmodule AL.JAM.Registers do
            _ ->
              false
          end) do
-      {:register, index} -> {:local, index, operation}
+      {:register, index} -> Instruction.into(operation, index)
       nil -> operation
     end
   end
@@ -138,7 +143,7 @@ defmodule AL.JAM.Registers do
   end
 
   defp destination(operation, index, inputs, fresh) do
-    if eligible?(index, inputs, fresh), do: {:local, index, operation}, else: operation
+    if eligible?(index, inputs, fresh), do: Instruction.into(operation, index), else: operation
   end
 
   defp eligible?(index, inputs, fresh),

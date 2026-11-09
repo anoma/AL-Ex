@@ -188,9 +188,9 @@ build_status Self open,
 class Owner _Metaclass,
 include_contribution Self originated_classes Owner,
 findall Selector Selectors (method Owner Selector _Method),
-forall (member Selectors Selector) (include_method Self Owner Selector),
+forall {member Selectors Selector} {include_method Self Owner Selector},
 findall Superclass Superclasses (super Owner Superclass),
-forall (member Superclasses Superclass) (include_superclass Self Owner Superclass).
+forall {member Superclasses Superclass} {include_superclass Self Owner Superclass}.
 
 package_build >> include_contribution
 | Self Slot Contribution |

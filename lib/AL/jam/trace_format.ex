@@ -12,15 +12,45 @@ defmodule AL.JAM.Trace.Format do
   def instruction({:compare, op, left, right}),
     do: "compare #{operand(left)} #{op} #{operand(right)}"
 
+  def instruction({:compare, _, _, _, _} = operation),
+    do: instruction(AL.JAM.Instruction.general(operation))
+
+  def instruction({:dif, _, _, _} = operation),
+    do: instruction(AL.JAM.Instruction.general(operation))
+
   def instruction({:unify_structural, left, right}),
     do: "unify_structural #{operand(left)} = #{operand(right)}"
 
   def instruction({:eq, left, right}), do: "unify #{operand(left)} = #{operand(right)}"
-  def instruction({:local, dest, code}), do: "local R#{dest}: " <> instruction(code)
+
+  def instruction({name, dest, source, :left}) when name in [:eq_into, :unify_structural_into],
+    do: "#{name} R#{dest}: R#{dest} = #{operand(source)}"
+
+  def instruction({name, dest, source, :right}) when name in [:eq_into, :unify_structural_into],
+    do: "#{name} R#{dest}: #{operand(source)} = R#{dest}"
+
+  def instruction({:map_get_into, dest, map, key}),
+    do: "map_get_into R#{dest} <- #{operand(map)}[#{operand(key)}]"
+
+  def instruction({:slot_get_into, dest, object, key, storage}),
+    do:
+      "slot_get_into R#{dest} <- #{operand(object)}[#{operand(key)}]  storage: #{operand(storage)}"
+
+  def instruction({:map_put_into, dest, map, key, value}),
+    do: "map_put_into R#{dest} <- #{operand(map)}[#{operand(key)} => #{operand(value)}]"
+
+  def instruction({:primitive_into, dest, name, 0, input}),
+    do: "primitive_into R#{dest}: #{name} R#{dest} #{operand(input)}"
+
+  def instruction({:primitive_into, dest, name, 1, input}),
+    do: "primitive_into R#{dest}: #{name} #{operand(input)} R#{dest}"
+
   def instruction(op) when is_atom(op), do: Atom.to_string(op)
   def instruction(op), do: inspect(op, pretty: true, limit: :infinity, width: 100)
 
   def frame({:root, id}), do: "root/#{id}"
+  def frame({:cut_scope, _boundary, id}), do: frame(id)
+  def frame({:implies_scope, _boundary, id}), do: frame(id)
   def frame({:provider, method, cursor, _entry}), do: frame({:provider, method, cursor})
   def frame({:provider, method, {selector, _}}), do: "#{method} #{selector}"
   def frame({:provider, method, _}), do: to_string(method)
@@ -71,9 +101,7 @@ defmodule AL.JAM.Trace.Format do
   defp value({:"$fresh", base, scope}), do: value(base) <> "@#{scope}"
   defp value(term), do: inspect(term, charlists: :as_lists, limit: :infinity)
 
-  def dispatch(path, %{frame: frame, receiver_guard: guard, argument_transfers: transfers}) do
-    guard = if guard == :any, do: "dispatch key", else: inspect(guard)
-
+  def dispatch(path, %{frame: frame, assumptions: assumptions, argument_transfers: transfers}) do
     transfers =
       transfers
       |> Enum.sort()
@@ -90,7 +118,7 @@ defmodule AL.JAM.Trace.Format do
       end)
 
     transfers = if transfers == "", do: "", else: "\n    transfer #{transfers}"
-    "dispatch #{path} -> #{frame(frame)}  guard: #{guard}" <> transfers
+    "dispatch #{path} -> #{frame(frame)}  assumptions: #{inspect(assumptions)}" <> transfers
   end
 
   def dispatch(path, other), do: "dispatch #{path}: #{inspect(other)}"

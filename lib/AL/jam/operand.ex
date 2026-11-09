@@ -1,4 +1,7 @@
 defmodule AL.JAM.Operand do
+  @moduledoc """
+  """
+
   def compile(term, registers) do
     if (is_list(term) or is_map(term) or is_tuple(term)) and
          MapSet.size(AL.Var.find_vars(term)) == 0 do
@@ -67,8 +70,14 @@ defmodule AL.JAM.Operand do
 
   def resolve({:constant, term}, _registers, _store), do: term
 
-  def resolve({:register, index}, registers, store),
-    do: AL.Var.subst(elem(registers, index), store)
+  def resolve({:register, index}, registers, store) do
+    case AL.Var.deref(store, elem(registers, index)) do
+      value when is_number(value) or is_atom(value) or is_binary(value) -> value
+      {:"$var", _} = value -> value
+      {:"$fresh", _, _} = value -> value
+      value -> AL.Var.subst(value, store)
+    end
+  end
 
   def resolve({:cons, head, tail}, registers, store),
     do: [resolve(head, registers, store) | resolve(tail, registers, store)]
@@ -79,14 +88,21 @@ defmodule AL.JAM.Operand do
   def resolve({:tuple, fields}, registers, store),
     do: fields |> Enum.map(&resolve(&1, registers, store)) |> List.to_tuple()
 
-  def shallow(operand, registers, store) do
-    value = read(operand, registers)
-    if AL.Var.var?(value), do: AL.Var.deref(store, value), else: value
-  end
+  def shallow({:constant, value}, _registers, store), do: shallow_value(value, store)
+
+  def shallow({:register, index}, registers, store),
+    do: shallow_value(elem(registers, index), store)
+
+  def shallow(operand, registers, store), do: shallow_value(read(operand, registers), store)
+
+  defp shallow_value({:"$var", name} = variable, store) when is_binary(name),
+    do: AL.Var.deref(store, variable)
+
+  defp shallow_value({:"$fresh", _, _} = variable, store), do: AL.Var.deref(store, variable)
+  defp shallow_value(value, _store), do: value
 
   def receiver(operand, registers, store) do
-    value = read(operand, registers)
-    value = if AL.Var.var?(value), do: AL.Var.deref(store, value), else: value
+    value = shallow(operand, registers, store)
 
     if is_map(value) do
       value = map_keys(value, store)
@@ -112,8 +128,7 @@ defmodule AL.JAM.Operand do
   def container({:constant, value}, _registers, _store), do: value
 
   def container(operand, registers, store) do
-    value = read(operand, registers)
-    value = if AL.Var.var?(value), do: AL.Var.deref(store, value), else: value
+    value = shallow(operand, registers, store)
 
     if is_map(value) and not is_struct(value) do
       value = map_keys(value, store)

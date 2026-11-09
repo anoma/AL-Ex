@@ -48,7 +48,6 @@ defmodule AL.Goal do
           | AL.Goal.Cut.t()
           | AL.Goal.Implies.t()
           | AL.Goal.Or.t()
-          | AL.Goal.Forall.t()
           | AL.Goal.Findall.t()
           | AL.Goal.FindNSols.t()
           | AL.Goal.GetSlots.t()
@@ -59,7 +58,6 @@ defmodule AL.Goal do
           | AL.Goal.Equal.t()
           | AL.Goal.Variant.t()
           | AL.Goal.CopyTerm.t()
-          | AL.Goal.Compound.t()
           | AL.Goal.StringCodes.t()
           | AL.Goal.AtomString.t()
           | AL.Goal.Atom.t()
@@ -78,12 +76,12 @@ defmodule AL.Goal do
           | AL.Goal.Call.t()
           | AL.Goal.Send.t()
           | AL.Goal.CallNextMethod.t()
-          | AL.Goal.SourceScope.t()
           | AL.Goal.Fail.t()
           | AL.Goal.Pass.t()
           | AL.Goal.Comment.t()
 
   @type t() :: command() | instructions()
+  @type body() :: [t()]
 
   # Commands ----------------------------------------
   typedstruct enforce: true, module: SetClass do
@@ -244,6 +242,7 @@ defmodule AL.Goal do
   typedstruct enforce: true, module: OApply do
     field(:method_id, AL.Var.t())
     field(:args, AL.Var.t())
+    field(:source_capture, term() | nil, default: nil)
   end
 
   typedstruct enforce: true, module: Cut do
@@ -260,21 +259,16 @@ defmodule AL.Goal do
     field(:then, [AL.Goal.t()])
   end
 
-  typedstruct enforce: true, module: Forall do
-    field(:condition, [AL.Goal.t()])
-    field(:body, [AL.Goal.t()])
-  end
-
   typedstruct enforce: true, module: FindNSols do
     field(:count, AL.Var.t())
     field(:template, AL.Var.t())
-    field(:condition, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
     field(:result, AL.Var.t())
   end
 
   typedstruct enforce: true, module: Findall do
     field(:template, AL.Var.t())
-    field(:condition, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
     field(:result, AL.Var.t())
   end
 
@@ -307,7 +301,7 @@ defmodule AL.Goal do
   end
 
   typedstruct enforce: true, module: Not do
-    field(:condition, [AL.Goal.t()])
+    field(:condition, AL.Goal.body())
   end
 
   typedstruct enforce: true, module: Eq do
@@ -419,7 +413,7 @@ defmodule AL.Goal do
 
   typedstruct enforce: true, module: Freeze do
     field(:var, AL.Var.t())
-    field(:goals, [AL.Goal.t()])
+    field(:goals, AL.Goal.body())
   end
 
   typedstruct enforce: true, module: Call do
@@ -432,11 +426,6 @@ defmodule AL.Goal do
     field(:object, AL.Var.t())
     field(:method, AL.Var.t())
     field(:args, AL.Var.t())
-  end
-
-  typedstruct enforce: true, module: SourceScope do
-    field(:capture_id, term())
-    field(:goals, [AL.Goal.t()])
   end
 
   typedstruct enforce: true, module: CallNextMethod do
@@ -483,10 +472,8 @@ defmodule AL.Goal do
     {MethodSource, :method_source, [object: :term, seq: :term, text: :term, provenance: :term]},
     {AssertValidClauseSelf, :assert_valid_clause_self, [class: :term, head: :term]},
     {OApply, :oapply, [method_id: :term, args: :term]},
-    {SourceScope, :source_scope, [capture_id: :term, goals: :goals]},
     {Implies, :implies, [condition: :goals, then: :goals, otherwise: :goals]},
     {Or, :or, [or: :goals, then: :goals]},
-    {Forall, :forall, [condition: :goals, body: :goals]},
     {FindNSols, :findnsols, [count: :term, template: :term, result: :term, condition: :goals]},
     {Findall, :findall, [template: :term, condition: :goals, result: :term]},
     {GetSlots, :get_slot, [object: :term, key: :term, value: :term, store: :term]},
@@ -603,6 +590,8 @@ defmodule AL.Goal do
     end)
   end
 
+  @statements [:defclass, :extend_class, :clear_method, :defprogram, :defpackage]
+
   @arithmetic [:+, :-, :*, :/, :**, :rem]
   @comparisons [:<, :>, :<=, :>=]
 
@@ -617,8 +606,8 @@ defmodule AL.Goal do
   @spec call_form(term()) :: {atom(), [term()]} | nil
   def call_form(%Compound{name: name, args: args}), do: {name, args}
 
-  def call_form(%Send{object: object, method: method, args: args}) when is_list(args),
-    do: if(named?(method), do: {method, [object | args]})
+  def call_form(%Send{object: object, method: method, args: args} = goal) when is_list(args),
+    do: if(named?(method), do: {method, [object | args]}, else: to_call(goal))
 
   def call_form(%Compare{op: op, a: a, b: b}), do: {op, [a, b]}
   def call_form(%Either{left: left, right: right}), do: {:or, [left, right]}
@@ -626,7 +615,6 @@ defmodule AL.Goal do
   def call_form(%Equal{a: a, b: b}), do: {:==, [a, b]}
   def call_form(%CallNextMethod{self: self, args: args}), do: {:call_next_method, [self | args]}
   def call_form(%Not{condition: condition}), do: {:not, [condition]}
-  def call_form(%Forall{condition: condition, body: body}), do: {:forall, [condition, body]}
   def call_form(%Freeze{var: var, goals: goals}), do: {:freeze, [var, goals]}
 
   def call_form(%FindNSols{
@@ -640,11 +628,31 @@ defmodule AL.Goal do
   def call_form(%Findall{template: template, condition: condition, result: result}),
     do: {:findall, [template, result, condition]}
 
-  def call_form(%OApply{method_id: method_id, args: args}) when is_list(args) do
-    if named?(method_id) and
-         (method_id in @arithmetic or args == [] or AL.Syntax.primitive?(method_id)),
-       do: {method_id, args}
+  def call_form(%OApply{method_id: method_id, args: args}) do
+    if is_list(args) and named?(method_id) and
+         (method_id in @arithmetic or method_id in @statements or method_id == :defmethod or
+            args == [] or AL.Syntax.primitive?(method_id)),
+       do: {method_id, args},
+       else: {:vm_oapply, [method_id, args]}
   end
+
+  def call_form(%Call{head: head, body: body, args: args}), do: {:call, [head, body, args]}
+
+  def call_form(%Or{or: left, then: right}), do: {:";", [left, right]}
+
+  def call_form(%Implies{condition: condition, then: yes, otherwise: [%Fail{}]}),
+    do: {:->, [condition, yes]}
+
+  def call_form(%Implies{condition: condition, then: yes, otherwise: no}),
+    do: {:";", [[%Compound{name: :->, args: [condition, yes]}], no]}
+
+  def call_form(%SetOapply{object: object, seq: :next, head: head, body: body}),
+    do: {:vm_set_oapply, [object, head, body]}
+
+  def call_form(%SetOapply{object: object, seq: seq, head: head, body: body}),
+    do: {:vm_set_oapply, [object, seq, head, body]}
+
+  def call_form(%Comment{text: text}), do: {:comment, [text]}
 
   def call_form(%Cut{}), do: {:cut, []}
   def call_form(%Fail{}), do: {:fail, []}
@@ -652,11 +660,23 @@ defmodule AL.Goal do
   def call_form(goal) when is_struct(goal), do: to_call(goal)
   def call_form(_term), do: nil
 
-  @doc "The compound term with this name and these arguments."
-  @spec from_call_form(atom(), [term()]) :: t()
-  def from_call_form(name, args), do: %Compound{name: name, args: args}
+  def to_term(%_{} = goal) do
+    case call_form(goal) do
+      {name, args} -> %Compound{name: name, args: to_term(args)}
+      nil -> goal
+    end
+  end
 
-  @statements [:defclass, :extend_class, :clear_method, :defprogram, :defpackage]
+  def to_term([head | tail]), do: [to_term(head) | to_term(tail)]
+
+  def to_term(block) when AL.Block.is_block(block),
+    do: block |> Tuple.to_list() |> to_term() |> AL.Block.new()
+
+  def to_term(term), do: term
+
+  @doc "The compound term with this name and these arguments."
+  @spec from_call_form(atom(), [term()]) :: Compound.t()
+  def from_call_form(name, args), do: %Compound{name: name, args: args}
 
   @doc "The goal a compound runs as, once it is called."
   @spec lower(term()) :: t()
@@ -667,6 +687,9 @@ defmodule AL.Goal do
   def lower(:cut, []), do: %Cut{}
   def lower(:fail, []), do: %Fail{}
   def lower(:pass, []), do: %Pass{}
+
+  def lower(:";", [%Compound{name: :->} = condition, otherwise]),
+    do: lower(:";", [[condition], otherwise])
 
   def lower(:";", [[%Compound{name: :->, args: [condition, then]}], otherwise]),
     do: %Implies{condition: goals(condition), then: goals(then), otherwise: goals(otherwise)}
@@ -686,9 +709,6 @@ defmodule AL.Goal do
   def lower(op, args) when op in @arithmetic, do: %OApply{method_id: op, args: args}
   def lower(:call_next_method, [self | args]), do: %CallNextMethod{self: self, args: args}
   def lower(:not, [condition]), do: %Not{condition: goals(condition)}
-
-  def lower(:forall, [condition, body]),
-    do: %Forall{condition: goals(condition), body: goals(body)}
 
   def lower(:freeze, [var, body]), do: %Freeze{var: var, goals: goals(body)}
 
@@ -712,9 +732,6 @@ defmodule AL.Goal do
   def lower(:on_completion, [effect, outcome, future, body]),
     do: %OApply{method_id: :on_completion, args: [effect, [outcome], goals(body), future]}
 
-  def lower(:vm_source_scope, [capture_id, body]),
-    do: %SourceScope{capture_id: capture_id, goals: goals(body)}
-
   def lower(:call, [head, body, args]), do: %Call{head: head, body: goals(body), args: args}
 
   def lower(:vm_set_oapply, [object, head, body]),
@@ -736,13 +753,14 @@ defmodule AL.Goal do
     end
   end
 
-  defp goals(goals) when is_list(goals), do: goals
+  def goals([]), do: []
+  def goals([head | tail]), do: [head |> from_stored() |> lower() | goals(tail)]
 
-  defp goals(goal) do
+  def goals(goal) do
     cond do
       AL.Var.var?(goal) -> goal
-      AL.Block.block?(goal) -> Tuple.to_list(goal)
-      true -> [goal]
+      AL.Block.block?(goal) -> goals(Tuple.to_list(goal))
+      true -> [lower(goal)]
     end
   end
 
@@ -812,10 +830,6 @@ defmodule AL.Goal do
   defp store(:term, value), do: do_to_stored(value)
   defp store(:goals, goals) when is_list(goals), do: Enum.map(goals, &do_to_stored/1)
   defp store(:goals, other), do: do_to_stored(other)
-
-  defp invalid_storable(%SourceScope{capture_id: capture_id, goals: goals} = scope) do
-    if AL.Var.var?(capture_id), do: invalid_storable(goals), else: {scope, :concrete_source_scope}
-  end
 
   defp invalid_storable(%AL.Source.Ref{} = ref), do: {ref, :source_ref}
 

@@ -84,14 +84,14 @@ defmodule AL.CleanupCorrectnessTest do
 
     body = [
       %Goal.OApply{method_id: :vm_map_put, args: [%{}, :key, :value, local]},
-      %Goal.Forall{condition: [%Goal.Pass{}], body: [%Goal.Pass{}]},
+      %Goal.Not{condition: [%Goal.Pass{}]},
       %Goal.Eq{a: output, b: local}
     ]
 
     {[%AL.JAM.CompiledClause{locals: locals, code: code}], _} =
       AL.JAM.Compiler.compile([{:oapply, :probe, 0, [output], body}])
 
-    assert {:local, index, {:unify_structural, _, _}} = elem(code, 0)
+    assert {:unify_structural_into, index, _, _} = elem(code, 0)
     refute Enum.any?(locals, fn {slot, _} -> slot == index end)
 
     assert %AL{result: {:atomic, _}} =

@@ -49,10 +49,10 @@ defmodule AL.Source do
   def method_source_rows(class, branch) do
     case :mnesia.transaction(fn ->
            name_pattern =
-             AL.Var.fresh({:"$var", "source_method_name"}, Integer.to_string(AL.fresh_scope()))
+             AL.Var.fresh({:"$var", "source_method_name"}, Integer.to_string(AL.Scope.fresh()))
 
            id_pattern =
-             AL.Var.fresh({:"$var", "source_method_id"}, Integer.to_string(AL.fresh_scope()))
+             AL.Var.fresh({:"$var", "source_method_id"}, Integer.to_string(AL.Scope.fresh()))
 
            for {:method, ^class, name, _method_seq, _method_t, :open, method_id} <-
                  AL.Object.scan_open_method_versions(class, name_pattern, id_pattern, branch),
@@ -61,10 +61,10 @@ defmodule AL.Source do
                    method_id,
                    AL.Var.fresh(
                      {:"$var", "source_clause_seq"},
-                     Integer.to_string(AL.fresh_scope())
+                     Integer.to_string(AL.Scope.fresh())
                    ),
-                   AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.fresh_scope())),
-                   AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.fresh_scope())),
+                   AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.Scope.fresh())),
+                   AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.Scope.fresh())),
                    branch
                  ) do
              result = retained_method_source(class, name, head, body, command_t, branch)
@@ -92,17 +92,17 @@ defmodule AL.Source do
   def method_object_source_rows(method_id, branch \\ AL.Branch.head()) do
     for {:method, class, name, ^method_id} <-
           AL.Object.scan_method(
-            AL.Var.fresh({:"$var", "method_source_class"}, Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh({:"$var", "method_source_name"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_class"}, Integer.to_string(AL.Scope.fresh())),
+            AL.Var.fresh({:"$var", "method_source_name"}, Integer.to_string(AL.Scope.fresh())),
             method_id,
             branch
           ),
         {:oapply, ^method_id, clause_seq, _row_seq, command_t, :open, head, body} <-
           AL.Object.scan_open_oapply_versions(
             method_id,
-            AL.Var.fresh({:"$var", "method_source_seq"}, Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh({:"$var", "method_source_head"}, Integer.to_string(AL.fresh_scope())),
-            AL.Var.fresh({:"$var", "method_source_body"}, Integer.to_string(AL.fresh_scope())),
+            AL.Var.fresh({:"$var", "method_source_seq"}, Integer.to_string(AL.Scope.fresh())),
+            AL.Var.fresh({:"$var", "method_source_head"}, Integer.to_string(AL.Scope.fresh())),
+            AL.Var.fresh({:"$var", "method_source_body"}, Integer.to_string(AL.Scope.fresh())),
             branch
           ) do
       result = retained_method_source(class, name, head, body, command_t, branch)
@@ -210,8 +210,8 @@ defmodule AL.Source do
     case AL.Object.scan_open_oapply_versions(
            method_id,
            clause_seq,
-           AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.fresh_scope())),
-           AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.fresh_scope())),
+           AL.Var.fresh({:"$var", "source_head"}, Integer.to_string(AL.Scope.fresh())),
+           AL.Var.fresh({:"$var", "source_body"}, Integer.to_string(AL.Scope.fresh())),
            branch
          ) do
       [{:oapply, ^method_id, ^clause_seq, _seq, command_t, :open, head, body} | _] ->
@@ -301,52 +301,43 @@ defmodule AL.Source do
   end
 
   @doc false
-  def enter_scope(state, capture_id, goals) do
-    case Map.fetch(state.source_refs, capture_id) do
-      {:ok, ref} ->
-        context = scope_context(ref, goals)
-        refs = Map.put(state.source_refs, capture_id, %AL.Source.Ref{ref | context: context})
-        choicepoint = state.active_choicepoint
+  def anchor(state, nil, _operation, _args, _command_t, _bindings), do: state
 
-        %AL.JAM.State{
-          state
-          | source_refs: refs,
-            active_choicepoint: %AL.Choicepoint{
-              choicepoint
-              | source_scopes: [capture_id | choicepoint.source_scopes]
-            }
-        }
+  def anchor(state, origin, operation, args, command_t, bindings) do
+    capture_id = origin.capture_id
 
-      :error ->
-        :mnesia.abort(%AL.Source.ProvenanceError{
-          capture_id: capture_id,
-          reason: :unknown_capture
-        })
-    end
-  end
+    ref =
+      case Map.fetch(state.source_refs, capture_id) do
+        {:ok, ref} ->
+          ref
 
-  @doc false
-  def exit_scope(state, capture_id) do
-    case state.active_choicepoint.source_scopes do
-      [^capture_id | rest] ->
-        %AL.JAM.State{
-          state
-          | active_choicepoint: %AL.Choicepoint{state.active_choicepoint | source_scopes: rest}
-        }
+        :error ->
+          :mnesia.abort(%AL.Source.ProvenanceError{
+            capture_id: capture_id,
+            reason: :unknown_capture
+          })
+      end
 
-      scopes ->
-        :mnesia.abort(%AL.Source.ProvenanceError{
-          capture_id: capture_id,
-          reason: {:scope_exit_mismatch, scopes}
-        })
-    end
-  end
+    context = AL.Source.DefinitionOrigin.context(origin, bindings)
 
-  @doc false
-  def anchor(state, operation, args, command_t) do
-    case state.active_choicepoint.source_scopes do
-      [capture_id | _] -> anchor_active(state, capture_id, operation, args, command_t)
-      [] -> state
+    if defining_write?(ref.kind, context, operation, args, state.branch) do
+      :ok =
+        AL.SourceStore.put_span(
+          command_t,
+          state.tx_id,
+          ref.kind,
+          ref.range,
+          context,
+          state.branch
+        )
+
+      %AL.JAM.State{
+        state
+        | source_anchors:
+            Map.update(state.source_anchors, capture_id, [command_t], &[command_t | &1])
+      }
+    else
+      state
     end
   end
 
@@ -379,63 +370,12 @@ defmodule AL.Source do
 
     refs = Map.put(refs, capture_id, ref)
 
-    scoped = %AL.Goal.SourceScope{capture_id: capture_id, goals: [goal]}
-    {scoped, refs}
-  end
-
-  defp scope_context(%AL.Source.Ref{kind: :defmethod}, [
-         %AL.Goal.OApply{method_id: :defmethod, args: [class, method | _]}
-       ]),
-       do: %{class: class, method: method}
-
-  defp scope_context(%AL.Source.Ref{kind: :defclass}, [
-         %AL.Goal.OApply{method_id: :defclass, args: [class | _]}
-       ]),
-       do: %{class: class}
-
-  defp scope_context(%AL.Source.Ref{kind: :defmethod}, [
-         %AL.Goal.Compound{name: :defmethod, args: [class, method | _]}
-       ]),
-       do: %{class: class, method: method}
-
-  defp scope_context(%AL.Source.Ref{kind: :defclass}, [
-         %AL.Goal.Compound{name: :defclass, args: [class | _]}
-       ]),
-       do: %{class: class}
-
-  defp scope_context(ref, goals) do
-    :mnesia.abort(%AL.Source.ProvenanceError{
-      capture_id: ref.capture_id,
-      reason: {:scope_goal_mismatch, goals}
-    })
-  end
-
-  defp anchor_active(state, capture_id, operation, args, command_t) do
-    ref = Map.fetch!(state.source_refs, capture_id)
-
-    if defining_write?(ref, operation, args, state.branch) do
-      :ok =
-        AL.SourceStore.put_span(
-          command_t,
-          state.tx_id,
-          ref.kind,
-          ref.range,
-          ref.context,
-          state.branch
-        )
-
-      %AL.JAM.State{
-        state
-        | source_anchors:
-            Map.update(state.source_anchors, capture_id, [command_t], &[command_t | &1])
-      }
-    else
-      state
-    end
+    {%AL.Goal.OApply{goal | source_capture: capture_id}, refs}
   end
 
   defp defining_write?(
-         %AL.Source.Ref{kind: :defclass, context: %{class: class}},
+         :defclass,
+         %{class: class},
          :set_class,
          [
            object,
@@ -446,7 +386,8 @@ defmodule AL.Source do
        do: object == class
 
   defp defining_write?(
-         %AL.Source.Ref{kind: :defmethod, context: %{class: class, method: method}},
+         :defmethod,
+         %{class: class, method: method},
          :set_oapply,
          [object, _seq, _head, _body],
          branch
@@ -457,7 +398,7 @@ defmodule AL.Source do
     end)
   end
 
-  defp defining_write?(_ref, _operation, _args, _branch), do: false
+  defp defining_write?(_kind, _context, _operation, _args, _branch), do: false
 
   # --- rename to each var's own authored name, disambiguating collisions ---
   #

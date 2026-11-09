@@ -1,7 +1,5 @@
 defmodule AL.JAM.Arithmetic do
-  def select({:local, destination, {:eq, left, right}} = fallback) do
-    source = if left == {:register, destination}, do: right, else: left
-
+  def select({:eq_into, destination, source, _side} = fallback) do
     case source do
       {:map,
        [
@@ -26,7 +24,30 @@ defmodule AL.JAM.Arithmetic do
     end
   end
 
+  def select({:compare, op, {:register, input}, {:constant, bound}}) when is_number(bound),
+    do: {:compare, op, input, bound, :left}
+
+  def select({:compare, op, {:constant, bound}, {:register, input}}) when is_number(bound),
+    do: {:compare, reverse(op), input, bound, :right}
+
+  def select({:dif, {:register, input}, {:constant, bound}}) when is_number(bound),
+    do: {:dif, input, bound, :left}
+
+  def select({:dif, {:constant, bound}, {:register, input}}) when is_number(bound),
+    do: {:dif, input, bound, :right}
+
+  def select({:numeric_tests, value, tests, fallback}),
+    do:
+      {:numeric_tests, value, tests,
+       fallback |> Tuple.to_list() |> Enum.map(&select/1) |> List.to_tuple()}
+
   def select(instruction), do: instruction
+
+  def reverse(:=), do: :=
+  def reverse(:<), do: :>
+  def reverse(:<=), do: :>=
+  def reverse(:>), do: :<
+  def reverse(:>=), do: :<=
 
   defp select_binary(op, destination, a, b, fallback) do
     if scalar?(a) and scalar?(b),

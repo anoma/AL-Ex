@@ -110,7 +110,7 @@ defmodule AL.Dispatch do
 
   defp direct_providers(method, branch) do
     AL.ResolutionCache.fetch_open_providers(branch, method, fn ->
-      scope = AL.fresh_scope()
+      scope = AL.Scope.fresh()
 
       AL.Object.scan_method(
         AL.Var.fresh({:"$var", "open_provider"}, Integer.to_string(scope)),
@@ -206,7 +206,7 @@ defmodule AL.Dispatch do
   # (no key to bind), so cached per branch rather than rescanned per label.
   def durable_classes(branch) do
     AL.ResolutionCache.fetch_durable_classes(branch, fn ->
-      scope = AL.fresh_scope()
+      scope = AL.Scope.fresh()
 
       AL.Object.scan_class(
         AL.Var.fresh({:"$var", "durable_scan_object"}, Integer.to_string(scope)),
@@ -311,7 +311,7 @@ defmodule AL.Dispatch do
       |> Enum.any?(fn pattern ->
         not AL.Var.var?(pattern) and
           AL.Var.unify(
-            AL.Var.freshen(pattern, Integer.to_string(AL.fresh_scope())),
+            AL.Var.freshen(pattern, Integer.to_string(AL.Scope.fresh())),
             term,
             %{},
             branch

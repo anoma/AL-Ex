@@ -14,7 +14,7 @@ get Self domain OldDomain -> {
 
 cell >> notify
 | Self Domain |
-forall {get Self subscribers Subscribers, member Subscribers Subscriber} (send_async Subscriber cell_updated [Self, Domain]),
+forall {get Self subscribers Subscribers, member Subscribers Subscriber} {send_async Subscriber cell_updated [Self, Domain]},
 cut.
 
 cell >> subscribe

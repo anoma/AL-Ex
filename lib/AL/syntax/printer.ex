@@ -19,14 +19,12 @@ defmodule AL.Syntax.Printer do
     :->,
     :findnsols,
     :findall,
-    :forall,
     :not,
     :freeze,
     :spawn,
     :on_completion,
     :lambda,
     :call,
-    :vm_source_scope,
     :vm_set_oapply,
     :comment,
     :cut,
@@ -349,9 +347,6 @@ defmodule AL.Syntax.Printer do
            context
          )
 
-  defp goal(%Goal.Forall{condition: condition, body: body}, indent, context) when is_list(body),
-    do: applied(:forall, [goal_group(condition, indent), goal_group(body, indent)], context)
-
   defp goal(%Goal.Not{condition: condition}, indent, context),
     do: applied(:not, [goal_group(condition, indent)], context)
 
@@ -386,15 +381,6 @@ defmodule AL.Syntax.Printer do
         ],
         context
       )
-
-  defp goal(%Goal.SourceScope{capture_id: capture_id, goals: goals}, indent, context)
-       when is_list(goals),
-       do:
-         applied(
-           :vm_source_scope,
-           [argument(capture_id, indent), goal_group(goals, indent)],
-           context
-         )
 
   defp goal(%Goal.Either{left: left, right: right}, indent, context),
     do: call(:or, [left, right], indent, context)

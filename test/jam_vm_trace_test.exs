@@ -73,7 +73,7 @@ defmodule AL.JAM.VMTraceTest do
 
     assert Enum.any?(
              state.trace.events,
-             &match?(%{payload: {:instruction, %{instruction: {:branch, _, _}}}}, &1)
+             &match?(%{payload: {:instruction, %{instruction: {:try, _, _}}}}, &1)
            )
 
     assert %AL{result: {:aborted, reason}} = AL.run("fail.", branch, trace: [:vm])
@@ -99,7 +99,42 @@ defmodule AL.JAM.VMTraceTest do
 
     assert Enum.any?(
              state.trace.events,
-             &match?(%{payload: {:fallback, %{instruction: {:local, _, _}}}}, &1)
+             &match?(%{payload: {:fallback, %{instruction: {:eq_into, _, _, _}}}}, &1)
            )
+  end
+
+  test "compiled return outputs preserve operand order through self sends and delayed inputs", %{
+    branch: branch
+  } do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               ~S"""
+               @return_operand_probe #{super => value}.
+               return_operand_probe >> left
+               | _Self Input Output |
+               = Output (- 10 Input).
+               return_operand_probe >> right
+               | _Self Input Output |
+               = (- 10 Input) Output.
+               return_operand_probe >> pair
+               | Self Input Result |
+               left Self Input Left,
+               right Self Input Right,
+               = Result [Left, Right].
+               """,
+               branch
+             )
+
+    for trace <- [[], [:vm], [:goals], [:domino]],
+        source <- [
+          ~S"pair #{class => return_operand_probe} 7 Result.",
+          ~S"pair #{class => return_operand_probe} Input Result, = Input 7."
+        ] do
+      assert %AL{result: {:atomic, {bindings, _, _}}} = AL.run(source, branch, trace: trace)
+      assert bindings["$Result"] == [3, 3]
+    end
+
+    assert %AL{result: {:aborted, _}} =
+             AL.run(~S"pair #{class => return_operand_probe} 7 [2, 3].", branch)
   end
 end

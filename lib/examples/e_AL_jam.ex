@@ -24,7 +24,7 @@ defmodule Examples.ALJAM do
 
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    assert {:atomic, {:ok, %{}, 1002}} =
+    assert {:atomic, {:ok, %{}, %AL.JAM.Execution{steps: 1002}}} =
              :mnesia.transaction(fn ->
                {:ok, _, id} = AL.Dispatch.target(:machine_frame_instance, :walk, branch)
 
@@ -249,7 +249,7 @@ defmodule Examples.ALJAM do
     expected = {bindings, constraints, state.reductions}
 
     assert expected ==
-             {%{"$Pairs" => [[:red, :red], [:blue, :blue]], "$Result" => :ready}, %{}, 13}
+             {%{"$Pairs" => [[:red, :red], [:blue, :blue]], "$Result" => :ready}, %{}, 14}
 
     {bindings, _, _} = expected
     assert bindings["$Pairs"] == [[:red, :red], [:blue, :blue]]
@@ -272,7 +272,7 @@ defmodule Examples.ALJAM do
 
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    assert {:atomic, {:ok, store, 3}} =
+    assert {:atomic, {:ok, store, %AL.JAM.Execution{steps: 3}}} =
              :mnesia.transaction(fn ->
                {:ok, _, id} =
                  AL.Dispatch.target(:machine_primitive_instance, :select, branch)
@@ -379,7 +379,7 @@ defmodule Examples.ALJAM do
                 "$Nested" => [[:a, :c]],
                 "$Failed" => [],
                 "$Restored" => :restored
-              }, 39}
+              }, 42}
 
     {bindings, _} = expected
     assert bindings["$Results"] == [[:red, :first], [:red, :second], :outside]
@@ -1369,10 +1369,7 @@ defmodule Examples.ALJAM do
   defp evaluate_source(source),
     do: AL.run(source, %AL.Branch{id: Examples.Support.branch()})
 
-  defp machine_answers({:ok, store, _steps}, choices, branch),
-    do: [AL.Var.subst({:"$var", "Pair"}, store) | remaining_answers(choices, branch)]
-
-  defp machine_answers({:answers, store, alternatives, _steps}, choices, branch),
+  defp machine_answers({:ok, store, %AL.JAM.Execution{choices: alternatives}}, choices, branch),
     do: [
       AL.Var.subst({:"$var", "Pair"}, store) | remaining_answers(alternatives ++ choices, branch)
     ]

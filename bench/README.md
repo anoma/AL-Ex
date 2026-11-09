@@ -69,6 +69,26 @@ object-table event. Its startup/branch hooks, filesystem layout, and standalone
 exporter have been removed. Shared definition code now lives in `AL.Definition`;
 filesystem exports go through `AL.Package.export/2`.
 
+## Instruction-pair profile
+
+```sh
+ELIXIR_ERL_OPTIONS='+S 1:1 +t 4000000' BENCH_JSON=/tmp/instruction-profile.json mix run --no-start bench/instruction_profile.exs
+```
+
+Measures parser, BNF, forward/backward Fibonacci, selector/anonymous-method map,
+and generative list-length workloads. Timings use the original runtime before
+instrumentation. Three subsequent profiles must have identical counts and pass
+each workload's result check.
+
+The profiler instruments normal optimized execution in its isolated process;
+it does not enable VM tracing or change production runtime files. Counts cover
+instruction fetches, adjacent executed pairs in the same frame, example sites
+grouped by caller selector and instruction positions, and executed `try`/jump
+fusions. Calls, returns and retry entries separate instruction sequences.
+Already fused inner operations, clause-head matching and host-side traversals
+are not individual instruction fetches. Pair frequency is not a time share or
+proof that the pair can safely be fused. Instrumented runs are not timed.
+
 ## Parser function profile
 
 ```sh
@@ -287,8 +307,9 @@ region from loaded IR. The benchmark supplies only the entry receiver and
 selector. The pass checks recursive argument relationships, one-cell
 consumption, character exclusions, stop-clause order, conversions, and inherited
 classification/rejection paths. No grammar selector names occur in the pass.
-`Plan.compile_ir/4` exposes residual IR before register allocation or instruction
-selection. Unsupported source shapes retain ordinary dispatch.
+`Plan.compile_ir/2` returns an `Implementation` with residual IR in `code`, before
+register allocation or instruction selection. Unsupported source shapes retain
+ordinary dispatch.
 
 The inferred classify/scan/ordered-answer/bind blocks now lower to ordinary JAM
 execution. Generic `move`, `get_cons`, `jump`, and `try` instructions provide raw

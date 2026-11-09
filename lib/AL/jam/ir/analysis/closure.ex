@@ -1,6 +1,8 @@
 defmodule AL.JAM.IR.Closure do
-  alias AL.{Goal, JAM.IR}
+  alias AL.Goal
+  require AL.Block
 
+  def static?(body) when AL.Block.is_block(body), do: static?(AL.Block.goals(body))
   def static?(body) when is_list(body), do: Enum.all?(body, &static_goal?/1)
   def static?(_), do: false
 
@@ -25,20 +27,14 @@ defmodule AL.JAM.IR.Closure do
       %Goal.Findall{condition: condition} ->
         static?(condition)
 
-      %Goal.Forall{condition: condition, body: body} ->
-        static?(condition) and static?(body)
-
       %Goal.Not{condition: condition} ->
         static?(condition)
 
       %Goal.Freeze{goals: body} ->
         static?(body)
 
-      %Goal.SourceScope{goals: body} ->
-        static?(body)
-
       goal ->
-        IR.lower(goal).kind != :unsupported
+        not match?(%Goal.Compound{}, goal) and Goal.compound?(goal)
     end
   end
 end

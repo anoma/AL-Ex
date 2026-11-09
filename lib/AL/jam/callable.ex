@@ -28,7 +28,7 @@ defmodule AL.JAM.Callable do
   end
 
   def environment(captures, store) do
-    scope = Integer.to_string(AL.fresh_scope())
+    scope = Integer.to_string(AL.Scope.fresh())
 
     AL.Var.subst(captures, store, fn
       {:"$var", "_"} -> {:"$var", "_"}
@@ -45,7 +45,7 @@ defmodule AL.JAM.Callable do
           if template.locals == [] do
             slots
           else
-            scope = Integer.to_string(AL.fresh_scope())
+            scope = Integer.to_string(AL.Scope.fresh())
 
             Enum.reduce(template.locals, slots, fn {index, name}, slots ->
               put_elem(slots, index, AL.Var.fresh(name, scope))

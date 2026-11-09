@@ -1,34 +1,32 @@
 defmodule AL.JAM.IR.VirtualObject do
-  alias AL.{JAM.IR, Var}
+  alias AL.Var
 
-  def specialize(%IR{kind: :direct, name: :map_put, args: [map, key, value, result]} = operation) do
+  def specialize({:map_put, map, key, value, result}) do
     if template?(map, key) and key != :__struct__ do
-      IR.operation(:direct, :unify_structural, [result, Map.put(map, key, value)])
+      {:unify_structural, result, Map.put(map, key, value)}
     else
-      operation
+      :unchanged
     end
   end
 
-  def specialize(%IR{kind: :direct, name: :map_get, args: [map, key, result]} = operation) do
+  def specialize({:map_get, map, key, result}) do
     if template?(map, key) do
       case Map.fetch(map, key) do
-        {:ok, value} -> IR.operation(:direct, :unify_structural, [result, value])
-        :error -> IR.operation(:direct, :fail, [])
+        {:ok, value} -> {:unify_structural, result, value}
+        :error -> :fail
       end
     else
-      operation
+      :unchanged
     end
   end
 
-  def specialize(
-        %IR{kind: :direct, name: :slot_get, args: [map, key, result, _storage]} = operation
-      ) do
+  def specialize({:slot_get, map, key, result, _storage}) do
     if template?(map, key),
-      do: specialize(IR.operation(:direct, :map_get, [map, key, result])),
-      else: operation
+      do: specialize({:map_get, map, key, result}),
+      else: :unchanged
   end
 
-  def specialize(operation), do: operation
+  def specialize(_operation), do: :unchanged
 
   defp template?(map, key) when is_map(map) and not is_struct(map) do
     ground?(key) and Enum.all?(Map.keys(map), &ground?/1) and

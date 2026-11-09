@@ -20,7 +20,7 @@ defmodule AL.Trace.Domino do
           | {:clause_chosen, scope(), non_neg_integer()}
           | {:constraint, AL.Goal.t(), %{optional(term()) => var_description()},
              %{optional(term()) => var_description()}}
-          | {:collection_begin, scope(), :findall | :forall | :not, [AL.Goal.t()], term() | nil}
+          | {:collection_begin, scope(), :findall | :not, [AL.Goal.t()], term() | nil}
           | {:collection_solution, scope(), AL.Var.store()}
           | {:collection_end, scope()}
 end

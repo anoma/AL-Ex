@@ -21,7 +21,7 @@ defmodule Bench.ScanRegion do
 
               result =
                 AL.JAM.resume(
-                  %AL.JAM.Frame{id: id, code: code, slots: slots, store: %{}},
+                  %AL.JAM.Frame{descriptor: id, code: code, slots: slots, store: %{}},
                   plan.branch,
                   1_000_000
                 )
@@ -37,17 +37,24 @@ defmodule Bench.ScanRegion do
     result
   end
 
-  defp collect({:ok, store, _}, choices, branch, demand),
-    do: answer(store, choices, branch, demand)
-
-  defp collect({:answers, store, alternatives, _}, choices, branch, demand),
+  defp collect({:ok, store, %AL.JAM.Execution{choices: alternatives}}, choices, branch, demand),
     do: answer(store, alternatives ++ choices, branch, demand)
 
   defp collect({:failed, _, _}, choices, branch, demand), do: remaining(choices, branch, demand)
 
-  defp collect({:suspend, snapshot, alternatives, _}, choices, branch, demand),
-    do:
-      collect(AL.JAM.resume(snapshot, branch, 1_000_000), alternatives ++ choices, branch, demand)
+  defp collect(
+         {:budget_exhausted, snapshot, %AL.JAM.Execution{choices: alternatives}},
+         choices,
+         branch,
+         demand
+       ),
+       do:
+         collect(
+           AL.JAM.resume(snapshot, branch, 1_000_000),
+           alternatives ++ choices,
+           branch,
+           demand
+         )
 
   defp answer(store, _, _, :first),
     do: [AL.Var.subst([{:"$var", "Value"}, {:"$var", "Rest"}], store)]

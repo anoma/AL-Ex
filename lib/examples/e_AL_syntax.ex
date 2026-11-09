@@ -258,7 +258,13 @@ defmodule Examples.ALSyntax do
 
   defp round_trip(text) do
     case AL.Syntax.parse(text <> ".") do
-      {:ok, %{program: [_clear, %AL.Goal.Compound{args: [:owner, :selector, head, body]}]}} ->
+      {:ok,
+       %{
+         program: [
+           _clear,
+           %AL.Goal.OApply{method_id: :defmethod, args: [:owner, :selector, head, body]}
+         ]
+       }} ->
         {anonymous(AL.Goal.to_stored(head)), anonymous(Enum.map(body, &AL.Goal.to_stored/1))}
 
       other ->

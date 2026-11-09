@@ -77,12 +77,50 @@ defmodule AL.FindNSolsTest do
     assert Enum.any?(instructions, &match?({:eq, _, _}, &1))
   end
 
+  test "VM tracing records each resumed bounded answer", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {member [1,2] X}.", branch, trace: [:vm])
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+
+    first_instructions =
+      for %{payload: {:instruction, %{instruction: instruction}}} <- first.trace.events,
+          do: instruction
+
+    second_instructions =
+      for %{payload: {:instruction, %{instruction: instruction}}} <- second.trace.events,
+          do: instruction
+
+    assert Enum.any?(first_instructions, &match?({:collect_n, _, _, _, _}, &1))
+    assert length(second_instructions) > length(first_instructions)
+  end
+
+  test "Domino tracing builds a derivation after resuming a bounded collection", %{
+    branch: branch
+  } do
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {member [1,2] X}.", branch, trace: [:domino])
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+    assert is_list(AL.Trace.Derivation.build(second))
+  end
+
   test "child cuts do not cut the enclosing query", %{branch: branch} do
     assert %AL{result: {:atomic, {%{"$Answers" => [[1], [9]]}, _, _}}} =
              AL.run(
                "findall B Answers {findnsols 1 X B {member [1,2] X, cut} ; = B [9]}.",
                branch
              )
+  end
+
+  test "cut after a batch discards its cursor and newer alternatives", %{branch: branch} do
+    source =
+      "findall [Outer,Batch] Answers {member [a,b] Outer, findnsols 1 X Batch {member [1,2] X}, cut}."
+
+    for trace <- [[], [:vm]] do
+      assert %AL{result: {:atomic, {%{"$Answers" => [[:a, [1]]]}, _, _}}} =
+               AL.run(source, branch, trace: trace)
+    end
   end
 
   test "method calls can backtrack through batches", %{branch: branch} do
@@ -94,6 +132,123 @@ defmodule AL.FindNSolsTest do
 
     assert %AL{result: {:atomic, {%{"$Answers" => [[1, 2], [3]]}, _, _}}} =
              AL.run("findall B Answers {solution_batches 0 B}.", branch)
+  end
+
+  test "parent alternatives run before the next batch", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Answers" => expected}, _, _}}} =
+             AL.run(
+               "findall [Batch,Y] Answers {findnsols 1 X Batch {member [1,2] X}, member [a,b] Y}.",
+               branch
+             )
+
+    assert expected == [[[1], :a], [[1], :b], [[2], :a], [[2], :b]]
+  end
+
+  test "nested batches resume the inner search", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$Answers" => [[[1]], [[2]]]}, _, _}}} =
+             AL.run(
+               "findall Outer Answers {findnsols 1 Batch Outer {findnsols 1 X Batch {member [1,2] X}}}.",
+               branch
+             )
+  end
+
+  test "a machine batch resumes in a later transaction", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {member [1,2] X}.", branch)
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+    assert %AL{result: {:aborted, _}} = AL.next_solution(second)
+  end
+
+  test "effectful method choices resume across bounded batches", %{branch: branch} do
+    assert %AL{result: {:atomic, _}} =
+             AL.run(
+               "number >> choose_batch_value\n| _N X |\nmember [1,2] X,\nvm_set_slot collection_probe value X.",
+               branch
+             )
+
+    assert %AL{result: {:atomic, {%{"$R" => [1]}, _, first}}} =
+             AL.run("findnsols 1 X R {choose_batch_value 0 X}.", branch)
+
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, second}}} = AL.next_solution(first)
+    assert %AL{result: {:aborted, _}} = AL.next_solution(second)
+  end
+
+  test "answers preceding an effect keep their order within a batch", %{branch: branch} do
+    query =
+      "findnsols 4 X R {member [1,2] X ; {= X 3, vm_set_class collection_order_probe list} ; = X 4}."
+
+    assert %AL{result: {:atomic, {%{"$R" => [1, 2, 3, 4]}, _, _}}} =
+             AL.run(query, branch)
+
+    query =
+      "findall X R {member [1,2] X ; {= X 3, vm_set_class collection_order_probe list} ; = X 4}."
+
+    assert %AL{result: {:atomic, {%{"$R" => [1, 2, 3, 4]}, _, _}}} =
+             AL.run(query, branch)
+  end
+
+  test "an effectful batch resumes in the current transaction", %{branch: branch} do
+    for trace <- [[], [:vm], [:domino], [:goals]] do
+      assert %AL{result: {:atomic, {%{"$R" => [first_transaction]}, _, first}}} =
+               AL.run(
+                 "findnsols 1 Tx R {member [1,2] X, vm_set_slot collection_probe value X, vm_transaction_object Tx}.",
+                 branch,
+                 trace: trace
+               )
+
+      assert first_transaction == first.transaction_object
+
+      assert %AL{result: {:atomic, {%{"$R" => [second_transaction]}, _, second}}} =
+               AL.next_solution(first)
+
+      assert second_transaction == second.transaction_object
+      refute second_transaction == first_transaction
+
+      if trace == [:domino] do
+        assert Enum.any?(second.trace.events, fn event ->
+                 match?({:clause_redo, _}, AL.Trace.payload(event))
+               end)
+
+        assert is_list(AL.Trace.Derivation.build(second))
+      end
+    end
+  end
+
+  test "a machine batch retains parent suspensions on backtracking", %{branch: branch} do
+    assert %AL{result: {:atomic, {%{"$R" => [2]}, _, _}}} =
+             AL.run(
+               "freeze Y {= Y [2]}, findnsols 1 X R {member [1,2] X}, = Y R.",
+               branch
+             )
+  end
+
+  test "effects created in each batch remain usable", %{branch: branch} do
+    directory =
+      Path.join(System.tmp_dir!(), "al_findnsols_effects_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(directory)
+    on_exit(fn -> File.rm_rf!(directory) end)
+
+    paths =
+      for value <- ["first", "second", "third"] do
+        path = Path.join(directory, value)
+        File.write!(path, value)
+        path
+      end
+
+    assert %AL{result: {:atomic, {%{"$Batches" => batches}, _, _}}} =
+             AL.run(
+               ~S(findall Batch Batches {findnsols 1 Effect Batch {member Paths Path, new effect #{arguments => [Path], operation => read, provider => file} Effect}}.),
+               branch,
+               bindings: %{"Paths" => paths}
+             )
+
+    assert Enum.map(batches, &length/1) == [1, 1, 1]
+
+    for {[effect], value} <- Enum.zip(batches, ["first", "second", "third"]) do
+      assert {:ok, ^value} = AL.await_effect(effect, branch: branch, timeout: 1000)
+    end
   end
 
   test "resource exhaustion is not reported as an empty batch", %{branch: branch} do

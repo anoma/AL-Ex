@@ -50,6 +50,30 @@ defmodule AL.CollectionStateTest do
            end) == "12"
   end
 
+  test "a later child mutation does not replay an earlier machine batch", %{branch: branch} do
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert %AL{result: {:atomic, {%{"$Batches" => [[1], [2]]}, _, _}}} =
+                      AL.run(
+                        ~S(findall B Batches {findnsols 1 X B {{= X 1} ; {= X 2, print "two"}}}.),
+                        branch
+                      )
+
+             flush(branch)
+           end) == "two"
+  end
+
+  test "a later child mutation does not create an empty terminal batch", %{branch: branch} do
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert %AL{result: {:atomic, {%{"$Batches" => [[1]]}, _, _}}} =
+                      AL.run(
+                        ~S(findall B Batches {findnsols 1 X B {{= X 1} ; {print "tail", fail}}}.),
+                        branch
+                      )
+
+             flush(branch)
+           end) == "tail"
+  end
+
   test "zero count produces no output", %{branch: branch} do
     assert ExUnit.CaptureIO.capture_io(fn ->
              assert %AL{result: {:atomic, {%{"$R" => []}, _, _}}} =
@@ -69,7 +93,7 @@ defmodule AL.CollectionStateTest do
     assert {:ok, 0} = AL.await_effect(effect, branch: branch)
   end
 
-  test "child work is charged on both machine and driver collection paths", %{branch: branch} do
+  test "collection work is charged with and without durable actions", %{branch: branch} do
     assert %AL{result: {:atomic, {_, _, plain}}} = AL.run("count_to 0 1000.", branch)
 
     for source <- [

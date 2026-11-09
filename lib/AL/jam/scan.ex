@@ -1,10 +1,14 @@
 defmodule AL.JAM.Scan do
+  alias AL.Goal
   alias AL.JAM.{IR, Operand}
   alias AL.Var
+  alias AL.PlanStore.Implementation
 
   def enter(
-        {[%AL.JAM.CompiledClause{head: [_, _, _, _]}, %AL.JAM.CompiledClause{head: [_, _, _, _]}],
-         _},
+        {[
+           %AL.JAM.CompiledClause{method: id, head: [_, _, _, _]},
+           %AL.JAM.CompiledClause{head: [_, _, _, _]}
+         ], _},
         receiver,
         selector,
         operands,
@@ -21,22 +25,24 @@ defmodule AL.JAM.Scan do
 
         if fresh?(rest, store) and rest !== output and (is_atom(output) or Var.var?(output)) and
              match?([_ | _], input) do
-          key = {:scan_region, receiver, selector}
+          requirements = %{scan_region: %{receiver: receiver, selector: selector}}
 
-          compiled =
-            AL.ResolutionCache.fetch_dispatch(branch, key, fn ->
-              AL.ResolutionCache.fetch_plan(
-                branch,
-                key,
-                fn {plan, _, _, _} -> IR.Scan.valid?(plan, branch) end,
-                fn ->
-                  case IR.Scan.compile(receiver, selector, branch) do
-                    nil -> nil
-                    plan -> emit(plan)
-                  end
-                end
-              )
+          implementation =
+            AL.PlanStore.fetch(branch, id, requirements, fn ->
+              case IR.Scan.compile(receiver, selector, branch) do
+                nil ->
+                  nil
+
+                plan ->
+                  %Implementation{
+                    code: emit(plan),
+                    requirements: requirements,
+                    dependencies: plan.dependencies
+                  }
+              end
             end)
+
+          compiled = if implementation, do: implementation.code
 
           prepare(compiled, input, rest, output, store, budget)
         else
@@ -49,7 +55,10 @@ defmodule AL.JAM.Scan do
   end
 
   def enter(
-        {[%AL.JAM.CompiledClause{head: [_, _, _]}, %AL.JAM.CompiledClause{head: [_, _, _]}], _},
+        {[
+           %AL.JAM.CompiledClause{method: id, head: [_, _, _]},
+           %AL.JAM.CompiledClause{head: [_, _, _]}
+         ], _},
         receiver,
         selector,
         operands,
@@ -64,22 +73,24 @@ defmodule AL.JAM.Scan do
         rest = Var.deref(store, rest)
 
         if fresh?(rest, store) and (input == [] or match?([_ | _], input)) do
-          key = {:consumption_region, receiver, selector}
+          requirements = %{consumption_region: %{receiver: receiver, selector: selector}}
 
-          compiled =
-            AL.ResolutionCache.fetch_dispatch(branch, key, fn ->
-              AL.ResolutionCache.fetch_plan(
-                branch,
-                key,
-                fn {plan, _, _, _} -> IR.Scan.valid?(plan, branch) end,
-                fn ->
-                  case IR.Scan.compile_consumption(receiver, selector, branch) do
-                    nil -> nil
-                    plan -> emit(plan)
-                  end
-                end
-              )
+          implementation =
+            AL.PlanStore.fetch(branch, id, requirements, fn ->
+              case IR.Scan.compile_consumption(receiver, selector, branch) do
+                nil ->
+                  nil
+
+                plan ->
+                  %Implementation{
+                    code: emit(plan),
+                    requirements: requirements,
+                    dependencies: plan.dependencies
+                  }
+              end
             end)
+
+          compiled = if implementation, do: implementation.code
 
           prepare_consumption(compiled, input, rest, budget)
         else
@@ -109,7 +120,7 @@ defmodule AL.JAM.Scan do
             fn -> true end
           )
 
-          scope = Integer.to_string(AL.fresh_scope())
+          scope = Integer.to_string(AL.Scope.fresh())
 
           slots =
             Enum.reduce(labels.locals, :erlang.make_tuple(count, nil), fn index, slots ->
@@ -127,7 +138,7 @@ defmodule AL.JAM.Scan do
             |> put_elem(2, rest)
             |> put_elem(3, output)
 
-          {:region, {labels.guard_token, plan.guard, labels.outputs}, code, slots, labels.answer,
+          {:region, {labels.guard_token, plan, labels.outputs}, code, slots, labels.answer,
            labels.fallback, used}
 
         :fallback ->
@@ -160,13 +171,13 @@ defmodule AL.JAM.Scan do
   defp prepare_consumption(nil, _, _, _), do: :fallback
 
   defp prepare_consumption({plan, code, labels, _}, input, rest, budget) do
-    case consumption_prefix(input, plan.tests, budget, 0) do
+    case consumption_prefix(input, plan.ranges, budget, 0) do
       {:ok, used} ->
         AL.ResolutionCache.fetch_dispatch(plan.branch, {:region_guard, labels.guard_token}, fn ->
           true
         end)
 
-        {:region, {labels.guard_token, plan.guard, labels.outputs}, code, {input, rest, nil, nil},
+        {:region, {labels.guard_token, plan, labels.outputs}, code, {input, rest, nil, nil},
          labels.answer, labels.answer, used}
 
       :fallback ->
@@ -176,38 +187,28 @@ defmodule AL.JAM.Scan do
 
   defp consumption_prefix([], _, _, used), do: {:ok, used}
 
-  defp consumption_prefix([head | tail], tests, budget, used)
+  defp consumption_prefix([head | tail], ranges, budget, used)
        when is_integer(head) and used < budget do
-    accepted =
-      Enum.all?(tests, fn
-        {:>=, bound} -> head >= bound
-        {:<=, bound} -> head <= bound
-        {:dif, bound} -> head != bound
-      end)
+    accepted = Enum.any?(ranges, fn {low, high} -> head >= low and head <= high end)
 
     if accepted,
-      do: consumption_prefix(tail, tests, budget, used + 1),
+      do: consumption_prefix(tail, ranges, budget, used + 1),
       else: {:ok, used + 1}
   end
 
   defp consumption_prefix(_, _, _, _), do: :fallback
 
   def emit(%{mode: :integer_prefix_fresh_rest} = plan) do
-    fallback =
-      Enum.map(plan.tests, fn
-        {:dif, value} -> {:dif, {:register, 2}, {:constant, value}}
-        {op, value} -> {:compare, op, {:register, 2}, {:constant, value}}
-      end)
-      |> List.to_tuple()
-
     start = if plan.minimum == 0, do: [{:try, :answer, [0, 1]}], else: []
 
     instructions =
       start ++
         [
           {:label, :scan},
-          {:get_cons, {:register, 0}, 2, 3, :fail},
-          {:numeric_tests, {:register, 2}, plan.tests, fallback},
+          {:get_cons, {:register, 0}, 2, 3, :fail}
+        ] ++
+        membership_instructions(plan.ranges, {:register, 2}) ++
+        [
           {:move, 0, {:register, 3}},
           {:try, :answer, [0, 1]},
           {:jump, :scan, []},
@@ -230,9 +231,11 @@ defmodule AL.JAM.Scan do
                                                                   {ops, input, names} ->
         output = Var.fresh({:"$var", "Suffix"}, Integer.to_string(map_size(names)))
         names = Map.put(names, output, 11 + map_size(names))
-        pattern = %AL.Goal.Compound{name: check, args: [{:"$var", "Value"}]}
-        op = IR.operation(:send, selector, [plan.receiver, [input, output, pattern]])
-        {ops ++ [IR.emit(op, names)], output, names}
+        pattern = %Goal.Compound{name: check, args: [{:"$var", "Value"}]}
+
+        op = {:send, nil, plan.receiver, selector, [input, output, pattern]}
+
+        {ops ++ [IR.Assembler.instruction(op, names)], output, names}
       end)
 
     last =
@@ -243,9 +246,13 @@ defmodule AL.JAM.Scan do
 
     count = max(11, (names |> Map.values() |> Enum.max()) + 1)
 
+    character = {:"$var", "Character"}
+
     tests =
-      Enum.map(plan.tests, fn {:dif, n} -> {:dif, {:register, 4}, {:constant, n}} end)
-      |> List.to_tuple()
+      plan.tests
+      |> Enum.map(fn {:dif, n} -> {:dif, character, n} end)
+      |> IR.Selection.numeric_tests()
+      |> IR.Assembler.instruction(%{character => 4})
 
     live = [0, 1, 2, 3, 10] ++ Enum.to_list(11..(count - 1)//1)
 
@@ -253,7 +260,7 @@ defmodule AL.JAM.Scan do
       [
         {:label, :scan},
         {:get_cons, {:register, 0}, 4, 5, :fail},
-        {:numeric_tests, {:register, 4}, plan.tests, tests},
+        tests,
         {:jump, :save, [{0, {:register, 5}}, {1, {:cons, {:register, 4}, {:register, 1}}}]},
         {:label, :save},
         {:try, :answer, live},
@@ -300,5 +307,16 @@ defmodule AL.JAM.Scan do
      |> Map.put(:guard_token, make_ref())
      |> Map.put(:outputs, %{2 => output_code})
      |> Map.put(:locals, locals), count}
+  end
+
+  defp membership_instructions([{value, value}], operand),
+    do: [{:eq, operand, {:constant, value}}]
+
+  defp membership_instructions([{low, high}], operand),
+    do: [{:compare, :>=, operand, {:constant, low}}, {:compare, :<=, operand, {:constant, high}}]
+
+  defp membership_instructions(ranges, operand) do
+    allowed = for {low, high} <- ranges, value <- low..high, into: %{}, do: {value, true}
+    [{:map_get, {:constant, allowed}, operand, {:constant, true}}]
   end
 end

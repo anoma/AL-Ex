@@ -1,10 +1,11 @@
 defmodule AL.JAM.SelectionTest do
+  alias AL.JAM.IR.Normalize
   use ExUnit.Case, async: true
   alias AL.Goal
   alias AL.JAM.IR.{Program, Selection}
 
   defp range do
-    Program.lower([
+    Normalize.lower([
       %Goal.Compare{op: :<=, a: 1, b: {:"$var", "Value"}},
       %Goal.Compare{op: :<, a: {:"$var", "Value"}, b: 4}
     ])
@@ -12,7 +13,7 @@ defmodule AL.JAM.SelectionTest do
 
   defp snapshot(program, store) do
     {code, slots} = AL.JAM.IR.Assembler.compile(program)
-    %AL.JAM.Frame{id: :test, code: code, slots: slots, store: store}
+    %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: store}
   end
 
   defp run(program, store, budget \\ 100),
@@ -24,8 +25,8 @@ defmodule AL.JAM.SelectionTest do
     assert {{:numeric_tests, {:register, 0}, [{:>=, 1}, {:<, 4}], fallback}} = code
     assert tuple_size(fallback) == 2
 
-    assert AL.JAM.pending_goals(snapshot(selected, %{})) ==
-             AL.JAM.pending_goals(snapshot(range(), %{}))
+    assert AL.JAM.Frame.pending_goals(snapshot(selected, %{})) ==
+             AL.JAM.Frame.pending_goals(snapshot(range(), %{}))
 
     for value <- [1, 2.5, 3] do
       store = %{{:"$var", "Value"} => value}
@@ -38,25 +39,30 @@ defmodule AL.JAM.SelectionTest do
       store = %{{:"$var", "Value"} => value}
       assert {:failed, original, steps} = run(range(), store)
       assert {:failed, selected, ^steps} = run(Selection.select(range()), store)
-      assert AL.JAM.failed_goal(selected) == AL.JAM.failed_goal(original)
-      assert AL.JAM.pending_goals(selected) == AL.JAM.pending_goals(original)
+      assert AL.JAM.Frame.failed_goal(selected) == AL.JAM.Frame.failed_goal(original)
+      assert AL.JAM.Frame.pending_goals(selected) == AL.JAM.Frame.pending_goals(original)
     end
   end
 
   test "open values retain constraint propagation" do
-    program = Program.concat(range(), Program.lower([%Goal.Eq{a: {:"$var", "Value"}, b: 2}]))
+    program = Program.concat(range(), Normalize.lower([%Goal.Eq{a: {:"$var", "Value"}, b: 2}]))
     assert {:ok, original, steps} = run(program, %{})
     assert {:ok, selected, ^steps} = run(Selection.select(program), %{})
     assert AL.Var.subst({:"$var", "Value"}, selected) == 2
     assert selected == original
   end
 
-  test "small budgets suspend at the same original comparison" do
+  test "small budgets stop at the same original comparison" do
     for budget <- [0, 1] do
       store = %{{:"$var", "Value"} => 2}
-      assert {:suspend, original, [], steps} = run(range(), store, budget)
-      assert {:suspend, selected, [], ^steps} = run(Selection.select(range()), store, budget)
-      assert AL.JAM.pending_goals(selected) == AL.JAM.pending_goals(original)
+
+      assert {:budget_exhausted, original, %AL.JAM.Execution{choices: [], steps: steps}} =
+               run(range(), store, budget)
+
+      assert {:budget_exhausted, selected, %AL.JAM.Execution{choices: [], steps: ^steps}} =
+               run(Selection.select(range()), store, budget)
+
+      assert AL.JAM.Frame.pending_goals(selected) == AL.JAM.Frame.pending_goals(original)
 
       assert AL.JAM.resume(selected, AL.Branch.head(), 100) ==
                AL.JAM.resume(original, AL.Branch.head(), 100)
@@ -65,7 +71,7 @@ defmodule AL.JAM.SelectionTest do
 
   test "selection does not move tests across an operation or combine different operands" do
     program =
-      Program.lower([
+      Normalize.lower([
         %Goal.Compare{op: :>=, a: {:"$var", "Value"}, b: 1},
         %Goal.Eq{a: {:"$var", "Output"}, b: {:"$var", "Value"}},
         %Goal.Compare{op: :<, a: {:"$var", "Value"}, b: 4},
@@ -73,7 +79,7 @@ defmodule AL.JAM.SelectionTest do
       ])
 
     selected = Selection.select(program)
-    refute Program.any?(selected, &(&1.kind == :machine))
+    refute Program.any?(selected, &match?({:numeric_tests, _, _, _}, &1))
   end
 
   test "tracing observes both original comparisons" do
@@ -90,7 +96,7 @@ defmodule AL.JAM.SelectionTest do
 
   test "numeric exclusions preserve open and nonnumeric behavior and diagnostics" do
     original =
-      Program.lower([
+      Normalize.lower([
         %Goal.Dif{a: {:"$var", "Value"}, b: 1},
         %Goal.Dif{a: 2, b: {:"$var", "Value"}}
       ])
@@ -105,8 +111,8 @@ defmodule AL.JAM.SelectionTest do
           assert actual == expected
 
         {{:failed, expected, steps}, {:failed, actual, steps}} ->
-          assert AL.JAM.failed_goal(actual) == AL.JAM.failed_goal(expected)
-          assert AL.JAM.pending_goals(actual) == AL.JAM.pending_goals(expected)
+          assert AL.JAM.Frame.failed_goal(actual) == AL.JAM.Frame.failed_goal(expected)
+          assert AL.JAM.Frame.pending_goals(actual) == AL.JAM.Frame.pending_goals(expected)
       end
     end
 
@@ -121,4 +127,73 @@ defmodule AL.JAM.SelectionTest do
 
     assert selected_trace.events == original_trace.events
   end
+
+  test "compound operands retain their variables through selection and substitution" do
+    left = {:"$var", "Left"}
+    right = {:"$var", "Right"}
+    renamed = {:"$var", "Renamed"}
+    value = %Goal.Compound{name: :+, args: [left, right]}
+
+    original =
+      Normalize.lower([
+        %Goal.Compare{op: :<=, a: 1, b: value},
+        %Goal.Compare{op: :<, a: value, b: 4},
+        %Goal.Dif{a: 2, b: value}
+      ])
+
+    selected = Selection.select(original)
+    assert Program.variables(selected) == MapSet.new([left, right])
+
+    for replacements <- [%{}, %{left => renamed}, %{left => 1}] do
+      original = Program.subst(original, replacements)
+      selected = Program.subst(selected, replacements)
+      assert Program.variables(selected) == Program.variables(original)
+
+      assert AL.JAM.Frame.pending_goals(snapshot(selected, %{})) ==
+               AL.JAM.Frame.pending_goals(snapshot(original, %{}))
+
+      store = %{left => 1, renamed => 1, right => 2}
+      assert {:ok, ^store, _} = run(selected, store)
+      assert run(selected, store) == run(original, store)
+      assert run(selected, %{}) == run(original, %{})
+    end
+  end
+
+  test "scan exclusions preserve ordered answers when resumed with a small budget" do
+    plan = %AL.JAM.IR.Scan{tests: [{:dif, 32}, {:dif, 10}], suffix: []}
+    {_, code, labels, count} = AL.JAM.Scan.emit(plan)
+    rest = {:"$var", "Rest"}
+    token = {:"$var", "Token"}
+
+    for {input, expected} <- [
+          {~c"ab cd", [{:ab, ~c" cd"}, {:a, ~c"b cd"}]},
+          {~c"a\n", [{:a, ~c"\n"}]},
+          {~c" a", []},
+          {[], []}
+        ],
+        budget <- [0, 1, 2, 1000] do
+      slots =
+        Enum.reduce(labels.locals, :erlang.make_tuple(count, nil), fn index, slots ->
+          put_elem(slots, index, {:"$var", "Local#{index}"})
+        end)
+        |> put_elem(0, input)
+        |> put_elem(1, [])
+        |> put_elem(2, rest)
+        |> put_elem(3, token)
+
+      frame = %AL.JAM.Frame{descriptor: :test, code: code, slots: slots, store: %{}}
+      result = AL.JAM.resume(frame, AL.Branch.head(), budget)
+      assert scan_answers(result, token, rest) == expected
+    end
+  end
+
+  defp scan_answers({:budget_exhausted, frame, execution}, token, rest),
+    do: scan_answers(AL.JAM.Machine.resume(frame, %{execution | budget: 1000}), token, rest)
+
+  defp scan_answers({:ok, store, execution}, token, rest) do
+    answer = {AL.Var.subst(token, store), AL.Var.subst(rest, store)}
+    [answer | scan_answers(AL.JAM.Machine.retry(execution), token, rest)]
+  end
+
+  defp scan_answers({:failed, _, _}, _token, _rest), do: []
 end

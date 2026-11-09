@@ -543,7 +543,7 @@ defmodule AL.Tooling do
     %{
       "branch" => branch_name(state.branch),
       "reductions" => state.reductions,
-      "choicepointDepth" => length(state.choicepoint_stack),
+      "choicepointDepth" => length(state.search_stack),
       "diagnostics" => json_value(state.diagnostics)
     }
   end

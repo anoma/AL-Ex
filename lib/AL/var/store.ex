@@ -15,11 +15,16 @@ defmodule AL.Var.Store do
   end
 
   defp resolve(store, variable) do
-    case fetch(store, variable) do
-      :error -> variable
-      {:ok, %AL.Var.ConstraintSet{}} -> variable
-      {:ok, ^variable} -> variable
-      {:ok, value} -> deref(store, value)
+    case store do
+      %{^variable => value} ->
+        case value do
+          %AL.Var.ConstraintSet{} -> variable
+          ^variable -> variable
+          _ -> deref(store, value)
+        end
+
+      _ ->
+        variable
     end
   end
 end

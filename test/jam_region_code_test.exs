@@ -8,7 +8,7 @@ defmodule AL.JAM.RegionCodeTest do
     collect(
       AL.JAM.resume(
         %AL.JAM.Frame{
-          id: :region_test,
+          descriptor: :region_test,
           code: code,
           slots: values,
           store: %{}
@@ -21,15 +21,20 @@ defmodule AL.JAM.RegionCodeTest do
     )
   end
 
-  defp collect({:ok, store, _}, choices, budget),
-    do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(choices, budget)]
-
-  defp collect({:answers, store, alternatives, _}, choices, budget),
+  defp collect({:ok, store, %AL.JAM.Execution{choices: alternatives}}, choices, budget),
     do: [AL.Var.subst({:"$var", "Output"}, store) | remaining(alternatives ++ choices, budget)]
 
-  defp collect({:suspend, snapshot, alternatives, _}, choices, budget),
-    do:
-      collect(AL.JAM.resume(snapshot, AL.Branch.head(), budget), alternatives ++ choices, budget)
+  defp collect(
+         {:budget_exhausted, snapshot, %AL.JAM.Execution{choices: alternatives}},
+         choices,
+         budget
+       ),
+       do:
+         collect(
+           AL.JAM.resume(snapshot, AL.Branch.head(), budget),
+           alternatives ++ choices,
+           budget
+         )
 
   defp collect({:failed, _, _}, choices, budget), do: remaining(choices, budget)
   defp remaining([], _), do: []
@@ -51,7 +56,7 @@ defmodule AL.JAM.RegionCodeTest do
              )
   end
 
-  test "a cyclic list loop survives instruction budget suspension" do
+  test "a cyclic list loop resumes after budget exhaustion" do
     assert [[3, 2, 1]] ==
              run(
                [

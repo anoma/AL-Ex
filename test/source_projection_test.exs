@@ -78,7 +78,7 @@ defmodule ALSourceProjectionTest do
             %{
               program: [
                 _clear,
-                %AL.Goal.Compound{name: :defmethod, args: [_, _, _, parsed_body]}
+                %AL.Goal.OApply{method_id: :defmethod, args: [_, _, _, parsed_body]}
               ]
             }} =
              AL.Syntax.parse(rendered <> ".")
@@ -104,9 +104,9 @@ defmodule ALSourceProjectionTest do
       {_owner, _selector, _clause, _head, body} =
         branch |> clauses() |> Enum.find(&(elem(&1, 1) == :commented_example))
 
-      assert Enum.filter(body, &match?({:compound, :comment, _}, &1)) == [
-               {:compound, :comment, [" leading note"]},
-               {:compound, :comment, [" trailing note"]}
+      assert Enum.filter(body, &match?({:comment, _}, &1)) == [
+               {:comment, " leading note"},
+               {:comment, " trailing note"}
              ]
 
       rendered =
@@ -150,7 +150,7 @@ defmodule ALSourceProjectionTest do
       text = bindings["$Text"]
       assert String.ends_with?(text, "pass.")
 
-      assert {:ok, %{program: [_clear, %AL.Goal.Compound{name: :defmethod}]}} =
+      assert {:ok, %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod}]}} =
                AL.Syntax.parse(text)
 
       commented =
@@ -158,8 +158,49 @@ defmodule ALSourceProjectionTest do
 
       assert String.ends_with?(commented, "# trailing note\n.")
 
-      assert {:ok, %{program: [_clear, %AL.Goal.Compound{name: :defmethod}]}} =
+      assert {:ok, %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod}]}} =
                AL.Syntax.parse(commented)
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
+  test "traced definition calls retain their source" do
+    branch = AL.TestBranch.fork()
+
+    source = ~S"""
+    @source_call_trace_probe #{super => object}.
+
+    source_call_trace_probe >> ping
+    | Self pong |.
+    """
+
+    try do
+      assert %AL{result: {:atomic, _}} = AL.run(source, branch, trace: [:domino, :vm])
+
+      {:atomic, [{:method, :source_call_trace_probe, :ping, method_id}]} =
+        :mnesia.transaction(fn ->
+          AL.Object.scan_method(
+            :source_call_trace_probe,
+            :ping,
+            AL.Var.var("method_id"),
+            branch
+          )
+        end)
+
+      assert %{
+               text: "source_call_trace_probe >> ping\n| Self pong |",
+               start_line: 3,
+               provenance: :retained,
+               diagnostic: nil
+             } =
+               AL.Source.method_clause_source(
+                 :source_call_trace_probe,
+                 :ping,
+                 method_id,
+                 0,
+                 branch
+               )
     after
       AL.Branch.discard(branch)
     end
@@ -167,7 +208,7 @@ defmodule ALSourceProjectionTest do
 
   defp reparse(owner, selector, text) do
     with {:ok,
-          %{program: [_clear, %AL.Goal.Compound{name: :defmethod, args: [_, _, head, body]}]}} <-
+          %{program: [_clear, %AL.Goal.OApply{method_id: :defmethod, args: [_, _, head, body]}]}} <-
            AL.Syntax.parse(text <> ".") do
       {:ok,
        AL.Source.defmethod_source(

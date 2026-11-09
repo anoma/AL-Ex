@@ -1,6 +1,7 @@
 defmodule AL.JAM.IR.Search do
-  alias AL.{Goal, Var}
-  alias AL.JAM.{IR, Operand}
+  alias AL.Goal
+  alias AL.Var
+  alias AL.JAM.Operand
 
   def prune(
         {[
@@ -55,7 +56,7 @@ defmodule AL.JAM.IR.Search do
          [position] <- positions(arguments, element),
          true <- distinct?([ignored_tail | arguments]),
          true <- distinct?([ignored_head, tail | invariants]),
-         %IR{kind: :send, name: ^selector, args: [^tail, next]} <- IR.lower(Goal.lower(body)),
+         %Goal.Send{method: ^selector, object: ^tail, args: next} <- body,
          true <- next === invariants,
          true <- Enum.all?(invariants, &(&1 != {:"$var", "_"})),
          {:ok, _, ^id} <- AL.Dispatch.target([], selector, branch),

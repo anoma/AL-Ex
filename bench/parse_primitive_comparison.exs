@@ -3,17 +3,22 @@ Code.require_file("language_support.exs", __DIR__)
 {module, binary, filename} = :code.get_object_code(AL.JAM.Instruction)
 source = File.read!(Path.expand("../lib/AL/jam/instruction.ex", __DIR__))
 
-header =
-  "  def execute({:local, index, {:primitive, name, operands} = operation}, slots, store, branch) do"
+header = """
+  def execute(
+        {:primitive_into, index, name, position, input} = operation,
+        slots,
+        store,
+        _branch,
+        _pending
+      ) do
+"""
+
+following =
+  "  def execute({:constraint, operation, arguments}, slots, store, branch, _pending) do"
 
 [before, rest] = String.split(source, header)
 
-[body, after_body] =
-  String.split(
-    rest,
-    "  def execute({:constraint, operation, arguments}, slots, store, branch) do",
-    parts: 2
-  )
+[body, after_body] = String.split(rest, following, parts: 2)
 
 body = String.trim_trailing(body)
 if not String.ends_with?(body, "end"), do: raise("changed primitive output hook")
@@ -22,9 +27,10 @@ body = String.slice(body, 0, byte_size(body) - 3)
 patched =
   before <>
     header <>
-    "\n    if Process.get(:bench_generic_primitive, false) do\n      execute(operation, slots, store, branch)\n    else\n" <>
+    "\n    if Process.get(:bench_generic_primitive, false) do\n      fallback(operation, index, slots)\n    else\n" <>
     body <>
-    "    end\n  end\n\n  def execute({:constraint, operation, arguments}, slots, store, branch) do" <>
+    "    end\n  end\n\n" <>
+    following <>
     after_body
 
 try do

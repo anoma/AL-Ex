@@ -10,9 +10,11 @@ defmodule AL.JAM.Clauses do
   end
 
   def reflect_clauses(object, seq, head, body, branch) do
-    scan_clauses(object, seq, head, AL.Block.goals(body), branch)
+    body = body |> AL.Block.goals() |> AL.Goal.goals() |> AL.Goal.to_stored()
+
+    scan_clauses(object, seq, head, body, branch)
     |> Enum.map(fn {:oapply, id, seq, head, body} ->
-      {:oapply, id, seq, head, AL.Block.new(body)}
+      {:oapply, id, seq, head, body |> AL.Goal.to_term() |> AL.Block.new()}
     end)
   end
 

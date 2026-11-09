@@ -8,7 +8,7 @@ defmodule AL.JAM.Relation do
   end
 
   def execute(:schedule_transaction, [status, effect, head, goals], store, branch) do
-    future = AL.Var.fresh({:"$var", "future_transaction"}, Integer.to_string(AL.fresh_scope()))
+    future = AL.Var.fresh({:"$var", "future_transaction"}, Integer.to_string(AL.Scope.fresh()))
     execute(:schedule_transaction, [status, effect, head, goals, future], store, branch)
   end
 
@@ -346,7 +346,7 @@ defmodule AL.JAM.Relation do
 
       stores =
         Enum.map(AL.JAM.Clauses.reflect_clauses(object, seq, head, body, branch), fn row ->
-          AL.Var.unify(AL.standardize_apart(row), pattern, store, branch)
+          AL.Var.unify(AL.Var.standardize_apart(row), pattern, store, branch)
         end)
 
       {:stores, stores}
@@ -512,5 +512,5 @@ defmodule AL.JAM.Relation do
   defp scan(rows, pattern, store, branch),
     do: {:stores, Enum.map(rows, &AL.Var.unify(&1, pattern, store, branch))}
 
-  defp fresh_seq(), do: AL.Var.fresh({:"$var", "seq"}, Integer.to_string(AL.fresh_scope()))
+  defp fresh_seq(), do: AL.Var.fresh({:"$var", "seq"}, Integer.to_string(AL.Scope.fresh()))
 end
