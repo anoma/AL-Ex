@@ -143,7 +143,7 @@ defmodule Examples.ALViewsWindowManager do
         "Target" => target
       })["$Views"]
 
-    assert Enum.find(views, &(&1[:title] == "meta"))[:content] =~ "<Setter.Value>0,0,0,8</Setter.Value>"
+    assert Enum.find(views, &(&1[:title] == "Code"))[:view] == "inspector"
     views
   end
 
