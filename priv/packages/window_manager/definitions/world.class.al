@@ -18,3 +18,9 @@ new phlow_xaml #{title => "REPL", brick => Repl} View.
 world >> window_entry
 | _Self "Class Viewer" View |
 new phlow_views #{title => "Class Viewer", target => object, selector => class_view} View.
+
+world >> new_workspace
+| Self Visible Wm |
+new wm #{visible_extent => Visible} Wm,
+window_entry Self "REPL" View,
+new_window Wm #{content => View} _ _.
