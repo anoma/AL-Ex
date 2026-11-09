@@ -78,7 +78,7 @@ defmodule Examples.ALFailures do
       )
 
     assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
-    assert reason.message =~ "didn't match"
+    assert reason.message =~ "trigger \#{class => failbody}"
     refute reason.message =~ "clause_fail"
     :ok
   end
@@ -111,7 +111,7 @@ defmodule Examples.ALFailures do
       )
 
     assert match?({:goal_failed, {:clause_call, _method_id, [_obj]}}, reason.reason)
-    assert reason.message =~ "didn't match"
+    assert reason.message =~ "trigger \#{class => no_trace_failbody}"
     assert reason.trace == []
   end
 

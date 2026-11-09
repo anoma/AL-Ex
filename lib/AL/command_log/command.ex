@@ -51,6 +51,45 @@ defmodule AL.Command do
           | {:send_elixir, {pid(), term()}}
           | {:effect, {:object, term(), atom(), atom(), list()}}
 
+  def operation_value({:set_oapply, {method, sequence, head, body}}) do
+    %{
+      action: :set_oapply,
+      arguments: [method, sequence, AL.Syntax.Printer.term(head), AL.Syntax.Printer.body(body)]
+    }
+  end
+
+  def operation_value({action, arguments}) when is_tuple(arguments) do
+    %{action: action, arguments: arguments |> Tuple.to_list() |> Enum.map(&operation_argument/1)}
+  end
+
+  def operation_value({action, argument}) do
+    %{action: action, arguments: [operation_argument(argument)]}
+  end
+
+  defp operation_argument({:"$var", _} = argument), do: AL.Syntax.Printer.term(argument)
+
+  defp operation_argument(argument) when is_tuple(argument) do
+    argument |> Tuple.to_list() |> Enum.map(&operation_argument/1)
+  end
+
+  defp operation_argument(arguments) when is_list(arguments) do
+    if proper_list?(arguments),
+      do: Enum.map(arguments, &operation_argument/1),
+      else: AL.Syntax.Printer.term(arguments)
+  end
+
+  defp operation_argument(argument) when is_map(argument) and not is_struct(argument) do
+    Map.new(argument, fn {key, value} ->
+      {operation_argument(key), operation_argument(value)}
+    end)
+  end
+
+  defp operation_argument(argument), do: argument
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | tail]), do: proper_list?(tail)
+  defp proper_list?(_), do: false
+
   @doc """
   Table name for a branch's command log. `:main` is the live log; a fork uses a
   suffixed table created with `record_name: :command`.
@@ -304,10 +343,18 @@ defmodule AL.Command do
 
   @spec command(non_neg_integer(), AL.Branch.t()) :: command() | :absent
   def command(t, branch \\ AL.Branch.head()) do
+    case command_row(t, branch) do
+      {:command, ^t, _tx_id, operation} -> operation
+      :absent -> :absent
+    end
+  end
+
+  @spec command_row(non_neg_integer(), AL.Branch.t()) :: tuple() | :absent
+  def command_row(t, branch \\ AL.Branch.head()) do
     command_reference = table(:command, branch)
 
     case :mnesia.read(command_reference, t) do
-      [{_, ^t, _tx_id, command}] -> command
+      [row] -> row
       [] -> :absent
     end
   end

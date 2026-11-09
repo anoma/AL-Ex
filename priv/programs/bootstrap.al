@@ -634,7 +634,98 @@ print Output.
 
 new class #{ivars => [], name => number, super => value} _.
 
-@branch #{super => object}.
+@branch #{super => object, ivars => [#{name => command_log, type => command_log}]}.
+
+@command_log #{super => object, ivars => [#{name => branch, type => branch}]}.
+
+@command #{
+  super => value,
+  ivars => [
+    #{name => branch, type => branch},
+    #{name => position, type => number},
+    #{name => transaction},
+    #{name => action},
+    #{name => arguments, type => list}
+  ]
+}.
+
+branch >> command_log
+| Self Log |
+vm_current_branch Self,
+get Self command_log Log,
+get Log branch Self.
+
+branch >> command_log
+| Self Log |
+vm_current_branch Self,
+not {get Self command_log Existing, get Existing branch Self},
+new command_log #{branch => Self} Log,
+set_slot Self command_log Log.
+
+command_log >> at
+| Self Position Command |
+get Self branch Branch,
+vm_current_branch Branch,
+vm_command TxId Position Operation,
+get Operation action Action,
+get Operation arguments Arguments,
+transaction_for Self TxId Transaction,
+new command #{
+  branch => Branch,
+  position => Position,
+  transaction => Transaction,
+  action => Action,
+  arguments => Arguments
+} Command.
+
+command_log >> transaction_for
+| _Self TxId Transaction |
+vm_current_tx TxId,
+vm_transaction_object Transaction.
+
+command_log >> transaction_for
+| _Self TxId Transaction |
+isa Transaction transaction,
+label Transaction,
+get Transaction tx TxId.
+
+command_log >> in_transaction
+| Self Transaction Command |
+get Self branch Branch,
+vm_current_branch Branch,
+transaction_for Self TxId Transaction,
+vm_command TxId Position Operation,
+get Operation action Action,
+get Operation arguments Arguments,
+new command #{
+  branch => Branch,
+  position => Position,
+  transaction => Transaction,
+  action => Action,
+  arguments => Arguments
+} Command.
+
+command_log >> since
+| Self Start Command |
+ground Start,
+get Self branch Branch,
+vm_current_branch Branch,
+vm_branch_meta Branch system_time End,
+= Last (- End 1),
+between Self Start Last Position,
+at Self Position Command.
+
+command_log >> latest
+| Self Command |
+get Self branch Branch,
+vm_current_branch Branch,
+findall P [First . Rest] {vm_command _ P _},
+max [First . Rest] Position,
+at Self Position Command.
+
+command >> transaction
+| Self Transaction |
+get Self transaction Transaction.
 
 branch >> parent
 | Self Parent |
