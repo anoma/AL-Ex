@@ -1,20 +1,14 @@
 @phlow_clist
-#{
-  super => phlow,
-  ivars => [
-    #{name => items},
-    #{name => columns},
-    #{name => row_spacing, default => 0}
-  ]
-}.
+#{super => phlow_xaml, ivars => [#{name => items}]}.
+
+phlow_clist >> init
+| Self Fields View |
+new brick_table Fields Brick,
+put Fields brick Brick WithBrick,
+call_next_method Self WithBrick View.
 
 phlow_clist >> to_map
 | Self Map |
-call_next_method Self Map1,
-put Map1 items Items Map2,
-put Map2 columns Columns Map3,
-put Map3 row_spacing RowSpacing Map,
-get_slots Self #{items => Items, columns => Columns, row_spacing => RowSpacing}.
-
-phlow_clist >> view_mapping
-| _Self "columned_list" |.
+call_next_method Self Fields,
+get Self items Items,
+put Fields data Items Map.

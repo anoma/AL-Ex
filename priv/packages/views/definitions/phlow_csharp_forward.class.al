@@ -1,5 +1,5 @@
 @phlow_csharp_forward
-#{super => phlow, ivars => [#{name => target}]}.
+#{super => phlow, ivars => [#{name => target}, #{name => view}]}.
 
 phlow_csharp_forward >> view_mapping
 | Self View |
