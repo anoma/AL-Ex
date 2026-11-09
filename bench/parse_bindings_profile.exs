@@ -89,20 +89,9 @@ defmodule Bench.ParseBindingsProfile do
     end
   end
 
-  def equality(id, code, a, b, store, branch) do
-    kind =
-      case id do
-        {:guarded_region, _, _, _, _} ->
-          if Enum.any?(Tuple.to_list(code), &match?({:primitive, :atom_string, _}, &1)),
-            do: :symbol_region,
-            else: :consumption_region
-
-        _ ->
-          :ordinary
-      end
-
+  def equality(_id, _code, a, b, store, branch) do
     previous = Process.get(:binding_eq)
-    Process.put(:binding_eq, kind)
+    Process.put(:binding_eq, :ordinary)
 
     try do
       AL.Var.unify_value(a, b, store, branch)

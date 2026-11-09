@@ -2,7 +2,7 @@ defmodule AL.JAM.Machine do
   @moduledoc "Runs compiled JAM frames and retries machine search choices."
 
   alias AL.Goal
-  alias AL.JAM.Collection.Cursor
+  alias AL.JAM.Collection.{Cursor, Search}
   alias AL.JAM.Frame
   alias AL.JAM.State
 
@@ -22,7 +22,7 @@ defmodule AL.JAM.Machine do
   @type machine_result() ::
           {:ok, AL.Var.store(), Execution.t()}
           | {:failed, Frame.t() | nil, Execution.t()}
-          | {:budget_exhausted, Frame.t() | nil, Execution.t()}
+          | {:budget_exhausted, Frame.t() | Cursor.t() | nil, Execution.t()}
           | {:diagnostic, Frame.t(), Execution.t(), term()}
 
   @doc false
@@ -68,6 +68,11 @@ defmodule AL.JAM.Machine do
 
   def resume(%Frame{} = frame, %Execution{} = execution),
     do: resume_entry(frame, execution)
+
+  def resume(%Search{frame: frame, solutions: solutions, scope: scope, limit: limit}, execution) do
+    result = if frame, do: resume(frame, execution), else: retry(nil, execution)
+    collect_result(result, solutions, {scope, limit})
+  end
 
   defp traced_call(
          callee,
@@ -190,25 +195,8 @@ defmodule AL.JAM.Machine do
   end
 
   defp resume_entry(%Frame{} = frame, %Execution{} = execution) do
-    loop(frame, execution, resume_position(frame, execution.branch), execution.steps)
+    loop(frame, execution, frame.pc, execution.steps)
   end
-
-  defp resume_position(
-         %Frame{
-           descriptor: {:guarded_region, _parent, {token, guard, _outputs}, answer, fallback},
-           pc: answer
-         },
-         branch
-       ) do
-    valid =
-      AL.ResolutionCache.fetch_dispatch(branch, {:region_guard, token}, fn ->
-        AL.JAM.IR.Scan.valid?(guard, branch)
-      end)
-
-    if valid, do: answer, else: fallback
-  end
-
-  defp resume_position(%Frame{pc: pc}, _branch), do: pc
 
   defp retry(current, %Execution{steps: steps, budget: budget} = execution)
        when steps > budget,
@@ -232,9 +220,11 @@ defmodule AL.JAM.Machine do
   end
 
   defp retry(
-         _current,
+         current,
          %Execution{choices: [{:dispatch, plans, query, caller, scope} | rest]} = execution
        ) do
+    execution = AL.JAM.Runtime.preserve_failure(execution, current, caller)
+
     if scope do
       AL.JAM.Trace.abandon()
       AL.JAM.Trace.resume(scope)
@@ -243,8 +233,10 @@ defmodule AL.JAM.Machine do
     open_call(plans, query, caller, scope, %{execution | choices: rest})
   end
 
-  defp retry(_current, %Execution{choices: [%Cursor{} = cursor | rest]} = execution),
-    do: resume_collection_cursor(cursor, %{execution | choices: rest})
+  defp retry(current, %Execution{choices: [%Cursor{} = cursor | rest]} = execution) do
+    execution = AL.JAM.Runtime.preserve_failure(execution, current, cursor.parent)
+    resume_collection_cursor(cursor, %{execution | choices: rest})
+  end
 
   defp retry(nil, %Execution{choices: [{:cut, _} | rest]} = execution) do
     AL.JAM.Trace.abandon()
@@ -276,7 +268,9 @@ defmodule AL.JAM.Machine do
     {:failed, current, %{execution | steps: steps + 1}}
   end
 
-  defp retry(_current, %Execution{choices: [choice | rest]} = execution) do
+  defp retry(current, %Execution{choices: [choice | rest]} = execution) do
+    execution = AL.JAM.Runtime.preserve_failure(execution, current, choice)
+
     if AL.JAM.Trace.active?() do
       id = choice.descriptor
       AL.JAM.Trace.abandon()
@@ -459,8 +453,8 @@ defmodule AL.JAM.Machine do
 
       # Read a cons into head and tail
       {:get_cons, operand, head, tail, failure} ->
-        case Operand.read(operand, slots) do
-          [first | rest] ->
+        case AL.Term.uncons(Operand.shallow(operand, slots, store)) do
+          {:ok, first, rest} ->
             slots = slots |> put_elem(head, first) |> put_elem(tail, rest)
             loop(%{current | slots: slots}, execution, pc + 1, steps + 1)
 
@@ -889,7 +883,7 @@ defmodule AL.JAM.Machine do
               do: AL.JAM.Trace.start_child(collect),
               else: {collect.(), nil}
 
-          finish_batch(result, current, count, execution, trace, false)
+          finish_collection_search(result, current, count, execution, trace, false)
         end
 
       {:collect, _template, result, condition} ->
@@ -1320,29 +1314,11 @@ defmodule AL.JAM.Machine do
               Optimization.try_specialized_send(callee, object, method, args, current, execution)
 
             case optimized do
-              {:region, guard, region_code, region_slots, answer, fallback, used} ->
-                region_id = {:guarded_region, callee_id, guard, answer, fallback}
+              {:compiled, selected, used} ->
+                entry =
+                  Frame.returning_entry(callee_id, selected, Frame.advance(current), destinations)
 
-                {region_code, region_returns} =
-                  Frame.region_return(
-                    region_code,
-                    region_slots,
-                    guard,
-                    destinations,
-                    Frame.advance(current)
-                  )
-
-                loop(
-                  %{
-                    current
-                    | descriptor: region_id,
-                      code: region_code,
-                      pc: 0,
-                      slots: region_slots,
-                      returns: region_returns
-                  },
-                  %{execution | targets: targets, steps: steps + used + 1}
-                )
+                resume_entry(entry, %{execution | targets: targets, steps: steps + used + 1})
 
               {:ok, next_store, used} ->
                 loop(
@@ -1652,21 +1628,15 @@ defmodule AL.JAM.Machine do
       collect_limited(child, execution, scope, limit)
     end
 
-    result =
+    {result, trace} =
       if AL.JAM.Trace.active?() do
         goals = Goals.instructions(child.code, 0, child.slots)
         AL.JAM.Trace.collection(kind, goals, output, collect)
       else
-        collect.(nil)
+        {collect.(nil), nil}
       end
 
-    case result do
-      {:ok, solutions, child_execution} ->
-        finish_collection(parent, solutions, restore_collection(child_execution, execution))
-
-      {:budget_exhausted, frame, child_execution} ->
-        {:budget_exhausted, frame, restore_collection(child_execution, execution)}
-    end
+    finish_collection_search(result, parent, nil, execution, trace, false)
   end
 
   def collect(snapshot, branch, budget, context \\ %{}, trace_scope \\ nil) do
@@ -1685,8 +1655,18 @@ defmodule AL.JAM.Machine do
     )
   end
 
-  defp restore_collection(child, parent),
-    do: %{child | choices: parent.choices}
+  defp restore_collection(child, parent) do
+    state =
+      if child.state do
+        %{
+          child.state
+          | diagnostics: parent.state.diagnostics,
+            failure_candidate: parent.state.failure_candidate
+        }
+      end
+
+    %{child | choices: parent.choices, state: state}
+  end
 
   defp finish_collection(parent, solutions, execution) do
     {next, store} = Collection.collection_continuation(parent, solutions, execution.branch)
@@ -1710,8 +1690,11 @@ defmodule AL.JAM.Machine do
     finish_collection(parent, solutions, %{execution | choices: choices})
   end
 
-  defp finish_batch(result, parent, count, execution, trace, resumed?) do
+  defp finish_collection_search(result, parent, count, execution, trace, resumed?) do
     case result do
+      {:ok, solutions, child} ->
+        finish_collection(parent, solutions, restore_collection(child, execution))
+
       {:batch, solutions, child} ->
         return_machine_batch(
           parent,
@@ -1735,18 +1718,31 @@ defmodule AL.JAM.Machine do
           trace
         )
 
-      {:budget_exhausted, frame, child} ->
-        {:budget_exhausted, frame, restore_collection(child, execution)}
+      {:budget_exhausted, search, child} ->
+        cursor = %Cursor{
+          parent: parent,
+          choices: child.choices,
+          count: count,
+          trace: trace,
+          search: search,
+          resumed?: resumed?
+        }
+
+        {:budget_exhausted, cursor, restore_collection(child, execution)}
     end
   end
 
   defp resume_collection_cursor(cursor, execution) do
     collect = fn ->
-      collect_result(
-        retry(nil, %{execution | choices: cursor.choices}),
-        [],
-        {nil, {:batch, cursor.count}}
-      )
+      child = %{execution | choices: cursor.choices}
+
+      case cursor.search do
+        nil ->
+          collect_result(retry(nil, child), [], {nil, {:batch, cursor.count}})
+
+        %Search{} = search ->
+          resume(search, child)
+      end
     end
 
     {result, trace} =
@@ -1756,7 +1752,15 @@ defmodule AL.JAM.Machine do
       end
 
     trace = if trace, do: AL.JAM.Trace.merge_child(trace)
-    finish_batch(result, cursor.parent, cursor.count, execution, trace, true)
+
+    finish_collection_search(
+      result,
+      cursor.parent,
+      cursor.count,
+      execution,
+      trace,
+      cursor.resumed?
+    )
   end
 
   defp collect_result({:ok, store, execution}, solutions, collection) do
@@ -1765,22 +1769,34 @@ defmodule AL.JAM.Machine do
     solutions = [store | solutions]
 
     case limit do
-      1 -> {:ok, Enum.reverse(solutions), execution}
-      {:batch, 1} -> {:batch, Enum.reverse(solutions), execution}
-      {:batch, remaining} -> collect_next(execution, solutions, {scope, {:batch, remaining - 1}})
-      :all -> collect_next(execution, solutions, collection)
+      1 ->
+        if scope, do: AL.JAM.Trace.collection_end(scope)
+        {:ok, Enum.reverse(solutions), execution}
+
+      {:batch, 1} ->
+        {:batch, Enum.reverse(solutions), execution}
+
+      {:batch, remaining} ->
+        collect_next(execution, solutions, {scope, {:batch, remaining - 1}})
+
+      :all ->
+        collect_next(execution, solutions, collection)
     end
   end
 
   defp collect_result({:diagnostic, _frame, execution, _diagnostic}, solutions, collection),
     do: collect_next(execution, solutions, collection)
 
-  defp collect_result({:failed, _frame, execution}, solutions, {_scope, limit}) do
+  defp collect_result({:failed, _frame, execution}, solutions, {scope, limit}) do
+    if scope, do: AL.JAM.Trace.collection_end(scope)
     tag = if match?({:batch, _}, limit), do: :done, else: :ok
     {tag, Enum.reverse(solutions), execution}
   end
 
-  defp collect_result({:budget_exhausted, _, _} = result, _solutions, _collection), do: result
+  defp collect_result({:budget_exhausted, frame, execution}, solutions, {scope, limit}) do
+    search = %Search{frame: frame, solutions: solutions, scope: scope, limit: limit}
+    {:budget_exhausted, search, execution}
+  end
 
   defp collect_next(execution, solutions, collection),
     do: collect_result(retry(nil, execution), solutions, collection)

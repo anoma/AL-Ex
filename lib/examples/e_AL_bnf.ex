@@ -50,8 +50,8 @@ defmodule Examples.ALBnf do
              <expr> ::= <symbol> | "(" <blanks> <form> <blanks> ")"
              <form> ::= <symbol> <spaced_exprs>
              <spaced_exprs> ::= "" | <gap> <expr> <spaced_exprs>
-             <symbol> ::= <symbol_code> <symbol_code>*
-             <symbol_code> ::= /./
+             <symbol> ::= <symbol_char> <symbol_char>*
+             <symbol_char> ::= /./
              """
              |> String.trim_trailing()
   end
@@ -87,6 +87,22 @@ defmodule Examples.ALBnf do
 
     assert bindings["$Again"] == bindings["$Rules"]
     assert bindings["$Text"] =~ ~S(<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}")
+  end
+
+  example token_grammars_describe_items_without_character_conversions() do
+    %AL{result: {:atomic, {bindings, _, _}}} =
+      run(
+        ~S"""
+        @token_grammar
+        #{super => syntax, metaclass => grammar}.
+
+        defrule token_grammar (item Item) [token Item].
+        bnf token_grammar Text.
+        """,
+        branch: Examples.Support.branch()
+      )
+
+    assert bindings["$Text"] == "<item> ::= /./"
   end
 
   example the_al_grammar_reads_a_program_as_the_al_reader_does() do

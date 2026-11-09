@@ -188,16 +188,18 @@ defmodule AL.JAM.Head do
     do: unify(term, call, store, registers, branch)
 
   def match({:list, head, tail, construction}, call, store, registers, branch) do
-    case dereference(call, store) do
-      [first | rest] ->
+    call = dereference(call, store)
+
+    case AL.Term.uncons(call) do
+      {:ok, first, rest} ->
         case match(head, first, store, registers, branch) do
           {store, registers} -> match(tail, rest, store, registers, branch)
           other -> other
         end
 
-      other ->
-        if AL.Var.var?(other),
-          do: construct(construction, other, store, registers, branch),
+      :error ->
+        if AL.Var.var?(call),
+          do: construct(construction, call, store, registers, branch),
           else: nil
     end
   end

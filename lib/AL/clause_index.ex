@@ -8,9 +8,9 @@ defmodule AL.ClauseIndex do
   def select(clauses, %{literal: nil, list_indices: [index]}, call, store) do
     case indexed_argument(call, index.position) do
       {:ok, argument} ->
-        case resolve(argument, store) do
-          [] -> Map.fetch!(index.buckets, nil)
-          [_ | _] -> Map.fetch!(index.buckets, :cons)
+        case list_shape(resolve(argument, store)) do
+          nil -> Map.fetch!(index.buckets, nil)
+          :cons -> Map.fetch!(index.buckets, :cons)
           _ -> clauses
         end
 
@@ -62,14 +62,14 @@ defmodule AL.ClauseIndex do
       {:ok, argument} ->
         value = resolve(argument, store)
 
-        if AL.Var.var?(value) do
+        if AL.Var.var?(value) or is_list(value) do
           clauses
         else
           Enum.filter(clauses, fn row ->
             head = head(row)
 
             case literal_at(head, index.position) do
-              {:literal, literal} -> literal == value
+              {:literal, literal} -> literal_key(value) == {:literal, literal}
               :none -> true
             end
           end)
@@ -87,7 +87,7 @@ defmodule AL.ClauseIndex do
       {:ok, argument} ->
         value = resolve(argument, store)
 
-        if AL.Var.var?(value) do
+        if AL.Var.var?(value) or is_list(value) do
           clauses
         else
           case literal_key(value) do
@@ -108,6 +108,8 @@ defmodule AL.ClauseIndex do
     end
   end
 
+  defp list_shape(""), do: nil
+  defp list_shape(<<_, _::binary>>), do: :cons
   defp list_shape([]), do: nil
   defp list_shape([_head | _tail]), do: :cons
   defp list_shape(value), do: if(AL.Var.var?(value), do: :any, else: :other)
@@ -229,7 +231,7 @@ defmodule AL.ClauseIndex do
         value = resolve(argument, store)
 
         cond do
-          AL.Var.var?(value) ->
+          AL.Var.var?(value) or is_list(value) ->
             select_tree(open, call, store)
 
           true ->
@@ -346,6 +348,7 @@ defmodule AL.ClauseIndex do
   defp literal_at([_argument | rest], position), do: literal_at(rest, position - 1)
   defp literal_at(_head, _position), do: :none
 
+  defp literal_key(""), do: {:literal, []}
   defp literal_key([]), do: {:literal, []}
 
   defp literal_key(value) when is_binary(value), do: {:literal, value}

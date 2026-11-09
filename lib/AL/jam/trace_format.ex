@@ -39,11 +39,8 @@ defmodule AL.JAM.Trace.Format do
   def instruction({:map_put_into, dest, map, key, value}),
     do: "map_put_into R#{dest} <- #{operand(map)}[#{operand(key)} => #{operand(value)}]"
 
-  def instruction({:primitive_into, dest, name, 0, input}),
-    do: "primitive_into R#{dest}: #{name} R#{dest} #{operand(input)}"
-
-  def instruction({:primitive_into, dest, name, 1, input}),
-    do: "primitive_into R#{dest}: #{name} #{operand(input)} R#{dest}"
+  def instruction({:primitive_into, name, arguments}),
+    do: "primitive_into #{name} #{Enum.map_join(arguments, " ", &operand/1)}"
 
   def instruction(op) when is_atom(op), do: Atom.to_string(op)
   def instruction(op), do: inspect(op, pretty: true, limit: :infinity, width: 100)
@@ -68,6 +65,7 @@ defmodule AL.JAM.Trace.Format do
   end
 
   def operand({:register, index}), do: "R#{index}"
+  def operand({:destination, index}), do: "->R#{index}"
   def operand({:constant, term}), do: value(term)
   def operand({:cons, head, tail}), do: "[" <> operand(head) <> list_tail(tail) <> "]"
 

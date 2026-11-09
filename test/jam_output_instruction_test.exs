@@ -125,6 +125,19 @@ defmodule AL.JAM.OutputInstructionTest do
     end
   end
 
+  test "two binary outputs survive budget resumes and relational fallback" do
+    operation =
+      {:primitive_into, :vm_text_code, [{:register, 1}, {:destination, 0}, {:destination, 2}]}
+
+    for input <- ["λ😀", @input], budget <- [0, 1, 100] do
+      suffix = [{:eq, {:register, 1}, {:constant, "λ😀"}}, {:eq, {:register, 2}, {:constant, "😀"}}]
+      assert answers(operation, {nil, input, nil}, suffix, budget) == [955]
+
+      assert answers(Instruction.general(operation), {@destination, input, @key}, suffix, budget) ==
+               [955]
+    end
+  end
+
   test "lazy primitive outputs preserve suspension, aliases and conflicts" do
     for {name, position, input, expected, conflict} <- [
           {:string_codes, 0, [97], "a", "b"},
@@ -142,6 +155,26 @@ defmodule AL.JAM.OutputInstructionTest do
 
       conflicting = [{:eq, {:register, 0}, {:constant, conflict}} | suffix]
       assert answers(operation, {nil, @input}, conflicting, budget) == []
+    end
+  end
+
+  test "binary prefix outputs preserve failure, delayed inputs and budgets" do
+    for {operation, inputs, suffix, expected} <- [
+          {{:primitive, :vm_text_concat, [{:constant, "λ"}, {:register, 0}, {:register, 1}]},
+           {"λ" <> <<255>>}, [], [<<255>>]},
+          {{:primitive, :vm_text_concat, [{:constant, "λ"}, {:register, 0}, {:register, 1}]},
+           {"x"}, [], []},
+          {{:primitive, :vm_text_concat, [{:constant, ""}, {:register, 0}, {:register, 1}]},
+           {@input}, [{:eq, {:register, 1}, {:constant, "later"}}], ["later"]},
+          {{:primitive, :vm_text_concat, [{:constant, "λ"}, {:register, 0}, {:register, 1}]},
+           {@input}, [{:eq, {:register, 1}, {:constant, "λ😀"}}], ["😀"]}
+        ],
+        budget <- [0, 1, 100] do
+      direct = Instruction.into(operation, 0)
+      slots = List.to_tuple([nil | Tuple.to_list(inputs)])
+      assert answers(direct, slots, suffix, budget) == expected
+      assert answers(operation, put_elem(slots, 0, @destination), suffix, budget) == expected
+      assert Trace.semantic_operation(direct) == operation
     end
   end
 
@@ -207,7 +240,8 @@ defmodule AL.JAM.OutputInstructionTest do
       {:primitive, :atom_string, [{:register, 0}, {:register, 1}]},
       {:primitive, :atom_string, [{:register, 1}, {:register, 0}]},
       {:primitive, :map_pairs, [{:register, 0}, {:register, 1}]},
-      {:primitive, :map_pairs, [{:register, 1}, {:register, 0}]}
+      {:primitive, :map_pairs, [{:register, 1}, {:register, 0}]},
+      {:primitive, :vm_text_concat, [{:constant, "λ"}, {:register, 0}, {:register, 1}]}
     ]
 
     for operation <- operations do

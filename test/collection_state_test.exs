@@ -118,4 +118,51 @@ defmodule AL.CollectionStateTest do
                )
     end
   end
+
+  test "pauses retain nested searches, collected answers and batch boundaries", %{branch: branch} do
+    for {source, expected} <- [
+          {"findall X R {member [1,2,3] X, not {= X 2}}.", [[1, 3]]},
+          {"findnsols 2 X R {member [1,2,3,4,5] X}.", [[1, 2], [3, 4], [5]]},
+          {"findall B R {findnsols 2 X B {member [1,2,3,4] X}}.", [[[1, 2], [3, 4]]]},
+          {"findnsols 2 X R {fail}.", [[]]},
+          {"not {not {= X 1}}, = R yes.", [:yes]}
+        ],
+        flags <- [[], [:domino], [:goals], [:vm]] do
+      {:ok, parsed} = AL.Syntax.parse(source)
+      frame = %{AL.JAM.Compiler.compile_root(parsed.program) | store: %{}}
+
+      assert {:atomic, {answers, trace}} =
+               :mnesia.transaction(fn ->
+                 AL.ResolutionCache.with_transaction_cache(fn ->
+                   AL.JAM.Trace.run(AL.Trace.new(MapSet.new(flags)), fn ->
+                     paused_answers(AL.JAM.Machine.resume(frame, branch, 0))
+                   end)
+                 end)
+               end)
+
+      assert answers == expected
+
+      if :domino in flags do
+        begins = for %{payload: {:collection_begin, scope, _, _, _}} <- trace.events, do: scope
+        ends = for %{payload: {:collection_end, scope}} <- trace.events, do: scope
+        assert Enum.sort(begins) == Enum.sort(ends)
+      end
+    end
+  end
+
+  defp paused_answers({:budget_exhausted, snapshot, execution}) do
+    execution = %{execution | budget: execution.steps + 1}
+
+    result =
+      if snapshot,
+        do: AL.JAM.Machine.resume(snapshot, execution),
+        else: AL.JAM.Machine.retry(execution)
+
+    paused_answers(result)
+  end
+
+  defp paused_answers({:ok, store, execution}),
+    do: [AL.Var.subst({:"$var", "R"}, store) | paused_answers(AL.JAM.Machine.retry(execution))]
+
+  defp paused_answers({:failed, _, _}), do: []
 end

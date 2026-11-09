@@ -3,14 +3,15 @@ defmodule AL.JAM.IR.Rejection do
 
   alias AL.{Goal, Var}
   alias AL.JAM.Operand
-  alias AL.JAM.IR.Program
+  alias AL.JAM.IR.{Inline, Program}
 
   def compile(clauses) do
     Map.new(
       Enum.flat_map(clauses, fn {:oapply, id, seq, head, body} ->
         with true <- proper?(head),
+             body <- Inline.callables(body, Var.find_vars(head)),
              {:operation, operation, _rest} <- Program.take_next_instruction(body),
-             {test, term} <- test(operation),
+             {test, term} <- test(operation, head),
              true <- Var.var?(term) and term != {:"$var", "_"},
              position when is_integer(position) <- Enum.find_index(head, &(&1 === term)) do
           [{{id, seq}, {test, position}}]
@@ -25,14 +26,16 @@ defmodule AL.JAM.IR.Rejection do
 
   def index(tests, clauses, nil) when map_size(tests) > 0 do
     positions = tests |> Map.values() |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    tag_tests? = not Enum.any?(tests, fn {_, {test, _}} -> match?({:prefix, _}, test) end)
 
     rejections =
-      case positions do
-        [position] ->
+      case {positions, tag_tests?} do
+        {[position], true} ->
           classes = for {{:class, class}, _} <- Map.values(tests), do: class
+          all = bsl(1, length(clauses)) - 1
 
           tags =
-            [:atom, :compound, :unknown_map, :other] ++
+            [:variable, :atom, :compound, :unknown_map, :other] ++
               Enum.map(Enum.uniq([:list, :number, :string, :map | classes]), &{:class, &1})
 
           masks =
@@ -51,7 +54,7 @@ defmodule AL.JAM.IR.Rejection do
                     if rejected, do: mask, else: bor(mask, bsl(1, position))
                 end)
 
-              {tag, mask}
+              {tag, if(mask == all, do: :all, else: mask)}
             end)
 
           {:masks, position, masks}
@@ -67,6 +70,9 @@ defmodule AL.JAM.IR.Rejection do
     if map_size(tests) == 0, do: index, else: Map.put(index, :rejections, tests)
   end
 
+  defp rejects_tag?(:nonvar, :variable), do: true
+  defp rejects_tag?(_, :variable), do: false
+  defp rejects_tag?(:nonvar, _), do: false
   defp rejects_tag?(:atom, tag), do: tag != :atom
   defp rejects_tag?(:var, _), do: true
   defp rejects_tag?(:compound, tag), do: tag != :compound
@@ -78,7 +84,7 @@ defmodule AL.JAM.IR.Rejection do
   defp tag(value) do
     cond do
       Var.var?(value) ->
-        :open
+        :variable
 
       is_atom(value) ->
         :atom
@@ -94,7 +100,7 @@ defmodule AL.JAM.IR.Rejection do
         if Var.var?(class) or class == nil, do: :unknown_map, else: {:class, class}
 
       is_list(value) ->
-        {:class, :list}
+        if AL.Term.text_pattern?(value), do: :open, else: {:class, :list}
 
       is_number(value) ->
         {:class, :number}
@@ -133,6 +139,7 @@ defmodule AL.JAM.IR.Rejection do
     end)
   end
 
+  defp select_mask(clauses, :all), do: clauses
   defp select_mask(_, 0), do: []
   defp select_mask([], _), do: []
 
@@ -142,9 +149,34 @@ defmodule AL.JAM.IR.Rejection do
       else: select_mask(rest, bsr(mask, 1))
   end
 
+  defp test({:negate, condition}, head) do
+    with true <- Enum.all?(head, &Var.var?/1) and length(Enum.uniq(head)) == length(head),
+         {:operation, {:is_var, term}, rest} <- Program.take_next_instruction(condition),
+         :return <- Program.take_next_instruction(rest) do
+      {:nonvar, term}
+    else
+      _ -> nil
+    end
+  end
+
+  defp test(operation, _head), do: test(operation)
+
   defp test({:primitive, :atom, [term]}), do: {:atom, term}
   defp test({:is_var, term}), do: {:var, term}
   defp test({:primitive, :functor, [term, _, _]}), do: {:compound, term}
+
+  defp test({:eq, term, [<<_::utf8>> = first | _]}),
+    do: {{:prefix, first}, term}
+
+  defp test({:eq, [<<_::utf8>> = first | _], term}),
+    do: {{:prefix, first}, term}
+
+  defp test({:primitive, :vm_text_concat, [prefix, _, term]}) when is_binary(prefix),
+    do: {{:prefix, prefix}, term}
+
+  defp test({:primitive, :vm_text_code, [term, code, _]})
+       when is_integer(code) and code in 0..0x10FFFF and code not in 0xD800..0xDFFF,
+       do: {{:prefix, <<code::utf8>>}, term}
 
   defp test({:relation, :class, [term, class]}) when is_atom(class) do
     if Var.var?(class), do: nil, else: {{:class, class}, term}
@@ -156,13 +188,27 @@ defmodule AL.JAM.IR.Rejection do
   defp proper?([_ | rest]), do: proper?(rest)
   defp proper?(_), do: false
 
+  defp rejects?(:nonvar, value), do: Var.var?(value)
   defp rejects?(:atom, value), do: not Var.var?(value) and not is_atom(value)
   defp rejects?(:var, value), do: not Var.var?(value)
   defp rejects?(:compound, value), do: not Var.var?(value) and not is_struct(value)
 
+  defp rejects?({:prefix, prefix}, value) when is_binary(value) do
+    size = byte_size(prefix)
+
+    case value do
+      <<^prefix::binary-size(size), _::binary>> -> false
+      _ -> true
+    end
+  end
+
+  defp rejects?({:prefix, _}, value), do: not is_list(value) and not Var.var?(value)
+
   defp rejects?({:class, expected}, value) do
     actual = AL.Dispatch.structural_class(value)
-    actual != nil and not Var.var?(actual) and actual != expected
+
+    not (is_list(value) and AL.Term.text_pattern?(value)) and
+      actual != nil and not Var.var?(actual) and actual != expected
   end
 
   defp argument({:operands, object, _, _}, 0), do: {:ok, object}

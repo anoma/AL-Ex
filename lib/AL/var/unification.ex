@@ -10,6 +10,9 @@ defmodule AL.Var.Unification do
       AL.Var.var?(x) || AL.Var.var?(y) ->
         AL.Var.extend(store, x, y, branch)
 
+      (is_binary(x) and is_list(y)) or (is_list(x) and is_binary(y)) ->
+        unify_sequence(x, y, store, branch, mode)
+
       is_list(x) && is_list(y) && x != [] && y != [] ->
         [x | xs] = x
         [y | ys] = y
@@ -40,6 +43,20 @@ defmodule AL.Var.Unification do
 
       true ->
         nil
+    end
+  end
+
+  defp unify_sequence(left, right, store, _branch, _mode)
+       when left in [[], ""] and right in [[], ""],
+       do: store
+
+  defp unify_sequence(left, right, store, branch, mode) do
+    with {:ok, head, tail} <- AL.Term.uncons(left),
+         {:ok, other, rest} <- AL.Term.uncons(right),
+         next when not is_nil(next) <- unify(head, other, store, branch, mode) do
+      unify(tail, rest, next, branch, mode)
+    else
+      _ -> nil
     end
   end
 end

@@ -6,12 +6,12 @@
 <body> ::= "" | <line> <goal> <body_rest>
 <body_rest> ::= "" | <blanks> "," <line> <goal> <body_rest>
 <line> ::= <blanks>
-<symbol_code> ::= /./
+<symbol_char> ::= /./
 <declaration> ::= <class_marker> <symbol> <gap> <options> <blanks> "." | "@+" <symbol> <gap> <extension_options> <blanks> "."
 <class_marker> ::= "@"
 <options> ::= <expr>
 <extension_options> ::= <expr>
-<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}" | "{" <blanks> <block_goals> <blanks> "}" | "[" <blanks> "]" | "[" <blanks> <expr> <list_rest> <blanks> "]" | "\"" <characters> "\"" | <symbol> | "(" <blanks> <form> <blanks> ")"
+<expr> ::= "\#{" <blanks> <map_entries> <blanks> "}" | "{" <blanks> <block_goals> <blanks> "}" | "[" <blanks> "]" | "[" <blanks> <expr> <list_rest> <blanks> "]" | "\"" <quoted_string> | <symbol> | "(" <blanks> <form> <blanks> ")"
 <map_entries> ::= "" | <entry> <entry_rest>
 <entry_rest> ::= "" | <blanks> "," <pad> <entry> <entry_rest>
 <entry> ::= <expr> <pad> "=>" <pad> <expr>
@@ -19,12 +19,12 @@
 <goal> ::= <symbol> <spaced_exprs>
 <goal_rest> ::= "" | <blanks> "," <pad> <goal> <goal_rest>
 <list_rest> ::= "" | <blanks> "," <pad> <expr> <list_rest> | <pad> "." <pad> <expr>
-<symbol> ::= <integer> | <variable_start_code> <symbol_code>* | <symbol_code> <symbol_code>*
+<symbol> ::= <integer> | <variable_start_char> <symbol_char>* | <symbol_char> <symbol_char>*
 <integer> ::= <natural> | "-" <natural>
-<natural> ::= "0" | <digit> <digits>
+<natural> ::= "0" | <digit> <digits> | <digit> | <natural> <digit>
 <digits> ::= "" | <digit> <digits>
-<digit> ::= /./
-<characters> ::= "" | <character> <characters>
+<digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+<quoted_string> ::= <character>* "\""
 <character> ::= "\\\"" | "\\\\" | "\\n" | "\\t" | "\\r" | "\\\#" | "\#" | /./
 <blank> ::= " " | "\n" | "\t" | "\r"
 <blanks> ::= <blank> <blanks> | ""

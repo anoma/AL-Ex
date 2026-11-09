@@ -60,7 +60,9 @@ defmodule AL.JAM.Operand do
   def read({:constant, term}, _registers), do: term
   def read({:method_identity, method, _position}, _registers), do: method
   def read({:register, index}, registers), do: elem(registers, index)
-  def read({:cons, head, tail}, registers), do: [read(head, registers) | read(tail, registers)]
+
+  def read({:cons, head, tail}, registers),
+    do: AL.Term.cons(read(head, registers), read(tail, registers))
 
   def read({:map, fields}, registers),
     do: Map.new(fields, fn {key, value} -> {read(key, registers), read(value, registers)} end)
@@ -80,7 +82,7 @@ defmodule AL.JAM.Operand do
   end
 
   def resolve({:cons, head, tail}, registers, store),
-    do: [resolve(head, registers, store) | resolve(tail, registers, store)]
+    do: AL.Term.cons(resolve(head, registers, store), resolve(tail, registers, store))
 
   def resolve({:map, _fields} = operand, registers, store),
     do: AL.Var.subst(read(operand, registers), store)
@@ -103,6 +105,7 @@ defmodule AL.JAM.Operand do
 
   def receiver(operand, registers, store) do
     value = shallow(operand, registers, store)
+    value = if is_list(value), do: AL.Var.subst(value, store), else: value
 
     if is_map(value) do
       value = map_keys(value, store)

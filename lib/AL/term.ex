@@ -1,4 +1,16 @@
 defmodule AL.Term do
+  def uncons([head | tail]), do: {:ok, head, tail}
+  def uncons(<<head::utf8, tail::binary>>), do: {:ok, <<head::utf8>>, tail}
+  def uncons(_), do: :error
+
+  def cons(<<_::utf8>> = head, tail) when is_binary(tail), do: head <> tail
+
+  def cons(head, tail), do: [head | tail]
+
+  def text_pattern?([<<_::utf8>> | tail]), do: text_pattern?(tail)
+  def text_pattern?([head | tail]), do: AL.Var.var?(head) and text_pattern?(tail)
+  def text_pattern?(value), do: is_binary(value) or AL.Var.var?(value)
+
   @doc "Transform term leaves, treating logical variables as indivisible values."
   @spec map(term(), (term() -> term())) :: term()
   def map({:"$fresh", _base, _scope} = leaf, fun), do: fun.(leaf)

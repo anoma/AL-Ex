@@ -32,7 +32,7 @@ defmodule AL.Var.Residual do
     suspended =
       suspensions
       |> Map.get(variable, [])
-      |> Enum.flat_map(&AL.JAM.Frame.wake_goals/1)
+      |> Enum.flat_map(fn {_id, frame} -> AL.JAM.Frame.wake_goals(frame) end)
       |> Enum.map(&as_compound/1)
 
     case AL.Var.constraint_set(store, variable) do

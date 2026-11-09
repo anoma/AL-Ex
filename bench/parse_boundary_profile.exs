@@ -122,7 +122,7 @@ defmodule Bench.ParseBoundaryProfile do
       :symbol,
       :integer,
       :natural,
-      :symbol_code,
+      :symbol_char,
       :zero_or_more,
       :code,
       :variable_name,

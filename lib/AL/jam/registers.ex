@@ -38,8 +38,11 @@ defmodule AL.JAM.Registers do
        do: true
 
   defp writes_first?({name, index, _, _, _}, index)
-       when name in [:map_put_into, :slot_get_into, :primitive_into],
+       when name in [:map_put_into, :slot_get_into],
        do: true
+
+  defp writes_first?({:primitive_into, _name, arguments}, index),
+    do: {:destination, index} in arguments
 
   defp writes_first?({:collect, _, {:destination, index}, _}, index), do: true
   defp writes_first?(_, _), do: false
@@ -77,6 +80,21 @@ defmodule AL.JAM.Registers do
 
   defp specialize_operation({:map_put, map, key, value, {:register, index}} = operation, fresh),
     do: destination(operation, index, {map, key, value}, fresh)
+
+  defp specialize_operation(
+         {:primitive, :vm_text_concat, [prefix, {:register, rest}, input]} = operation,
+         fresh
+       ),
+       do: destination(operation, rest, {prefix, input}, fresh)
+
+  defp specialize_operation(
+         {:primitive, :vm_text_code, [input, {:register, code}, {:register, rest}]} = operation,
+         fresh
+       ) do
+    if code != rest and eligible?(code, input, fresh) and eligible?(rest, input, fresh),
+      do: {:primitive_into, :vm_text_code, [input, {:destination, code}, {:destination, rest}]},
+      else: operation
+  end
 
   defp specialize_operation({:primitive, name, arguments} = operation, fresh)
        when name in [:string_codes, :atom_string, :map_pairs] do

@@ -1,14 +1,10 @@
 defmodule AL.JAM.Scan do
-  alias AL.Goal
   alias AL.JAM.{IR, Operand}
-  alias AL.Var
   alias AL.PlanStore.Implementation
+  alias AL.Var
 
   def enter(
-        {[
-           %AL.JAM.CompiledClause{method: id, head: [_, _, _, _]},
-           %AL.JAM.CompiledClause{head: [_, _, _, _]}
-         ], _},
+        {[%{method: id} | _] = clauses, _},
         receiver,
         selector,
         operands,
@@ -17,306 +13,157 @@ defmodule AL.JAM.Scan do
         branch,
         budget
       ) do
-    case Operand.read(operands, slots) do
-      [input, rest, output] ->
-        input = Var.deref(store, input)
-        rest = Var.deref(store, rest)
-        output = Var.deref(store, output)
+    kind = candidate(clauses)
 
-        if fresh?(rest, store) and rest !== output and (is_atom(output) or Var.var?(output)) and
-             match?([_ | _], input) do
-          requirements = %{scan_region: %{receiver: receiver, selector: selector}}
+    with true <- kind != nil,
+         [input, rest | arguments] <- Operand.read(operands, slots),
+         input <- Var.deref(store, input),
+         rest <- Var.deref(store, rest),
+         true <- is_binary(input),
+         true <- fresh?(rest, store) or is_binary(rest),
+         {:ok, parameters, output} <- parameters(kind, arguments, store),
+         true <- output == nil or output != rest do
+      requirements = %{
+        scan: %{receiver: receiver, selector: selector, parameters: parameters, kind: kind}
+      }
 
-          implementation =
-            AL.PlanStore.fetch(branch, id, requirements, fn ->
-              case IR.Scan.compile(receiver, selector, branch) do
-                nil ->
-                  nil
+      implementation =
+        AL.PlanStore.fetch(branch, id, requirements, fn ->
+          plan =
+            case kind do
+              :text -> IR.Scan.compile_text(receiver, selector, branch, parameters)
+              :consumption -> IR.Scan.compile_consumption(receiver, selector, branch, parameters)
+            end
 
-                plan ->
-                  %Implementation{
-                    code: emit(plan),
-                    requirements: requirements,
-                    dependencies: plan.dependencies
-                  }
-              end
-            end)
+          if plan do
+            %Implementation{
+              code: {plan, emit(kind)},
+              requirements: requirements,
+              dependencies: plan.dependencies
+            }
+          end
+        end)
 
-          compiled = if implementation, do: implementation.code
-
-          prepare(compiled, input, rest, output, store, budget)
-        else
-          :fallback
-        end
-
-      _ ->
-        :fallback
-    end
-  end
-
-  def enter(
-        {[
-           %AL.JAM.CompiledClause{method: id, head: [_, _, _]},
-           %AL.JAM.CompiledClause{head: [_, _, _]}
-         ], _},
-        receiver,
-        selector,
-        operands,
-        slots,
-        store,
-        branch,
-        budget
-      ) do
-    case Operand.read(operands, slots) do
-      [input, rest] ->
-        input = Var.deref(store, input)
-        rest = Var.deref(store, rest)
-
-        if fresh?(rest, store) and (input == [] or match?([_ | _], input)) do
-          requirements = %{consumption_region: %{receiver: receiver, selector: selector}}
-
-          implementation =
-            AL.PlanStore.fetch(branch, id, requirements, fn ->
-              case IR.Scan.compile_consumption(receiver, selector, branch) do
-                nil ->
-                  nil
-
-                plan ->
-                  %Implementation{
-                    code: emit(plan),
-                    requirements: requirements,
-                    dependencies: plan.dependencies
-                  }
-              end
-            end)
-
-          compiled = if implementation, do: implementation.code
-
-          prepare_consumption(compiled, input, rest, budget)
-        else
-          :fallback
-        end
-
-      _ ->
-        :fallback
+      if implementation,
+        do: prepare(implementation.code, kind, input, rest, output, store, budget),
+        else: :fallback
+    else
+      _ -> :fallback
     end
   end
 
   def enter(_, _, _, _, _, _, _, _), do: :fallback
 
+  defp candidate([%{head: [_, _, _, _, _, [_ | _]]}]), do: :text
+  defp candidate([%{head: [_, _, _]}, %{head: [_, rest, rest]}]), do: :consumption
+
+  defp candidate([%{head: [_, _, _], code: code}, %{head: [_, _, _]}]) do
+    if tuple_size(code) > 0 and match?({:is_var, _}, elem(code, 0)), do: :consumption
+  end
+
+  defp candidate([%{head: [_, _, _, _]}, %{head: [_, rest, rest, _]}]), do: :consumption
+  defp candidate(_), do: nil
+
+  defp parameters(:text, [first, more, output], store) do
+    first = Var.deref(store, first)
+    more = Var.deref(store, more)
+    output = Var.deref(store, output)
+
+    if is_atom(first) and is_atom(more) and fresh?(output, store),
+      do: {:ok, [first, more], output},
+      else: :fallback
+  end
+
+  defp parameters(:consumption, arguments, store) when length(arguments) in [0, 1] do
+    parameters = Enum.map(arguments, &Var.deref(store, &1))
+    if Enum.all?(parameters, &is_atom/1), do: {:ok, parameters, nil}, else: :fallback
+  end
+
+  defp parameters(_, _, _), do: :fallback
+
   defp fresh?(value, store),
     do: Var.var?(value) and value != {:"$var", "_"} and not Map.has_key?(store, value)
 
-  defp prepare(nil, _, _, _, _, _), do: :fallback
+  defp prepare({plan, {code, variants}}, kind, input, rest, output, store, budget) do
+    tails = if plan.minimum == 0, do: [input], else: []
+    first = plan.first_ranges || plan.ranges
 
-  defp prepare({plan, code, labels, count}, [first | _] = input, rest, output, _store, budget) do
-    if first != ?$ and
-         not Enum.any?(plan.reject, fn paths -> Enum.any?(paths, &matches?(first, &1)) end) do
-      case characters(input, budget, 0) do
-        {:ok, used} ->
-          AL.ResolutionCache.fetch_dispatch(
-            plan.branch,
-            {:region_guard, labels.guard_token},
-            fn -> true end
-          )
+    with {:ok, tails, used} <- prefixes(input, first, plan.ranges, budget, 0, tails) do
+      tails = if is_binary(rest), do: Enum.filter(tails, &(&1 == rest)), else: tails
 
-          scope = Integer.to_string(AL.Scope.fresh())
+      slots =
+        case kind do
+          :consumption ->
+            {tails, rest, nil}
 
-          slots =
-            Enum.reduce(labels.locals, :erlang.make_tuple(count, nil), fn index, slots ->
-              put_elem(
-                slots,
-                index,
-                Var.fresh({:"$var", "Region"}, scope <> ":" <> Integer.to_string(index))
-              )
-            end)
+          :text ->
+            answers =
+              Enum.map(tails, fn tail ->
+                [tail, binary_part(input, 0, byte_size(input) - byte_size(tail))]
+              end)
 
-          slots =
-            slots
-            |> put_elem(0, input)
-            |> put_elem(1, [])
-            |> put_elem(2, rest)
-            |> put_elem(3, output)
+            {answers, rest, output, nil, nil, nil}
+        end
 
-          {:region, {labels.guard_token, plan, labels.outputs}, code, slots, labels.answer,
-           labels.fallback, used}
-
-        :fallback ->
-          :fallback
-      end
+      {:compiled, {code, slots, store, variants, [], nil}, used}
     else
-      :fallback
+      _ -> :fallback
     end
   end
 
-  defp characters([], _, used), do: {:ok, used}
+  defp prefixes("", _, _, _, used, tails), do: {:ok, tails, used}
 
-  defp characters([head | tail], budget, used)
-       when used < budget and is_integer(head) and head >= 0 and head <= 0x10FFFF and
-              head not in 0xD800..0xDFFF,
-       do: characters(tail, budget, used + 1)
+  defp prefixes(<<head::utf8, tail::binary>>, ranges, more, budget, used, tails)
+       when used < budget,
+       do: consume(head, tail, ranges, more, budget, used, tails)
 
-  defp characters(_, _, _), do: :fallback
+  defp prefixes(input, _, _, budget, used, tails) when is_binary(input) and used < budget,
+    do: {:ok, tails, used + 1}
 
-  defp matches?(value, tests) do
-    Enum.all?(tests, fn
-      {:eq, bound} -> value == bound
-      {:>=, bound} -> value >= bound
-      {:<=, bound} -> value <= bound
-      {:>, bound} -> value > bound
-      {:<, bound} -> value < bound
-    end)
+  defp prefixes(_, _, _, _, _, _), do: :fallback
+
+  defp consume(head, tail, ranges, more, budget, used, tails) do
+    if Enum.any?(ranges, fn {low, high} -> head >= low and head <= high end),
+      do: prefixes(tail, more, more, budget, used + 1, [tail | tails]),
+      else: {:ok, tails, used + 1}
   end
 
-  defp prepare_consumption(nil, _, _, _), do: :fallback
-
-  defp prepare_consumption({plan, code, labels, _}, input, rest, budget) do
-    case consumption_prefix(input, plan.ranges, budget, 0) do
-      {:ok, used} ->
-        AL.ResolutionCache.fetch_dispatch(plan.branch, {:region_guard, labels.guard_token}, fn ->
-          true
-        end)
-
-        {:region, {labels.guard_token, plan, labels.outputs}, code, {input, rest, nil, nil},
-         labels.answer, labels.answer, used}
-
-      :fallback ->
-        :fallback
-    end
-  end
-
-  defp consumption_prefix([], _, _, used), do: {:ok, used}
-
-  defp consumption_prefix([head | tail], ranges, budget, used)
-       when is_integer(head) and used < budget do
-    accepted = Enum.any?(ranges, fn {low, high} -> head >= low and head <= high end)
-
-    if accepted,
-      do: consumption_prefix(tail, ranges, budget, used + 1),
-      else: {:ok, used + 1}
-  end
-
-  defp consumption_prefix(_, _, _, _), do: :fallback
-
-  def emit(%{mode: :integer_prefix_fresh_rest} = plan) do
-    start = if plan.minimum == 0, do: [{:try, :answer, [0, 1]}], else: []
-
-    instructions =
-      start ++
-        [
-          {:label, :scan},
-          {:get_cons, {:register, 0}, 2, 3, :fail}
-        ] ++
-        membership_instructions(plan.ranges, {:register, 2}) ++
-        [
-          {:move, 0, {:register, 3}},
-          {:try, :answer, [0, 1]},
-          {:jump, :scan, []},
-          {:label, :fail},
-          :fail,
-          {:label, :answer},
-          {:eq, {:register, 1}, {:register, 0}}
-        ]
-
-    {code, labels} = IR.Code.assemble(instructions)
-    outputs = %{1 => put_elem(code, labels.answer, {:move, 1, {:register, 0}})}
-    {plan, code, labels |> Map.put(:guard_token, make_ref()) |> Map.put(:outputs, outputs), 4}
-  end
-
-  def emit(plan) do
-    names = %{{:"$var", "Tail"} => 0, {:"$var", "Rest"} => 2, {:"$var", "Value"} => 3}
-
-    {suffix, _last, names} =
-      Enum.reduce(plan.suffix, {[], {:"$var", "Tail"}, names}, fn {selector, check},
-                                                                  {ops, input, names} ->
-        output = Var.fresh({:"$var", "Suffix"}, Integer.to_string(map_size(names)))
-        names = Map.put(names, output, 11 + map_size(names))
-        pattern = %Goal.Compound{name: check, args: [{:"$var", "Value"}]}
-
-        op = {:send, nil, plan.receiver, selector, [input, output, pattern]}
-
-        {ops ++ [IR.Assembler.instruction(op, names)], output, names}
-      end)
-
-    last =
-      case plan.suffix do
-        [] -> {:register, 0}
-        _ -> {:register, names |> Map.values() |> Enum.max()}
-      end
-
-    count = max(11, (names |> Map.values() |> Enum.max()) + 1)
-
-    character = {:"$var", "Character"}
-
-    tests =
-      plan.tests
-      |> Enum.map(fn {:dif, n} -> {:dif, character, n} end)
-      |> IR.Selection.numeric_tests()
-      |> IR.Assembler.instruction(%{character => 4})
-
-    live = [0, 1, 2, 3, 10] ++ Enum.to_list(11..(count - 1)//1)
-
-    instructions =
-      [
-        {:label, :scan},
-        {:get_cons, {:register, 0}, 4, 5, :fail},
-        tests,
-        {:jump, :save, [{0, {:register, 5}}, {1, {:cons, {:register, 4}, {:register, 1}}}]},
-        {:label, :save},
-        {:try, :answer, live},
-        {:jump, :scan, []},
+  defp emit(:consumption) do
+    {code, labels} =
+      IR.Code.assemble([
+        {:label, :next},
+        {:get_cons, {:register, 0}, 2, 0, :fail},
+        {:try, :next, [0, 1]},
+        {:jump, :answer, []},
         {:label, :fail},
         :fail,
         {:label, :answer},
-        {:move, 6, {:register, 1}},
-        {:move, 7, {:constant, []}},
-        {:label, :reverse},
-        {:get_cons, {:register, 6}, 8, 9, :bind},
-        {:jump, :reverse, [{6, {:register, 9}}, {7, {:cons, {:register, 8}, {:register, 7}}}]},
-        {:label, :bind},
-        {:primitive, :string_codes, [{:register, 10}, {:register, 7}]},
-        {:primitive, :atom_string, [{:register, 3}, {:register, 10}]},
-        {:label, :rest_output},
-        {:eq, {:register, 2}, {:register, 0}},
-        {:jump, :return, []},
-        {:label, :fallback},
-        {:move, 6, {:register, 1}},
-        {:move, 7, {:constant, []}},
-        {:label, :fallback_reverse},
-        {:get_cons, {:register, 6}, 8, 9, :fallback_bind},
-        {:jump, :fallback_reverse,
-         [{6, {:register, 9}}, {7, {:cons, {:register, 8}, {:register, 7}}}]},
-        {:label, :fallback_bind},
-        {:primitive, :string_codes, [{:register, 10}, {:register, 7}]},
-        {:primitive, :atom_string, [{:register, 3}, {:register, 10}]}
-      ] ++
-        suffix ++
-        [{:label, :fallback_rest_output}, {:eq, {:register, 2}, last}, {:label, :return}]
+        {:eq, {:register, 1}, {:register, 2}}
+      ])
 
-    {code, labels} = IR.Code.assemble(instructions)
-
-    output_code =
-      code
-      |> put_elem(labels.rest_output, {:move, 2, {:register, 0}})
-      |> put_elem(labels.fallback_rest_output, {:move, 2, last})
-
-    locals = [10 | Enum.reject(Map.values(names), &(&1 in [0, 2, 3]))]
-
-    {plan, code,
-     labels
-     |> Map.put(:guard_token, make_ref())
-     |> Map.put(:outputs, %{2 => output_code})
-     |> Map.put(:locals, locals), count}
+    {code, %{1 => [{labels.answer, {:instruction, {:move, 1, {:register, 2}}}}]}}
   end
 
-  defp membership_instructions([{value, value}], operand),
-    do: [{:eq, operand, {:constant, value}}]
+  defp emit(:text) do
+    {code, labels} =
+      IR.Code.assemble([
+        {:label, :next},
+        {:get_cons, {:register, 0}, 3, 0, :fail},
+        {:get_cons, {:register, 3}, 4, 3, :fail},
+        {:get_cons, {:register, 3}, 5, 3, :fail},
+        {:try, :next, [0, 1, 2]},
+        {:jump, :answer, []},
+        {:label, :fail},
+        :fail,
+        {:label, :answer},
+        {:eq, {:register, 1}, {:register, 4}},
+        {:eq, {:register, 2}, {:register, 5}}
+      ])
 
-  defp membership_instructions([{low, high}], operand),
-    do: [{:compare, :>=, operand, {:constant, low}}, {:compare, :<=, operand, {:constant, high}}]
-
-  defp membership_instructions(ranges, operand) do
-    allowed = for {low, high} <- ranges, value <- low..high, into: %{}, do: {value, true}
-    [{:map_get, {:constant, allowed}, operand, {:constant, true}}]
+    {code,
+     %{
+       1 => [{labels.answer, {:instruction, {:move, 1, {:register, 4}}}}],
+       2 => [{labels.answer + 1, {:instruction, {:move, 2, {:register, 5}}}}]
+     }}
   end
 end

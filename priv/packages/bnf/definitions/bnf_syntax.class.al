@@ -27,7 +27,7 @@ bnf_syntax >> rule
 | Grammar Input Rest (rule Name Alternatives) |
 send Grammar nonterminal_name [Input, After, Name],
 send Grammar gap [After, After_2],
-= After_2 [58, 58, 61 . Inner],
+vm_text_concat "::=" Inner After_2,
 send Grammar gap [Inner, After_3],
 send Grammar alternatives [After_3, Rest, Alternatives].
 
@@ -42,14 +42,14 @@ bnf_syntax >> more_alternatives
 bnf_syntax >> more_alternatives
 | Grammar Input Rest [Alternative . Alternatives] |
 send Grammar gap [Input, After],
-= After [124 . Inner],
+vm_text_concat "|" Inner After,
 send Grammar gap [Inner, After_2],
 send Grammar alternative [After_2, After_3, Alternative],
 send Grammar more_alternatives [After_3, Rest, Alternatives].
 
 bnf_syntax >> alternative
 | Grammar Input Rest [] |
-= Input [34, 34 . Rest].
+vm_text_concat "\"\"" Rest Input.
 
 bnf_syntax >> alternative
 | Grammar Input Rest [Item . Items] |
@@ -68,7 +68,7 @@ send Grammar more_items [After_2, Rest, Items].
 bnf_syntax >> item
 | Grammar Input Rest (repeat Item) |
 send Grammar simple_item [Input, After, Item],
-= After [42 . Rest].
+vm_text_concat "*" Rest After.
 
 bnf_syntax >> item
 | Grammar Input Rest Item |
@@ -76,7 +76,7 @@ send Grammar simple_item [Input, Rest, Item].
 
 bnf_syntax >> simple_item
 | Grammar Input Rest (any) |
-= Input [47, 46, 47 . Rest].
+vm_text_concat "/./" Rest Input.
 
 bnf_syntax >> simple_item
 | Grammar Input Rest (nonterminal Name) |
@@ -88,30 +88,26 @@ send Grammar expr [Input, Rest, Terminal].
 
 bnf_syntax >> nonterminal_name
 | Grammar Input Rest Name |
-not (var Input),
-= Input [60 . Inner],
-send Grammar name_code [Inner, After, First],
-send Grammar zero_or_more [After, After_2, name_code, More],
-= After_2 [62 . Rest],
-call [Name, First, More] {atom_string Name Text, string_codes Text [First . More]} [Name, First, More].
+vm_text_concat "<" Inner Input,
+atom_string Name Text,
+text Grammar Inner After name_char name_char Text,
+vm_text_concat ">" Rest After.
 
-bnf_syntax >> nonterminal_name
-| Grammar Input Rest Name |
-var Input,
-call [Name, First, More] {atom_string Name Text, string_codes Text [First . More]} [Name, First, More],
-= Input [60 . Inner],
-send Grammar name_code [Inner, After, First],
-send Grammar zero_or_more [After, After_2, name_code, More],
-= After_2 [62 . Rest].
+bnf_syntax >> name_char
+| Self Input Rest Char |
+word_char Self Input Rest Char.
 
-bnf_syntax >> name_code
-| _Self [Code . Rest] Rest Code |
-{>= Code 97, <= Code 122} ; {>= Code 48, <= Code 57} ; = Code 95.
+bnf_syntax >> name_char
+| _Self [Char . Rest] Rest Char |
+in_domain Char ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"].
+
+bnf_syntax >> name_char
+| _Self ["_" . Rest] Rest "_" |.
 
 bnf_syntax >> line_break
 | Grammar Input Rest |
 var Input,
-= Input [10 . Rest].
+vm_text_concat "\n" Rest Input.
 
 bnf_syntax >> line_break
 | Grammar Input Rest |

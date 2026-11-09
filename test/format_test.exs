@@ -102,14 +102,11 @@ defmodule AL.FormatTest do
              AL.run(
                ~S"""
                @custom_format #{super => format_syntax, metaclass => grammar}.
-               defrule custom_format (template [Value . Args] [91 . Output] Tail)
-                 ["~w", where [Value, Output, More] {
-                   string_codes Value Codes,
-                   concat Codes [93 . More] Output
-                 }, template Args More Tail].
+               defrule custom_format (template [Value . Args] ["[", Value, "]" . Output] Tail)
+                 ["~w", template Args Output Tail].
                defrule custom_format (template Args Output Tail) [next].
-               parse custom_format (template ["first", "second"] Codes []) "~w ~a",
-               string_codes Text Codes.
+               parse custom_format (template ["first", "second"] Fragments []) "~w ~a",
+               join_text Fragments Text.
                """,
                branch: branch
              )

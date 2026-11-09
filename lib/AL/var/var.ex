@@ -839,7 +839,11 @@ defmodule AL.Var do
          term,
          branch
        ) do
-    case Enum.find(dif, fn {a, b} -> subst(a, store) == subst(b, store) end) do
+    term = subst(term, store)
+
+    case Enum.find(dif, fn {a, b} ->
+           AL.Var.Unification.unify(subst(a, store), subst(b, store), %{}, branch, :opaque) == %{}
+         end) do
       {a, b} ->
         {:dif, a, b}
 
@@ -1055,10 +1059,7 @@ defmodule AL.Var do
   # showing it as-is.
   @spec subst(t(), store(), (variable() -> t())) :: t()
   def subst(term, store, rewrite_unbound) do
-    case subst_walk(term, store, rewrite_unbound) do
-      :same -> term
-      {:new, new} -> new
-    end
+    kept(term, subst_walk(term, store, rewrite_unbound))
   end
 
   defp subst_walk(term, _store, _rewrite)
@@ -1066,24 +1067,16 @@ defmodule AL.Var do
        do: :same
 
   defp subst_walk({:"$fresh", _base, _scope} = leaf, store, rewrite),
-    do: changed(leaf, subst_leaf(leaf, store, rewrite))
+    do: subst_leaf(leaf, store, rewrite)
 
   defp subst_walk({:"$var", _name} = term, store, rewrite),
-    do: changed(term, subst_leaf(term, store, rewrite))
+    do: subst_leaf(term, store, rewrite)
 
-  defp subst_walk([head | tail], store, rewrite) when is_integer(head) do
-    case subst_walk(tail, store, rewrite) do
-      :same -> :same
-      {:new, new_tail} -> {:new, [head | new_tail]}
-    end
-  end
+  defp subst_walk([head | tail], store, rewrite) when is_number(head) or is_binary(head),
+    do: subst_cons(head, tail, :same, subst_walk(tail, store, rewrite))
 
-  defp subst_walk([head | tail], store, rewrite) do
-    case {subst_walk(head, store, rewrite), subst_walk(tail, store, rewrite)} do
-      {:same, :same} -> :same
-      {new_head, new_tail} -> {:new, [kept(head, new_head) | kept(tail, new_tail)]}
-    end
-  end
+  defp subst_walk([head | tail], store, rewrite),
+    do: subst_cons(head, tail, subst_walk(head, store, rewrite), subst_walk(tail, store, rewrite))
 
   defp subst_walk(term, store, rewrite) when is_struct(term) do
     :maps.fold(
@@ -1094,7 +1087,7 @@ defmodule AL.Var do
         key, value, acc ->
           case subst_walk(value, store, rewrite) do
             :same -> acc
-            {:new, new} -> {:new, Map.put(kept(term, acc), key, new)}
+            result -> {:new, Map.put(kept(term, acc), key, kept(value, result))}
           end
       end,
       :same,
@@ -1146,11 +1139,24 @@ defmodule AL.Var do
     end
   end
 
+  defp subst_cons(head, tail, new_head, new_tail) do
+    value = kept(head, new_head)
+
+    case {value, new_tail} do
+      {<<_::utf8>>, {:text, pieces}} -> {:text, [value | pieces]}
+      {<<_::utf8>>, :same} when is_binary(tail) -> {:text, [value, tail]}
+      {<<_::utf8>>, {:new, rest}} when is_binary(rest) -> {:text, [value, rest]}
+      _ when new_head == :same and new_tail == :same -> :same
+      _ -> {:new, [value | kept(tail, new_tail)]}
+    end
+  end
+
   defp changed(leaf, leaf), do: :same
   defp changed(_leaf, new), do: {:new, new}
 
   defp kept(term, :same), do: term
   defp kept(_term, {:new, new}), do: new
+  defp kept(_term, {:text, pieces}), do: IO.iodata_to_binary(pieces)
 
   @spec copy_term_with_constraints(t(), store()) :: {t(), store()}
   def copy_term_with_constraints(term, store) do
@@ -1217,23 +1223,16 @@ defmodule AL.Var do
   end
 
   # A bound var derefs to its term, which is itself substituted
-  defp subst_leaf({:"$fresh", _base, _scope} = leaf, store, rewrite_unbound) do
-    case deref(store, leaf) do
-      ^leaf ->
-        rewrite_unbound.(leaf)
+  defp subst_leaf(leaf, store, rewrite_unbound) do
+    value = deref(store, leaf)
 
-      other ->
-        if var?(other), do: rewrite_unbound.(other), else: subst(other, store, rewrite_unbound)
-    end
-  end
-
-  defp subst_leaf({:"$var", _name} = leaf, store, rewrite_unbound) do
-    case deref(store, leaf) do
-      ^leaf ->
-        rewrite_unbound.(leaf)
-
-      other ->
-        if var?(other), do: rewrite_unbound.(other), else: subst(other, store, rewrite_unbound)
+    if var?(value) do
+      changed(leaf, rewrite_unbound.(value))
+    else
+      case subst_walk(value, store, rewrite_unbound) do
+        :same -> changed(leaf, value)
+        result -> result
+      end
     end
   end
 

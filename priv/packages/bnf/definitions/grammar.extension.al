@@ -15,9 +15,7 @@ parse bnf_syntax (document Rules) Text.
 grammar >> write_bnf
 | Self Start Path Effect |
 bnf Self Start Text,
-string_codes Text Codes,
-concat Codes [10] Line,
-string_codes Contents Line,
+concat Text "\n" Contents,
 new effect #{arguments => [Path, Contents], operation => write, provider => file} Effect.
 
 grammar >> reachable
@@ -137,6 +135,12 @@ grammar >> goal_items
 terminal_items Self Expected Items.
 
 grammar >> goal_items
+| _Self _Receiver vm_text_concat [Text, _Rest, _Input] [(terminal Text)] |.
+
+grammar >> goal_items
+| _Self _Receiver vm_text_code _Args [(any)] |.
+
+grammar >> goal_items
 | _Self _Receiver var _Args [written] |.
 
 grammar >> goal_items
@@ -147,6 +151,8 @@ dif Name call_next_method,
 dif Name send,
 dif Name =,
 dif Name var,
+dif Name vm_text_concat,
+dif Name vm_text_code,
 {= Args [Grammar, _Input, _Rest . Arguments], == Grammar Receiver} -> call_items Self Name Arguments Items ; = Items [].
 
 grammar >> call_items
@@ -156,7 +162,11 @@ grammar >> call_items
 grammar >> terminal_items
 | Self Expected Items |
 list_prefix Self Expected Tokens,
-= Tokens [] -> = Items [] ; {ground Tokens, string_codes Text Tokens} -> = Items [(terminal Text)] ; findall Item Items {member Tokens Token, token_item Self Token Item}.
+{
+  = Tokens [_ . _],
+  forall {member Tokens Token} {ground Token, = Token [_ . ""]}
+} -> {join_text Tokens Text, = Items [(terminal Text)]} ;
+findall Item Items {member Tokens Token, token_item Self Token Item}.
 
 grammar >> list_prefix
 | Self List Tokens |
@@ -200,10 +210,22 @@ dif Name known_text,
 dif Name unknown_text.
 
 grammar >> compound_items
+| _Self text [First, More, _Text] [(nonterminal First), (repeat (nonterminal More))] |.
+
+grammar >> compound_items
+| _Self delimited_text [Terminator, Pattern, _Text] [(repeat (nonterminal Pattern)), (terminal Terminator)] |.
+
+grammar >> compound_items
+| _Self text_prefix [Pattern, _Text] [(repeat (nonterminal Pattern))] |.
+
+grammar >> compound_items
 | _Self zero_or_more [Pattern, _Values] [(repeat (nonterminal Pattern))] |.
 
 grammar >> compound_items
-| _Self code _Args [(any)] |.
+| _Self char _Args [(any)] |.
+
+grammar >> compound_items
+| _Self token _Args [(any)] |.
 
 grammar >> compound_items
 | _Self next _Args [next] |.
@@ -220,7 +242,11 @@ grammar >> compound_items
 grammar >> compound_items
 | _Self Name _Args [(nonterminal Name)] |
 dif Name zero_or_more,
-dif Name code,
+dif Name text,
+dif Name delimited_text,
+dif Name text_prefix,
+dif Name char,
+dif Name token,
 dif Name next,
 dif Name where,
 dif Name within,

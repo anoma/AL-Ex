@@ -69,6 +69,10 @@ defmodule AL.Syntax do
     {:none, ["->"]}
   ]
   @primitives [
+    :vm_text_concat,
+    :vm_text_code,
+    :vm_text_length,
+    :vm_text_join,
     :map_get,
     :map_pairs,
     :block_goals,
