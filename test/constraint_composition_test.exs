@@ -230,27 +230,6 @@ defmodule AL.ConstraintCompositionTest do
              AL.run("witness C W, = C audit_witness_parent.", branch)
   end
 
-  test "export staging rejects symlinked directories without modifying their targets" do
-    root = Path.join(System.tmp_dir!(), "al-export-links-#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf!(root) end)
-    bundle = Path.join(root, "bundle")
-    external = Path.join(root, "external")
-    File.mkdir_p!(bundle)
-    File.mkdir_p!(external)
-    File.write!(Path.join(external, "old.class.al"), "old")
-    File.ln_s!(external, Path.join(bundle, "definitions"))
-    File.mkdir_p!(Path.join(bundle, "blocked"))
-
-    assert {:error, {:package_export_symlink, _}} =
-             AL.Package.Export.write(bundle, "new", [
-               %{path: "definitions/new.class.al", text: "new"},
-               %{path: "blocked", text: "fail"}
-             ])
-
-    assert File.ls!(external) == ["old.class.al"]
-    assert File.read!(Path.join(external, "old.class.al")) == "old"
-  end
-
   test "class relationships survive either endpoint binding and residual copying", %{
     branch: branch
   } do

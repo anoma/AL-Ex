@@ -305,10 +305,10 @@ defmodule AL.Command do
       true ->
         ensure_epmd_running()
 
-        if match?({:ok, _}, Node.start(@owner_node, :longnames)) do
+        if match?({:ok, _}, Node.start(@owner_node, name_domain: :longnames)) do
           :owner
         else
-          {:ok, _} = Node.start(:"al_client_#{System.pid()}@127.0.0.1", :longnames)
+          {:ok, _} = Node.start(:"al_client_#{System.pid()}@127.0.0.1", name_domain: :longnames)
           true = Node.connect(@owner_node)
           :joined
         end

@@ -167,7 +167,7 @@ defmodule Examples.ALPackages do
     previous = AL.Branch.head()
 
     root =
-      Path.join(System.tmp_dir!(), "al_new_package_#{System.unique_integer([:positive])}")
+      Path.expand("al_new_package_#{System.unique_integer([:positive])}", System.tmp_dir!())
 
     AL.Branch.checkout(branch)
 
@@ -496,7 +496,7 @@ defmodule Examples.ALPackages do
     previous = AL.Branch.head()
 
     root =
-      Path.join(System.tmp_dir!(), "al_package_export_#{System.unique_integer([:positive])}")
+      Path.expand("al_package_export_#{System.unique_integer([:positive])}", System.tmp_dir!())
 
     try do
       AL.Branch.checkout(author)

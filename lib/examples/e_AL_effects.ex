@@ -167,7 +167,7 @@ defmodule Examples.ALEffects do
   end
 
   example effect_request_must_be_ground_and_durable() do
-    %AL{result: {:aborted, {%ArgumentError{message: ground_message}, _stacktrace}}} =
+    %AL{result: {:aborted, ground_error}} =
       run(
         ~S"""
         new effect #{arguments => [Unbound], operation => echo, provider => example_effect} _.
@@ -175,15 +175,15 @@ defmodule Examples.ALEffects do
         branch: Examples.Support.branch()
       )
 
-    assert ground_message == "effect request must be ground"
+    assert abort_exception(ground_error).message == "effect request must be ground"
     branch = %AL.Branch{id: Examples.Support.branch()}
 
-    {:aborted, {%ArgumentError{message: durable_message}, _stacktrace}} =
+    {:aborted, durable_error} =
       :mnesia.transaction(fn ->
         AL.Edge.request(0, :test_effect, :example_effect, :echo, [self()], branch)
       end)
 
-    assert durable_message == "effect request contains a live host value"
+    assert abort_exception(durable_error).message == "effect request contains a live host value"
   end
 
   example pending_effect_can_complete_later() do
@@ -422,4 +422,7 @@ defmodule Examples.ALEffects do
   defp temporary_path do
     Path.join(System.tmp_dir!(), "al_file_effect_#{System.unique_integer([:positive])}.txt")
   end
+
+  defp abort_exception({%ArgumentError{} = error, _stacktrace}), do: error
+  defp abort_exception(%ArgumentError{} = error), do: error
 end

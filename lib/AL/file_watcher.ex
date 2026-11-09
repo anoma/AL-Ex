@@ -8,6 +8,9 @@ defmodule AL.FileWatcher do
       {:unix, system} when system in [:linux, :freebsd, :dragonfly, :openbsd] ->
         GenServer.start_link(__MODULE__, options)
 
+      {:win32, :nt} ->
+        GenServer.start_link(__MODULE__, options)
+
       _ ->
         FileSystem.start_link(options)
     end
@@ -17,7 +20,10 @@ defmodule AL.FileWatcher do
 
   @impl GenServer
   def init(options) do
-    case AL.FileWatcher.Inotify.start_link([{:worker_pid, self()} | options]) do
+    backend =
+      if match?({:win32, _}, :os.type()), do: AL.FileWatcher.Windows, else: AL.FileWatcher.Inotify
+
+    case backend.start_link([{:worker_pid, self()} | options]) do
       {:ok, backend} -> {:ok, %{backend: backend, subscribers: %{}}}
       {:error, reason} -> {:stop, reason}
       :ignore -> :ignore
@@ -44,5 +50,11 @@ defmodule AL.FileWatcher do
 
   def handle_info({:DOWN, reference, :process, _subscriber, _reason}, state) do
     {:noreply, %{state | subscribers: Map.delete(state.subscribers, reference)}}
+  end
+
+  @impl GenServer
+  def terminate(_reason, state) do
+    if Process.alive?(state.backend), do: GenServer.stop(state.backend)
+    :ok
   end
 end
