@@ -1034,9 +1034,7 @@ flatten Lists Rest.
 
 list >> join
 | Strings Text |
-strings_codes Strings Lists,
-flatten Lists Codes,
-string_codes Text Codes.
+join_text Strings Text.
 
 list >> same_length
 | [] [] |.

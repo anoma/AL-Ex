@@ -13,7 +13,7 @@ defmodule AL.Edge.Source do
 
       case AL.run(program, branch, caused_by: [effect], source_tag: :source_edit) do
         %AL{handle: transaction, result: {:atomic, _}} -> {:ok, transaction}
-        %AL{result: {:aborted, reason}} -> {:error, reason.message}
+        %AL{result: {:aborted, reason}} -> {:error, message(reason)}
         {:error, reason} -> {:error, message(reason)}
       end
     else
@@ -32,4 +32,6 @@ defmodule AL.Edge.Source do
 
   defp message(%AL.Syntax.Error{} = reason), do: Exception.message(reason)
   defp message(reason) when is_binary(reason), do: reason
+  defp message(%{message: reason}) when is_binary(reason), do: reason
+  defp message(reason), do: inspect(reason)
 end

@@ -33,6 +33,14 @@ query_result >> view
 | Self _Builder View |
 get Self bindings Bindings,
 member Bindings [Name, Value],
+var Value,
+new phlow_text #{priority => 200, text => "Unbound variable", title => Name} View.
+
+query_result >> view
+| Self _Builder View |
+get Self bindings Bindings,
+member Bindings [Name, Value],
+not {var Value},
 new phlow_views #{priority => 200, target => Value, title => Name} View.
 
 query_result >> rows
