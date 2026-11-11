@@ -12,6 +12,8 @@ defmodule AL.Edge.TCP do
 
   def start_link(_options), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
+  def close_branch(branch), do: GenServer.call(__MODULE__, {:close_branch, branch.id})
+
   @impl AL.Edge
   def execute(:connect, [socket_id, host, port], %{branch: branch})
       when is_binary(host) and is_integer(port) and port > 0 and port <= 65_535 do
@@ -160,6 +162,23 @@ defmodule AL.Edge.TCP do
         :ok = :gen_tcp.close(listener.socket)
         {:reply, {:ok, :stopped}, Map.put(state, :listeners, listeners)}
     end
+  end
+
+  def handle_call({:close_branch, branch_id}, _from, state) do
+    {closed_connections, connections} =
+      Enum.split_with(state.connections, fn {{id, _}, _} -> id == branch_id end)
+
+    {closed_listeners, listeners} =
+      Enum.split_with(state.listeners, fn {{id, _}, _} -> id == branch_id end)
+
+    Enum.each(closed_connections, fn {_, connection} -> :gen_tcp.close(connection.socket) end)
+    Enum.each(closed_listeners, fn {_, listener} -> :gen_tcp.close(listener.socket) end)
+
+    closed_sockets = Enum.map(closed_connections, fn {_, connection} -> connection.socket end)
+    sockets = Map.drop(state.sockets, closed_sockets)
+
+    {:reply, :ok,
+     %{state | connections: Map.new(connections), sockets: sockets, listeners: Map.new(listeners)}}
   end
 
   @impl GenServer

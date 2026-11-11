@@ -43,10 +43,14 @@ defmodule AL.Outbox do
   def stop_local(branch) do
     AL.Edge.Output.close_branch(branch)
 
-    case Process.whereis(name(branch)) do
-      nil -> :ok
-      pid -> DynamicSupervisor.terminate_child(@supervisor, pid)
-    end
+    result =
+      case Process.whereis(name(branch)) do
+        nil -> :ok
+        pid -> DynamicSupervisor.terminate_child(@supervisor, pid)
+      end
+
+    :ok = AL.Edge.TCP.close_branch(branch)
+    result
   end
 
   def dispatch(branch, work) do

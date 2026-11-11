@@ -10,5 +10,5 @@ xml_escape Self Raw Text.
 xaml_literal_property >> xaml_content
 | Self Value Text |
 not (atom Value),
-print_object Value Raw,
+format "~a" [Value] Raw,
 xml_escape Self Raw Text.

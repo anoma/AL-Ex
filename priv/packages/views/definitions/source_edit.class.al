@@ -72,7 +72,7 @@ set_slots Self #{can_save => true, error => ""}.
 
 source_edit >> save_finished
 | Self #{status => error, reason => Reason} |
-isa Reason string -> = Message Reason ; format "~p" [Reason] Message,
+isa Reason string -> = Message Reason ; = Message "Save failed",
 set_slots Self #{can_save => true, error => Message}.
 
 source_edit >> revert

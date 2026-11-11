@@ -15,12 +15,21 @@ save_definition Self Text Edit.
 
 method_source_text >> validate_definition
 | Self Document |
-get_slots Self #{owner => Owner, selector => Selector, target => Method},
+get_slots Self #{
+  owner => Owner,
+  selector => Selector,
+  target => Method,
+  clauses => OriginalClauses
+},
 method Owner Selector Method,
 get_slots Document #{header => nil, methods => Methods},
 dif Methods [],
 forall {member Methods Entry} {get_slots Entry #{owner => Owner, selector => Selector}},
-call_next_method Self Document.
+findall Clause CurrentClauses {
+  vm_method_source Method Sequence Text Provenance,
+  = Clause #{provenance => Provenance, sequence => Sequence, text => Text}
+},
+= OriginalClauses CurrentClauses.
 
 method_source_text >> delete
 | Self |

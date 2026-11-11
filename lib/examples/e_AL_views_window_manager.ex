@@ -212,6 +212,7 @@ defmodule Examples.ALViewsWindowManager do
 
     for {owner, fields, expected} <- [
           {%{value: 0}, Map.put(spec, :default, 42), "<Example.Value>0</Example.Value>"},
+          {%{value: 16}, spec, "<Example.Value>16</Example.Value>"},
           {%{value: false}, spec, "<Example.Value>false</Example.Value>"},
           {%{value: ""}, spec, "<Example.Value></Example.Value>"},
           {%{value: "<&"}, spec, "<Example.Value>&lt;&amp;</Example.Value>"},
@@ -243,6 +244,34 @@ defmodule Examples.ALViewsWindowManager do
     assert fields.content =~ "<Binding Path=\".\" Mode=\"OneWay\"/>"
     refute fields.content =~ "al:BindExtension"
     fields
+  end
+
+  example unbound_query_result_view() do
+    open = evaluate("= Z (+ 1 X).")["$X"]
+
+    values =
+      evaluate(
+        ~S"""
+        new query_result #{
+          bindings => [["X", Target]],
+          constraints => [["X", #{domain => [red, green]}]],
+          store => []
+        } Result.
+        new phlow_builder #{} Builder.
+        findall Description Descriptions {
+          view Result Builder View,
+          to_map View Description
+        }.
+        new phlow_views #{target => Target, title => "X"} Nested.
+        to_map Nested NestedDescription.
+        """,
+        %{"Target" => open}
+      )
+
+    assert Enum.map(values["$Descriptions"], & &1.title) == ["Raw", "X"]
+    assert Enum.at(values["$Descriptions"], 1).view == "xaml"
+    assert values["$NestedDescription"].views == []
+    values["$Descriptions"]
   end
 
   example editor_columns() do

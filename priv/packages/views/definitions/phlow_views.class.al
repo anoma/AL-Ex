@@ -11,6 +11,14 @@ phlow_views >> to_map
 | Self Map |
 call_next_method Self Fields,
 get_slots Self #{selector => Selector, target => Target},
+var Target,
+put Fields views [] Map.
+
+phlow_views >> to_map
+| Self Map |
+call_next_method Self Fields,
+get_slots Self #{selector => Selector, target => Target},
+not {var Target},
 new phlow_builder #{} Builder,
 findall Description Views {
   send Target Selector [Builder, View],
